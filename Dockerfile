@@ -1,5 +1,10 @@
 FROM python:3.12-slim
 
+ARG VCS_REF=""
+LABEL org.opencontainers.image.title="tracegate" \
+      org.opencontainers.image.source="https://github.com/MyHeartRaces/Tracegate" \
+      org.opencontainers.image.revision="${VCS_REF}"
+
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1
 
