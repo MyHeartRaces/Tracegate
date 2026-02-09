@@ -27,6 +27,10 @@ metadata:
     {{- include "tracegate.labels" . | nindent 4 }}
     app.kubernetes.io/component: gateway-vps-t
 spec:
+  # hostNetwork + fixed ports (443/tcp, 443/udp, 51820/udp) cannot be rolled without a port collision.
+  # Recreate avoids a deadlock where a new pod stays Pending while the old pod stays Running.
+  strategy:
+    type: Recreate
   replicas: 1
   selector:
     matchLabels:
@@ -238,6 +242,9 @@ metadata:
     {{- include "tracegate.labels" . | nindent 4 }}
     app.kubernetes.io/component: gateway-vps-e
 spec:
+  # hostNetwork + fixed port 443/tcp cannot be rolled without a port collision.
+  strategy:
+    type: Recreate
   replicas: 1
   selector:
     matchLabels:
