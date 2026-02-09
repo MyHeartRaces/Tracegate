@@ -3,18 +3,27 @@ name: images
 on:
   workflow_dispatch:
   push:
+    branches:
+      - main
     tags:
       - "v*"
+  pull_request:
 
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
+    concurrency:
+      group: ghcr-images-${{ github.ref }}
+      cancel-in-progress: true
     permissions:
       contents: read
       packages: write
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
 
       - name: Log in to GHCR
         uses: docker/login-action@v3
@@ -23,34 +32,56 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Set tags
+      - name: Compute image namespace
         id: vars
         run: |
           REPO_LOWER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
           echo "repo_owner=$REPO_LOWER" >> "$GITHUB_OUTPUT"
-          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
-            VERSION="${GITHUB_REF_NAME#v}"
-          else
-            VERSION="sha-${GITHUB_SHA::7}"
-          fi
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Docker metadata (app)
+        id: meta_app
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ steps.vars.outputs.repo_owner }}/tracegate
+          tags: |
+            type=sha,format=short,prefix=sha-
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=semver,pattern={{version}}
+
+      - name: Docker metadata (wireguard)
+        id: meta_wg
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ steps.vars.outputs.repo_owner }}/tracegate-wireguard
+          tags: |
+            type=sha,format=short,prefix=sha-
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=semver,pattern={{version}}
 
       - name: Build and push tracegate app image
         uses: docker/build-push-action@v6
         with:
           context: .
           file: ./Dockerfile
-          push: true
-          tags: |
-            ghcr.io/${{ steps.vars.outputs.repo_owner }}/tracegate:${{ steps.vars.outputs.version }}
-            ghcr.io/${{ steps.vars.outputs.repo_owner }}/tracegate:latest
+          push: ${{ github.event_name != 'pull_request' }}
+          platforms: linux/amd64
+          tags: ${{ steps.meta_app.outputs.tags }}
+          labels: ${{ steps.meta_app.outputs.labels }}
+          build-args: |
+            VCS_REF=${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
       - name: Build and push wireguard image
         uses: docker/build-push-action@v6
         with:
           context: .
           file: ./deploy/images/wireguard/Dockerfile
-          push: true
-          tags: |
-            ghcr.io/${{ steps.vars.outputs.repo_owner }}/tracegate-wireguard:${{ steps.vars.outputs.version }}
-            ghcr.io/${{ steps.vars.outputs.repo_owner }}/tracegate-wireguard:latest
+          push: ${{ github.event_name != 'pull_request' }}
+          platforms: linux/amd64
+          tags: ${{ steps.meta_wg.outputs.tags }}
+          labels: ${{ steps.meta_wg.outputs.labels }}
+          build-args: |
+            VCS_REF=${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
