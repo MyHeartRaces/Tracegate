@@ -49,13 +49,19 @@ def check_port(protocol: str, port: int) -> tuple[bool, str]:
 
 
 def check_systemd(unit: str) -> tuple[bool, str]:
-    proc = subprocess.run(["systemctl", "is-active", unit], capture_output=True, text=True)
+    try:
+        proc = subprocess.run(["systemctl", "is-active", unit], capture_output=True, text=True)
+    except FileNotFoundError:
+        return False, "systemctl not found"
     result = proc.stdout.strip() or proc.stderr.strip()
     return proc.returncode == 0 and result == "active", result
 
 
 def check_process(name: str) -> tuple[bool, str]:
-    proc = subprocess.run(["pgrep", "-fa", name], capture_output=True, text=True)
+    try:
+        proc = subprocess.run(["pgrep", "-fa", name], capture_output=True, text=True)
+    except FileNotFoundError:
+        return False, "pgrep not found"
     if proc.returncode != 0:
         return False, f"process '{name}' not found"
     lines = [line.strip() for line in proc.stdout.splitlines() if line.strip()]
@@ -78,7 +84,10 @@ async def check_hysteria_stats_secret(url: str, secret: str) -> tuple[bool, str]
 
 
 def check_wg_listen_port(interface: str, expected: int) -> tuple[bool, str]:
-    proc = subprocess.run(["wg", "show", interface, "listen-port"], capture_output=True, text=True)
+    try:
+        proc = subprocess.run(["wg", "show", interface, "listen-port"], capture_output=True, text=True)
+    except FileNotFoundError:
+        return False, "wg not found"
     if proc.returncode != 0:
         return False, proc.stderr.strip() or "wg show failed"
 
