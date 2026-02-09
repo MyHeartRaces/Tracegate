@@ -182,6 +182,17 @@ spec:
           volumeMounts:
             - name: agent-data
               mountPath: {{ .Values.gateway.vpsT.agent.dataRoot }}
+            # Keep WG config visible for reload commands and troubleshooting.
+            - name: wg-config
+              mountPath: /etc/wireguard/wg0.conf
+              subPath: wg0.conf
+              readOnly: true
+          securityContext:
+            # Needs NET_ADMIN to query/reload WireGuard inside the shared pod netns.
+            capabilities:
+              add: ["NET_ADMIN"]
+            runAsUser: 0
+            runAsGroup: 0
           readinessProbe:
             httpGet:
               path: /v1/health
