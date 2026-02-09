@@ -1,5 +1,4 @@
 namespace:
-  create: true
   name: tracegate
 
 imagePullSecrets: []

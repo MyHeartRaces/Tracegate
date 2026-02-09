@@ -59,3 +59,7 @@ kubectl -n tracegate get job
 - Pods use `hostNetwork: true` for data-plane ports (`443/tcp`, `443/udp`, `51820/udp`).
 - For `wireguard` container, privileged mode and `NET_ADMIN/SYS_MODULE` are enabled.
 - `registration` job auto-registers node endpoints into control-plane and runs reapply/reissue.
+
+### Namespace behavior
+
+The chart does not create a `Namespace` resource. The install script uses `helm ... --create-namespace`.
