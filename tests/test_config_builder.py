@@ -1,0 +1,76 @@
+from datetime import datetime, timezone
+from uuid import uuid4
+
+from tracegate.enums import ConnectionMode, ConnectionProtocol, ConnectionVariant, EntitlementStatus, RecordStatus
+from tracegate.models import Connection, Device, SniDomain, User
+from tracegate.services.config_builder import EndpointSet, build_effective_config
+
+
+def _user() -> User:
+    return User(
+        id=uuid4(),
+        telegram_id=1,
+        devices_max=5,
+        entitlement_status=EntitlementStatus.ACTIVE,
+        grace_ends_at=None,
+        created_at=datetime.now(timezone.utc),
+        updated_at=datetime.now(timezone.utc),
+    )
+
+
+def _device(user_id):
+    return Device(id=uuid4(), user_id=user_id, name="phone", status=RecordStatus.ACTIVE)
+
+
+def test_chain_sni_same_on_both_legs() -> None:
+    user = _user()
+    device = _device(user.id)
+    conn = Connection(
+        id=uuid4(),
+        user_id=user.id,
+        device_id=device.id,
+        protocol=ConnectionProtocol.VLESS_REALITY,
+        mode=ConnectionMode.CHAIN,
+        variant=ConnectionVariant.B2,
+        profile_name="B2",
+        custom_overrides_json={"local_socks_port": 1080},
+        status=RecordStatus.ACTIVE,
+    )
+    sni = SniDomain(id=1, fqdn="google.com", enabled=True, is_test=True)
+
+    cfg = build_effective_config(
+        user=user,
+        device=device,
+        connection=conn,
+        selected_sni=sni,
+        endpoints=EndpointSet(vps_t_host="vps-t.example.com", vps_e_host="vps-e.example.com"),
+    )
+
+    assert cfg["chain"]["entry_sni"] == "google.com"
+    assert cfg["chain"]["hop_sni"] == "google.com"
+
+
+def test_wireguard_uses_fixed_port_51820() -> None:
+    user = _user()
+    device = _device(user.id)
+    conn = Connection(
+        id=uuid4(),
+        user_id=user.id,
+        device_id=device.id,
+        protocol=ConnectionProtocol.WIREGUARD,
+        mode=ConnectionMode.DIRECT,
+        variant=ConnectionVariant.B5,
+        profile_name="B5",
+        custom_overrides_json={},
+        status=RecordStatus.ACTIVE,
+    )
+
+    cfg = build_effective_config(
+        user=user,
+        device=device,
+        connection=conn,
+        selected_sni=None,
+        endpoints=EndpointSet(vps_t_host="vps-t.example.com", vps_e_host="vps-e.example.com"),
+    )
+
+    assert cfg["endpoint"].endswith(":51820")

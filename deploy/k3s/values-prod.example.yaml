@@ -1,0 +1,71 @@
+controlPlane:
+  image:
+    repository: ghcr.io/your-org/tracegate
+    tag: "0.1.0"
+  auth:
+    apiInternalToken: REPLACE_API_INTERNAL_TOKEN
+    agentAuthToken: REPLACE_AGENT_AUTH_TOKEN
+    botToken: ""
+  postgres:
+    password: REPLACE_DB_PASSWORD
+  env:
+    defaultVpsTHost: vps-t.example.com
+    defaultVpsEHost: vps-e.example.com
+
+gateway:
+  agentImage:
+    repository: ghcr.io/your-org/tracegate
+    tag: "0.1.0"
+
+  vpsT:
+    publicIPv4: 203.0.113.10
+    fqdn: vps-t.example.com
+    xray:
+      config: |
+        {
+          "log": {"loglevel": "warning"},
+          "inbounds": [{"tag":"vless-reality-in","listen":"0.0.0.0","port":443,"protocol":"vless","settings":{"clients":[],"decryption":"none"},"streamSettings":{"network":"tcp","security":"reality","realitySettings":{"show":false,"dest":"www.cloudflare.com:443","xver":0,"serverNames":["google.com","microsoft.com","yandex.ru","twitch.tv"],"privateKey":"REPLACE_PRIVATE_KEY","shortIds":["0123456789abcdef"]}}}],
+          "outbounds": [{"protocol": "freedom", "tag": "direct"}]
+        }
+    hysteria:
+      config: |
+        listen: :443
+        acme:
+          domains:
+            - vps-t.example.com
+          email: admin@example.com
+        auth:
+          type: userpass
+          userpass:
+            bootstrap: REPLACE_HYSTERIA_PASSWORD
+        masquerade:
+          type: file
+          file:
+            dir: /var/www/decoy
+        trafficStats:
+          listen: 127.0.0.1:9999
+          secret: REPLACE_HYSTERIA_STATS_SECRET
+    wireguard:
+      image: ghcr.io/your-org/tracegate-wireguard:0.1.0
+      config: |
+        [Interface]
+        Address = 10.70.0.1/24
+        ListenPort = 51820
+        PrivateKey = REPLACE_WG_PRIVATE_KEY
+        SaveConfig = false
+    agent:
+      authToken: REPLACE_AGENT_AUTH_TOKEN
+      statsSecret: REPLACE_HYSTERIA_STATS_SECRET
+
+  vpsE:
+    publicIPv4: 203.0.113.20
+    fqdn: vps-e.example.com
+    xray:
+      config: |
+        {
+          "log": {"loglevel": "warning"},
+          "inbounds": [{"tag":"entry-in","listen":"0.0.0.0","port":443,"protocol":"vless","settings":{"clients":[],"decryption":"none"},"streamSettings":{"network":"tcp","security":"reality","realitySettings":{"show":false,"dest":"vps-t.example.com:443","xver":0,"serverNames":["google.com","microsoft.com","yandex.ru","twitch.tv"],"privateKey":"REPLACE_PRIVATE_KEY","shortIds":["fedcba9876543210"]}}}],
+          "outbounds": [{"tag":"to-transit","protocol":"freedom"}]
+        }
+    agent:
+      authToken: REPLACE_AGENT_AUTH_TOKEN

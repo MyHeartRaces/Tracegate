@@ -1,0 +1,337 @@
+{{- if and .Values.gateway.enabled .Values.gateway.vpsT.enabled }}
+{{- if .Values.gateway.vpsT.agent.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "tracegate.fullname" . }}-agent-vps-t
+  namespace: {{ include "tracegate.namespace" . }}
+  labels:
+    {{- include "tracegate.labels" . | nindent 4 }}
+    app.kubernetes.io/component: gateway-vps-t
+spec:
+  ports:
+    - name: http
+      port: {{ .Values.gateway.vpsT.agent.port }}
+      targetPort: {{ .Values.gateway.vpsT.agent.port }}
+  selector:
+    app.kubernetes.io/component: gateway-vps-t
+    app.kubernetes.io/instance: {{ .Release.Name }}
+---
+{{- end }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "tracegate.fullname" . }}-gateway-vps-t
+  namespace: {{ include "tracegate.namespace" . }}
+  labels:
+    {{- include "tracegate.labels" . | nindent 4 }}
+    app.kubernetes.io/component: gateway-vps-t
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: gateway-vps-t
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        {{- include "tracegate.labels" . | nindent 8 }}
+        app.kubernetes.io/component: gateway-vps-t
+    spec:
+      hostNetwork: {{ .Values.gateway.vpsT.hostNetwork }}
+      dnsPolicy: ClusterFirstWithHostNet
+      shareProcessNamespace: {{ .Values.gateway.vpsT.shareProcessNamespace }}
+      {{- if .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml .Values.imagePullSecrets | nindent 8 }}
+      {{- end }}
+      nodeSelector:
+        {{- toYaml .Values.gateway.vpsT.nodeSelector | nindent 8 }}
+      tolerations:
+        {{- toYaml .Values.gateway.vpsT.tolerations | nindent 8 }}
+      affinity:
+        {{- toYaml .Values.gateway.vpsT.affinity | nindent 8 }}
+      volumes:
+        - name: xray-config
+          configMap:
+            name: {{ include "tracegate.fullname" . }}-vps-t-xray
+        - name: hysteria-config
+          configMap:
+            name: {{ include "tracegate.fullname" . }}-vps-t-hysteria
+        - name: wg-config
+          configMap:
+            name: {{ include "tracegate.fullname" . }}-vps-t-wireguard
+        - name: decoy
+          configMap:
+            name: {{ include "tracegate.fullname" . }}-vps-t-decoy
+        {{- if and .Values.gateway.vpsT.hysteriaTls.crt .Values.gateway.vpsT.hysteriaTls.key }}
+        - name: hysteria-tls
+          secret:
+            secretName: {{ include "tracegate.fullname" . }}-vps-t-hysteria-tls
+        {{- end }}
+        - name: agent-data
+          hostPath:
+            path: {{ .Values.gateway.vpsT.agentDataHostPath | quote }}
+            type: DirectoryOrCreate
+      containers:
+        - name: xray
+          image: {{ .Values.gateway.vpsT.xray.image }}
+          imagePullPolicy: {{ .Values.gateway.vpsT.xray.pullPolicy }}
+          command: ["xray", "run", "-c", "/etc/xray/config.json"]
+          ports:
+            - containerPort: 443
+              protocol: TCP
+              name: vless-tcp
+          volumeMounts:
+            - name: xray-config
+              mountPath: /etc/xray/config.json
+              subPath: config.json
+          securityContext:
+            runAsUser: 0
+            runAsGroup: 0
+        - name: hysteria
+          image: {{ .Values.gateway.vpsT.hysteria.image }}
+          imagePullPolicy: {{ .Values.gateway.vpsT.hysteria.pullPolicy }}
+          command: ["hysteria", "server", "-c", "/etc/hysteria/config.yaml"]
+          ports:
+            - containerPort: 443
+              protocol: UDP
+              name: hysteria-udp
+          volumeMounts:
+            - name: hysteria-config
+              mountPath: /etc/hysteria/config.yaml
+              subPath: config.yaml
+            - name: decoy
+              mountPath: /var/www/decoy/index.html
+              subPath: index.html
+            {{- if and .Values.gateway.vpsT.hysteriaTls.crt .Values.gateway.vpsT.hysteriaTls.key }}
+            - name: hysteria-tls
+              mountPath: /etc/hysteria/tls
+              readOnly: true
+            {{- end }}
+          securityContext:
+            runAsUser: 0
+            runAsGroup: 0
+        - name: wireguard
+          image: {{ .Values.gateway.vpsT.wireguard.image }}
+          imagePullPolicy: {{ .Values.gateway.vpsT.wireguard.pullPolicy }}
+          env:
+            - name: WG_INTERFACE
+              value: {{ .Values.gateway.vpsT.wireguard.interface | quote }}
+            - name: WG_CONFIG
+              value: /etc/wireguard/wg0.conf
+            - name: ENABLE_IP_FORWARD
+              value: "1"
+          ports:
+            - containerPort: 51820
+              protocol: UDP
+              name: wireguard-udp
+          volumeMounts:
+            - name: wg-config
+              mountPath: /etc/wireguard/wg0.conf
+              subPath: wg0.conf
+          securityContext:
+            privileged: true
+            capabilities:
+              add: ["NET_ADMIN", "SYS_MODULE"]
+            runAsUser: 0
+            runAsGroup: 0
+        {{- if .Values.gateway.vpsT.agent.enabled }}
+        - name: agent
+          image: {{ include "tracegate.image" .Values.gateway.agentImage }}
+          imagePullPolicy: {{ .Values.gateway.agentImage.pullPolicy }}
+          command: ["tracegate-agent"]
+          ports:
+            - containerPort: {{ .Values.gateway.vpsT.agent.port }}
+              protocol: TCP
+              name: agent-http
+          env:
+            - name: APP_ENV
+              value: prod
+            - name: AGENT_HOST
+              value: {{ .Values.gateway.vpsT.agent.host | quote }}
+            - name: AGENT_PORT
+              value: {{ .Values.gateway.vpsT.agent.port | quote }}
+            - name: AGENT_ROLE
+              value: {{ .Values.gateway.vpsT.agent.role | quote }}
+            - name: AGENT_AUTH_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "tracegate.fullname" . }}-vps-t-agent-auth
+                  key: agent-auth-token
+            - name: AGENT_DATA_ROOT
+              value: {{ .Values.gateway.vpsT.agent.dataRoot | quote }}
+            - name: AGENT_DRY_RUN
+              value: {{ .Values.gateway.vpsT.agent.dryRun | quote }}
+            - name: AGENT_RUNTIME_MODE
+              value: {{ .Values.gateway.vpsT.agent.runtimeMode | quote }}
+            - name: AGENT_STATS_URL
+              value: {{ .Values.gateway.vpsT.agent.statsUrl | quote }}
+            - name: AGENT_STATS_SECRET
+              value: {{ .Values.gateway.vpsT.agent.statsSecret | quote }}
+            - name: AGENT_WG_INTERFACE
+              value: {{ .Values.gateway.vpsT.agent.wgInterface | quote }}
+            - name: AGENT_WG_EXPECTED_PORT
+              value: {{ .Values.gateway.vpsT.agent.wgExpectedPort | quote }}
+            - name: AGENT_RELOAD_XRAY_CMD
+              value: {{ .Values.gateway.vpsT.agent.reloadXrayCmd | quote }}
+            - name: AGENT_RELOAD_HYSTERIA_CMD
+              value: {{ .Values.gateway.vpsT.agent.reloadHysteriaCmd | quote }}
+            - name: AGENT_RELOAD_WG_CMD
+              value: {{ .Values.gateway.vpsT.agent.reloadWgCmd | quote }}
+          volumeMounts:
+            - name: agent-data
+              mountPath: {{ .Values.gateway.vpsT.agent.dataRoot }}
+          readinessProbe:
+            httpGet:
+              path: /v1/health
+              port: agent-http
+            initialDelaySeconds: 5
+            periodSeconds: 15
+          livenessProbe:
+            httpGet:
+              path: /v1/health
+              port: agent-http
+            initialDelaySeconds: 10
+            periodSeconds: 20
+        {{- end }}
+{{- end }}
+
+{{- if and .Values.gateway.enabled .Values.gateway.vpsE.enabled }}
+---
+{{- if .Values.gateway.vpsE.agent.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "tracegate.fullname" . }}-agent-vps-e
+  namespace: {{ include "tracegate.namespace" . }}
+  labels:
+    {{- include "tracegate.labels" . | nindent 4 }}
+    app.kubernetes.io/component: gateway-vps-e
+spec:
+  ports:
+    - name: http
+      port: {{ .Values.gateway.vpsE.agent.port }}
+      targetPort: {{ .Values.gateway.vpsE.agent.port }}
+  selector:
+    app.kubernetes.io/component: gateway-vps-e
+    app.kubernetes.io/instance: {{ .Release.Name }}
+---
+{{- end }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "tracegate.fullname" . }}-gateway-vps-e
+  namespace: {{ include "tracegate.namespace" . }}
+  labels:
+    {{- include "tracegate.labels" . | nindent 4 }}
+    app.kubernetes.io/component: gateway-vps-e
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: gateway-vps-e
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        {{- include "tracegate.labels" . | nindent 8 }}
+        app.kubernetes.io/component: gateway-vps-e
+    spec:
+      hostNetwork: {{ .Values.gateway.vpsE.hostNetwork }}
+      dnsPolicy: ClusterFirstWithHostNet
+      shareProcessNamespace: {{ .Values.gateway.vpsE.shareProcessNamespace }}
+      {{- if .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml .Values.imagePullSecrets | nindent 8 }}
+      {{- end }}
+      nodeSelector:
+        {{- toYaml .Values.gateway.vpsE.nodeSelector | nindent 8 }}
+      tolerations:
+        {{- toYaml .Values.gateway.vpsE.tolerations | nindent 8 }}
+      affinity:
+        {{- toYaml .Values.gateway.vpsE.affinity | nindent 8 }}
+      volumes:
+        - name: xray-config
+          configMap:
+            name: {{ include "tracegate.fullname" . }}-vps-e-xray
+        - name: agent-data
+          hostPath:
+            path: {{ .Values.gateway.vpsE.agentDataHostPath | quote }}
+            type: DirectoryOrCreate
+      containers:
+        - name: xray
+          image: {{ .Values.gateway.vpsE.xray.image }}
+          imagePullPolicy: {{ .Values.gateway.vpsE.xray.pullPolicy }}
+          command: ["xray", "run", "-c", "/etc/xray/config.json"]
+          ports:
+            - containerPort: 443
+              protocol: TCP
+              name: vless-tcp
+          volumeMounts:
+            - name: xray-config
+              mountPath: /etc/xray/config.json
+              subPath: config.json
+          securityContext:
+            runAsUser: 0
+            runAsGroup: 0
+        {{- if .Values.gateway.vpsE.agent.enabled }}
+        - name: agent
+          image: {{ include "tracegate.image" .Values.gateway.agentImage }}
+          imagePullPolicy: {{ .Values.gateway.agentImage.pullPolicy }}
+          command: ["tracegate-agent"]
+          ports:
+            - containerPort: {{ .Values.gateway.vpsE.agent.port }}
+              protocol: TCP
+              name: agent-http
+          env:
+            - name: APP_ENV
+              value: prod
+            - name: AGENT_HOST
+              value: {{ .Values.gateway.vpsE.agent.host | quote }}
+            - name: AGENT_PORT
+              value: {{ .Values.gateway.vpsE.agent.port | quote }}
+            - name: AGENT_ROLE
+              value: {{ .Values.gateway.vpsE.agent.role | quote }}
+            - name: AGENT_AUTH_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "tracegate.fullname" . }}-vps-e-agent-auth
+                  key: agent-auth-token
+            - name: AGENT_DATA_ROOT
+              value: {{ .Values.gateway.vpsE.agent.dataRoot | quote }}
+            - name: AGENT_DRY_RUN
+              value: {{ .Values.gateway.vpsE.agent.dryRun | quote }}
+            - name: AGENT_RUNTIME_MODE
+              value: {{ .Values.gateway.vpsE.agent.runtimeMode | quote }}
+            - name: AGENT_STATS_URL
+              value: {{ .Values.gateway.vpsE.agent.statsUrl | quote }}
+            - name: AGENT_STATS_SECRET
+              value: {{ .Values.gateway.vpsE.agent.statsSecret | quote }}
+            - name: AGENT_WG_INTERFACE
+              value: {{ .Values.gateway.vpsE.agent.wgInterface | quote }}
+            - name: AGENT_WG_EXPECTED_PORT
+              value: {{ .Values.gateway.vpsE.agent.wgExpectedPort | quote }}
+            - name: AGENT_RELOAD_XRAY_CMD
+              value: {{ .Values.gateway.vpsE.agent.reloadXrayCmd | quote }}
+            - name: AGENT_RELOAD_HYSTERIA_CMD
+              value: {{ .Values.gateway.vpsE.agent.reloadHysteriaCmd | quote }}
+            - name: AGENT_RELOAD_WG_CMD
+              value: {{ .Values.gateway.vpsE.agent.reloadWgCmd | quote }}
+          volumeMounts:
+            - name: agent-data
+              mountPath: {{ .Values.gateway.vpsE.agent.dataRoot }}
+          readinessProbe:
+            httpGet:
+              path: /v1/health
+              port: agent-http
+            initialDelaySeconds: 5
+            periodSeconds: 15
+          livenessProbe:
+            httpGet:
+              path: /v1/health
+              port: agent-http
+            initialDelaySeconds: 10
+            periodSeconds: 20
+        {{- end }}
+{{- end }}

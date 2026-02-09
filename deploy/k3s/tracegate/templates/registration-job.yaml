@@ -1,0 +1,72 @@
+{{- if and .Values.controlPlane.enabled .Values.gateway.enabled .Values.registration.enabled }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "tracegate.fullname" . }}-register-nodes
+  namespace: {{ include "tracegate.namespace" . }}
+  labels:
+    {{- include "tracegate.labels" . | nindent 4 }}
+    app.kubernetes.io/component: registration
+  {{- if .Values.registration.hook }}
+  annotations:
+    helm.sh/hook: post-install,post-upgrade
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+  {{- end }}
+spec:
+  template:
+    metadata:
+      labels:
+        {{- include "tracegate.labels" . | nindent 8 }}
+        app.kubernetes.io/component: registration
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: register
+          image: curlimages/curl:8.8.0
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "tracegate.fullname" . }}-control-plane-auth
+                  key: api-internal-token
+          command:
+            - sh
+            - -ec
+            - |
+              API="http://{{ include "tracegate.fullname" . }}-api:{{ .Values.controlPlane.service.port }}"
+
+              n=0
+              until curl -fsS "$API/health" >/dev/null 2>&1; do
+                n=$((n+1))
+                if [ "$n" -ge {{ .Values.registration.retrySeconds }} ]; then
+                  echo "api is not ready" >&2
+                  exit 1
+                fi
+                sleep 1
+              done
+
+              {{- if .Values.gateway.vpsT.agent.enabled }}
+              curl -fsS -X POST "$API/nodes" \
+                -H "x-api-token: $TOKEN" \
+                -H "Content-Type: application/json" \
+                -d '{"role":"VPS_T","name":"vps-t","base_url":"http://{{ include "tracegate.fullname" . }}-agent-vps-t:{{ .Values.gateway.vpsT.agent.port }}","public_ipv4":"{{ .Values.gateway.vpsT.publicIPv4 }}","fqdn":"{{ .Values.gateway.vpsT.fqdn }}","active":true}' || true
+              {{- end }}
+
+              {{- if and .Values.gateway.vpsE.enabled .Values.gateway.vpsE.agent.enabled }}
+              curl -fsS -X POST "$API/nodes" \
+                -H "x-api-token: $TOKEN" \
+                -H "Content-Type: application/json" \
+                -d '{"role":"VPS_E","name":"vps-e","base_url":"http://{{ include "tracegate.fullname" . }}-agent-vps-e:{{ .Values.gateway.vpsE.agent.port }}","public_ipv4":"{{ .Values.gateway.vpsE.publicIPv4 }}","fqdn":"{{ .Values.gateway.vpsE.fqdn }}","active":true}' || true
+              {{- end }}
+
+              curl -fsS -X POST "$API/dispatch/reapply-base" \
+                -H "x-api-token: $TOKEN" \
+                -H "Content-Type: application/json" \
+                -d '{}' >/dev/null
+
+              curl -fsS -X POST "$API/dispatch/reissue-current-revisions" \
+                -H "x-api-token: $TOKEN" \
+                -H "Content-Type: application/json" \
+                -d '{}' >/dev/null
+{{- end }}

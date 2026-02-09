@@ -1,0 +1,66 @@
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: tracegate
+      POSTGRES_USER: tracegate
+      POSTGRES_PASSWORD: tracegate
+    ports:
+      - "5432:5432"
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+
+  api:
+    build: .
+    command: tracegate-api
+    environment:
+      DATABASE_URL: postgresql+asyncpg://tracegate:tracegate@postgres:5432/tracegate
+      API_INTERNAL_TOKEN: ${API_INTERNAL_TOKEN:-change-me}
+      DEFAULT_VPS_T_HOST: ${DEFAULT_VPS_T_HOST:-vps-t.example.com}
+      DEFAULT_VPS_E_HOST: ${DEFAULT_VPS_E_HOST:-vps-e.example.com}
+    ports:
+      - "8080:8080"
+    depends_on:
+      - postgres
+
+  dispatcher:
+    build: .
+    command: tracegate-dispatcher
+    environment:
+      DATABASE_URL: postgresql+asyncpg://tracegate:tracegate@postgres:5432/tracegate
+      AGENT_AUTH_TOKEN: ${AGENT_AUTH_TOKEN:-change-me}
+      DISPATCHER_POLL_SECONDS: 3
+      DISPATCHER_BATCH_SIZE: 50
+    depends_on:
+      - postgres
+      - api
+
+  agent:
+    build: .
+    command: tracegate-agent
+    environment:
+      AGENT_AUTH_TOKEN: ${AGENT_AUTH_TOKEN:-change-me}
+      AGENT_DRY_RUN: "true"
+      AGENT_ROLE: VPS_T
+      AGENT_DATA_ROOT: /data/tracegate-agent
+      AGENT_STATS_SECRET: ${AGENT_STATS_SECRET:-change-me}
+    ports:
+      - "8070:8070"
+    volumes:
+      - agent_data:/data
+
+  bot:
+    build: .
+    command: tracegate-bot
+    environment:
+      BOT_TOKEN: ${BOT_TOKEN:-}
+      BOT_API_BASE_URL: http://api:8080
+      BOT_API_TOKEN: ${API_INTERNAL_TOKEN:-change-me}
+    depends_on:
+      - api
+    profiles:
+      - bot
+
+volumes:
+  pg_data:
+  agent_data:

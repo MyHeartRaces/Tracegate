@@ -1,0 +1,12 @@
+Tracegate chart installed.
+
+API service:
+  kubectl -n {{ include "tracegate.namespace" . }} get svc {{ include "tracegate.fullname" . }}-api
+
+Gateway pods:
+  kubectl -n {{ include "tracegate.namespace" . }} get pods -l app.kubernetes.io/component=gateway-vps-t
+  kubectl -n {{ include "tracegate.namespace" . }} get pods -l app.kubernetes.io/component=gateway-vps-e
+
+Check agent health:
+  kubectl -n {{ include "tracegate.namespace" . }} port-forward svc/{{ include "tracegate.fullname" . }}-agent-vps-t 8070:{{ .Values.gateway.vpsT.agent.port }}
+  curl http://127.0.0.1:8070/v1/health

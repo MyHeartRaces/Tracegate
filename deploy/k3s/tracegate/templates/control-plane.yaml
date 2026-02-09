@@ -1,0 +1,195 @@
+{{- if .Values.controlPlane.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "tracegate.fullname" . }}-api
+  namespace: {{ include "tracegate.namespace" . }}
+  labels:
+    {{- include "tracegate.labels" . | nindent 4 }}
+    app.kubernetes.io/component: api
+spec:
+  type: {{ .Values.controlPlane.service.type }}
+  ports:
+    - name: http
+      port: {{ .Values.controlPlane.service.port }}
+      targetPort: http
+  selector:
+    app.kubernetes.io/component: api
+    app.kubernetes.io/instance: {{ .Release.Name }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "tracegate.fullname" . }}-api
+  namespace: {{ include "tracegate.namespace" . }}
+  labels:
+    {{- include "tracegate.labels" . | nindent 4 }}
+    app.kubernetes.io/component: api
+spec:
+  replicas: {{ .Values.controlPlane.replicas.api }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: api
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        {{- include "tracegate.labels" . | nindent 8 }}
+        app.kubernetes.io/component: api
+    spec:
+      {{- if .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml .Values.imagePullSecrets | nindent 8 }}
+      {{- end }}
+      nodeSelector:
+        {{- toYaml .Values.controlPlane.nodeSelector | nindent 8 }}
+      tolerations:
+        {{- toYaml .Values.controlPlane.tolerations | nindent 8 }}
+      affinity:
+        {{- toYaml .Values.controlPlane.affinity | nindent 8 }}
+      containers:
+        - name: api
+          image: {{ include "tracegate.image" .Values.controlPlane.image }}
+          imagePullPolicy: {{ .Values.controlPlane.image.pullPolicy }}
+          command: ["tracegate-api"]
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: APP_ENV
+              value: {{ .Values.controlPlane.env.appEnv | quote }}
+            - name: LOG_LEVEL
+              value: {{ .Values.controlPlane.env.logLevel | quote }}
+            - name: DATABASE_URL
+              value: {{ include "tracegate.databaseUrl" . | quote }}
+            - name: API_INTERNAL_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "tracegate.fullname" . }}-control-plane-auth
+                  key: api-internal-token
+            - name: DEFAULT_VPS_T_HOST
+              value: {{ .Values.controlPlane.env.defaultVpsTHost | quote }}
+            - name: DEFAULT_VPS_E_HOST
+              value: {{ .Values.controlPlane.env.defaultVpsEHost | quote }}
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          resources:
+            {{- toYaml .Values.controlPlane.resources.api | nindent 12 }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "tracegate.fullname" . }}-dispatcher
+  namespace: {{ include "tracegate.namespace" . }}
+  labels:
+    {{- include "tracegate.labels" . | nindent 4 }}
+    app.kubernetes.io/component: dispatcher
+spec:
+  replicas: {{ .Values.controlPlane.replicas.dispatcher }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: dispatcher
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        {{- include "tracegate.labels" . | nindent 8 }}
+        app.kubernetes.io/component: dispatcher
+    spec:
+      {{- if .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml .Values.imagePullSecrets | nindent 8 }}
+      {{- end }}
+      nodeSelector:
+        {{- toYaml .Values.controlPlane.nodeSelector | nindent 8 }}
+      tolerations:
+        {{- toYaml .Values.controlPlane.tolerations | nindent 8 }}
+      affinity:
+        {{- toYaml .Values.controlPlane.affinity | nindent 8 }}
+      containers:
+        - name: dispatcher
+          image: {{ include "tracegate.image" .Values.controlPlane.image }}
+          imagePullPolicy: {{ .Values.controlPlane.image.pullPolicy }}
+          command: ["tracegate-dispatcher"]
+          env:
+            - name: APP_ENV
+              value: {{ .Values.controlPlane.env.appEnv | quote }}
+            - name: LOG_LEVEL
+              value: {{ .Values.controlPlane.env.logLevel | quote }}
+            - name: DATABASE_URL
+              value: {{ include "tracegate.databaseUrl" . | quote }}
+            - name: AGENT_AUTH_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "tracegate.fullname" . }}-control-plane-auth
+                  key: agent-auth-token
+          resources:
+            {{- toYaml .Values.controlPlane.resources.dispatcher | nindent 12 }}
+{{- if gt (int .Values.controlPlane.replicas.bot) 0 }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "tracegate.fullname" . }}-bot
+  namespace: {{ include "tracegate.namespace" . }}
+  labels:
+    {{- include "tracegate.labels" . | nindent 4 }}
+    app.kubernetes.io/component: bot
+spec:
+  replicas: {{ .Values.controlPlane.replicas.bot }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: bot
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        {{- include "tracegate.labels" . | nindent 8 }}
+        app.kubernetes.io/component: bot
+    spec:
+      {{- if .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml .Values.imagePullSecrets | nindent 8 }}
+      {{- end }}
+      nodeSelector:
+        {{- toYaml .Values.controlPlane.nodeSelector | nindent 8 }}
+      tolerations:
+        {{- toYaml .Values.controlPlane.tolerations | nindent 8 }}
+      affinity:
+        {{- toYaml .Values.controlPlane.affinity | nindent 8 }}
+      containers:
+        - name: bot
+          image: {{ include "tracegate.image" .Values.controlPlane.image }}
+          imagePullPolicy: {{ .Values.controlPlane.image.pullPolicy }}
+          command: ["tracegate-bot"]
+          env:
+            - name: APP_ENV
+              value: {{ .Values.controlPlane.env.appEnv | quote }}
+            - name: LOG_LEVEL
+              value: {{ .Values.controlPlane.env.logLevel | quote }}
+            - name: BOT_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "tracegate.fullname" . }}-control-plane-auth
+                  key: bot-token
+            - name: BOT_API_BASE_URL
+              value: http://{{ include "tracegate.fullname" . }}-api:{{ .Values.controlPlane.service.port }}
+            - name: BOT_API_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "tracegate.fullname" . }}-control-plane-auth
+                  key: api-internal-token
+          resources:
+            {{- toYaml .Values.controlPlane.resources.bot | nindent 12 }}
+{{- end }}
+{{- end }}

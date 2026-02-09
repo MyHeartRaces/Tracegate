@@ -1,0 +1,18 @@
+[Unit]
+Description=Tracegate Telegram Bot
+After=network-online.target tracegate-api.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=tracegate
+Group=tracegate
+WorkingDirectory=/opt/tracegate
+EnvironmentFile=/etc/tracegate/bot.env
+ExecStart=/opt/tracegate/.venv/bin/tracegate-bot
+Restart=always
+RestartSec=3
+LimitNOFILE=65535
+
+[Install]
+WantedBy=multi-user.target

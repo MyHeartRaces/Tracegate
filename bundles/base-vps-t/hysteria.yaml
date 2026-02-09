@@ -1,0 +1,21 @@
+listen: :443
+acme:
+  domains:
+    - example.com
+  email: admin@example.com
+auth:
+  type: userpass
+  userpass:
+    bootstrap: bootstrap-password
+masquerade:
+  type: file
+  file:
+    dir: /var/www/decoy
+trafficStats:
+  listen: 127.0.0.1:9999
+  secret: CHANGE_ME_SECRET
+quic:
+  initStreamReceiveWindow: 8388608
+  maxStreamReceiveWindow: 8388608
+  initConnReceiveWindow: 20971520
+  maxConnReceiveWindow: 20971520

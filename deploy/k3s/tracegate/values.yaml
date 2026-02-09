@@ -1,0 +1,235 @@
+namespace:
+  create: true
+  name: tracegate
+
+imagePullSecrets: []
+
+controlPlane:
+  enabled: true
+  image:
+    repository: ghcr.io/your-org/tracegate
+    tag: "0.1.0"
+    pullPolicy: IfNotPresent
+
+  replicas:
+    api: 1
+    dispatcher: 1
+    bot: 0
+
+  service:
+    type: ClusterIP
+    port: 8080
+
+  postgres:
+    enabled: true
+    image: postgres:16
+    username: tracegate
+    password: tracegate-change-me
+    database: tracegate
+    storage: 10Gi
+    storageClassName: ""
+
+  externalDatabaseUrl: ""
+
+  auth:
+    apiInternalToken: change-me-api-internal-token
+    agentAuthToken: change-me-agent-auth-token
+    botToken: ""
+
+  env:
+    appEnv: prod
+    logLevel: INFO
+    defaultVpsTHost: vps-t.example.com
+    defaultVpsEHost: vps-e.example.com
+
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+  resources:
+    api: {}
+    dispatcher: {}
+    bot: {}
+    postgres: {}
+
+gateway:
+  enabled: true
+
+  agentImage:
+    repository: ghcr.io/your-org/tracegate
+    tag: "0.1.0"
+    pullPolicy: IfNotPresent
+
+  vpsT:
+    enabled: true
+    nodeSelector:
+      tracegate.role: vps-t
+    tolerations: []
+    affinity: {}
+
+    publicIPv4: 198.51.100.10
+    fqdn: vps-t.example.com
+
+    hostNetwork: true
+    shareProcessNamespace: true
+
+    xray:
+      image: ghcr.io/xtls/xray-core:latest
+      pullPolicy: IfNotPresent
+      config: |
+        {
+          "log": {"loglevel": "warning"},
+          "inbounds": [
+            {
+              "tag": "vless-reality-in",
+              "listen": "0.0.0.0",
+              "port": 443,
+              "protocol": "vless",
+              "settings": {"clients": [], "decryption": "none"},
+              "streamSettings": {
+                "network": "tcp",
+                "security": "reality",
+                "realitySettings": {
+                  "show": false,
+                  "dest": "www.cloudflare.com:443",
+                  "xver": 0,
+                  "serverNames": ["google.com", "microsoft.com", "yandex.ru", "twitch.tv"],
+                  "privateKey": "REPLACE_PRIVATE_KEY",
+                  "shortIds": ["0123456789abcdef"]
+                }
+              }
+            }
+          ],
+          "outbounds": [{"protocol": "freedom", "tag": "direct"}]
+        }
+
+    hysteria:
+      image: tobyxdd/hysteria:v2
+      pullPolicy: IfNotPresent
+      config: |
+        listen: :443
+        acme:
+          domains:
+            - example.com
+          email: admin@example.com
+        auth:
+          type: userpass
+          userpass:
+            bootstrap: bootstrap-password
+        masquerade:
+          type: file
+          file:
+            dir: /var/www/decoy
+        trafficStats:
+          listen: 127.0.0.1:9999
+          secret: CHANGE_ME_HYSTERIA_STATS
+
+    wireguard:
+      image: ghcr.io/your-org/tracegate-wireguard:0.1.0
+      pullPolicy: IfNotPresent
+      interface: wg0
+      config: |
+        [Interface]
+        Address = 10.70.0.1/24
+        ListenPort = 51820
+        PrivateKey = REPLACE_WG_PRIVATE_KEY
+        SaveConfig = false
+
+    decoyHtml: |
+      <!doctype html>
+      <html><head><meta charset="utf-8"><title>Tracegate</title></head><body><h1>It works.</h1></body></html>
+
+    hysteriaTls:
+      crt: ""
+      key: ""
+
+    agent:
+      enabled: true
+      host: 0.0.0.0
+      port: 8070
+      role: VPS_T
+      authToken: change-me-agent-auth-token
+      dataRoot: /var/lib/tracegate-agent
+      dryRun: false
+      runtimeMode: kubernetes
+      statsUrl: http://127.0.0.1:9999/traffic
+      statsSecret: CHANGE_ME_HYSTERIA_STATS
+      wgInterface: wg0
+      wgExpectedPort: 51820
+      reloadXrayCmd: pkill -HUP xray || true
+      reloadHysteriaCmd: pkill -HUP hysteria || true
+      reloadWgCmd: wg syncconf wg0 /etc/wireguard/wg0.conf || true
+
+    agentDataHostPath: /var/lib/tracegate-agent
+
+  vpsE:
+    enabled: true
+    nodeSelector:
+      tracegate.role: vps-e
+    tolerations: []
+    affinity: {}
+
+    publicIPv4: 198.51.100.20
+    fqdn: vps-e.example.com
+
+    hostNetwork: true
+    shareProcessNamespace: true
+
+    xray:
+      image: ghcr.io/xtls/xray-core:latest
+      pullPolicy: IfNotPresent
+      config: |
+        {
+          "log": {"loglevel": "warning"},
+          "inbounds": [
+            {
+              "tag": "entry-in",
+              "listen": "0.0.0.0",
+              "port": 443,
+              "protocol": "vless",
+              "settings": {"clients": [], "decryption": "none"},
+              "streamSettings": {
+                "network": "tcp",
+                "security": "reality",
+                "realitySettings": {
+                  "show": false,
+                  "dest": "vps-t.example.com:443",
+                  "xver": 0,
+                  "serverNames": ["google.com", "microsoft.com", "yandex.ru", "twitch.tv"],
+                  "privateKey": "REPLACE_PRIVATE_KEY",
+                  "shortIds": ["fedcba9876543210"]
+                }
+              }
+            }
+          ],
+          "outbounds": [
+            {
+              "tag": "to-transit",
+              "protocol": "freedom"
+            }
+          ]
+        }
+
+    agent:
+      enabled: true
+      host: 0.0.0.0
+      port: 8070
+      role: VPS_E
+      authToken: change-me-agent-auth-token
+      dataRoot: /var/lib/tracegate-agent
+      dryRun: false
+      runtimeMode: kubernetes
+      statsUrl: http://127.0.0.1:9999/traffic
+      statsSecret: CHANGE_ME_HYSTERIA_STATS
+      wgInterface: wg0
+      wgExpectedPort: 51820
+      reloadXrayCmd: pkill -HUP xray || true
+      reloadHysteriaCmd: ""
+      reloadWgCmd: ""
+
+    agentDataHostPath: /var/lib/tracegate-agent
+
+registration:
+  enabled: true
+  hook: true
+  retrySeconds: 60

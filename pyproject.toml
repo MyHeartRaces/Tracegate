@@ -1,0 +1,47 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tracegate"
+version = "0.1.0"
+description = "Tracegate v0.1 control-plane, node-agent and Telegram bot"
+requires-python = ">=3.11"
+authors = [{name = "Tracegate"}]
+dependencies = [
+  "fastapi>=0.115.0",
+  "uvicorn[standard]>=0.34.0",
+  "sqlalchemy>=2.0.36",
+  "alembic>=1.14.0",
+  "asyncpg>=0.30.0",
+  "psycopg[binary]>=3.2.0",
+  "pydantic>=2.10.0",
+  "pydantic-settings>=2.6.0",
+  "httpx>=0.28.0",
+  "aiogram>=3.15.0",
+  "python-dateutil>=2.9.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.3.0",
+  "pytest-asyncio>=0.25.0",
+  "ruff>=0.8.0",
+]
+
+[project.scripts]
+tracegate-api = "tracegate.api.main:run"
+tracegate-dispatcher = "tracegate.dispatcher.main:run"
+tracegate-agent = "tracegate.agent.main:run"
+tracegate-bot = "tracegate.bot.main:run"
+tracegate-init-db = "tracegate.cli.init_db:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+asyncio_mode = "auto"

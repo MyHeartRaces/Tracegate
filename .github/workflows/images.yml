@@ -1,0 +1,56 @@
+name: images
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set tags
+        id: vars
+        run: |
+          REPO_LOWER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          echo "repo_owner=$REPO_LOWER" >> "$GITHUB_OUTPUT"
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+          else
+            VERSION="sha-${GITHUB_SHA::7}"
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Build and push tracegate app image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          tags: |
+            ghcr.io/${{ steps.vars.outputs.repo_owner }}/tracegate:${{ steps.vars.outputs.version }}
+            ghcr.io/${{ steps.vars.outputs.repo_owner }}/tracegate:latest
+
+      - name: Build and push wireguard image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./deploy/images/wireguard/Dockerfile
+          push: true
+          tags: |
+            ghcr.io/${{ steps.vars.outputs.repo_owner }}/tracegate-wireguard:${{ steps.vars.outputs.version }}
+            ghcr.io/${{ steps.vars.outputs.repo_owner }}/tracegate-wireguard:latest
