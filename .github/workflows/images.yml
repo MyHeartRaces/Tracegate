@@ -44,6 +44,7 @@ jobs:
         with:
           images: ghcr.io/${{ steps.vars.outputs.repo_owner }}/tracegate
           tags: |
+            type=sha,format=short
             type=sha,format=short,prefix=sha-
             type=raw,value=latest,enable={{is_default_branch}}
             type=semver,pattern={{version}}
@@ -54,6 +55,7 @@ jobs:
         with:
           images: ghcr.io/${{ steps.vars.outputs.repo_owner }}/tracegate-wireguard
           tags: |
+            type=sha,format=short
             type=sha,format=short,prefix=sha-
             type=raw,value=latest,enable={{is_default_branch}}
             type=semver,pattern={{version}}
