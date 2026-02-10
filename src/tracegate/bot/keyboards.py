@@ -96,6 +96,7 @@ def provider_keyboard(context: str, target_id: str) -> InlineKeyboardMarkup:
     rows.append([InlineKeyboardButton(text="Отмена", callback_data="devices")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
+
 def provider_keyboard_with_cancel(context: str, target_id: str, *, cancel_callback_data: str) -> InlineKeyboardMarkup:
     rows = [
         [InlineKeyboardButton(text=label, callback_data=f"prov:{context}:{target_id}:{code}")]
@@ -216,4 +217,80 @@ def sni_catalog_nav_keyboard(*, provider: str, page: int, page_count: int) -> In
     rows.append(nav)
     rows.append([InlineKeyboardButton(text="Провайдеры", callback_data="sni_catalog")])
     rows.append([InlineKeyboardButton(text="Меню", callback_data="menu")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def sni_catalog_pick_keyboard(
+    *,
+    provider: str,
+    page: int,
+    page_count: int,
+    has_query: bool,
+) -> InlineKeyboardMarkup:
+    rows: list[list[InlineKeyboardButton]] = []
+    nav: list[InlineKeyboardButton] = []
+    if page > 0:
+        nav.append(InlineKeyboardButton(text="<<", callback_data=f"cat:{provider}:{page-1}"))
+    nav.append(InlineKeyboardButton(text=f"{page+1}/{page_count}", callback_data="noop"))
+    if page + 1 < page_count:
+        nav.append(InlineKeyboardButton(text=">>", callback_data=f"cat:{provider}:{page+1}"))
+    rows.append(nav)
+    if has_query:
+        rows.append([InlineKeyboardButton(text="Сброс поиска", callback_data="catreset")])
+    rows.append([InlineKeyboardButton(text="Провайдеры", callback_data="sni_catalog")])
+    rows.append([InlineKeyboardButton(text="Меню", callback_data="menu")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def sni_catalog_action_keyboard(*, sni_id: int, provider: str, page: int) -> InlineKeyboardMarkup:
+    rows: list[list[InlineKeyboardButton]] = [
+        [InlineKeyboardButton(text="Создать VLESS direct (B1)", callback_data=f"catnewpick:b1:{sni_id}:{provider}:{page}")],
+        [InlineKeyboardButton(text="Создать VLESS chain (B2)", callback_data=f"catnewpick:b2:{sni_id}:{provider}:{page}")],
+        [InlineKeyboardButton(text="Новая ревизия для VLESS", callback_data=f"catissuepick:{sni_id}:{provider}:{page}")],
+        [InlineKeyboardButton(text="Назад", callback_data=f"cat:{provider}:{page}")],
+        [InlineKeyboardButton(text="Меню", callback_data="menu")],
+    ]
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def sni_catalog_device_pick_keyboard(
+    *,
+    spec: str,
+    sni_id: int,
+    devices: list[dict],
+    provider: str,
+    page: int,
+) -> InlineKeyboardMarkup:
+    rows: list[list[InlineKeyboardButton]] = []
+    for dev in devices:
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    text=dev["name"],
+                    callback_data=f"catnew:{spec}:{dev['id']}:{sni_id}",
+                )
+            ]
+        )
+    rows.append([InlineKeyboardButton(text="Назад", callback_data=f"catsel:{sni_id}:{provider}:{page}")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def sni_catalog_connection_pick_keyboard(
+    *,
+    sni_id: int,
+    vless_connections: list[dict],
+    provider: str,
+    page: int,
+) -> InlineKeyboardMarkup:
+    rows: list[list[InlineKeyboardButton]] = []
+    for conn in vless_connections:
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    text=conn["label"],
+                    callback_data=f"catissue:{conn['id']}:{sni_id}",
+                )
+            ]
+        )
+    rows.append([InlineKeyboardButton(text="Назад", callback_data=f"catsel:{sni_id}:{provider}:{page}")])
     return InlineKeyboardMarkup(inline_keyboard=rows)

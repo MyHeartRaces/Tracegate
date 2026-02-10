@@ -22,7 +22,10 @@ from tracegate.bot.keyboards import (
     main_menu_keyboard,
     provider_keyboard_with_cancel,
     revisions_keyboard,
-    sni_catalog_nav_keyboard,
+    sni_catalog_action_keyboard,
+    sni_catalog_connection_pick_keyboard,
+    sni_catalog_device_pick_keyboard,
+    sni_catalog_pick_keyboard,
     sni_page_keyboard_issue,
     sni_page_keyboard_new,
 )
@@ -37,6 +40,10 @@ router = Router()
 
 class DeviceFlow(StatesGroup):
     waiting_for_name = State()
+
+
+class SniCatalogFlow(StatesGroup):
+    waiting_for_input = State()
 
 
 async def ensure_user(telegram_id: int) -> dict:
@@ -112,13 +119,15 @@ async def start(message: Message) -> None:
 
 
 @router.callback_query(F.data == "menu")
-async def menu(callback: CallbackQuery) -> None:
+async def menu(callback: CallbackQuery, state: FSMContext) -> None:
+    await state.clear()
     await callback.message.edit_text("Tracegate v0.1\nВыберите действие:", reply_markup=main_menu_keyboard())
     await callback.answer()
 
 
 @router.callback_query(F.data == "devices")
-async def list_devices(callback: CallbackQuery) -> None:
+async def list_devices(callback: CallbackQuery, state: FSMContext) -> None:
+    await state.clear()
     user = await ensure_user(callback.from_user.id)
     devices = await api.list_devices(user["id"])
     text = "Устройства:\n" + ("\n".join([f"- {d['name']} id={d['id']}" for d in devices]) if devices else "пока нет")
@@ -147,7 +156,8 @@ async def receive_device_name(message: Message, state: FSMContext) -> None:
 
 
 @router.callback_query(F.data.startswith("device:"))
-async def device_actions(callback: CallbackQuery) -> None:
+async def device_actions(callback: CallbackQuery, state: FSMContext) -> None:
+    await state.clear()
     _, device_id = callback.data.split(":", 1)
     text, keyboard = await render_device_page(device_id)
     await callback.message.edit_text(text, reply_markup=keyboard)
@@ -324,7 +334,12 @@ async def _render_sni_picker_issue(*, connection_id: str, provider: str, page: i
     return text, keyboard
 
 
-async def _render_sni_catalog(*, provider: str, page: int) -> tuple[str, object]:
+async def _render_sni_catalog(
+    *,
+    provider: str,
+    page: int,
+    query: str,
+) -> tuple[str, object, list[dict], int, int]:
     rows = [
         row
         for row in await api.list_sni_filtered(
@@ -333,10 +348,15 @@ async def _render_sni_catalog(*, provider: str, page: int) -> tuple[str, object]
         )
         if row["enabled"]
     ]
-    total = len(rows)
-    if total == 0:
-        return "Каталог пуст.", main_menu_keyboard()
+    q = query.strip().lower()
+    if q:
+        rows = [
+            r
+            for r in rows
+            if q in (r.get("fqdn") or "").lower() or q in (r.get("note") or "").lower()
+        ]
 
+    total = len(rows)
     page_size = 20
     page_count = max(1, (total + page_size - 1) // page_size)
     page = max(0, min(page, page_count - 1))
@@ -344,22 +364,38 @@ async def _render_sni_catalog(*, provider: str, page: int) -> tuple[str, object]
     end = start + page_size
     page_rows = rows[start:end]
 
-    lines: list[str] = [f"Каталог SNI (provider={provider}, {page+1}/{page_count}, total={total})"]
-    for idx, row in enumerate(page_rows, start=1 + start):
-        note = _clip_note(row.get("note"))
-        fqdn = row.get("fqdn") or ""
-        if note:
-            lines.append(f"{idx}. {fqdn} | {note}")
-        else:
-            lines.append(f"{idx}. {fqdn}")
+    header = f"Каталог SNI (provider={provider}, {page+1}/{page_count}, total={total})"
+    if q:
+        header += f"\nПоиск: {query.strip()}"
+    lines: list[str] = [header]
+
+    if total == 0:
+        lines.append("Ничего не найдено.")
+    else:
+        for idx, row in enumerate(page_rows, start=1):
+            note = _clip_note(row.get("note"))
+            fqdn = row.get("fqdn") or ""
+            if note:
+                lines.append(f"{idx}. {fqdn} | {note}")
+            else:
+                lines.append(f"{idx}. {fqdn}")
+
+    lines.append("")
+    lines.append("Напиши номер из списка, чтобы выбрать SNI.")
+    lines.append("Или напиши часть домена для поиска (например: splitter, vk.com).")
 
     text = "\n".join(lines)
-    keyboard = sni_catalog_nav_keyboard(provider=provider, page=page, page_count=page_count)
-    return text, keyboard
+    keyboard = sni_catalog_pick_keyboard(
+        provider=provider,
+        page=page,
+        page_count=page_count,
+        has_query=bool(q),
+    )
+    return text, keyboard, page_rows, page, page_count
 
 
 @router.callback_query(F.data.startswith("prov:"))
-async def pick_provider(callback: CallbackQuery) -> None:
+async def pick_provider(callback: CallbackQuery, state: FSMContext) -> None:
     # Format: prov:<context>:<target_id...>:<provider>
     # target_id may itself contain ":" (e.g. "b1:<device_id>") so we can't use a fixed maxsplit.
     parts = callback.data.split(":")
@@ -384,7 +420,20 @@ async def pick_provider(callback: CallbackQuery) -> None:
             text, keyboard = await _render_sni_picker_issue(connection_id=connection_id, provider=provider, page=0)
             await callback.message.edit_text(text, reply_markup=keyboard)
         elif context == "catalog":
-            text, keyboard = await _render_sni_catalog(provider=provider, page=0)
+            await state.set_state(SniCatalogFlow.waiting_for_input)
+            query = ""
+            text, keyboard, page_rows, normalized_page, _ = await _render_sni_catalog(
+                provider=provider,
+                page=0,
+                query=query,
+            )
+            await state.update_data(
+                provider=provider,
+                page=normalized_page,
+                query=query,
+                page_rows=[{"id": r["id"], "fqdn": r.get("fqdn"), "note": r.get("note")} for r in page_rows],
+                catalog_msg_id=callback.message.message_id,
+            )
             await callback.message.edit_text(text, reply_markup=keyboard)
         else:
             await callback.message.answer("Неизвестный контекст выбора провайдера")
@@ -431,7 +480,8 @@ async def sni_page(callback: CallbackQuery) -> None:
 
 
 @router.callback_query(F.data == "sni_catalog")
-async def sni_catalog(callback: CallbackQuery) -> None:
+async def sni_catalog(callback: CallbackQuery, state: FSMContext) -> None:
+    await state.clear()
     await callback.message.edit_text(
         "Каталог SNI: выбери провайдера (для фильтра):",
         reply_markup=provider_keyboard_with_cancel("catalog", "catalog", cancel_callback_data="menu"),
@@ -439,13 +489,268 @@ async def sni_catalog(callback: CallbackQuery) -> None:
     await callback.answer()
 
 
+@router.callback_query(F.data == "catreset")
+async def sni_catalog_reset(callback: CallbackQuery, state: FSMContext) -> None:
+    data = await state.get_data()
+    provider = (data.get("provider") or "all").strip()
+    try:
+        await state.set_state(SniCatalogFlow.waiting_for_input)
+        text, keyboard, page_rows, normalized_page, _ = await _render_sni_catalog(provider=provider, page=0, query="")
+        await state.update_data(
+            provider=provider,
+            page=normalized_page,
+            query="",
+            page_rows=[{"id": r["id"], "fqdn": r.get("fqdn"), "note": r.get("note")} for r in page_rows],
+            catalog_msg_id=callback.message.message_id,
+        )
+        await callback.message.edit_text(text, reply_markup=keyboard)
+    except Exception as exc:  # noqa: BLE001
+        await callback.message.answer(f"Ошибка: {exc}")
+    await callback.answer()
+
+
 @router.callback_query(F.data.startswith("cat:"))
-async def sni_catalog_page(callback: CallbackQuery) -> None:
+async def sni_catalog_page(callback: CallbackQuery, state: FSMContext) -> None:
     _, provider, page_raw = callback.data.split(":", 2)
     try:
         page = int(page_raw)
-        text, keyboard = await _render_sni_catalog(provider=provider, page=page)
+        await state.set_state(SniCatalogFlow.waiting_for_input)
+        data = await state.get_data()
+        query = (data.get("query") or "").strip()
+        text, keyboard, page_rows, normalized_page, _ = await _render_sni_catalog(
+            provider=provider,
+            page=page,
+            query=query,
+        )
+        await state.update_data(
+            provider=provider,
+            page=normalized_page,
+            query=query,
+            page_rows=[{"id": r["id"], "fqdn": r.get("fqdn"), "note": r.get("note")} for r in page_rows],
+            catalog_msg_id=callback.message.message_id,
+        )
         await callback.message.edit_text(text, reply_markup=keyboard)
+    except Exception as exc:  # noqa: BLE001
+        await callback.message.answer(f"Ошибка: {exc}")
+    await callback.answer()
+
+
+@router.message(SniCatalogFlow.waiting_for_input)
+async def sni_catalog_input(message: Message, state: FSMContext) -> None:
+    text_in = (message.text or "").strip()
+    if not text_in:
+        return
+
+    data = await state.get_data()
+    provider = (data.get("provider") or "all").strip()
+    page = int(data.get("page") or 0)
+    query = (data.get("query") or "").strip()
+    page_rows: list[dict] = data.get("page_rows") or []
+
+    async def _edit_or_send(text: str, keyboard: object) -> None:
+        msg_id = data.get("catalog_msg_id")
+        if msg_id:
+            try:
+                await message.bot.edit_message_text(
+                    chat_id=message.chat.id,
+                    message_id=int(msg_id),
+                    text=text,
+                    reply_markup=keyboard,
+                )
+                return
+            except Exception:
+                pass
+        sent = await message.answer(text, reply_markup=keyboard)
+        await state.update_data(catalog_msg_id=sent.message_id)
+
+    if text_in.isdigit():
+        n = int(text_in)
+        if n < 1 or n > len(page_rows):
+            await message.answer(f"Неверный номер. Введи число от 1 до {len(page_rows)}.")
+            return
+
+        chosen = page_rows[n - 1]
+        sni_id = int(chosen["id"])
+        fqdn = (chosen.get("fqdn") or "").strip()
+        note = _clip_note(chosen.get("note"))
+        out = f"Выбран SNI:\n{fqdn or f'id={sni_id}'}"
+        if note:
+            out += f"\n\n{note}"
+
+        await _edit_or_send(out, sni_catalog_action_keyboard(sni_id=sni_id, provider=provider, page=page))
+        return
+
+    # Treat as search query (fqdn substring).
+    query = text_in
+    page = 0
+    try:
+        rendered, keyboard, new_page_rows, normalized_page, _ = await _render_sni_catalog(
+            provider=provider,
+            page=page,
+            query=query,
+        )
+        await state.update_data(
+            provider=provider,
+            page=normalized_page,
+            query=query,
+            page_rows=[{"id": r["id"], "fqdn": r.get("fqdn"), "note": r.get("note")} for r in new_page_rows],
+        )
+        await _edit_or_send(rendered, keyboard)
+    except Exception as exc:  # noqa: BLE001
+        await message.answer(f"Ошибка: {exc}")
+
+
+async def _render_sni_catalog_actions(
+    *,
+    state: FSMContext,
+    sni_id: int,
+    provider: str,
+    page: int,
+) -> tuple[str, object]:
+    # Try state cache first (current page rows).
+    data = await state.get_data()
+    cached: list[dict] = data.get("page_rows") or []
+    chosen = next((r for r in cached if int(r.get("id") or 0) == sni_id), None)
+
+    if chosen is None:
+        # Fallback: fetch from API and find by id.
+        rows = await api.list_sni_filtered(provider=None if provider == "all" else provider, purpose=None)
+        chosen = next((r for r in rows if int(r.get("id") or 0) == sni_id), None)
+
+    fqdn = (chosen.get("fqdn") if chosen else None) or f"id={sni_id}"
+    note = _clip_note((chosen or {}).get("note"))
+    out = f"Выбран SNI:\n{fqdn}"
+    if note:
+        out += f"\n\n{note}"
+    return out, sni_catalog_action_keyboard(sni_id=sni_id, provider=provider, page=page)
+
+
+@router.callback_query(F.data.startswith("catsel:"))
+async def sni_catalog_select(callback: CallbackQuery, state: FSMContext) -> None:
+    # catsel:<sni_id>:<provider>:<page>
+    _, sni_id_raw, provider, page_raw = callback.data.split(":", 3)
+    try:
+        sni_id = int(sni_id_raw)
+        page = int(page_raw)
+        await state.set_state(SniCatalogFlow.waiting_for_input)
+        await state.update_data(provider=provider, page=page, catalog_msg_id=callback.message.message_id)
+        text, keyboard = await _render_sni_catalog_actions(state=state, sni_id=sni_id, provider=provider, page=page)
+        await callback.message.edit_text(text, reply_markup=keyboard)
+    except Exception as exc:  # noqa: BLE001
+        await callback.message.answer(f"Ошибка: {exc}")
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("catnewpick:"))
+async def sni_catalog_new_pick_device(callback: CallbackQuery) -> None:
+    # catnewpick:<b1|b2>:<sni_id>:<provider>:<page>
+    parts = callback.data.split(":")
+    if len(parts) != 5:
+        await callback.message.answer("Ошибка: некорректные данные кнопки")
+        await callback.answer()
+        return
+    _, spec, sni_id_raw, provider, page_raw = parts
+    try:
+        sni_id = int(sni_id_raw)
+        page = int(page_raw)
+        user = await ensure_user(callback.from_user.id)
+        devices = await api.list_devices(user["id"])
+        if not devices:
+            await callback.message.edit_text("Нет устройств. Сначала добавь устройство.", reply_markup=main_menu_keyboard())
+            await callback.answer()
+            return
+        await callback.message.edit_text(
+            "Выбери устройство для нового VLESS подключения:",
+            reply_markup=sni_catalog_device_pick_keyboard(
+                spec=spec,
+                sni_id=sni_id,
+                devices=devices,
+                provider=provider,
+                page=page,
+            ),
+        )
+    except Exception as exc:  # noqa: BLE001
+        await callback.message.answer(f"Ошибка: {exc}")
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("catnew:"))
+async def sni_catalog_new_connection(callback: CallbackQuery, state: FSMContext) -> None:
+    # catnew:<b1|b2>:<device_id>:<sni_id>
+    _, spec, device_id, sni_id_raw = callback.data.split(":", 3)
+    try:
+        user = await ensure_user(callback.from_user.id)
+        protocol, mode, variant = _profile(spec)
+        connection, revision = await api.create_connection_and_revision(
+            user["id"],
+            device_id,
+            protocol,
+            mode,
+            variant,
+            int(sni_id_raw),
+        )
+        await state.clear()
+        text, keyboard = await render_device_page(device_id)
+        await callback.message.edit_text(text, reply_markup=keyboard)
+        await callback.message.answer(
+            f"Создано: connection={connection['id']} revision={revision['id']} slot={revision['slot']}"
+        )
+        await _send_client_config(callback, revision)
+    except Exception as exc:  # noqa: BLE001
+        await callback.message.answer(f"Ошибка: {exc}")
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("catissuepick:"))
+async def sni_catalog_issue_pick_connection(callback: CallbackQuery) -> None:
+    # catissuepick:<sni_id>:<provider>:<page>
+    _, sni_id_raw, provider, page_raw = callback.data.split(":", 3)
+    try:
+        sni_id = int(sni_id_raw)
+        page = int(page_raw)
+        user = await ensure_user(callback.from_user.id)
+        devices = await api.list_devices(user["id"])
+
+        vless_connections: list[dict] = []
+        for dev in devices:
+            for conn in await api.list_connections(dev["id"]):
+                if conn.get("protocol") != ConnectionProtocol.VLESS_REALITY.value:
+                    continue
+                label = f"{dev['name']} | {conn.get('variant')} | {conn.get('mode')}"
+                vless_connections.append({"id": conn["id"], "label": label})
+
+        if not vless_connections:
+            await callback.message.edit_text(
+                "У тебя нет VLESS подключений, куда можно выпустить ревизию.",
+                reply_markup=sni_catalog_action_keyboard(sni_id=sni_id, provider=provider, page=page),
+            )
+            await callback.answer()
+            return
+
+        await callback.message.edit_text(
+            "Выбери VLESS подключение для новой ревизии (SNI будет применён к новой ревизии):",
+            reply_markup=sni_catalog_connection_pick_keyboard(
+                sni_id=sni_id,
+                vless_connections=vless_connections,
+                provider=provider,
+                page=page,
+            ),
+        )
+    except Exception as exc:  # noqa: BLE001
+        await callback.message.answer(f"Ошибка: {exc}")
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("catissue:"))
+async def sni_catalog_issue_revision(callback: CallbackQuery, state: FSMContext) -> None:
+    # catissue:<connection_id>:<sni_id>
+    _, connection_id, sni_id_raw = callback.data.split(":", 2)
+    try:
+        revision = await api.issue_revision(connection_id, sni_id=int(sni_id_raw))
+        await state.clear()
+        text, keyboard = await render_revisions_page(revision["connection_id"])
+        await callback.message.edit_text(text, reply_markup=keyboard)
+        await _send_client_config(callback, revision)
     except Exception as exc:  # noqa: BLE001
         await callback.message.answer(f"Ошибка: {exc}")
     await callback.answer()

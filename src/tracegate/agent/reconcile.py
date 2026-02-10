@@ -81,6 +81,7 @@ def reconcile_xray(settings: Settings) -> bool:
     base = _load_json(base_path)
     artifacts = load_all_user_artifacts(paths)
     clients: list[dict] = []
+    server_names: set[str] = set()
     for row in artifacts:
         if row.get("protocol") != "vless_reality":
             continue
@@ -88,6 +89,9 @@ def reconcile_xray(settings: Settings) -> bool:
         uuid = cfg.get("uuid")
         if not uuid:
             continue
+        sni = (cfg.get("sni") or "").strip()
+        if sni:
+            server_names.add(sni)
         clients.append(
             {
                 "id": uuid,
@@ -96,8 +100,20 @@ def reconcile_xray(settings: Settings) -> bool:
         )
 
     for inbound in base.get("inbounds", []):
-        if inbound.get("tag") == "vless-reality-in" or inbound.get("protocol") == "vless":
+        stream = inbound.get("streamSettings") or {}
+        is_reality = inbound.get("tag") == "vless-reality-in" or (
+            inbound.get("protocol") == "vless" and stream.get("security") == "reality"
+        )
+        if is_reality:
             inbound.setdefault("settings", {})["clients"] = clients
+            if server_names:
+                stream = inbound.setdefault("streamSettings", {})
+                reality = stream.setdefault("realitySettings", {})
+                existing = reality.get("serverNames") or []
+                if not isinstance(existing, list):
+                    existing = []
+                merged = sorted(set([*existing, *server_names]), key=lambda s: str(s).lower())
+                reality["serverNames"] = merged
 
     _safe_dump_json(runtime_path, base)
     return True
@@ -194,4 +210,3 @@ def reconcile_all(settings: Settings) -> list[str]:
         pass
 
     return changed
-

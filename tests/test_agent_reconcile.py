@@ -27,6 +27,7 @@ def test_reconcile_xray_and_hysteria(tmp_path: Path) -> None:
                         "tag": "vless-reality-in",
                         "protocol": "vless",
                         "settings": {"clients": []},
+                        "streamSettings": {"security": "reality", "realitySettings": {"serverNames": []}},
                     }
                 ],
                 "outbounds": [{"protocol": "freedom"}],
@@ -49,7 +50,7 @@ def test_reconcile_xray_and_hysteria(tmp_path: Path) -> None:
                 "connection_id": "c1",
                 "revision_id": "r1",
                 "protocol": "vless_reality",
-                "config": {"uuid": "c1"},
+                "config": {"uuid": "c1", "sni": "splitter.wb.ru"},
             }
         ),
     )
@@ -72,8 +73,8 @@ def test_reconcile_xray_and_hysteria(tmp_path: Path) -> None:
 
     rendered_xray = json.loads((tmp_path / "runtime/xray/config.json").read_text(encoding="utf-8"))
     assert rendered_xray["inbounds"][0]["settings"]["clients"][0]["id"] == "c1"
+    assert "splitter.wb.ru" in rendered_xray["inbounds"][0]["streamSettings"]["realitySettings"]["serverNames"]
 
     rendered_hy = (tmp_path / "runtime/hysteria/config.yaml").read_text(encoding="utf-8")
     assert "bootstrap: bootstrap" in rendered_hy
     assert "u1: d1" in rendered_hy
-

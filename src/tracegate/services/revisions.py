@@ -83,11 +83,11 @@ async def _resolve_endpoints(session: AsyncSession) -> EndpointSet:
 
 def _is_allowed_reality_sni(fqdn: str) -> bool:
     settings = get_settings()
+    suffixes = [s.lower().strip() for s in settings.reality_sni_allow_suffixes if s and s.strip()]
+    if not suffixes:
+        return True
     name = fqdn.lower().strip()
-    for suffix in settings.reality_sni_allow_suffixes:
-        s = suffix.lower().strip()
-        if not s:
-            continue
+    for s in suffixes:
         if s.startswith("."):
             if name.endswith(s):
                 return True
@@ -186,9 +186,7 @@ async def create_revision(
 
     selected_sni = await _resolve_sni(session, connection.protocol, camouflage_sni_id, connection.custom_overrides_json)
     if selected_sni is not None and not _is_allowed_reality_sni(selected_sni.fqdn):
-        raise RevisionError(
-            "Selected SNI is not compatible with current REALITY dest; choose a VK/userapi/vk-portal SNI."
-        )
+        raise RevisionError("Selected SNI is blocked by REALITY SNI policy (reality_sni_allow_suffixes).")
     endpoints = await _resolve_endpoints(session)
 
     wg_lease: IpamLease | None = None

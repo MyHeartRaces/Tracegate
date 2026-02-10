@@ -48,7 +48,8 @@ async def list_sni(
                             return True
                 return False
 
-            rows = [r for r in rows if allowed(r.fqdn)]
+            if suffixes:
+                rows = [r for r in rows if allowed(r.fqdn)]
 
     return [SniDomainRead.model_validate(row, from_attributes=True) for row in rows]
 

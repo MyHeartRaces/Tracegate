@@ -66,15 +66,12 @@ class Settings(BaseSettings):
     # For v0.1 we treat REALITY handshake as terminating on VPS-T even in chain mode (VPS-E may be L4 forwarder).
     reality_public_key: str = ""
     reality_short_id: str = ""
-    # REALITY "dest" is a single upstream, so SNI choices must be compatible with it.
+    # REALITY "dest" is a single upstream used for the mimic handshake.
     # Default to a VK dest because it is commonly reachable on RU mobile ISPs.
     reality_dest: str = "vk.com:443"
-    reality_sni_allow_suffixes: list[str] = Field(
-        default_factory=lambda: [
-            "vk.com",
-            ".vk.com",
-        ]
-    )
+    # Optional SNI compatibility filter (used by the API/bot).
+    # If empty, all enabled SNIs from DB are allowed.
+    reality_sni_allow_suffixes: list[str] = Field(default_factory=list)
     wireguard_server_public_key: str = ""
 
     sni_seed: list[str] = Field(default_factory=lambda: ["google.com", "yandex.ru", "microsoft.com", "twitch.tv"])
