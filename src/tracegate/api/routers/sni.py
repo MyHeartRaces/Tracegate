@@ -7,6 +7,7 @@ from tracegate.api.deps import db_session
 from tracegate.models import SniDomain
 from tracegate.schemas import SniDomainCreate, SniDomainRead, SniDomainUpdate
 from tracegate.security import require_internal_api_token
+from tracegate.settings import get_settings
 
 router = APIRouter(prefix="/sni", tags=["sni"], dependencies=[Depends(require_internal_api_token)])
 
@@ -15,6 +16,7 @@ router = APIRouter(prefix="/sni", tags=["sni"], dependencies=[Depends(require_in
 async def list_sni(
     provider: str | None = Query(default=None),
     enabled_only: bool = Query(default=True),
+    purpose: str | None = Query(default=None),
     session: AsyncSession = Depends(db_session),
 ) -> list[SniDomainRead]:
     query = select(SniDomain)
@@ -28,6 +30,25 @@ async def list_sni(
             rows = [r for r in rows if not (r.providers or [])]
         else:
             rows = [r for r in rows if p in (r.providers or [])]
+
+    if purpose:
+        # REALITY uses a single `dest`, so we must only show compatible SNIs.
+        if purpose.strip().lower() in {"vless", "vless_reality", "reality"}:
+            settings = get_settings()
+            suffixes = [s.lower().strip() for s in settings.reality_sni_allow_suffixes if s.strip()]
+
+            def allowed(fqdn: str) -> bool:
+                name = fqdn.lower().strip()
+                for suf in suffixes:
+                    if suf.startswith("."):
+                        if name.endswith(suf):
+                            return True
+                    else:
+                        if name == suf or name.endswith("." + suf):
+                            return True
+                return False
+
+            rows = [r for r in rows if allowed(r.fqdn)]
 
     return [SniDomainRead.model_validate(row, from_attributes=True) for row in rows]
 

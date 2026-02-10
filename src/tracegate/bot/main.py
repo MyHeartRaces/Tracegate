@@ -224,7 +224,10 @@ async def pick_provider(callback: CallbackQuery) -> None:
             spec, device_id = target_id.split(":", 1)
             sni_rows = [
                 row
-                for row in await api.list_sni_filtered(provider=None if provider == "all" else provider)
+                for row in await api.list_sni_filtered(
+                    provider=None if provider == "all" else provider,
+                    purpose="vless_reality",
+                )
                 if row["enabled"]
             ]
             if not sni_rows:
@@ -238,7 +241,10 @@ async def pick_provider(callback: CallbackQuery) -> None:
             connection_id = target_id
             sni_rows = [
                 row
-                for row in await api.list_sni_filtered(provider=None if provider == "all" else provider)
+                for row in await api.list_sni_filtered(
+                    provider=None if provider == "all" else provider,
+                    purpose="vless_reality",
+                )
                 if row["enabled"]
             ]
             if not sni_rows:

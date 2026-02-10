@@ -49,10 +49,12 @@ class TracegateApiClient:
     async def get_connection(self, connection_id: UUID | str) -> dict:
         return await self._request("GET", f"/connections/{connection_id}")
 
-    async def list_sni_filtered(self, provider: str | None) -> list[dict]:
+    async def list_sni_filtered(self, provider: str | None, *, purpose: str | None = None) -> list[dict]:
         params = {}
         if provider:
             params["provider"] = provider
+        if purpose:
+            params["purpose"] = purpose
         return await self._request("GET", "/sni", params=params)
 
     async def list_sni(self) -> list[dict]:
