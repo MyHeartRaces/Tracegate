@@ -32,6 +32,9 @@ class AgentPaths:
 def _load_json(path: Path) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
 
+def _load_yaml(path: Path) -> dict:
+    return yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+
 
 def _safe_dump_json(path: Path, payload: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -99,6 +102,9 @@ def reconcile_xray(settings: Settings) -> bool:
             }
         )
 
+    # Stable ordering for deterministic diffs.
+    clients.sort(key=lambda c: str(c.get("id") or ""))
+
     for inbound in base.get("inbounds", []):
         stream = inbound.get("streamSettings") or {}
         is_reality = inbound.get("tag") == "vless-reality-in" or (
@@ -115,6 +121,11 @@ def reconcile_xray(settings: Settings) -> bool:
                 merged = sorted(set([*existing, *server_names]), key=lambda s: str(s).lower())
                 reality["serverNames"] = merged
 
+    # Only write when there is a real change; otherwise we trigger unnecessary reloads.
+    current = _load_json(runtime_path) if runtime_path.exists() else None
+    if current == base:
+        return False
+
     _safe_dump_json(runtime_path, base)
     return True
 
@@ -126,7 +137,7 @@ def reconcile_hysteria(settings: Settings) -> bool:
     if not base_path.exists():
         return False
 
-    base = yaml.safe_load(base_path.read_text(encoding="utf-8")) or {}
+    base = _load_yaml(base_path)
     artifacts = load_all_user_artifacts(paths)
 
     userpass: dict[str, str] = {}
@@ -148,6 +159,10 @@ def reconcile_hysteria(settings: Settings) -> bool:
         userpass[username] = password
 
     base["auth"] = {"type": "userpass", "userpass": userpass}
+    current = _load_yaml(runtime_path) if runtime_path.exists() else None
+    if current == base:
+        return False
+
     _safe_dump_text(runtime_path, yaml.safe_dump(base, sort_keys=False))
     return True
 
@@ -187,6 +202,10 @@ def reconcile_wireguard(settings: Settings) -> bool:
         if psk:
             out += f"PresharedKey = {psk}\n"
         out += f"AllowedIPs = {ip}/32\n\n"
+
+    current_text = runtime_path.read_text(encoding="utf-8") if runtime_path.exists() else None
+    if current_text == out:
+        return False
 
     _safe_dump_text(runtime_path, out)
     return True

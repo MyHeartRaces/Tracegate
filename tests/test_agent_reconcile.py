@@ -78,3 +78,7 @@ def test_reconcile_xray_and_hysteria(tmp_path: Path) -> None:
     rendered_hy = (tmp_path / "runtime/hysteria/config.yaml").read_text(encoding="utf-8")
     assert "bootstrap: bootstrap" in rendered_hy
     assert "u1: d1" in rendered_hy
+
+    # Second run should be a no-op (no unnecessary reload triggers).
+    changed2 = reconcile_all(settings)
+    assert changed2 == []

@@ -72,8 +72,6 @@ def handle_upsert_user(settings: Settings, payload: dict[str, Any]) -> str:
         if "hysteria" in changed:
             cmds.append(settings.agent_reload_hysteria_cmd)
         _run_reload_commands(settings, cmds)
-    else:
-        _run_reload_commands(settings, _proxy_reload_commands(settings))
 
     return f"upserted user payload for user={payload['user_id']} connection={payload['connection_id']}"
 
@@ -95,8 +93,6 @@ def handle_revoke_user(settings: Settings, payload: dict[str, Any]) -> str:
         if "hysteria" in changed:
             cmds.append(settings.agent_reload_hysteria_cmd)
         _run_reload_commands(settings, cmds)
-    else:
-        _run_reload_commands(settings, _proxy_reload_commands(settings))
 
     return f"revoked user artifacts for {user_id}"
 
@@ -126,8 +122,6 @@ def handle_revoke_connection(settings: Settings, payload: dict[str, Any]) -> str
         if "hysteria" in changed:
             cmds.append(settings.agent_reload_hysteria_cmd)
         _run_reload_commands(settings, cmds)
-    else:
-        _run_reload_commands(settings, _proxy_reload_commands(settings))
 
     return f"revoked connection artifacts for user={user_id} connection={connection_id}"
 

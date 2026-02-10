@@ -9,6 +9,7 @@ metadata:
     {{- include "tracegate.labels" . | nindent 4 }}
     app.kubernetes.io/component: gateway-vps-t
 spec:
+  publishNotReadyAddresses: true
   ports:
     - name: http
       port: {{ .Values.gateway.vpsT.agent.port }}
@@ -249,6 +250,7 @@ metadata:
     {{- include "tracegate.labels" . | nindent 4 }}
     app.kubernetes.io/component: gateway-vps-e
 spec:
+  publishNotReadyAddresses: true
   ports:
     - name: http
       port: {{ .Values.gateway.vpsE.agent.port }}
