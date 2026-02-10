@@ -8,7 +8,7 @@ from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracegate.api.deps import db_session
-from tracegate.enums import ConnectionVariant, NodeRole, OutboxEventType, RecordStatus
+from tracegate.enums import NodeRole, OutboxEventType, RecordStatus
 from tracegate.models import Connection, ConnectionRevision, OutboxDelivery, OutboxEvent, WireguardPeer
 from tracegate.schemas import OutboxDeliveryRead, OutboxEventRead, ReapplyBaseRequest, ReissueRequest
 from tracegate.security import require_internal_api_token

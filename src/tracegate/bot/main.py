@@ -770,12 +770,16 @@ async def sni_catalog_issue_revision(callback: CallbackQuery, state: FSMContext)
 @router.callback_query(F.data.startswith("revs:"))
 async def list_revisions(callback: CallbackQuery) -> None:
     _, connection_id = callback.data.split(":", 1)
-    text, keyboard = await render_revisions_page(connection_id)
-    edited = await _safe_edit_text(callback.message, text, reply_markup=keyboard)
-    if not edited:
-        await callback.answer("Без изменений")
-        return
-    await callback.answer()
+    try:
+        text, keyboard = await render_revisions_page(connection_id)
+        edited = await _safe_edit_text(callback.message, text, reply_markup=keyboard)
+        await callback.answer("Обновлено" if edited else "Без изменений")
+    except ApiClientError as exc:
+        await callback.message.answer(f"Ошибка: {exc}")
+        await callback.answer()
+    except Exception as exc:  # noqa: BLE001
+        await callback.message.answer(f"Ошибка: {exc}")
+        await callback.answer()
 
 
 @router.callback_query(F.data.startswith("issuepick:"))
@@ -807,8 +811,8 @@ async def activate_revision(callback: CallbackQuery) -> None:
     try:
         revision = await api.activate_revision(revision_id)
         text, keyboard = await render_revisions_page(revision["connection_id"])
-        edited = await _safe_edit_text(callback.message, text, reply_markup=keyboard)
-        await callback.answer("Активировано" if edited else "Без изменений")
+        await _safe_edit_text(callback.message, text, reply_markup=keyboard)
+        await callback.answer("Активировано")
     except Exception as exc:  # noqa: BLE001
         await callback.message.answer(f"Ошибка: {exc}")
         await callback.answer()
@@ -820,8 +824,8 @@ async def revoke_revision(callback: CallbackQuery) -> None:
     try:
         revision = await api.revoke_revision(revision_id)
         text, keyboard = await render_revisions_page(revision["connection_id"])
-        edited = await _safe_edit_text(callback.message, text, reply_markup=keyboard)
-        await callback.answer("Удалено" if edited else "Без изменений")
+        await _safe_edit_text(callback.message, text, reply_markup=keyboard)
+        await callback.answer("Удалено")
     except Exception as exc:  # noqa: BLE001
         await callback.message.answer(f"Ошибка: {exc}")
         await callback.answer()

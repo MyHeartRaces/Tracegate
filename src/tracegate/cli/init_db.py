@@ -3,10 +3,9 @@ import asyncio
 from sqlalchemy import select
 
 from tracegate.db import Base, AsyncSessionLocal, engine
-from tracegate.models import IpamPool, SniDomain
+from tracegate.models import IpamPool
 from tracegate.services.ipam import ensure_pool_exists
 from tracegate.services.sni_seed import seed_sni
-from tracegate.settings import get_settings
 
 
 async def init_db() -> None:

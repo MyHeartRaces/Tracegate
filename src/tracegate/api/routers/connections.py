@@ -3,7 +3,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracegate.api.deps import db_session
-from tracegate.enums import ConnectionMode, ConnectionProtocol, ConnectionVariant
+from tracegate.enums import ConnectionMode, ConnectionProtocol, ConnectionVariant, RecordStatus
 from tracegate.models import Connection, Device, User
 from tracegate.schemas import ConnectionCreate, ConnectionRead, ConnectionUpdate
 from tracegate.security import require_internal_api_token
@@ -34,8 +34,15 @@ def validate_variant(protocol: ConnectionProtocol, mode: ConnectionMode, variant
 
 
 @router.get("/by-device/{device_id}", response_model=list[ConnectionRead])
-async def list_connections(device_id: str, session: AsyncSession = Depends(db_session)) -> list[ConnectionRead]:
-    rows = (await session.execute(select(Connection).where(Connection.device_id == device_id))).scalars().all()
+async def list_connections(
+    device_id: str,
+    include_revoked: bool = False,
+    session: AsyncSession = Depends(db_session),
+) -> list[ConnectionRead]:
+    q = select(Connection).where(Connection.device_id == device_id)
+    if not include_revoked:
+        q = q.where(Connection.status == RecordStatus.ACTIVE)
+    rows = (await session.execute(q)).scalars().all()
     return [ConnectionRead.model_validate(row, from_attributes=True) for row in rows]
 
 
