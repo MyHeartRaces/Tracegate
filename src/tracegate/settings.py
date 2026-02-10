@@ -73,8 +73,6 @@ class Settings(BaseSettings):
         default_factory=lambda: [
             "vk.com",
             ".vk.com",
-            ".userapi.com",
-            ".vk-portal.net",
         ]
     )
     wireguard_server_public_key: str = ""
