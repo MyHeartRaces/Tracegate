@@ -59,6 +59,9 @@ kubectl -n tracegate get job
 - Pods use `hostNetwork: true` for data-plane ports (`443/tcp`, `443/udp`, `51820/udp`).
 - For `wireguard` container, privileged mode and `NET_ADMIN/SYS_MODULE` are enabled.
 - `registration` job auto-registers node endpoints into control-plane and runs reapply/reissue.
+- The gateway uses a hostPath (`/var/lib/tracegate-agent`) for runtime configs. The init container seeds files only if they are missing.
+  If you change the embedded base configs in Helm values, you may need to delete the corresponding runtime file on the node
+  (for example `/var/lib/tracegate-agent/runtime/hysteria/config.yaml`) and restart the gateway pod.
 
 ### Namespace behavior
 

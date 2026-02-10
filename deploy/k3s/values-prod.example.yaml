@@ -33,10 +33,11 @@ gateway:
     hysteria:
       config: |
         listen: :443
-        acme:
-          domains:
-            - vps-t.example.com
-          email: admin@example.com
+        # For k3s mode, avoid ACME here: xray already occupies 443/tcp and ACME can hit rate limits.
+        # Provide a cert via `gateway.vpsT.hysteriaTls` (recommended) or replace this config accordingly.
+        tls:
+          cert: /etc/hysteria/tls/tls.crt
+          key: /etc/hysteria/tls/tls.key
         auth:
           type: userpass
           userpass:
@@ -48,6 +49,11 @@ gateway:
         trafficStats:
           listen: 127.0.0.1:9999
           secret: REPLACE_HYSTERIA_STATS_SECRET
+    # Provide a TLS certificate for Hysteria2 (PEM). You can use a self-signed cert for v0.1,
+    # but clients will need `insecure: true`.
+    hysteriaTls:
+      crt: ""
+      key: ""
     wireguard:
       image: ghcr.io/your-org/tracegate-wireguard:0.1.0
       config: |
