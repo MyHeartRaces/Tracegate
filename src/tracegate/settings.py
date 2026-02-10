@@ -28,6 +28,18 @@ class Settings(BaseSettings):
     bot_token: str = ""
     bot_api_base_url: str = "http://localhost:8080"
     bot_api_token: str = "change-me"
+    # Telegram bot can run either in polling mode (default) or via webhooks.
+    # Webhooks avoid "Conflict: terminated by other getUpdates request" if a stray poller exists elsewhere.
+    bot_mode: str = "polling"  # "polling" | "webhook"
+    bot_webhook_listen_host: str = "0.0.0.0"
+    bot_webhook_listen_port: int = 8443
+    bot_webhook_path: str = "/"
+    bot_webhook_secret_token: str = ""  # used for X-Telegram-Bot-Api-Secret-Token validation
+    bot_webhook_public_url: str = ""  # full URL; if empty, computed from bot_webhook_public_base_url + bot_webhook_path
+    bot_webhook_public_base_url: str = ""  # e.g. "https://t.example.com:8443"
+    bot_webhook_tls_cert: str = "/etc/tracegate/bot-webhook/tls.crt"
+    bot_webhook_tls_key: str = "/etc/tracegate/bot-webhook/tls.key"
+    bot_webhook_upload_cert: bool = True  # upload cert to Telegram (required for self-signed)
 
     agent_host: str = "0.0.0.0"
     agent_port: int = 8070

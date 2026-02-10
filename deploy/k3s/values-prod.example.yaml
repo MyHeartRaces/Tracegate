@@ -6,6 +6,10 @@ controlPlane:
     apiInternalToken: REPLACE_API_INTERNAL_TOKEN
     agentAuthToken: REPLACE_AGENT_AUTH_TOKEN
     botToken: ""
+  botWebhook:
+    enabled: true
+    publicHost: t.myheartraces.space
+    publicPort: 8443
   postgres:
     password: REPLACE_DB_PASSWORD
   env:

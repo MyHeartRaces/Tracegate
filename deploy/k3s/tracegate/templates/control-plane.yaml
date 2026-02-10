@@ -173,11 +173,27 @@ spec:
         {{- toYaml .Values.controlPlane.tolerations | nindent 8 }}
       affinity:
         {{- toYaml .Values.controlPlane.affinity | nindent 8 }}
+{{- if .Values.controlPlane.botWebhook.enabled }}
+      volumes:
+        - name: bot-webhook-tls
+          secret:
+            secretName: {{ include "tracegate.fullname" . }}-bot-webhook-tls
+{{- end }}
       containers:
         - name: bot
           image: {{ include "tracegate.image" .Values.controlPlane.image }}
           imagePullPolicy: {{ .Values.controlPlane.image.pullPolicy }}
           command: ["tracegate-bot"]
+{{- if .Values.controlPlane.botWebhook.enabled }}
+          ports:
+            - name: webhook
+              containerPort: {{ .Values.controlPlane.botWebhook.listenPort }}
+              protocol: TCP
+          volumeMounts:
+            - name: bot-webhook-tls
+              mountPath: /etc/tracegate/bot-webhook
+              readOnly: true
+{{- end }}
           env:
             - name: APP_ENV
               value: {{ .Values.controlPlane.env.appEnv | quote }}
@@ -195,6 +211,32 @@ spec:
                 secretKeyRef:
                   name: {{ include "tracegate.fullname" . }}-control-plane-auth
                   key: api-internal-token
+{{- if .Values.controlPlane.botWebhook.enabled }}
+            - name: BOT_MODE
+              value: "webhook"
+            - name: BOT_WEBHOOK_PUBLIC_BASE_URL
+              value: {{ printf "https://%s:%d" .Values.controlPlane.botWebhook.publicHost (int .Values.controlPlane.botWebhook.publicPort) | quote }}
+            - name: BOT_WEBHOOK_LISTEN_HOST
+              value: {{ .Values.controlPlane.botWebhook.listenHost | quote }}
+            - name: BOT_WEBHOOK_LISTEN_PORT
+              value: {{ printf "%d" (int .Values.controlPlane.botWebhook.listenPort) | quote }}
+            - name: BOT_WEBHOOK_PATH
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "tracegate.fullname" . }}-control-plane-auth
+                  key: bot-webhook-path
+            - name: BOT_WEBHOOK_SECRET_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "tracegate.fullname" . }}-control-plane-auth
+                  key: bot-webhook-secret-token
+            - name: BOT_WEBHOOK_TLS_CERT
+              value: "/etc/tracegate/bot-webhook/tls.crt"
+            - name: BOT_WEBHOOK_TLS_KEY
+              value: "/etc/tracegate/bot-webhook/tls.key"
+            - name: BOT_WEBHOOK_UPLOAD_CERT
+              value: {{ ternary "true" "false" .Values.controlPlane.botWebhook.uploadCert | quote }}
+{{- end }}
           resources:
             {{- toYaml .Values.controlPlane.resources.bot | nindent 12 }}
 {{- end }}

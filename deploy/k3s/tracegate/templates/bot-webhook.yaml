@@ -1,0 +1,22 @@
+{{- if and .Values.controlPlane.enabled (gt (int .Values.controlPlane.replicas.bot) 0) .Values.controlPlane.botWebhook.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "tracegate.fullname" . }}-bot-webhook
+  namespace: {{ include "tracegate.namespace" . }}
+  labels:
+    {{- include "tracegate.labels" . | nindent 4 }}
+    app.kubernetes.io/component: bot-webhook
+spec:
+  type: LoadBalancer
+  externalTrafficPolicy: Local
+  ports:
+    - name: https
+      port: {{ .Values.controlPlane.botWebhook.publicPort }}
+      targetPort: webhook
+      protocol: TCP
+  selector:
+    app.kubernetes.io/component: bot
+    app.kubernetes.io/instance: {{ .Release.Name }}
+{{- end }}
+

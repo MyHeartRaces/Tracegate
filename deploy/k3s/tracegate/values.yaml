@@ -35,6 +35,19 @@ controlPlane:
     agentAuthToken: change-me-agent-auth-token
     botToken: ""
 
+  # Telegram bot webhook mode avoids polling conflicts. It uses HTTPS on port 8443
+  # (Telegram allows 8443) so it does not conflict with Xray/Hysteria on 443.
+  botWebhook:
+    enabled: false
+    publicHost: ""     # e.g. t.example.com
+    publicPort: 8443
+    listenHost: 0.0.0.0
+    listenPort: 8443
+    # path/secretToken are generated and persisted as k8s secrets unless explicitly set.
+    path: ""
+    secretToken: ""
+    uploadCert: true
+
   env:
     appEnv: prod
     logLevel: INFO

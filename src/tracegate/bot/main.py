@@ -1,13 +1,18 @@
 from __future__ import annotations
 
 import asyncio
+import ssl
+from pathlib import Path
 
 from aiogram import Bot, Dispatcher, F, Router
 from aiogram.filters import CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, Message
+from aiogram.types import FSInputFile
 from aiogram.types.input_file import BufferedInputFile
+from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
+from aiohttp import web
 
 from tracegate.bot.client import ApiClientError, TracegateApiClient
 from tracegate.bot.keyboards import (
@@ -348,10 +353,79 @@ def run() -> None:
     if not settings.bot_token:
         raise RuntimeError("BOT_TOKEN is required")
 
+    mode = (settings.bot_mode or "polling").strip().lower()
+    if mode == "webhook":
+        _run_webhook()
+    elif mode == "polling":
+        asyncio.run(_run_polling())
+    else:
+        raise RuntimeError(f"Unsupported BOT_MODE={settings.bot_mode!r} (expected 'polling' or 'webhook')")
+
+
+async def _run_polling() -> None:
     bot = Bot(token=settings.bot_token)
     dp = Dispatcher()
     dp.include_router(router)
-    asyncio.run(dp.start_polling(bot))
+
+    # Ensure webhook is disabled; otherwise Telegram rejects getUpdates.
+    await bot.delete_webhook(drop_pending_updates=True)
+    await dp.start_polling(bot)
+
+
+def _run_webhook() -> None:
+    bot = Bot(token=settings.bot_token)
+    dp = Dispatcher()
+    dp.include_router(router)
+
+    path = settings.bot_webhook_path or "/"
+    if not path.startswith("/"):
+        path = "/" + path
+    secret_token = settings.bot_webhook_secret_token or None
+
+    public_url = settings.bot_webhook_public_url.strip()
+    if not public_url:
+        base = settings.bot_webhook_public_base_url.strip()
+        if not base:
+            raise RuntimeError("BOT_WEBHOOK_PUBLIC_URL or BOT_WEBHOOK_PUBLIC_BASE_URL is required for webhook mode")
+        public_url = base.rstrip("/") + path
+
+    tls_cert = Path(settings.bot_webhook_tls_cert)
+    tls_key = Path(settings.bot_webhook_tls_key)
+    if not tls_cert.exists() or not tls_key.exists():
+        raise RuntimeError(
+            "Webhook TLS files are missing. "
+            f"Expected cert={tls_cert} key={tls_key} (configure BOT_WEBHOOK_TLS_CERT/BOT_WEBHOOK_TLS_KEY)"
+        )
+
+    app = web.Application()
+    SimpleRequestHandler(dispatcher=dp, bot=bot, secret_token=secret_token).register(app, path=path)
+    setup_application(app, dp, bot=bot)
+
+    async def on_startup(_: web.Application) -> None:
+        cert_file = FSInputFile(str(tls_cert)) if settings.bot_webhook_upload_cert else None
+        await bot.set_webhook(
+            url=public_url,
+            secret_token=secret_token,
+            certificate=cert_file,
+            drop_pending_updates=True,
+        )
+
+    async def on_shutdown(_: web.Application) -> None:
+        await bot.delete_webhook(drop_pending_updates=False)
+
+    app.on_startup.append(on_startup)
+    app.on_shutdown.append(on_shutdown)
+
+    ssl_context = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
+    ssl_context.load_cert_chain(certfile=str(tls_cert), keyfile=str(tls_key))
+
+    web.run_app(
+        app,
+        host=settings.bot_webhook_listen_host,
+        port=settings.bot_webhook_listen_port,
+        ssl_context=ssl_context,
+        access_log=None,
+    )
 
 
 if __name__ == "__main__":
