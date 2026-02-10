@@ -7,6 +7,7 @@ from aiogram.filters import CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, Message
+from aiogram.types.input_file import BufferedInputFile
 
 from tracegate.bot.client import ApiClientError, TracegateApiClient
 from tracegate.bot.keyboards import (
@@ -17,6 +18,7 @@ from tracegate.bot.keyboards import (
     revisions_keyboard,
     sni_keyboard,
 )
+from tracegate.client_export.v2rayn import V2RayNExportError, export_v2rayn
 from tracegate.enums import ConnectionMode, ConnectionProtocol, ConnectionVariant
 from tracegate.settings import get_settings
 
@@ -56,6 +58,36 @@ async def render_revisions_page(connection_id: str) -> tuple[str, object]:
 
     is_vless = connection["protocol"] == ConnectionProtocol.VLESS_REALITY.value
     return text, revisions_keyboard(connection_id, revisions, is_vless)
+
+def _format_v2rayn_instructions(uri: str) -> str:
+    # Keep it short: Telegram message length is limited and users mainly want the share link.
+    return (
+        "v2rayN import:\n"
+        "1) Copy the link below\n"
+        "2) In v2rayN: Ctrl+V (or Import from clipboard)\n\n"
+        f"{uri}"
+    )
+
+
+async def _send_client_config(callback: CallbackQuery, revision: dict) -> None:
+    effective = revision.get("effective_config_json") or {}
+    try:
+        exported = export_v2rayn(effective)
+    except V2RayNExportError as exc:
+        await callback.message.answer(f"Не смог собрать конфиг для v2rayN: {exc}")
+        return
+
+    if exported.kind == "uri":
+        await callback.message.answer(_format_v2rayn_instructions(exported.content))
+        return
+
+    if exported.kind == "wg_conf":
+        data = exported.content.encode("utf-8")
+        filename = exported.filename or "wg0.conf"
+        await callback.message.answer_document(BufferedInputFile(data, filename=filename), caption=exported.title)
+        return
+
+    await callback.message.answer(f"Неизвестный тип экспорта: {exported.kind}")
 
 
 @router.message(CommandStart())
@@ -152,6 +184,7 @@ async def new_connection(callback: CallbackQuery) -> None:
         await callback.message.answer(
             f"Создано: connection={connection['id']} revision={revision['id']} slot={revision['slot']}"
         )
+        await _send_client_config(callback, revision)
     except Exception as exc:  # noqa: BLE001
         await callback.message.answer(f"Ошибка: {exc}")
 
@@ -178,6 +211,7 @@ async def new_vless_with_sni(callback: CallbackQuery) -> None:
         await callback.message.answer(
             f"Создано: connection={connection['id']} revision={revision['id']} slot={revision['slot']}"
         )
+        await _send_client_config(callback, revision)
     except Exception as exc:  # noqa: BLE001
         await callback.message.answer(f"Ошибка: {exc}")
 
@@ -213,6 +247,7 @@ async def issue_revision(callback: CallbackQuery) -> None:
         revision = await api.issue_revision(connection_id)
         text, keyboard = await render_revisions_page(revision["connection_id"])
         await callback.message.edit_text(text, reply_markup=keyboard)
+        await _send_client_config(callback, revision)
     except ApiClientError as exc:
         await callback.message.answer(f"Ошибка: {exc}")
     await callback.answer()
@@ -249,6 +284,7 @@ async def issue_revision_with_sni(callback: CallbackQuery) -> None:
         revision = await api.issue_revision(connection_id, sni_id=int(sni_id_raw))
         text, keyboard = await render_revisions_page(revision["connection_id"])
         await callback.message.edit_text(text, reply_markup=keyboard)
+        await _send_client_config(callback, revision)
     except Exception as exc:  # noqa: BLE001
         await callback.message.answer(f"Ошибка: {exc}")
 
