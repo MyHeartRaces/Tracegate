@@ -73,7 +73,9 @@ async def check_hysteria_stats_secret(url: str, secret: str) -> tuple[bool, str]
     async with httpx.AsyncClient() as client:
         try:
             unauthorized = await client.get(url, timeout=5)
-            authorized = await client.get(url, headers={"Authorization": f"Bearer {secret}"}, timeout=5)
+            # Hysteria2 Traffic Stats API expects the raw secret in the Authorization header.
+            # Using a Bearer scheme will be rejected (401/403).
+            authorized = await client.get(url, headers={"Authorization": secret}, timeout=5)
         except Exception as exc:  # noqa: BLE001
             return False, str(exc)
 
