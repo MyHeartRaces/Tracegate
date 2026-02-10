@@ -24,7 +24,13 @@ def main_menu_keyboard() -> InlineKeyboardMarkup:
 
 
 def devices_keyboard(devices: list[dict]) -> InlineKeyboardMarkup:
-    rows = [[InlineKeyboardButton(text=device["name"], callback_data=f"device:{device['id']}")] for device in devices]
+    rows = [
+        [
+            InlineKeyboardButton(text=device["name"], callback_data=f"device:{device['id']}"),
+            InlineKeyboardButton(text="Удалить", callback_data=f"deldev:{device['id']}"),
+        ]
+        for device in devices
+    ]
     rows.append([InlineKeyboardButton(text="Добавить устройство", callback_data="add_device")])
     rows.append([InlineKeyboardButton(text="Назад", callback_data="menu")])
     return InlineKeyboardMarkup(inline_keyboard=rows)

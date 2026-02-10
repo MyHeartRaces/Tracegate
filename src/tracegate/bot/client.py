@@ -43,6 +43,9 @@ class TracegateApiClient:
     async def create_device(self, user_id: UUID | str, name: str) -> dict:
         return await self._request("POST", "/devices", json={"user_id": str(user_id), "name": name})
 
+    async def delete_device(self, device_id: UUID | str) -> None:
+        await self._request("DELETE", f"/devices/{device_id}")
+
     async def list_connections(self, device_id: UUID | str) -> list[dict]:
         return await self._request("GET", f"/connections/by-device/{device_id}")
 

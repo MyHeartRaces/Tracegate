@@ -6,9 +6,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracegate.api.deps import db_session
 from tracegate.enums import EntitlementStatus, RecordStatus
-from tracegate.models import Device, User
+from tracegate.models import Connection, Device, User
 from tracegate.schemas import DeviceCreate, DeviceRead, DeviceRename
 from tracegate.security import require_internal_api_token
+from tracegate.services.connections import revoke_connection
 
 router = APIRouter(prefix="/devices", tags=["devices"], dependencies=[Depends(require_internal_api_token)])
 
@@ -70,6 +71,15 @@ async def delete_device(device_id: str, session: AsyncSession = Depends(db_sessi
     row = await session.get(Device, device_id)
     if row is None:
         return
+
+    # Revoke all active connections for this device so access is actually removed on nodes.
+    connections = (
+        await session.execute(
+            select(Connection).where(Connection.device_id == row.id, Connection.status == RecordStatus.ACTIVE)
+        )
+    ).scalars().all()
+    for conn in connections:
+        await revoke_connection(session, connection_id=conn.id)
 
     row.status = RecordStatus.REVOKED
     await session.commit()

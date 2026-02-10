@@ -145,6 +145,21 @@ async def device_actions(callback: CallbackQuery) -> None:
     await callback.answer()
 
 
+@router.callback_query(F.data.startswith("deldev:"))
+async def delete_device(callback: CallbackQuery) -> None:
+    _, device_id = callback.data.split(":", 1)
+    try:
+        await api.delete_device(device_id)
+        user = await ensure_user(callback.from_user.id)
+        devices = await api.list_devices(user["id"])
+        text = "Устройства:\n" + ("\n".join([f"- {d['name']} id={d['id']}" for d in devices]) if devices else "пока нет")
+        await callback.message.edit_text(text, reply_markup=devices_keyboard(devices))
+        await callback.message.answer("Устройство удалено (все подключения отозваны).")
+    except ApiClientError as exc:
+        await callback.message.answer(f"Ошибка: {exc}")
+    await callback.answer()
+
+
 def _profile(spec: str) -> tuple[ConnectionProtocol, ConnectionMode, ConnectionVariant]:
     if spec == "b1":
         return ConnectionProtocol.VLESS_REALITY, ConnectionMode.DIRECT, ConnectionVariant.B1
@@ -222,10 +237,22 @@ async def new_vless_with_sni(callback: CallbackQuery) -> None:
 
 @router.callback_query(F.data.startswith("prov:"))
 async def pick_provider(callback: CallbackQuery) -> None:
-    _, context, target_id, provider = callback.data.split(":", 3)
+    # Format: prov:<context>:<target_id...>:<provider>
+    # target_id may itself contain ":" (e.g. "b1:<device_id>") so we can't use a fixed maxsplit.
+    parts = callback.data.split(":")
+    if len(parts) < 4:
+        await callback.message.answer("Ошибка: некорректные данные кнопки")
+        await callback.answer()
+        return
+
+    context = parts[1]
+    provider = parts[-1]
+    target_id = ":".join(parts[2:-1])
 
     try:
         if context == "new":
+            if ":" not in target_id:
+                raise ValueError("invalid target id")
             spec, device_id = target_id.split(":", 1)
             sni_rows = [
                 row
