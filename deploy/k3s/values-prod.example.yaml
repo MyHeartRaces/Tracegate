@@ -11,6 +11,9 @@ controlPlane:
   env:
     defaultVpsTHost: vps-t.example.com
     defaultVpsEHost: vps-e.example.com
+    realityPublicKey: REPLACE_REALITY_PUBLIC_KEY
+    realityShortId: REPLACE_REALITY_SHORT_ID
+    wireguardServerPublicKey: REPLACE_WG_SERVER_PUBLIC_KEY
 
 gateway:
   agentImage:
@@ -60,6 +63,10 @@ gateway:
   vpsE:
     publicIPv4: 203.0.113.20
     fqdn: vps-e.example.com
+    mode: tcpForward
+    tcpForward:
+      upstreamHost: vps-t.example.com
+      upstreamPort: 443
     xray:
       config: |
         {

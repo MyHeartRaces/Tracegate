@@ -71,6 +71,12 @@ spec:
               value: {{ .Values.controlPlane.env.defaultVpsTHost | quote }}
             - name: DEFAULT_VPS_E_HOST
               value: {{ .Values.controlPlane.env.defaultVpsEHost | quote }}
+            - name: REALITY_PUBLIC_KEY
+              value: {{ .Values.controlPlane.env.realityPublicKey | quote }}
+            - name: REALITY_SHORT_ID
+              value: {{ .Values.controlPlane.env.realityShortId | quote }}
+            - name: WIREGUARD_SERVER_PUBLIC_KEY
+              value: {{ .Values.controlPlane.env.wireguardServerPublicKey | quote }}
           readinessProbe:
             httpGet:
               path: /health

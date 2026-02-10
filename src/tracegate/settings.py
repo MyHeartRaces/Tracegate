@@ -50,6 +50,12 @@ class Settings(BaseSettings):
     default_vps_t_host: str = "vps-t.example.com"
     default_vps_e_host: str = "vps-e.example.com"
 
+    # Material required to build working client configs.
+    # For v0.1 we treat REALITY handshake as terminating on VPS-T even in chain mode (VPS-E may be L4 forwarder).
+    reality_public_key: str = ""
+    reality_short_id: str = ""
+    wireguard_server_public_key: str = ""
+
     sni_seed: list[str] = Field(default_factory=lambda: ["google.com", "yandex.ru", "microsoft.com", "twitch.tv"])
 
 
@@ -64,3 +70,5 @@ def ensure_agent_dirs(settings: Settings) -> None:
     (root / "bundles").mkdir(parents=True, exist_ok=True)
     (root / "users").mkdir(parents=True, exist_ok=True)
     (root / "wg-peers").mkdir(parents=True, exist_ok=True)
+    (root / "base").mkdir(parents=True, exist_ok=True)
+    (root / "runtime").mkdir(parents=True, exist_ok=True)

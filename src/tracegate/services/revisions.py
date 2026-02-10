@@ -8,11 +8,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from tracegate.enums import ConnectionProtocol, ConnectionVariant, NodeRole, OutboxEventType, RecordStatus
-from tracegate.models import Connection, ConnectionRevision, NodeEndpoint, SniDomain, User
+from tracegate.enums import OwnerType
+from tracegate.models import Connection, ConnectionRevision, IpamLease, NodeEndpoint, SniDomain, User, WireguardPeer
 from tracegate.services.config_builder import EndpointSet, build_effective_config
+from tracegate.services.ipam import allocate_lease, ensure_pool_exists
 from tracegate.services.grace import ensure_can_issue_new_config
 from tracegate.services.outbox import create_outbox_event
 from tracegate.services.overrides import validate_overrides
+from tracegate.services.wireguard import generate_keypair
 from tracegate.settings import get_settings
 
 
@@ -72,12 +75,16 @@ async def _resolve_endpoints(session: AsyncSession) -> EndpointSet:
     return EndpointSet(
         vps_t_host=(vps_t.fqdn or vps_t.public_ipv4) if vps_t else settings.default_vps_t_host,
         vps_e_host=(vps_e.fqdn or vps_e.public_ipv4) if vps_e else settings.default_vps_e_host,
+        reality_public_key=settings.reality_public_key,
+        reality_short_id=settings.reality_short_id,
+        wireguard_server_public_key=settings.wireguard_server_public_key,
     )
 
 
 def _slot_target_role(variant: ConnectionVariant) -> list[NodeRole]:
     if variant == ConnectionVariant.B2:
-        return [NodeRole.VPS_E, NodeRole.VPS_T]
+        # In v0.1 kubernetes deploy, VPS-E can be an L4 forwarder to VPS-T, so it does not need user mapping.
+        return [NodeRole.VPS_T]
     return [NodeRole.VPS_T]
 
 
@@ -113,6 +120,38 @@ async def create_revision(
     selected_sni = await _resolve_sni(session, connection.protocol, camouflage_sni_id, connection.custom_overrides_json)
     endpoints = await _resolve_endpoints(session)
 
+    wg_lease: IpamLease | None = None
+    wg_private_key: str | None = None
+    wg_public_key: str | None = None
+    if connection.protocol == ConnectionProtocol.WIREGUARD:
+        pool = await ensure_pool_exists(session)
+        wg_lease = await allocate_lease(session, pool, OwnerType.DEVICE, connection.device_id)
+        wg_private_key, wg_public_key = generate_keypair()
+
+        # Revoke any previous peers on this device (new revision => new keypair).
+        previous = (
+            await session.execute(
+                select(WireguardPeer).where(
+                    WireguardPeer.device_id == connection.device_id,
+                    WireguardPeer.status == RecordStatus.ACTIVE,
+                )
+            )
+        ).scalars().all()
+        for row in previous:
+            row.status = RecordStatus.REVOKED
+
+        peer = WireguardPeer(
+            user_id=user.id,
+            device_id=connection.device_id,
+            peer_public_key=wg_public_key,
+            lease_id=wg_lease.id,
+            preshared_key=None,
+            allowed_ips=connection.custom_overrides_json.get("allowed_ips", ["0.0.0.0/0"]),
+            status=RecordStatus.ACTIVE,
+        )
+        session.add(peer)
+        await session.flush()
+
     for rev in sorted(
         [r for r in connection.revisions if r.status == RecordStatus.ACTIVE],
         key=lambda r: r.slot,
@@ -132,6 +171,23 @@ async def create_revision(
         selected_sni=selected_sni,
         endpoints=endpoints,
     )
+
+    if connection.protocol == ConnectionProtocol.WIREGUARD and wg_lease and wg_private_key and wg_public_key:
+        effective_config = {
+            **effective_config,
+            "interface": {
+                **(effective_config.get("interface") or {}),
+                "addresses": [f"{wg_lease.ip}/32"],
+                "private_key": wg_private_key,
+            },
+            "peer": {
+                **(effective_config.get("peer") or {}),
+                "public_key": endpoints.wireguard_server_public_key,
+                "endpoint": f"{endpoints.vps_t_host}:51820",
+            },
+            "assigned_ip": wg_lease.ip,
+            "device_public_key": wg_public_key,
+        }
     revision = ConnectionRevision(
         connection_id=connection.id,
         slot=0,
@@ -156,6 +212,24 @@ async def create_revision(
     }
 
     for role in _slot_target_role(connection.variant):
+        if event_type == OutboxEventType.WG_PEER_UPSERT:
+            if not wg_lease or not wg_public_key:
+                raise RevisionError("wireguard peer state is missing")
+            wg_payload = {
+                **payload,
+                "peer_public_key": wg_public_key,
+                "preshared_key": None,
+                "peer_ip": wg_lease.ip,
+            }
+            await create_outbox_event(
+                session,
+                event_type=event_type,
+                aggregate_id=str(connection.id),
+                payload=wg_payload,
+                role_target=role,
+                idempotency_suffix=f"{revision.id}:{role.value}",
+            )
+            continue
         await create_outbox_event(
             session,
             event_type=event_type,
@@ -209,11 +283,11 @@ async def revoke_revision(session: AsyncSession, revision_id: UUID) -> Connectio
         "user_id": str(connection.user_id),
         "device_id": str(connection.device_id),
     }
-    roles = [NodeRole.VPS_T] if connection.variant != ConnectionVariant.B2 else [NodeRole.VPS_E, NodeRole.VPS_T]
-    for role in roles:
+    event_type = OutboxEventType.WG_PEER_REMOVE if connection.protocol == ConnectionProtocol.WIREGUARD else OutboxEventType.REVOKE_USER
+    for role in [NodeRole.VPS_T]:
         await create_outbox_event(
             session,
-            event_type=OutboxEventType.REVOKE_USER,
+            event_type=event_type,
             aggregate_id=str(connection.id),
             payload=payload,
             role_target=role,

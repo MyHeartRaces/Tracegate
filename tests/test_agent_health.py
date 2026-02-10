@@ -27,7 +27,7 @@ async def test_gather_health_checks_vps_e_kubernetes(monkeypatch):
     names = [row["name"] for row in checks]
     assert "listen tcp/443" in names
     assert "listen udp/443" not in names
-    assert "process xray" in names
+    assert "process entry" in names
     assert all(not name.startswith("systemd ") for name in names)
     assert "wireguard listen-port policy" not in names
 

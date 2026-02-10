@@ -36,7 +36,8 @@ def run_command(cmd: str, dry_run: bool) -> tuple[bool, str]:
 
 
 def check_port(protocol: str, port: int) -> tuple[bool, str]:
-    cmd = "ss -lntup" if protocol == "tcp" else "ss -lnup"
+    # Be strict: the generic ss -lntup output mixes TCP/UDP, which can cause false positives.
+    cmd = "ss -ltn" if protocol == "tcp" else "ss -lun"
     proc = subprocess.run(cmd, shell=True, capture_output=True, text=True)
     if proc.returncode != 0:
         return False, f"cannot run ss: {proc.stderr.strip()}"
@@ -120,10 +121,18 @@ async def gather_health_checks(
         checks.append({"name": name, "ok": ok, "details": details})
 
     if runtime_mode == "kubernetes":
-        processes = ["xray"] if role == "VPS_E" else ["xray", "hysteria", "wg-quick"]
-        for process_name in processes:
-            ok, details = check_process(process_name)
-            checks.append({"name": f"process {process_name}", "ok": ok, "details": details})
+        if role == "VPS_E":
+            # VPS-E can be implemented as an L4 forwarder (haproxy) or as xray (future).
+            ok_x, det_x = check_process("xray")
+            ok_h, det_h = check_process("haproxy")
+            ok = ok_x or ok_h
+            details = det_x if ok_x else det_h
+            checks.append({"name": "process entry", "ok": ok, "details": details})
+        else:
+            processes = ["xray", "hysteria"]
+            for process_name in processes:
+                ok, details = check_process(process_name)
+                checks.append({"name": f"process {process_name}", "ok": ok, "details": details})
     else:
         units = ["xray"] if role == "VPS_E" else ["xray", "hysteria-server", f"wg-quick@{wg_interface}"]
         for unit in units:

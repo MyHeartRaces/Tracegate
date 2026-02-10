@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracegate.api.deps import db_session
 from tracegate.enums import ConnectionVariant, NodeRole, OutboxEventType, RecordStatus
-from tracegate.models import Connection, ConnectionRevision, OutboxDelivery, OutboxEvent
+from tracegate.models import Connection, ConnectionRevision, OutboxDelivery, OutboxEvent, WireguardPeer
 from tracegate.schemas import OutboxDeliveryRead, OutboxEventRead, ReapplyBaseRequest, ReissueRequest
 from tracegate.security import require_internal_api_token
 from tracegate.services.outbox import create_outbox_event
@@ -93,23 +93,40 @@ async def reissue_current_revisions(payload: ReissueRequest, session: AsyncSessi
         if revision is None:
             continue
 
-        roles = [NodeRole.VPS_T] if conn.variant != ConnectionVariant.B2 else [NodeRole.VPS_E, NodeRole.VPS_T]
+        roles = [NodeRole.VPS_T]
         event_type = OutboxEventType.WG_PEER_UPSERT if conn.protocol.value == "wireguard" else OutboxEventType.UPSERT_USER
+        wg_peer: WireguardPeer | None = None
+        if event_type == OutboxEventType.WG_PEER_UPSERT:
+            wg_peer = await session.scalar(
+                select(WireguardPeer).where(
+                    WireguardPeer.device_id == conn.device_id,
+                    WireguardPeer.status == RecordStatus.ACTIVE,
+                )
+            )
         for role in roles:
+            payload = {
+                "user_id": str(conn.user_id),
+                "device_id": str(conn.device_id),
+                "connection_id": str(conn.id),
+                "revision_id": str(revision.id),
+                "protocol": conn.protocol.value,
+                "variant": conn.variant.value,
+                "config": revision.effective_config_json,
+            }
+            if wg_peer is not None:
+                payload.update(
+                    {
+                        "peer_public_key": wg_peer.peer_public_key,
+                        "preshared_key": wg_peer.preshared_key,
+                        "peer_ip": (revision.effective_config_json or {}).get("assigned_ip"),
+                    }
+                )
             created.append(
                 await create_outbox_event(
                     session,
                     event_type=event_type,
                     aggregate_id=str(conn.id),
-                    payload={
-                        "user_id": str(conn.user_id),
-                        "device_id": str(conn.device_id),
-                        "connection_id": str(conn.id),
-                        "revision_id": str(revision.id),
-                        "protocol": conn.protocol.value,
-                        "variant": conn.variant.value,
-                        "config": revision.effective_config_json,
-                    },
+                    payload=payload,
                     role_target=role,
                     idempotency_suffix=f"reissue:{revision.id}:{role.value}",
                 )

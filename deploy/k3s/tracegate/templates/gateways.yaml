@@ -77,6 +77,34 @@ spec:
           hostPath:
             path: {{ .Values.gateway.vpsT.agentDataHostPath | quote }}
             type: DirectoryOrCreate
+      initContainers:
+        - name: seed-runtime
+          image: busybox:1.36
+          imagePullPolicy: IfNotPresent
+          command:
+            - sh
+            - -ec
+            - |
+              set -eu
+
+              mkdir -p /agent-data/base/xray /agent-data/base/hysteria /agent-data/base/wireguard
+              cp /base/xray/config.json /agent-data/base/xray/config.json
+              cp /base/hysteria/config.yaml /agent-data/base/hysteria/config.yaml
+              cp /base/wireguard/wg0.conf /agent-data/base/wireguard/wg0.conf
+
+              mkdir -p /agent-data/runtime/xray /agent-data/runtime/hysteria /agent-data/runtime/wireguard
+              [ -f /agent-data/runtime/xray/config.json ] || cp /agent-data/base/xray/config.json /agent-data/runtime/xray/config.json
+              [ -f /agent-data/runtime/hysteria/config.yaml ] || cp /agent-data/base/hysteria/config.yaml /agent-data/runtime/hysteria/config.yaml
+              [ -f /agent-data/runtime/wireguard/wg0.conf ] || cp /agent-data/base/wireguard/wg0.conf /agent-data/runtime/wireguard/wg0.conf
+          volumeMounts:
+            - name: agent-data
+              mountPath: /agent-data
+            - name: xray-config
+              mountPath: /base/xray
+            - name: hysteria-config
+              mountPath: /base/hysteria
+            - name: wg-config
+              mountPath: /base/wireguard
       containers:
         - name: xray
           image: {{ .Values.gateway.vpsT.xray.image }}
@@ -87,9 +115,9 @@ spec:
               protocol: TCP
               name: vless-tcp
           volumeMounts:
-            - name: xray-config
-              mountPath: /etc/xray/config.json
-              subPath: config.json
+            - name: agent-data
+              mountPath: /etc/xray
+              subPath: runtime/xray
           securityContext:
             runAsUser: 0
             runAsGroup: 0
@@ -102,12 +130,11 @@ spec:
               protocol: UDP
               name: hysteria-udp
           volumeMounts:
-            - name: hysteria-config
-              mountPath: /etc/hysteria/config.yaml
-              subPath: config.yaml
             - name: decoy
-              mountPath: /var/www/decoy/index.html
-              subPath: index.html
+              mountPath: /var/www/decoy
+            - name: agent-data
+              mountPath: /etc/hysteria
+              subPath: runtime/hysteria
             {{- if and .Values.gateway.vpsT.hysteriaTls.crt .Values.gateway.vpsT.hysteriaTls.key }}
             - name: hysteria-tls
               mountPath: /etc/hysteria/tls
@@ -131,9 +158,9 @@ spec:
               protocol: UDP
               name: wireguard-udp
           volumeMounts:
-            - name: wg-config
-              mountPath: /etc/wireguard/wg0.conf
-              subPath: wg0.conf
+            - name: agent-data
+              mountPath: /etc/wireguard
+              subPath: runtime/wireguard
           securityContext:
             privileged: true
             capabilities:
@@ -186,11 +213,9 @@ spec:
           volumeMounts:
             - name: agent-data
               mountPath: {{ .Values.gateway.vpsT.agent.dataRoot }}
-            # Keep WG config visible for reload commands and troubleshooting.
-            - name: wg-config
-              mountPath: /etc/wireguard/wg0.conf
-              subPath: wg0.conf
-              readOnly: true
+            - name: agent-data
+              mountPath: /etc/wireguard
+              subPath: runtime/wireguard
           securityContext:
             # Needs NET_ADMIN to query/reload WireGuard inside the shared pod netns.
             capabilities:
@@ -270,14 +295,21 @@ spec:
       affinity:
         {{- toYaml .Values.gateway.vpsE.affinity | nindent 8 }}
       volumes:
+        {{- if eq .Values.gateway.vpsE.mode "xray" }}
         - name: xray-config
           configMap:
             name: {{ include "tracegate.fullname" . }}-vps-e-xray
+        {{- else }}
+        - name: haproxy-config
+          configMap:
+            name: {{ include "tracegate.fullname" . }}-vps-e-haproxy
+        {{- end }}
         - name: agent-data
           hostPath:
             path: {{ .Values.gateway.vpsE.agentDataHostPath | quote }}
             type: DirectoryOrCreate
       containers:
+        {{- if eq .Values.gateway.vpsE.mode "xray" }}
         - name: xray
           image: {{ .Values.gateway.vpsE.xray.image }}
           imagePullPolicy: {{ .Values.gateway.vpsE.xray.pullPolicy }}
@@ -293,6 +325,22 @@ spec:
           securityContext:
             runAsUser: 0
             runAsGroup: 0
+        {{- else }}
+        - name: haproxy
+          image: {{ .Values.gateway.vpsE.tcpForward.image }}
+          imagePullPolicy: {{ .Values.gateway.vpsE.tcpForward.pullPolicy }}
+          ports:
+            - containerPort: 443
+              protocol: TCP
+              name: entry-tcp
+          volumeMounts:
+            - name: haproxy-config
+              mountPath: /usr/local/etc/haproxy/haproxy.cfg
+              subPath: haproxy.cfg
+          securityContext:
+            runAsUser: 0
+            runAsGroup: 0
+        {{- end }}
         {{- if .Values.gateway.vpsE.agent.enabled }}
         - name: agent
           image: {{ include "tracegate.image" .Values.gateway.agentImage }}

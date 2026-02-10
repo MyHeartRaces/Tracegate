@@ -4,7 +4,7 @@ import uvicorn
 from fastapi import FastAPI
 from sqlalchemy import select
 
-from tracegate.api.routers import connections, devices, dispatch, health, nodes, revisions, sni, users
+from tracegate.api.routers import auth, connections, devices, dispatch, health, nodes, revisions, sni, users
 from tracegate.db import Base, engine, AsyncSessionLocal
 from tracegate.models import SniDomain
 from tracegate.services.ipam import ensure_pool_exists
@@ -31,6 +31,7 @@ async def lifespan(_: FastAPI):
 app = FastAPI(title="Tracegate Control Plane", version="0.1.0", lifespan=lifespan)
 
 app.include_router(health.router)
+app.include_router(auth.router)
 app.include_router(sni.router)
 app.include_router(users.router)
 app.include_router(devices.router)

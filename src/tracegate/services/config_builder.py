@@ -11,6 +11,9 @@ from tracegate.models import Connection, Device, SniDomain, User
 class EndpointSet:
     vps_t_host: str
     vps_e_host: str
+    reality_public_key: str = ""
+    reality_short_id: str = ""
+    wireguard_server_public_key: str = ""
 
 
 def build_effective_config(
@@ -33,9 +36,14 @@ def build_effective_config(
             "protocol": "vless",
             "transport": "reality",
             "port": 443,
-            "uuid": str(user.id),
+            # Use connection-scoped UUID so one user can have multiple VLESS connections safely.
+            "uuid": str(connection.id),
             "device_id": str(device.id),
             "sni": selected_sni.fqdn,
+            "reality": {
+                "public_key": endpoints.reality_public_key or "REPLACE_REALITY_PUBLIC_KEY",
+                "short_id": endpoints.reality_short_id or "REPLACE_REALITY_SHORT_ID",
+            },
             "local_socks": {
                 "enabled": True,
                 "listen": f"127.0.0.1:{overrides.get('local_socks_port', 1080)}",
@@ -60,17 +68,13 @@ def build_effective_config(
             }
 
         if connection.mode == ConnectionMode.CHAIN and connection.variant == ConnectionVariant.B2:
-            # SNI must be identical for both legs according to v0.1 contract.
+            # v0.1 contract: client SNI choice is preserved end-to-end.
+            # Implementation may be an L4 forwarder on VPS-E, so the REALITY handshake terminates on VPS-T.
             return {
                 **common,
                 "profile": "B2-stealth-chain",
                 "server": endpoints.vps_e_host,
-                "chain": {
-                    "hop_server": endpoints.vps_t_host,
-                    "hop_port": 443,
-                    "hop_sni": selected_sni.fqdn,
-                    "entry_sni": selected_sni.fqdn,
-                },
+                "chain": {"type": "tcp_forward", "upstream": endpoints.vps_t_host, "port": 443},
                 "design_constraints": {
                     "fixed_port_tcp": 443,
                     "single_sni_for_all_legs": True,
@@ -126,6 +130,7 @@ def build_effective_config(
                 "mtu": overrides.get("mtu", 1420),
             },
             "peer": {
+                "public_key": endpoints.wireguard_server_public_key or "REPLACE_WG_SERVER_PUBLIC_KEY",
                 "allowed_ips": overrides.get("allowed_ips", ["0.0.0.0/0"]),
                 "persistent_keepalive": overrides.get("persistent_keepalive", 25),
             },

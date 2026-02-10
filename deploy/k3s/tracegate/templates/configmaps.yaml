@@ -46,6 +46,33 @@ data:
 
 {{- if and .Values.gateway.enabled .Values.gateway.vpsE.enabled }}
 ---
+{{- if eq .Values.gateway.vpsE.mode "tcpForward" }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "tracegate.fullname" . }}-vps-e-haproxy
+  namespace: {{ include "tracegate.namespace" . }}
+  labels:
+    {{- include "tracegate.labels" . | nindent 4 }}
+data:
+  haproxy.cfg: |
+    global
+      maxconn 1000
+
+    defaults
+      mode tcp
+      option tcplog
+      timeout connect 5s
+      timeout client  2m
+      timeout server  2m
+
+    frontend fe_443
+      bind :443
+      default_backend be_transit
+
+    backend be_transit
+      server transit {{ .Values.gateway.vpsE.tcpForward.upstreamHost }}:{{ .Values.gateway.vpsE.tcpForward.upstreamPort }}
+{{- else }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -56,4 +83,5 @@ metadata:
 data:
   config.json: |
 {{ .Values.gateway.vpsE.xray.config | nindent 4 }}
+{{- end }}
 {{- end }}

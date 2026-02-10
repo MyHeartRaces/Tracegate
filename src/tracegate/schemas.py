@@ -159,6 +159,23 @@ class OutboxDeliveryRead(BaseModel):
     attempts: int
 
 
+class ApiTokenCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=128)
+
+
+class ApiTokenRead(BaseModel):
+    id: UUID
+    name: str
+    status: RecordStatus
+    created_at: datetime
+    last_used_at: datetime | None
+
+
+class ApiTokenCreated(BaseModel):
+    token: str
+    token_meta: ApiTokenRead
+
+
 class ReapplyBaseRequest(BaseModel):
     role: NodeRole | None = None
 

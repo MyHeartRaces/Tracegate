@@ -9,6 +9,7 @@ from tracegate.enums import OutboxEventType
 from tracegate.settings import Settings
 
 from .system import apply_files, run_command
+from .reconcile import reconcile_all
 
 
 class HandlerError(RuntimeError):
@@ -63,7 +64,16 @@ def handle_upsert_user(settings: Settings, payload: dict[str, Any]) -> str:
     target = user_root / f"connection-{payload['connection_id']}.json"
     target.write_text(json.dumps(payload, ensure_ascii=True, indent=2), encoding="utf-8")
 
-    _run_reload_commands(settings, _proxy_reload_commands(settings))
+    changed = set(reconcile_all(settings))
+    if changed:
+        cmds: list[str] = []
+        if "xray" in changed:
+            cmds.append(settings.agent_reload_xray_cmd)
+        if "hysteria" in changed:
+            cmds.append(settings.agent_reload_hysteria_cmd)
+        _run_reload_commands(settings, cmds)
+    else:
+        _run_reload_commands(settings, _proxy_reload_commands(settings))
 
     return f"upserted user payload for user={payload['user_id']} connection={payload['connection_id']}"
 
@@ -77,14 +87,23 @@ def handle_revoke_user(settings: Settings, payload: dict[str, Any]) -> str:
     if path.exists():
         shutil.rmtree(path)
 
-    _run_reload_commands(settings, _proxy_reload_commands(settings))
+    changed = set(reconcile_all(settings))
+    if changed:
+        cmds: list[str] = []
+        if "xray" in changed:
+            cmds.append(settings.agent_reload_xray_cmd)
+        if "hysteria" in changed:
+            cmds.append(settings.agent_reload_hysteria_cmd)
+        _run_reload_commands(settings, cmds)
+    else:
+        _run_reload_commands(settings, _proxy_reload_commands(settings))
 
     return f"revoked user artifacts for {user_id}"
 
 
 def handle_wg_peer_upsert(settings: Settings, payload: dict[str, Any]) -> str:
-    if "config" not in payload:
-        raise HandlerError("missing config")
+    if "peer_public_key" not in payload or "peer_ip" not in payload:
+        raise HandlerError("missing wireguard peer fields")
 
     peer_key = payload.get("device_id") or payload.get("connection_id") or payload.get("revision_id")
     if not peer_key:
@@ -95,7 +114,9 @@ def handle_wg_peer_upsert(settings: Settings, payload: dict[str, Any]) -> str:
     target = root / f"peer-{peer_key}.json"
     target.write_text(json.dumps(payload, ensure_ascii=True, indent=2), encoding="utf-8")
 
-    _run_reload_commands(settings, [settings.agent_reload_wg_cmd])
+    changed = set(reconcile_all(settings))
+    if "wireguard" in changed:
+        _run_reload_commands(settings, [settings.agent_reload_wg_cmd])
     return f"wg peer upserted: {peer_key}"
 
 
@@ -108,7 +129,9 @@ def handle_wg_peer_remove(settings: Settings, payload: dict[str, Any]) -> str:
     if target.exists():
         target.unlink()
 
-    _run_reload_commands(settings, [settings.agent_reload_wg_cmd])
+    changed = set(reconcile_all(settings))
+    if "wireguard" in changed:
+        _run_reload_commands(settings, [settings.agent_reload_wg_cmd])
     return f"wg peer removed: {peer_key}"
 
 

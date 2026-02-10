@@ -1,3 +1,3 @@
-from . import connections, devices, dispatch, health, nodes, revisions, sni, users
+from . import auth, connections, devices, dispatch, health, nodes, revisions, sni, users
 
-__all__ = ["connections", "devices", "dispatch", "health", "nodes", "revisions", "sni", "users"]
+__all__ = ["auth", "connections", "devices", "dispatch", "health", "nodes", "revisions", "sni", "users"]

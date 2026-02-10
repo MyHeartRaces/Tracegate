@@ -215,3 +215,16 @@ class OutboxDelivery(Base):
     node: Mapped[NodeEndpoint] = relationship()
 
     __table_args__ = (UniqueConstraint("outbox_event_id", "node_id", name="uq_outbox_delivery_event_node"),)
+
+
+class ApiToken(Base):
+    __tablename__ = "api_token"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    name: Mapped[str] = mapped_column(String(128), unique=True, nullable=False)
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True, nullable=False, index=True)
+    status: Mapped[RecordStatus] = mapped_column(
+        Enum(RecordStatus, name="api_token_status"), default=RecordStatus.ACTIVE, nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+    last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

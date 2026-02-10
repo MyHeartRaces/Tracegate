@@ -43,11 +43,18 @@ def test_chain_sni_same_on_both_legs() -> None:
         device=device,
         connection=conn,
         selected_sni=sni,
-        endpoints=EndpointSet(vps_t_host="vps-t.example.com", vps_e_host="vps-e.example.com"),
+        endpoints=EndpointSet(
+            vps_t_host="vps-t.example.com",
+            vps_e_host="vps-e.example.com",
+            reality_public_key="pub",
+            reality_short_id="abcd1234",
+        ),
     )
 
-    assert cfg["chain"]["entry_sni"] == "google.com"
-    assert cfg["chain"]["hop_sni"] == "google.com"
+    assert cfg["sni"] == "google.com"
+    assert cfg["server"] == "vps-e.example.com"
+    assert cfg["chain"]["type"] == "tcp_forward"
+    assert cfg["chain"]["upstream"] == "vps-t.example.com"
 
 
 def test_wireguard_uses_fixed_port_51820() -> None:
@@ -70,7 +77,7 @@ def test_wireguard_uses_fixed_port_51820() -> None:
         device=device,
         connection=conn,
         selected_sni=None,
-        endpoints=EndpointSet(vps_t_host="vps-t.example.com", vps_e_host="vps-e.example.com"),
+        endpoints=EndpointSet(vps_t_host="vps-t.example.com", vps_e_host="vps-e.example.com", wireguard_server_public_key="wgpub"),
     )
 
     assert cfg["endpoint"].endswith(":51820")

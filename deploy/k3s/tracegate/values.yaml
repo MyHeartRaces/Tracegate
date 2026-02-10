@@ -40,6 +40,9 @@ controlPlane:
     logLevel: INFO
     defaultVpsTHost: vps-t.example.com
     defaultVpsEHost: vps-e.example.com
+    realityPublicKey: ""
+    realityShortId: ""
+    wireguardServerPublicKey: ""
 
   nodeSelector: {}
   tolerations: []
@@ -155,9 +158,11 @@ gateway:
       statsSecret: CHANGE_ME_HYSTERIA_STATS
       wgInterface: wg0
       wgExpectedPort: 51820
-      reloadXrayCmd: pkill -HUP xray || true
-      reloadHysteriaCmd: pkill -HUP hysteria || true
-      reloadWgCmd: wg syncconf wg0 /etc/wireguard/wg0.conf || true
+      # In k8s we restart the sidecar processes to pick up config changes.
+      reloadXrayCmd: pkill -TERM xray || true
+      reloadHysteriaCmd: pkill -TERM hysteria || true
+      # Apply wg-quick config by stripping it to wg format and syncing live interface.
+      reloadWgCmd: wg-quick strip /etc/wireguard/wg0.conf | wg syncconf wg0 /dev/fd/0 || true
 
     agentDataHostPath: /var/lib/tracegate-agent
 
@@ -173,6 +178,15 @@ gateway:
 
     hostNetwork: true
     shareProcessNamespace: true
+
+    # "tcpForward" is the default v0.1 chain implementation: L4 forward :443 -> VPS-T:443.
+    # It preserves the client's REALITY SNI end-to-end and avoids any user mapping on VPS-E.
+    mode: tcpForward
+    tcpForward:
+      image: haproxy:2.9-alpine
+      pullPolicy: IfNotPresent
+      upstreamHost: vps-t.example.com
+      upstreamPort: 443
 
     xray:
       image: ghcr.io/xtls/xray-core:latest
