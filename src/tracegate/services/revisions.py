@@ -110,6 +110,57 @@ def _event_type_for_protocol(protocol: ConnectionProtocol) -> OutboxEventType:
     return OutboxEventType.UPSERT_USER
 
 
+async def _emit_apply_for_revision(
+    session: AsyncSession,
+    *,
+    connection: Connection,
+    revision: ConnectionRevision,
+    idempotency_prefix: str,
+) -> None:
+    user = await _load_user(session, connection.user_id)
+    event_type = _event_type_for_protocol(connection.protocol)
+
+    payload: dict = {
+        "user_id": str(user.id),
+        "device_id": str(connection.device_id),
+        "connection_id": str(connection.id),
+        "revision_id": str(revision.id),
+        "protocol": connection.protocol.value,
+        "variant": connection.variant.value,
+    }
+
+    if connection.protocol == ConnectionProtocol.WIREGUARD:
+        # Do NOT send any client private keys to nodes; the node only needs peer public key + assigned IP.
+        cfg = revision.effective_config_json or {}
+        peer_pub = (cfg.get("device_public_key") or "").strip()
+        peer_ip = (cfg.get("assigned_ip") or "").strip()
+        if not peer_pub or not peer_ip:
+            raise RevisionError("wireguard revision is missing peer_public_key/assigned_ip")
+        payload.update(
+            {
+                "peer_public_key": peer_pub,
+                "preshared_key": None,
+                "peer_ip": peer_ip,
+            }
+        )
+    else:
+        # vless/hysteria: nodes need the full config to reconcile xray/hysteria auth/users.
+        cfg = revision.effective_config_json or {}
+        payload["config"] = cfg
+        if connection.protocol == ConnectionProtocol.VLESS_REALITY:
+            payload["camouflage_sni"] = cfg.get("sni")
+
+    for role in _slot_target_role(connection.variant):
+        await create_outbox_event(
+            session,
+            event_type=event_type,
+            aggregate_id=str(connection.id),
+            payload=payload,
+            role_target=role,
+            idempotency_suffix=f"{idempotency_prefix}:{revision.id}:{role.value}",
+        )
+
+
 async def _compact_slots(connection: Connection) -> None:
     active = [rev for rev in connection.revisions if rev.status == RecordStatus.ACTIVE]
     active.sort(key=lambda r: (r.slot, r.created_at))
@@ -235,8 +286,10 @@ async def create_revision(
         if event_type == OutboxEventType.WG_PEER_UPSERT:
             if not wg_lease or not wg_public_key:
                 raise RevisionError("wireguard peer state is missing")
+            # Never send the client private key to nodes. Nodes only need peer pubkey + assigned IP.
             wg_payload = {
-                **payload,
+                k: v for (k, v) in payload.items() if k != "config"
+            } | {
                 "peer_public_key": wg_public_key,
                 "preshared_key": None,
                 "peer_ip": wg_lease.ip,
@@ -283,6 +336,12 @@ async def activate_revision(session: AsyncSession, revision_id: UUID) -> Connect
             rev.slot = idx
 
     await session.flush()
+    await _emit_apply_for_revision(
+        session,
+        connection=connection,
+        revision=revision,
+        idempotency_prefix="activate",
+    )
     return revision
 
 
@@ -297,26 +356,37 @@ async def revoke_revision(session: AsyncSession, revision_id: UUID) -> Connectio
     await _compact_slots(connection)
     await session.flush()
 
-    payload = {
-        "connection_id": str(connection.id),
-        "revision_id": str(revision.id),
-        "user_id": str(connection.user_id),
-        "device_id": str(connection.device_id),
-    }
-    event_type = (
-        OutboxEventType.WG_PEER_REMOVE
-        if connection.protocol == ConnectionProtocol.WIREGUARD
-        else OutboxEventType.REVOKE_CONNECTION
-    )
-    for role in [NodeRole.VPS_T]:
-        await create_outbox_event(
+    active_now = [r for r in connection.revisions if r.status == RecordStatus.ACTIVE]
+    active_slot0 = next((r for r in active_now if r.slot == 0), None)
+    if active_slot0 is not None:
+        # Keep the connection active by re-applying the current slot0 revision to nodes.
+        await _emit_apply_for_revision(
             session,
-            event_type=event_type,
-            aggregate_id=str(connection.id),
-            payload=payload,
-            role_target=role,
-            idempotency_suffix=f"{revision.id}:{role.value}",
+            connection=connection,
+            revision=active_slot0,
+            idempotency_prefix=f"revoke-promote:{revision.id}",
         )
+    else:
+        payload = {
+            "connection_id": str(connection.id),
+            "revision_id": str(revision.id),
+            "user_id": str(connection.user_id),
+            "device_id": str(connection.device_id),
+        }
+        event_type = (
+            OutboxEventType.WG_PEER_REMOVE
+            if connection.protocol == ConnectionProtocol.WIREGUARD
+            else OutboxEventType.REVOKE_CONNECTION
+        )
+        for role in [NodeRole.VPS_T]:
+            await create_outbox_event(
+                session,
+                event_type=event_type,
+                aggregate_id=str(connection.id),
+                payload=payload,
+                role_target=role,
+                idempotency_suffix=f"revoke-final:{revision.id}:{role.value}",
+            )
 
     await session.flush()
     return revision

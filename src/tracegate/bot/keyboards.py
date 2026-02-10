@@ -13,12 +13,15 @@ PROVIDER_CHOICES: list[tuple[str, str]] = [
     ("Без тега", "other"),
 ]
 
+SNI_PAGE_SIZE = 20
+
 
 def main_menu_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text="Устройства", callback_data="devices")],
             [InlineKeyboardButton(text="Добавить устройство", callback_data="add_device")],
+            [InlineKeyboardButton(text="Каталог SNI", callback_data="sni_catalog")],
         ]
     )
 
@@ -93,6 +96,14 @@ def provider_keyboard(context: str, target_id: str) -> InlineKeyboardMarkup:
     rows.append([InlineKeyboardButton(text="Отмена", callback_data="devices")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
+def provider_keyboard_with_cancel(context: str, target_id: str, *, cancel_callback_data: str) -> InlineKeyboardMarkup:
+    rows = [
+        [InlineKeyboardButton(text=label, callback_data=f"prov:{context}:{target_id}:{code}")]
+        for (label, code) in PROVIDER_CHOICES
+    ]
+    rows.append([InlineKeyboardButton(text="Отмена", callback_data=cancel_callback_data)])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
 
 def revisions_keyboard(connection_id: str, revisions: list[dict], is_vless: bool) -> InlineKeyboardMarkup:
     rows: list[list[InlineKeyboardButton]] = []
@@ -108,4 +119,101 @@ def revisions_keyboard(connection_id: str, revisions: list[dict], is_vless: bool
             ]
         )
     rows.append([InlineKeyboardButton(text="Обновить", callback_data=f"revs:{connection_id}")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def sni_page_keyboard_new(
+    *,
+    spec: str,
+    device_id: str,
+    provider: str,
+    page: int,
+    page_count: int,
+    sni_rows_page: list[dict],
+) -> InlineKeyboardMarkup:
+    rows: list[list[InlineKeyboardButton]] = []
+    for row in sni_rows_page:
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    text=row["fqdn"],
+                    callback_data=f"sni:{spec}:{device_id}:{row['id']}",
+                )
+            ]
+        )
+
+    nav: list[InlineKeyboardButton] = []
+    if page > 0:
+        nav.append(
+            InlineKeyboardButton(
+                text="<<",
+                callback_data=f"snipage:new:{spec}:{device_id}:{provider}:{page-1}",
+            )
+        )
+    nav.append(InlineKeyboardButton(text=f"{page+1}/{page_count}", callback_data="noop"))
+    if page + 1 < page_count:
+        nav.append(
+            InlineKeyboardButton(
+                text=">>",
+                callback_data=f"snipage:new:{spec}:{device_id}:{provider}:{page+1}",
+            )
+        )
+    rows.append(nav)
+    rows.append([InlineKeyboardButton(text="Провайдеры", callback_data=f"new:{spec}:{device_id}")])
+    rows.append([InlineKeyboardButton(text="Отмена", callback_data=f"device:{device_id}")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def sni_page_keyboard_issue(
+    *,
+    connection_id: str,
+    provider: str,
+    page: int,
+    page_count: int,
+    sni_rows_page: list[dict],
+) -> InlineKeyboardMarkup:
+    rows: list[list[InlineKeyboardButton]] = []
+    for row in sni_rows_page:
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    text=row["fqdn"],
+                    callback_data=f"issuesni:{connection_id}:{row['id']}",
+                )
+            ]
+        )
+
+    nav: list[InlineKeyboardButton] = []
+    if page > 0:
+        nav.append(
+            InlineKeyboardButton(
+                text="<<",
+                callback_data=f"snipage:issue:{connection_id}:{provider}:{page-1}",
+            )
+        )
+    nav.append(InlineKeyboardButton(text=f"{page+1}/{page_count}", callback_data="noop"))
+    if page + 1 < page_count:
+        nav.append(
+            InlineKeyboardButton(
+                text=">>",
+                callback_data=f"snipage:issue:{connection_id}:{provider}:{page+1}",
+            )
+        )
+    rows.append(nav)
+    rows.append([InlineKeyboardButton(text="Провайдеры", callback_data=f"issuepick:{connection_id}")])
+    rows.append([InlineKeyboardButton(text="Отмена", callback_data=f"revs:{connection_id}")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def sni_catalog_nav_keyboard(*, provider: str, page: int, page_count: int) -> InlineKeyboardMarkup:
+    rows: list[list[InlineKeyboardButton]] = []
+    nav: list[InlineKeyboardButton] = []
+    if page > 0:
+        nav.append(InlineKeyboardButton(text="<<", callback_data=f"cat:{provider}:{page-1}"))
+    nav.append(InlineKeyboardButton(text=f"{page+1}/{page_count}", callback_data="noop"))
+    if page + 1 < page_count:
+        nav.append(InlineKeyboardButton(text=">>", callback_data=f"cat:{provider}:{page+1}"))
+    rows.append(nav)
+    rows.append([InlineKeyboardButton(text="Провайдеры", callback_data="sni_catalog")])
+    rows.append([InlineKeyboardButton(text="Меню", callback_data="menu")])
     return InlineKeyboardMarkup(inline_keyboard=rows)

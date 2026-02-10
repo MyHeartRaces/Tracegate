@@ -16,13 +16,15 @@ from aiohttp import web
 
 from tracegate.bot.client import ApiClientError, TracegateApiClient
 from tracegate.bot.keyboards import (
+    SNI_PAGE_SIZE,
     device_actions_keyboard,
     devices_keyboard,
-    issue_sni_keyboard,
     main_menu_keyboard,
-    provider_keyboard,
+    provider_keyboard_with_cancel,
     revisions_keyboard,
-    sni_keyboard,
+    sni_catalog_nav_keyboard,
+    sni_page_keyboard_issue,
+    sni_page_keyboard_new,
 )
 from tracegate.client_export.v2rayn import V2RayNExportError, export_v2rayn
 from tracegate.enums import ConnectionMode, ConnectionProtocol, ConnectionVariant
@@ -64,6 +66,13 @@ async def render_revisions_page(connection_id: str) -> tuple[str, object]:
 
     is_vless = connection["protocol"] == ConnectionProtocol.VLESS_REALITY.value
     return text, revisions_keyboard(connection_id, revisions, is_vless)
+
+
+@router.callback_query(F.data == "noop")
+async def noop(callback: CallbackQuery) -> None:
+    # Used for non-clickable pagination labels.
+    await callback.answer()
+
 
 def _format_v2rayn_instructions(uri: str) -> str:
     # Keep it short: Telegram message length is limited and users mainly want the share link.
@@ -181,7 +190,11 @@ async def new_connection(callback: CallbackQuery) -> None:
         if protocol == ConnectionProtocol.VLESS_REALITY:
             await callback.message.edit_text(
                 "Выбери провайдера (для фильтра SNI):",
-                reply_markup=provider_keyboard("new", f"{spec}:{device_id}"),
+                reply_markup=provider_keyboard_with_cancel(
+                    "new",
+                    f"{spec}:{device_id}",
+                    cancel_callback_data=f"device:{device_id}",
+                ),
             )
             await callback.answer()
             return
@@ -235,6 +248,116 @@ async def new_vless_with_sni(callback: CallbackQuery) -> None:
     await callback.answer()
 
 
+def _clip_note(note: str | None, *, max_len: int = 80) -> str:
+    if not note:
+        return ""
+    s = " ".join(note.split()).strip()
+    if len(s) <= max_len:
+        return s
+    return s[: max_len - 3].rstrip() + "..."
+
+
+async def _render_sni_picker_new(*, spec: str, device_id: str, provider: str, page: int) -> tuple[str, object]:
+    sni_rows = [
+        row
+        for row in await api.list_sni_filtered(
+            provider=None if provider == "all" else provider,
+            purpose="vless_reality",
+        )
+        if row["enabled"]
+    ]
+    if not sni_rows:
+        return (
+            "Нет доступных SNI в этой категории. Выберите другой провайдер:",
+            provider_keyboard_with_cancel("new", f"{spec}:{device_id}", cancel_callback_data=f"device:{device_id}"),
+        )
+
+    total = len(sni_rows)
+    page_count = max(1, (total + SNI_PAGE_SIZE - 1) // SNI_PAGE_SIZE)
+    page = max(0, min(page, page_count - 1))
+    start = page * SNI_PAGE_SIZE
+    end = start + SNI_PAGE_SIZE
+    page_rows = sni_rows[start:end]
+
+    text = f"Выберите SNI для VLESS/REALITY (provider={provider}, {page+1}/{page_count}, total={total}):"
+    keyboard = sni_page_keyboard_new(
+        spec=spec,
+        device_id=device_id,
+        provider=provider,
+        page=page,
+        page_count=page_count,
+        sni_rows_page=page_rows,
+    )
+    return text, keyboard
+
+
+async def _render_sni_picker_issue(*, connection_id: str, provider: str, page: int) -> tuple[str, object]:
+    sni_rows = [
+        row
+        for row in await api.list_sni_filtered(
+            provider=None if provider == "all" else provider,
+            purpose="vless_reality",
+        )
+        if row["enabled"]
+    ]
+    if not sni_rows:
+        return (
+            "Нет доступных SNI в этой категории. Выберите другой провайдер:",
+            provider_keyboard_with_cancel("issue", connection_id, cancel_callback_data=f"revs:{connection_id}"),
+        )
+
+    total = len(sni_rows)
+    page_count = max(1, (total + SNI_PAGE_SIZE - 1) // SNI_PAGE_SIZE)
+    page = max(0, min(page, page_count - 1))
+    start = page * SNI_PAGE_SIZE
+    end = start + SNI_PAGE_SIZE
+    page_rows = sni_rows[start:end]
+
+    text = f"Выберите SNI для новой ревизии (provider={provider}, {page+1}/{page_count}, total={total}):"
+    keyboard = sni_page_keyboard_issue(
+        connection_id=connection_id,
+        provider=provider,
+        page=page,
+        page_count=page_count,
+        sni_rows_page=page_rows,
+    )
+    return text, keyboard
+
+
+async def _render_sni_catalog(*, provider: str, page: int) -> tuple[str, object]:
+    rows = [
+        row
+        for row in await api.list_sni_filtered(
+            provider=None if provider == "all" else provider,
+            purpose=None,
+        )
+        if row["enabled"]
+    ]
+    total = len(rows)
+    if total == 0:
+        return "Каталог пуст.", main_menu_keyboard()
+
+    page_size = 20
+    page_count = max(1, (total + page_size - 1) // page_size)
+    page = max(0, min(page, page_count - 1))
+    start = page * page_size
+    end = start + page_size
+    page_rows = rows[start:end]
+
+    lines: list[str] = [f"Каталог SNI (provider={provider}, {page+1}/{page_count}, total={total})"]
+    for idx, row in enumerate(page_rows, start=1 + start):
+        note = _clip_note(row.get("note"))
+        fqdn = row.get("fqdn") or ""
+        if note:
+            lines.append(f"{idx}. {fqdn} | {note}")
+        else:
+            lines.append(f"{idx}. {fqdn}")
+
+    text = "\n".join(lines)
+    keyboard = sni_catalog_nav_keyboard(provider=provider, page=page, page_count=page_count)
+    return text, keyboard
+
+
 @router.callback_query(F.data.startswith("prov:"))
 async def pick_provider(callback: CallbackQuery) -> None:
     # Format: prov:<context>:<target_id...>:<provider>
@@ -254,43 +377,77 @@ async def pick_provider(callback: CallbackQuery) -> None:
             if ":" not in target_id:
                 raise ValueError("invalid target id")
             spec, device_id = target_id.split(":", 1)
-            sni_rows = [
-                row
-                for row in await api.list_sni_filtered(
-                    provider=None if provider == "all" else provider,
-                    purpose="vless_reality",
-                )
-                if row["enabled"]
-            ]
-            if not sni_rows:
-                await callback.message.answer("Нет доступных SNI в этой категории")
-            else:
-                await callback.message.edit_text(
-                    "Выберите SNI для VLESS/REALITY:",
-                    reply_markup=sni_keyboard(spec, device_id, sni_rows),
-                )
+            text, keyboard = await _render_sni_picker_new(spec=spec, device_id=device_id, provider=provider, page=0)
+            await callback.message.edit_text(text, reply_markup=keyboard)
         elif context == "issue":
             connection_id = target_id
-            sni_rows = [
-                row
-                for row in await api.list_sni_filtered(
-                    provider=None if provider == "all" else provider,
-                    purpose="vless_reality",
-                )
-                if row["enabled"]
-            ]
-            if not sni_rows:
-                await callback.message.answer("Нет доступных SNI в этой категории")
-            else:
-                await callback.message.edit_text(
-                    "Выберите SNI для новой ревизии:",
-                    reply_markup=issue_sni_keyboard(connection_id, sni_rows),
-                )
+            text, keyboard = await _render_sni_picker_issue(connection_id=connection_id, provider=provider, page=0)
+            await callback.message.edit_text(text, reply_markup=keyboard)
+        elif context == "catalog":
+            text, keyboard = await _render_sni_catalog(provider=provider, page=0)
+            await callback.message.edit_text(text, reply_markup=keyboard)
         else:
             await callback.message.answer("Неизвестный контекст выбора провайдера")
     except Exception as exc:  # noqa: BLE001
         await callback.message.answer(f"Ошибка: {exc}")
 
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("snipage:"))
+async def sni_page(callback: CallbackQuery) -> None:
+    parts = callback.data.split(":")
+    if len(parts) < 2:
+        await callback.answer()
+        return
+
+    context = parts[1]
+    try:
+        if context == "new":
+            # snipage:new:<spec>:<device_id>:<provider>:<page>
+            if len(parts) != 6:
+                raise ValueError("invalid snipage payload")
+            spec = parts[2]
+            device_id = parts[3]
+            provider = parts[4]
+            page = int(parts[5])
+            text, keyboard = await _render_sni_picker_new(spec=spec, device_id=device_id, provider=provider, page=page)
+            await callback.message.edit_text(text, reply_markup=keyboard)
+        elif context == "issue":
+            # snipage:issue:<connection_id>:<provider>:<page>
+            if len(parts) != 5:
+                raise ValueError("invalid snipage payload")
+            connection_id = parts[2]
+            provider = parts[3]
+            page = int(parts[4])
+            text, keyboard = await _render_sni_picker_issue(connection_id=connection_id, provider=provider, page=page)
+            await callback.message.edit_text(text, reply_markup=keyboard)
+        else:
+            raise ValueError("unknown snipage context")
+    except Exception as exc:  # noqa: BLE001
+        await callback.message.answer(f"Ошибка: {exc}")
+    finally:
+        await callback.answer()
+
+
+@router.callback_query(F.data == "sni_catalog")
+async def sni_catalog(callback: CallbackQuery) -> None:
+    await callback.message.edit_text(
+        "Каталог SNI: выбери провайдера (для фильтра):",
+        reply_markup=provider_keyboard_with_cancel("catalog", "catalog", cancel_callback_data="menu"),
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("cat:"))
+async def sni_catalog_page(callback: CallbackQuery) -> None:
+    _, provider, page_raw = callback.data.split(":", 2)
+    try:
+        page = int(page_raw)
+        text, keyboard = await _render_sni_catalog(provider=provider, page=page)
+        await callback.message.edit_text(text, reply_markup=keyboard)
+    except Exception as exc:  # noqa: BLE001
+        await callback.message.answer(f"Ошибка: {exc}")
     await callback.answer()
 
 
@@ -307,7 +464,7 @@ async def issue_pick_sni(callback: CallbackQuery) -> None:
     _, connection_id = callback.data.split(":", 1)
     await callback.message.edit_text(
         "Выбери провайдера (для фильтра SNI):",
-        reply_markup=provider_keyboard("issue", connection_id),
+        reply_markup=provider_keyboard_with_cancel("issue", connection_id, cancel_callback_data=f"revs:{connection_id}"),
     )
     await callback.answer()
 
@@ -332,9 +489,10 @@ async def activate_revision(callback: CallbackQuery) -> None:
         revision = await api.activate_revision(revision_id)
         text, keyboard = await render_revisions_page(revision["connection_id"])
         await callback.message.edit_text(text, reply_markup=keyboard)
-    except ApiClientError as exc:
+    except Exception as exc:  # noqa: BLE001
         await callback.message.answer(f"Ошибка: {exc}")
-    await callback.answer()
+    finally:
+        await callback.answer()
 
 
 @router.callback_query(F.data.startswith("revoke:"))
@@ -344,9 +502,10 @@ async def revoke_revision(callback: CallbackQuery) -> None:
         revision = await api.revoke_revision(revision_id)
         text, keyboard = await render_revisions_page(revision["connection_id"])
         await callback.message.edit_text(text, reply_markup=keyboard)
-    except ApiClientError as exc:
+    except Exception as exc:  # noqa: BLE001
         await callback.message.answer(f"Ошибка: {exc}")
-    await callback.answer()
+    finally:
+        await callback.answer()
 
 
 @router.callback_query(F.data.startswith("issuesni:"))
