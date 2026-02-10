@@ -1,5 +1,4 @@
 from datetime import datetime, timedelta, timezone
-from uuid import uuid4
 
 import pytest
 
@@ -10,7 +9,6 @@ from tracegate.services.grace import GraceError, ensure_can_issue_new_config
 
 def _user(status: EntitlementStatus, grace_ends_at):
     return User(
-        id=uuid4(),
         telegram_id=123,
         devices_max=5,
         entitlement_status=status,

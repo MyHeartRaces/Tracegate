@@ -37,10 +37,10 @@ class TracegateApiClient:
         except ApiClientError:
             return await self._request("POST", "/users", json={"telegram_id": telegram_id})
 
-    async def list_devices(self, user_id: UUID | str) -> list[dict]:
+    async def list_devices(self, user_id: int | str) -> list[dict]:
         return await self._request("GET", f"/devices/by-user/{user_id}")
 
-    async def create_device(self, user_id: UUID | str, name: str) -> dict:
+    async def create_device(self, user_id: int | str, name: str) -> dict:
         return await self._request("POST", "/devices", json={"user_id": str(user_id), "name": name})
 
     async def delete_device(self, device_id: UUID | str) -> None:
@@ -81,7 +81,7 @@ class TracegateApiClient:
 
     async def create_connection_and_revision(
         self,
-        user_id: UUID | str,
+        user_id: int | str,
         device_id: UUID | str,
         protocol: ConnectionProtocol,
         mode: ConnectionMode,

@@ -140,7 +140,7 @@ async def menu(callback: CallbackQuery, state: FSMContext) -> None:
 async def list_devices(callback: CallbackQuery, state: FSMContext) -> None:
     await state.clear()
     user = await ensure_user(callback.from_user.id)
-    devices = await api.list_devices(user["id"])
+    devices = await api.list_devices(user["telegram_id"])
     text = "Устройства:\n" + ("\n".join([f"- {d['name']} id={d['id']}" for d in devices]) if devices else "пока нет")
     await callback.message.edit_text(text, reply_markup=devices_keyboard(devices))
     await callback.answer()
@@ -157,8 +157,8 @@ async def add_device(callback: CallbackQuery, state: FSMContext) -> None:
 async def receive_device_name(message: Message, state: FSMContext) -> None:
     try:
         user = await ensure_user(message.from_user.id)
-        await api.create_device(user["id"], message.text.strip())
-        devices = await api.list_devices(user["id"])
+        await api.create_device(user["telegram_id"], message.text.strip())
+        devices = await api.list_devices(user["telegram_id"])
         await message.answer("Устройство добавлено", reply_markup=devices_keyboard(devices))
     except ApiClientError as exc:
         await message.answer(f"Ошибка: {exc}")
@@ -181,7 +181,7 @@ async def delete_device(callback: CallbackQuery) -> None:
     try:
         await api.delete_device(device_id)
         user = await ensure_user(callback.from_user.id)
-        devices = await api.list_devices(user["id"])
+        devices = await api.list_devices(user["telegram_id"])
         text = "Устройства:\n" + ("\n".join([f"- {d['name']} id={d['id']}" for d in devices]) if devices else "пока нет")
         await callback.message.edit_text(text, reply_markup=devices_keyboard(devices))
         await callback.message.answer("Устройство удалено (все подключения отозваны).")
@@ -223,7 +223,7 @@ async def new_connection(callback: CallbackQuery) -> None:
         user = await ensure_user(callback.from_user.id)
         protocol, mode, variant = _profile(spec)
         connection, revision = await api.create_connection_and_revision(
-            user["id"],
+            user["telegram_id"],
             device_id,
             protocol,
             mode,
@@ -250,7 +250,7 @@ async def new_vless_with_sni(callback: CallbackQuery) -> None:
         user = await ensure_user(callback.from_user.id)
         protocol, mode, variant = _profile(spec)
         connection, revision = await api.create_connection_and_revision(
-            user["id"],
+            user["telegram_id"],
             device_id,
             protocol,
             mode,
@@ -665,7 +665,7 @@ async def sni_catalog_new_pick_device(callback: CallbackQuery) -> None:
         sni_id = int(sni_id_raw)
         page = int(page_raw)
         user = await ensure_user(callback.from_user.id)
-        devices = await api.list_devices(user["id"])
+        devices = await api.list_devices(user["telegram_id"])
         if not devices:
             await callback.message.edit_text("Нет устройств. Сначала добавь устройство.", reply_markup=main_menu_keyboard())
             await callback.answer()
@@ -693,7 +693,7 @@ async def sni_catalog_new_connection(callback: CallbackQuery, state: FSMContext)
         user = await ensure_user(callback.from_user.id)
         protocol, mode, variant = _profile(spec)
         connection, revision = await api.create_connection_and_revision(
-            user["id"],
+            user["telegram_id"],
             device_id,
             protocol,
             mode,
@@ -720,7 +720,7 @@ async def sni_catalog_issue_pick_connection(callback: CallbackQuery) -> None:
         sni_id = int(sni_id_raw)
         page = int(page_raw)
         user = await ensure_user(callback.from_user.id)
-        devices = await api.list_devices(user["id"])
+        devices = await api.list_devices(user["telegram_id"])
 
         vless_connections: list[dict] = []
         for dev in devices:
@@ -864,6 +864,10 @@ async def delete_connection(callback: CallbackQuery) -> None:
 def run() -> None:
     if not settings.bot_token:
         raise RuntimeError("BOT_TOKEN is required")
+    if not settings.bot_api_token:
+        raise RuntimeError("BOT_API_TOKEN is required")
+    if not settings.bot_api_base_url:
+        raise RuntimeError("BOT_API_BASE_URL is required")
 
     mode = (settings.bot_mode or "polling").strip().lower()
     if mode == "webhook":

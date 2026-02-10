@@ -8,7 +8,7 @@ controlPlane:
     botToken: ""
   botWebhook:
     enabled: true
-    publicHost: t.myheartraces.space
+    publicHost: t.example.com
     publicPort: 8443
   postgres:
     password: REPLACE_DB_PASSWORD

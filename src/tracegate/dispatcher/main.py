@@ -6,7 +6,7 @@ from datetime import datetime, timedelta, timezone
 import httpx
 from sqlalchemy import and_, or_, select
 
-from tracegate.db import AsyncSessionLocal
+from tracegate.db import get_sessionmaker
 from tracegate.enums import DeliveryStatus, OutboxStatus
 from tracegate.models import NodeEndpoint, OutboxDelivery, OutboxEvent
 from tracegate.settings import get_settings
@@ -30,7 +30,7 @@ async def _send_to_agent(client: httpx.AsyncClient, node: NodeEndpoint, event: O
 
 async def _process_delivery(client: httpx.AsyncClient, delivery: OutboxDelivery, token: str) -> None:
     now = datetime.now(timezone.utc)
-    async with AsyncSessionLocal() as session:
+    async with get_sessionmaker() as session:
         row = await session.get(OutboxDelivery, delivery.id)
         if row is None:
             return
@@ -80,6 +80,8 @@ async def _process_delivery(client: httpx.AsyncClient, delivery: OutboxDelivery,
 
 async def dispatcher_loop() -> None:
     settings = get_settings()
+    if not settings.agent_auth_token:
+        raise RuntimeError("AGENT_AUTH_TOKEN is required")
     cert = None
     if settings.dispatcher_client_cert and settings.dispatcher_client_key:
         cert = (settings.dispatcher_client_cert, settings.dispatcher_client_key)
@@ -88,7 +90,7 @@ async def dispatcher_loop() -> None:
     async with httpx.AsyncClient(cert=cert, verify=verify) as client:
         while True:
             now = datetime.now(timezone.utc)
-            async with AsyncSessionLocal() as session:
+            async with get_sessionmaker() as session:
                 deliveries = (
                     await session.execute(
                         select(OutboxDelivery)

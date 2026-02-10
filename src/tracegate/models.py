@@ -27,26 +27,11 @@ from tracegate.enums import (
 def utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
-
-class SniDomain(Base):
-    __tablename__ = "sni_domain"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    fqdn: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
-    enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
-    is_test: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
-    # Optional annotation shown in admin/bot UI.
-    note: Mapped[str | None] = mapped_column(Text, nullable=True)
-    # Provider tags for filtering in bot UI, e.g. ["mts","megafon"].
-    providers: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
-
-
 class User(Base):
     __tablename__ = "tg_user"
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    telegram_id: Mapped[int] = mapped_column(BigInteger, unique=True, nullable=False, index=True)
+    # Telegram user id is the primary key in v0.1 (Telegram is the only identity provider).
+    telegram_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     devices_max: Mapped[int] = mapped_column(Integer, default=5, nullable=False)
     entitlement_status: Mapped[EntitlementStatus] = mapped_column(
         Enum(EntitlementStatus, name="entitlement_status"), default=EntitlementStatus.ACTIVE, nullable=False
@@ -61,7 +46,7 @@ class Device(Base):
     __tablename__ = "device"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("tg_user.id", ondelete="CASCADE"), index=True)
+    user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("tg_user.telegram_id", ondelete="CASCADE"), index=True)
     name: Mapped[str] = mapped_column(String(128), nullable=False)
     status: Mapped[RecordStatus] = mapped_column(
         Enum(RecordStatus, name="device_status"), default=RecordStatus.ACTIVE, nullable=False
@@ -76,7 +61,7 @@ class Connection(Base):
     __tablename__ = "connection"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("tg_user.id", ondelete="CASCADE"), index=True)
+    user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("tg_user.telegram_id", ondelete="CASCADE"), index=True)
     device_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("device.id", ondelete="CASCADE"), index=True)
     protocol: Mapped[ConnectionProtocol] = mapped_column(
         Enum(ConnectionProtocol, name="connection_protocol"), nullable=False
@@ -105,7 +90,8 @@ class ConnectionRevision(Base):
     status: Mapped[RecordStatus] = mapped_column(
         Enum(RecordStatus, name="connection_revision_status"), default=RecordStatus.ACTIVE, nullable=False
     )
-    camouflage_sni_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("sni_domain.id"), nullable=True)
+    # Static SNI catalog lives in the repo (not in Postgres). We store only the selected catalog id.
+    camouflage_sni_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     effective_config_json: Mapped[dict] = mapped_column(JSON, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
 
@@ -150,7 +136,7 @@ class WireguardPeer(Base):
     __tablename__ = "wireguard_peer"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("tg_user.id", ondelete="CASCADE"), index=True)
+    user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("tg_user.telegram_id", ondelete="CASCADE"), index=True)
     device_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("device.id", ondelete="CASCADE"), index=True)
     peer_public_key: Mapped[str] = mapped_column(String(256), unique=True, nullable=False)
     lease_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("ipam_lease.id", ondelete="RESTRICT"), unique=True)

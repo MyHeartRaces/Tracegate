@@ -10,8 +10,3 @@ async def migrate(conn: AsyncConnection) -> None:
     await conn.execute(
         text("DO $$ BEGIN ALTER TYPE outbox_event_type ADD VALUE IF NOT EXISTS 'REVOKE_CONNECTION'; EXCEPTION WHEN undefined_object THEN NULL; END $$;")
     )
-
-    # Extend sni_domain with note + providers.
-    await conn.execute(text("ALTER TABLE sni_domain ADD COLUMN IF NOT EXISTS note TEXT;"))
-    await conn.execute(text("ALTER TABLE sni_domain ADD COLUMN IF NOT EXISTS providers JSON NOT NULL DEFAULT '[]';"))
-

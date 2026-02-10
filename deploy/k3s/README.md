@@ -31,7 +31,7 @@ Create `deploy/k3s/values-prod.yaml` and override at minimum:
 - auth tokens
 - `gateway.vpsT.publicIPv4` / `gateway.vpsE.publicIPv4`
 - `controlPlane.env.defaultVpsTHost` / `defaultVpsEHost`
-- xray/hysteria/wireguard configs and secrets
+- xray/hysteria/wireguard configs (stored as Kubernetes Secrets by the chart)
 
 Start from:
 

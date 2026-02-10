@@ -4,7 +4,8 @@ from dataclasses import dataclass
 from typing import Any
 
 from tracegate.enums import ConnectionMode, ConnectionProtocol, ConnectionVariant
-from tracegate.models import Connection, Device, SniDomain, User
+from tracegate.models import Connection, Device, User
+from tracegate.services.sni_catalog import SniCatalogEntry
 
 
 @dataclass
@@ -21,7 +22,7 @@ def build_effective_config(
     user: User,
     device: Device,
     connection: Connection,
-    selected_sni: SniDomain | None,
+    selected_sni: SniCatalogEntry | None,
     endpoints: EndpointSet,
 ) -> dict[str, Any]:
     overrides = connection.custom_overrides_json or {}
@@ -99,7 +100,7 @@ def build_effective_config(
             "transport": "udp-quic",
             "auth": {
                 "type": "userpass",
-                "username": str(user.id),
+                "username": str(user.telegram_id),
                 "password": str(device.id),
             },
             "client_mode": mode,

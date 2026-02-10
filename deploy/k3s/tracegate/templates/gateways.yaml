@@ -58,14 +58,14 @@ spec:
         {{- toYaml .Values.gateway.vpsT.affinity | nindent 8 }}
       volumes:
         - name: xray-config
-          configMap:
-            name: {{ include "tracegate.fullname" . }}-vps-t-xray
+          secret:
+            secretName: {{ include "tracegate.fullname" . }}-vps-t-xray-config
         - name: hysteria-config
-          configMap:
-            name: {{ include "tracegate.fullname" . }}-vps-t-hysteria
+          secret:
+            secretName: {{ include "tracegate.fullname" . }}-vps-t-hysteria-config
         - name: wg-config
-          configMap:
-            name: {{ include "tracegate.fullname" . }}-vps-t-wireguard
+          secret:
+            secretName: {{ include "tracegate.fullname" . }}-vps-t-wireguard-config
         - name: decoy
           configMap:
             name: {{ include "tracegate.fullname" . }}-vps-t-decoy
@@ -200,7 +200,7 @@ spec:
             - name: AGENT_STATS_URL
               value: {{ .Values.gateway.vpsT.agent.statsUrl | quote }}
             - name: AGENT_STATS_SECRET
-              value: {{ .Values.gateway.vpsT.agent.statsSecret | quote }}
+              value: {{ required "gateway.vpsT.agent.statsSecret is required" .Values.gateway.vpsT.agent.statsSecret | quote }}
             - name: AGENT_WG_INTERFACE
               value: {{ .Values.gateway.vpsT.agent.wgInterface | quote }}
             - name: AGENT_WG_EXPECTED_PORT
@@ -299,8 +299,8 @@ spec:
       volumes:
         {{- if eq .Values.gateway.vpsE.mode "xray" }}
         - name: xray-config
-          configMap:
-            name: {{ include "tracegate.fullname" . }}-vps-e-xray
+          secret:
+            secretName: {{ include "tracegate.fullname" . }}-vps-e-xray-config
         {{- else }}
         - name: haproxy-config
           configMap:

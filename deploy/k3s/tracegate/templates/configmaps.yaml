@@ -2,39 +2,6 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: {{ include "tracegate.fullname" . }}-vps-t-xray
-  namespace: {{ include "tracegate.namespace" . }}
-  labels:
-    {{- include "tracegate.labels" . | nindent 4 }}
-data:
-  config.json: |
-{{ .Values.gateway.vpsT.xray.config | nindent 4 }}
----
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: {{ include "tracegate.fullname" . }}-vps-t-hysteria
-  namespace: {{ include "tracegate.namespace" . }}
-  labels:
-    {{- include "tracegate.labels" . | nindent 4 }}
-data:
-  config.yaml: |
-{{ .Values.gateway.vpsT.hysteria.config | nindent 4 }}
----
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: {{ include "tracegate.fullname" . }}-vps-t-wireguard
-  namespace: {{ include "tracegate.namespace" . }}
-  labels:
-    {{- include "tracegate.labels" . | nindent 4 }}
-data:
-  wg0.conf: |
-{{ .Values.gateway.vpsT.wireguard.config | nindent 4 }}
----
-apiVersion: v1
-kind: ConfigMap
-metadata:
   name: {{ include "tracegate.fullname" . }}-vps-t-decoy
   namespace: {{ include "tracegate.namespace" . }}
   labels:
@@ -72,16 +39,5 @@ data:
 
     backend be_transit
       server transit {{ .Values.gateway.vpsE.tcpForward.upstreamHost }}:{{ .Values.gateway.vpsE.tcpForward.upstreamPort }}
-{{- else }}
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: {{ include "tracegate.fullname" . }}-vps-e-xray
-  namespace: {{ include "tracegate.namespace" . }}
-  labels:
-    {{- include "tracegate.labels" . | nindent 4 }}
-data:
-  config.json: |
-{{ .Values.gateway.vpsE.xray.config | nindent 4 }}
 {{- end }}
 {{- end }}

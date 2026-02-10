@@ -2,9 +2,10 @@ services:
   postgres:
     image: postgres:16
     environment:
-      POSTGRES_DB: tracegate
-      POSTGRES_USER: tracegate
-      POSTGRES_PASSWORD: tracegate
+      POSTGRES_DB: ${POSTGRES_DB:-tracegate}
+      POSTGRES_USER: ${POSTGRES_USER:-tracegate}
+      # Keep secrets out of git: provide via `.env` (not committed).
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
     ports:
       - "5432:5432"
     volumes:
@@ -14,10 +15,10 @@ services:
     build: .
     command: tracegate-api
     environment:
-      DATABASE_URL: postgresql+asyncpg://tracegate:tracegate@postgres:5432/tracegate
-      API_INTERNAL_TOKEN: ${API_INTERNAL_TOKEN:-change-me}
-      DEFAULT_VPS_T_HOST: ${DEFAULT_VPS_T_HOST:-vps-t.example.com}
-      DEFAULT_VPS_E_HOST: ${DEFAULT_VPS_E_HOST:-vps-e.example.com}
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
+      API_INTERNAL_TOKEN: ${API_INTERNAL_TOKEN:?API_INTERNAL_TOKEN is required}
+      DEFAULT_VPS_T_HOST: ${DEFAULT_VPS_T_HOST:?DEFAULT_VPS_T_HOST is required}
+      DEFAULT_VPS_E_HOST: ${DEFAULT_VPS_E_HOST:?DEFAULT_VPS_E_HOST is required}
     ports:
       - "8080:8080"
     depends_on:
@@ -27,10 +28,10 @@ services:
     build: .
     command: tracegate-dispatcher
     environment:
-      DATABASE_URL: postgresql+asyncpg://tracegate:tracegate@postgres:5432/tracegate
-      AGENT_AUTH_TOKEN: ${AGENT_AUTH_TOKEN:-change-me}
-      DISPATCHER_POLL_SECONDS: 3
-      DISPATCHER_BATCH_SIZE: 50
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
+      AGENT_AUTH_TOKEN: ${AGENT_AUTH_TOKEN:?AGENT_AUTH_TOKEN is required}
+      DISPATCHER_POLL_SECONDS: ${DISPATCHER_POLL_SECONDS:-3}
+      DISPATCHER_BATCH_SIZE: ${DISPATCHER_BATCH_SIZE:-50}
     depends_on:
       - postgres
       - api
@@ -39,11 +40,11 @@ services:
     build: .
     command: tracegate-agent
     environment:
-      AGENT_AUTH_TOKEN: ${AGENT_AUTH_TOKEN:-change-me}
-      AGENT_DRY_RUN: "true"
-      AGENT_ROLE: VPS_T
-      AGENT_DATA_ROOT: /data/tracegate-agent
-      AGENT_STATS_SECRET: ${AGENT_STATS_SECRET:-change-me}
+      AGENT_AUTH_TOKEN: ${AGENT_AUTH_TOKEN:?AGENT_AUTH_TOKEN is required}
+      AGENT_DRY_RUN: ${AGENT_DRY_RUN:-true}
+      AGENT_ROLE: ${AGENT_ROLE:-VPS_T}
+      AGENT_DATA_ROOT: ${AGENT_DATA_ROOT:-/data/tracegate-agent}
+      AGENT_STATS_SECRET: ${AGENT_STATS_SECRET:?AGENT_STATS_SECRET is required}
     ports:
       - "8070:8070"
     volumes:
@@ -53,9 +54,10 @@ services:
     build: .
     command: tracegate-bot
     environment:
+      # Optional unless the `bot` profile is enabled.
       BOT_TOKEN: ${BOT_TOKEN:-}
       BOT_API_BASE_URL: http://api:8080
-      BOT_API_TOKEN: ${API_INTERNAL_TOKEN:-change-me}
+      BOT_API_TOKEN: ${BOT_API_TOKEN:-}
     depends_on:
       - api
     profiles:

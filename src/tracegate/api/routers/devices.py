@@ -23,7 +23,7 @@ def _blocked_by_grace(user: User) -> bool:
 
 
 @router.get("/by-user/{user_id}", response_model=list[DeviceRead])
-async def list_user_devices(user_id: str, session: AsyncSession = Depends(db_session)) -> list[DeviceRead]:
+async def list_user_devices(user_id: int, session: AsyncSession = Depends(db_session)) -> list[DeviceRead]:
     rows = (
         await session.execute(
             select(Device).where(Device.user_id == user_id, Device.status == RecordStatus.ACTIVE).order_by(Device.created_at.asc())
@@ -42,12 +42,12 @@ async def create_device(payload: DeviceCreate, session: AsyncSession = Depends(d
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Cannot issue new device in grace/blocked state")
 
     count = await session.scalar(
-        select(func.count(Device.id)).where(and_(Device.user_id == user.id, Device.status == RecordStatus.ACTIVE))
+        select(func.count(Device.id)).where(and_(Device.user_id == user.telegram_id, Device.status == RecordStatus.ACTIVE))
     )
     if count >= user.devices_max:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Device limit reached ({user.devices_max})")
 
-    row = Device(user_id=user.id, name=payload.name)
+    row = Device(user_id=user.telegram_id, name=payload.name)
     session.add(row)
     await session.commit()
     await session.refresh(row)

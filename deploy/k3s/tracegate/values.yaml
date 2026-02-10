@@ -23,7 +23,8 @@ controlPlane:
     enabled: true
     image: postgres:16
     username: tracegate
-    password: tracegate-change-me
+    # Secret (provide via values override / .env-based deploy flow; never commit real value to git)
+    password: ""
     database: tracegate
     storage: 10Gi
     storageClassName: ""
@@ -31,8 +32,9 @@ controlPlane:
   externalDatabaseUrl: ""
 
   auth:
-    apiInternalToken: change-me-api-internal-token
-    agentAuthToken: change-me-agent-auth-token
+    # Secrets (provide via values override / .env-based deploy flow; never commit real values to git)
+    apiInternalToken: ""
+    agentAuthToken: ""
     botToken: ""
 
   # Telegram bot webhook mode avoids polling conflicts. It uses HTTPS on port 8443
@@ -163,12 +165,12 @@ gateway:
       host: 0.0.0.0
       port: 8070
       role: VPS_T
-      authToken: change-me-agent-auth-token
+      authToken: ""
       dataRoot: /var/lib/tracegate-agent
       dryRun: false
       runtimeMode: kubernetes
       statsUrl: http://127.0.0.1:9999/traffic
-      statsSecret: CHANGE_ME_HYSTERIA_STATS
+      statsSecret: ""
       wgInterface: wg0
       wgExpectedPort: 51820
       # In k8s we restart the sidecar processes to pick up config changes.
@@ -241,12 +243,12 @@ gateway:
       host: 0.0.0.0
       port: 8070
       role: VPS_E
-      authToken: change-me-agent-auth-token
+      authToken: ""
       dataRoot: /var/lib/tracegate-agent
       dryRun: false
       runtimeMode: kubernetes
       statsUrl: http://127.0.0.1:9999/traffic
-      statsSecret: CHANGE_ME_HYSTERIA_STATS
+      statsSecret: ""
       wgInterface: wg0
       wgExpectedPort: 51820
       reloadXrayCmd: pkill -HUP xray || true

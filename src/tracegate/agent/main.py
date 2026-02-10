@@ -14,6 +14,10 @@ from .state import AgentStateStore
 from .system import gather_health_checks
 
 settings = get_settings()
+if not settings.agent_auth_token:
+    raise RuntimeError("AGENT_AUTH_TOKEN is required")
+if settings.agent_role == "VPS_T" and not settings.agent_stats_secret:
+    raise RuntimeError("AGENT_STATS_SECRET is required for VPS_T health checks")
 ensure_agent_dirs(settings)
 state_store = AgentStateStore(Path(settings.agent_data_root))
 

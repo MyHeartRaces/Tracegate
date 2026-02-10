@@ -6,3 +6,5 @@ __pycache__/
 .env
 .DS_Store
 *.egg-info/
+deploy/k3s/values-*.yaml
+!deploy/k3s/values-prod.example.yaml

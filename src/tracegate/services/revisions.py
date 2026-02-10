@@ -9,12 +9,13 @@ from sqlalchemy.orm import selectinload
 
 from tracegate.enums import ConnectionProtocol, ConnectionVariant, NodeRole, OutboxEventType, RecordStatus
 from tracegate.enums import OwnerType
-from tracegate.models import Connection, ConnectionRevision, IpamLease, NodeEndpoint, SniDomain, User, WireguardPeer
+from tracegate.models import Connection, ConnectionRevision, IpamLease, NodeEndpoint, User, WireguardPeer
 from tracegate.services.config_builder import EndpointSet, build_effective_config
 from tracegate.services.ipam import allocate_lease, ensure_pool_exists
 from tracegate.services.grace import ensure_can_issue_new_config
 from tracegate.services.outbox import create_outbox_event
 from tracegate.services.overrides import validate_overrides
+from tracegate.services.sni_catalog import SniCatalogEntry, get_by_id, load_catalog
 from tracegate.services.wireguard import generate_keypair
 from tracegate.settings import get_settings
 
@@ -34,7 +35,7 @@ async def _load_connection(session: AsyncSession, connection_id: UUID) -> Connec
     return connection
 
 
-async def _load_user(session: AsyncSession, user_id: UUID) -> User:
+async def _load_user(session: AsyncSession, user_id: int) -> User:
     user = await session.get(User, user_id)
     if user is None:
         raise RevisionError("User not found")
@@ -46,21 +47,21 @@ async def _resolve_sni(
     protocol: ConnectionProtocol,
     requested_sni_id: int | None,
     overrides: dict,
-) -> SniDomain | None:
+) -> SniCatalogEntry | None:
     if protocol != ConnectionProtocol.VLESS_REALITY:
         return None
 
     sni_id = requested_sni_id or overrides.get("camouflage_sni_id")
     if sni_id is None:
-        sni = await session.scalar(select(SniDomain).where(SniDomain.enabled.is_(True)).order_by(SniDomain.id.asc()))
-        if sni is None:
-            raise RevisionError("No enabled SNI domains available")
-        return sni
+        for row in load_catalog():
+            if row.enabled:
+                return row
+        raise RevisionError("No enabled SNI domains available")
 
-    sni = await session.scalar(select(SniDomain).where(SniDomain.id == sni_id, SniDomain.enabled.is_(True)))
-    if sni is None:
+    row = get_by_id(int(sni_id))
+    if row is None or not row.enabled:
         raise RevisionError("Requested SNI is unavailable")
-    return sni
+    return row
 
 
 async def _resolve_endpoints(session: AsyncSession) -> EndpointSet:
@@ -121,7 +122,7 @@ async def _emit_apply_for_revision(
     event_type = _event_type_for_protocol(connection.protocol)
 
     payload: dict = {
-        "user_id": str(user.id),
+        "user_id": str(user.telegram_id),
         "device_id": str(connection.device_id),
         "connection_id": str(connection.id),
         "revision_id": str(revision.id),
@@ -210,7 +211,7 @@ async def create_revision(
             row.status = RecordStatus.REVOKED
 
         peer = WireguardPeer(
-            user_id=user.id,
+            user_id=user.telegram_id,
             device_id=connection.device_id,
             peer_public_key=wg_public_key,
             lease_id=wg_lease.id,
@@ -270,7 +271,7 @@ async def create_revision(
 
     event_type = _event_type_for_protocol(connection.protocol)
     payload = {
-        "user_id": str(user.id),
+        "user_id": str(user.telegram_id),
         "device_id": str(connection.device_id),
         "connection_id": str(connection.id),
         "revision_id": str(revision.id),

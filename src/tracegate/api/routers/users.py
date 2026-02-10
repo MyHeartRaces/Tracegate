@@ -1,7 +1,6 @@
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracegate.api.deps import db_session
@@ -15,7 +14,7 @@ router = APIRouter(prefix="/users", tags=["users"], dependencies=[Depends(requir
 
 @router.post("", response_model=UserRead, status_code=status.HTTP_201_CREATED)
 async def create_user(payload: UserCreate, session: AsyncSession = Depends(db_session)) -> UserRead:
-    existing = await session.scalar(select(User).where(User.telegram_id == payload.telegram_id))
+    existing = await session.get(User, payload.telegram_id)
     if existing:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="User already exists")
 
@@ -27,9 +26,9 @@ async def create_user(payload: UserCreate, session: AsyncSession = Depends(db_se
     return UserRead.model_validate(user, from_attributes=True)
 
 
-@router.get("/{user_id}", response_model=UserRead)
-async def get_user(user_id: str, session: AsyncSession = Depends(db_session)) -> UserRead:
-    user = await session.get(User, user_id)
+@router.get("/{telegram_id}", response_model=UserRead)
+async def get_user(telegram_id: int, session: AsyncSession = Depends(db_session)) -> UserRead:
+    user = await session.get(User, telegram_id)
     if user is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
     return UserRead.model_validate(user, from_attributes=True)
@@ -37,19 +36,19 @@ async def get_user(user_id: str, session: AsyncSession = Depends(db_session)) ->
 
 @router.get("/telegram/{telegram_id}", response_model=UserRead)
 async def get_user_by_telegram(telegram_id: int, session: AsyncSession = Depends(db_session)) -> UserRead:
-    user = await session.scalar(select(User).where(User.telegram_id == telegram_id))
+    user = await session.get(User, telegram_id)
     if user is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
     return UserRead.model_validate(user, from_attributes=True)
 
 
-@router.patch("/{user_id}/entitlement", response_model=UserRead)
+@router.patch("/{telegram_id}/entitlement", response_model=UserRead)
 async def set_entitlement(
-    user_id: str,
+    telegram_id: int,
     payload: UserEntitlementUpdate,
     session: AsyncSession = Depends(db_session),
 ) -> UserRead:
-    user = await session.get(User, user_id)
+    user = await session.get(User, telegram_id)
     if user is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
 

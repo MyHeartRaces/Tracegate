@@ -12,7 +12,7 @@ SOCKS5 is intentionally local on the client (`127.0.0.1:1080`) and not exposed a
 
 - `tracegate-api` (FastAPI)
   - users/devices/connections/revisions
-  - SNI table management
+  - SNI catalog (static, repo-owned)
   - revision slot policy (0..2 active)
   - grace period enforcement (7 days: no new revisions/devices)
   - outbox event creation
@@ -29,6 +29,9 @@ SOCKS5 is intentionally local on the client (`127.0.0.1:1080`) and not exposed a
 
 Monetization objects are intentionally removed in this state: there is no `wallet`, `coins`, or billing ledger in the DB model.
 `API_INTERNAL_TOKEN`, `AGENT_AUTH_TOKEN`, `BOT_TOKEN` are auth credentials, not payment tokens.
+
+SNI is a static catalog bundled with the app: `src/tracegate/staticdata/sni_catalog.yaml` (no Postgres SNI table in v0.1).
+Bot users are keyed by Telegram `telegram_id` (primary key).
 
 ## GitHub-ready state
 
@@ -110,7 +113,7 @@ Create `deploy/k3s/values-prod.yaml` and set:
 ./deploy/scripts/k3s_helm_install.sh tracegate tracegate deploy/k3s/values-prod.yaml
 ```
 
-Detailed guide: `/Users/sgk/PycharmProjects/Tracegate/deploy/k3s/README.md`
+Detailed guide: `deploy/k3s/README.md`
 
 ## Deploy on VPS-T / VPS-E (legacy, non-k3s)
 

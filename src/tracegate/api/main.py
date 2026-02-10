@@ -4,21 +4,20 @@ import uvicorn
 from fastapi import FastAPI
 
 from tracegate.api.routers import auth, connections, devices, dispatch, health, nodes, revisions, sni, users
-from tracegate.db import Base, engine, AsyncSessionLocal
+from tracegate.db import Base, get_engine, get_sessionmaker
 from tracegate.db_migrate import migrate
 from tracegate.services.ipam import ensure_pool_exists
-from tracegate.services.sni_seed import seed_sni
 from tracegate.settings import get_settings
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
+    engine = get_engine()
     async with engine.begin() as conn:
         await migrate(conn)
         await conn.run_sync(Base.metadata.create_all)
 
-    async with AsyncSessionLocal() as session:
-        await seed_sni(session)
+    async with get_sessionmaker() as session:
         await ensure_pool_exists(session)
         await session.commit()
 
@@ -40,6 +39,8 @@ app.include_router(dispatch.router)
 
 def run() -> None:
     settings = get_settings()
+    if not settings.api_internal_token:
+        raise RuntimeError("API_INTERNAL_TOKEN is required")
     uvicorn.run(
         "tracegate.api.main:app",
         host=settings.api_host,

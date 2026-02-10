@@ -53,7 +53,6 @@ class UserCreate(BaseModel):
 
 
 class UserRead(BaseModel):
-    id: UUID
     telegram_id: int
     devices_max: int
     entitlement_status: EntitlementStatus
@@ -66,7 +65,7 @@ class UserEntitlementUpdate(BaseModel):
 
 
 class DeviceCreate(BaseModel):
-    user_id: UUID
+    user_id: int
     name: str = Field(min_length=1, max_length=128)
 
 
@@ -76,13 +75,13 @@ class DeviceRename(BaseModel):
 
 class DeviceRead(BaseModel):
     id: UUID
-    user_id: UUID
+    user_id: int
     name: str
     status: RecordStatus
 
 
 class ConnectionCreate(BaseModel):
-    user_id: UUID
+    user_id: int
     device_id: UUID
     protocol: ConnectionProtocol
     mode: ConnectionMode
@@ -101,7 +100,7 @@ class ConnectionUpdate(BaseModel):
 
 class ConnectionRead(BaseModel):
     id: UUID
-    user_id: UUID
+    user_id: int
     device_id: UUID
     protocol: ConnectionProtocol
     mode: ConnectionMode
@@ -187,7 +186,7 @@ class ReapplyBaseRequest(BaseModel):
 
 
 class ReissueRequest(BaseModel):
-    user_id: UUID | None = None
+    user_id: int | None = None
 
 
 class AgentEventEnvelope(BaseModel):

@@ -11,11 +11,12 @@ class Settings(BaseSettings):
     app_env: str = "dev"
     log_level: str = "INFO"
 
-    database_url: str = "postgresql+asyncpg://tracegate:tracegate@localhost:5432/tracegate"
+    # Secrets must not be hardcoded in repo files; provide via `.env` (not committed).
+    database_url: str = ""
 
     api_host: str = "0.0.0.0"
     api_port: int = 8080
-    api_internal_token: str = "change-me"
+    api_internal_token: str = ""
 
     dispatcher_host: str = "0.0.0.0"
     dispatcher_port: int = 8090
@@ -27,7 +28,7 @@ class Settings(BaseSettings):
 
     bot_token: str = ""
     bot_api_base_url: str = "http://localhost:8080"
-    bot_api_token: str = "change-me"
+    bot_api_token: str = ""
     # Telegram bot can run either in polling mode (default) or via webhooks.
     # Webhooks avoid "Conflict: terminated by other getUpdates request" if a stray poller exists elsewhere.
     bot_mode: str = "polling"  # "polling" | "webhook"
@@ -44,10 +45,10 @@ class Settings(BaseSettings):
     agent_host: str = "0.0.0.0"
     agent_port: int = 8070
     agent_role: str = "VPS_T"
-    agent_auth_token: str = "change-me"
+    agent_auth_token: str = ""
     agent_data_root: str = "/tmp/tracegate-agent"
     agent_stats_url: str = "http://127.0.0.1:9999/traffic"
-    agent_stats_secret: str = "change-me"
+    agent_stats_secret: str = ""
     agent_wg_interface: str = "wg0"
     agent_wg_expected_port: int = 51820
     agent_dry_run: bool = True

@@ -72,7 +72,6 @@ async def require_bootstrap_token(
 async def require_agent_token(x_agent_token: str | None = Header(default=None)) -> None:
     expected = get_settings().agent_auth_token
     if not expected:
-        return
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Agent token is not configured")
     if x_agent_token != expected:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid agent token")
-

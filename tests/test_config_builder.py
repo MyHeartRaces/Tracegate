@@ -2,13 +2,13 @@ from datetime import datetime, timezone
 from uuid import uuid4
 
 from tracegate.enums import ConnectionMode, ConnectionProtocol, ConnectionVariant, EntitlementStatus, RecordStatus
-from tracegate.models import Connection, Device, SniDomain, User
+from tracegate.models import Connection, Device, User
 from tracegate.services.config_builder import EndpointSet, build_effective_config
+from tracegate.services.sni_catalog import SniCatalogEntry
 
 
 def _user() -> User:
     return User(
-        id=uuid4(),
         telegram_id=1,
         devices_max=5,
         entitlement_status=EntitlementStatus.ACTIVE,
@@ -24,10 +24,10 @@ def _device(user_id):
 
 def test_chain_sni_same_on_both_legs() -> None:
     user = _user()
-    device = _device(user.id)
+    device = _device(user.telegram_id)
     conn = Connection(
         id=uuid4(),
-        user_id=user.id,
+        user_id=user.telegram_id,
         device_id=device.id,
         protocol=ConnectionProtocol.VLESS_REALITY,
         mode=ConnectionMode.CHAIN,
@@ -36,7 +36,7 @@ def test_chain_sni_same_on_both_legs() -> None:
         custom_overrides_json={"local_socks_port": 1080},
         status=RecordStatus.ACTIVE,
     )
-    sni = SniDomain(id=1, fqdn="google.com", enabled=True, is_test=True)
+    sni = SniCatalogEntry(id=1, fqdn="google.com", enabled=True, is_test=False, providers=[], note=None)
 
     cfg = build_effective_config(
         user=user,
@@ -59,10 +59,10 @@ def test_chain_sni_same_on_both_legs() -> None:
 
 def test_wireguard_uses_fixed_port_51820() -> None:
     user = _user()
-    device = _device(user.id)
+    device = _device(user.telegram_id)
     conn = Connection(
         id=uuid4(),
-        user_id=user.id,
+        user_id=user.telegram_id,
         device_id=device.id,
         protocol=ConnectionProtocol.WIREGUARD,
         mode=ConnectionMode.DIRECT,

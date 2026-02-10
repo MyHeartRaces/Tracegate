@@ -61,7 +61,7 @@ async def create_connection(payload: ConnectionCreate, session: AsyncSession = D
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
 
     device = await session.get(Device, payload.device_id)
-    if device is None or device.user_id != user.id:
+    if device is None or device.user_id != user.telegram_id:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Device does not belong to user")
 
     try:
@@ -71,7 +71,7 @@ async def create_connection(payload: ConnectionCreate, session: AsyncSession = D
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
     row = Connection(
-        user_id=user.id,
+        user_id=user.telegram_id,
         device_id=device.id,
         protocol=payload.protocol,
         mode=payload.mode,
