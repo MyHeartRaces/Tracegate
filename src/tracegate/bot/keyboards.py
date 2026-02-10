@@ -52,7 +52,8 @@ def device_actions_keyboard(device_id: str, connections: list[dict] | None = Non
                 ),
                 InlineKeyboardButton(
                     text="Удалить",
-                    callback_data=f"delconn:{device_id}:{connection['id']}",
+                    # Keep callback_data <= 64 bytes (Telegram limit). A UUID is 36 chars.
+                    callback_data=f"delconn:{connection['id']}",
                 ),
             ]
         )

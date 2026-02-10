@@ -365,8 +365,11 @@ async def issue_revision_with_sni(callback: CallbackQuery) -> None:
 
 @router.callback_query(F.data.startswith("delconn:"))
 async def delete_connection(callback: CallbackQuery) -> None:
-    _, device_id, connection_id = callback.data.split(":", 2)
+    _, connection_id = callback.data.split(":", 1)
     try:
+        # Fetch device_id for UI refresh before deleting.
+        conn = await api.get_connection(connection_id)
+        device_id = conn["device_id"]
         await api.delete_connection(connection_id)
         text, keyboard = await render_device_page(device_id)
         await callback.message.edit_text(text, reply_markup=keyboard)
