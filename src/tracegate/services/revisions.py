@@ -283,7 +283,11 @@ async def revoke_revision(session: AsyncSession, revision_id: UUID) -> Connectio
         "user_id": str(connection.user_id),
         "device_id": str(connection.device_id),
     }
-    event_type = OutboxEventType.WG_PEER_REMOVE if connection.protocol == ConnectionProtocol.WIREGUARD else OutboxEventType.REVOKE_USER
+    event_type = (
+        OutboxEventType.WG_PEER_REMOVE
+        if connection.protocol == ConnectionProtocol.WIREGUARD
+        else OutboxEventType.REVOKE_CONNECTION
+    )
     for role in [NodeRole.VPS_T]:
         await create_outbox_event(
             session,

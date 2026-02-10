@@ -15,6 +15,7 @@ from tracegate.bot.keyboards import (
     devices_keyboard,
     issue_sni_keyboard,
     main_menu_keyboard,
+    provider_keyboard,
     revisions_keyboard,
     sni_keyboard,
 )
@@ -158,14 +159,10 @@ async def new_connection(callback: CallbackQuery) -> None:
     try:
         protocol, _, _ = _profile(spec)
         if protocol == ConnectionProtocol.VLESS_REALITY:
-            sni_rows = [row for row in await api.list_sni() if row["enabled"]]
-            if not sni_rows:
-                await callback.message.answer("Нет доступных SNI в таблице")
-            else:
-                await callback.message.edit_text(
-                    "Выберите SNI для VLESS/REALITY:",
-                    reply_markup=sni_keyboard(spec, device_id, sni_rows),
-                )
+            await callback.message.edit_text(
+                "Выбери провайдера (для фильтра SNI):",
+                reply_markup=provider_keyboard("new", f"{spec}:{device_id}"),
+            )
             await callback.answer()
             return
 
@@ -218,6 +215,47 @@ async def new_vless_with_sni(callback: CallbackQuery) -> None:
     await callback.answer()
 
 
+@router.callback_query(F.data.startswith("prov:"))
+async def pick_provider(callback: CallbackQuery) -> None:
+    _, context, target_id, provider = callback.data.split(":", 3)
+
+    try:
+        if context == "new":
+            spec, device_id = target_id.split(":", 1)
+            sni_rows = [
+                row
+                for row in await api.list_sni_filtered(provider=None if provider == "all" else provider)
+                if row["enabled"]
+            ]
+            if not sni_rows:
+                await callback.message.answer("Нет доступных SNI в этой категории")
+            else:
+                await callback.message.edit_text(
+                    "Выберите SNI для VLESS/REALITY:",
+                    reply_markup=sni_keyboard(spec, device_id, sni_rows),
+                )
+        elif context == "issue":
+            connection_id = target_id
+            sni_rows = [
+                row
+                for row in await api.list_sni_filtered(provider=None if provider == "all" else provider)
+                if row["enabled"]
+            ]
+            if not sni_rows:
+                await callback.message.answer("Нет доступных SNI в этой категории")
+            else:
+                await callback.message.edit_text(
+                    "Выберите SNI для новой ревизии:",
+                    reply_markup=issue_sni_keyboard(connection_id, sni_rows),
+                )
+        else:
+            await callback.message.answer("Неизвестный контекст выбора провайдера")
+    except Exception as exc:  # noqa: BLE001
+        await callback.message.answer(f"Ошибка: {exc}")
+
+    await callback.answer()
+
+
 @router.callback_query(F.data.startswith("revs:"))
 async def list_revisions(callback: CallbackQuery) -> None:
     _, connection_id = callback.data.split(":", 1)
@@ -229,14 +267,10 @@ async def list_revisions(callback: CallbackQuery) -> None:
 @router.callback_query(F.data.startswith("issuepick:"))
 async def issue_pick_sni(callback: CallbackQuery) -> None:
     _, connection_id = callback.data.split(":", 1)
-    sni_rows = [row for row in await api.list_sni() if row["enabled"]]
-    if not sni_rows:
-        await callback.message.answer("Нет доступных SNI в таблице")
-        await callback.answer()
-        return
-
-    keyboard = issue_sni_keyboard(connection_id, sni_rows)
-    await callback.message.edit_text("Выберите SNI для новой ревизии:", reply_markup=keyboard)
+    await callback.message.edit_text(
+        "Выбери провайдера (для фильтра SNI):",
+        reply_markup=provider_keyboard("issue", connection_id),
+    )
     await callback.answer()
 
 
@@ -288,6 +322,19 @@ async def issue_revision_with_sni(callback: CallbackQuery) -> None:
     except Exception as exc:  # noqa: BLE001
         await callback.message.answer(f"Ошибка: {exc}")
 
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("delconn:"))
+async def delete_connection(callback: CallbackQuery) -> None:
+    _, device_id, connection_id = callback.data.split(":", 2)
+    try:
+        await api.delete_connection(connection_id)
+        text, keyboard = await render_device_page(device_id)
+        await callback.message.edit_text(text, reply_markup=keyboard)
+        await callback.message.answer("Подключение удалено (доступ отозван).")
+    except ApiClientError as exc:
+        await callback.message.answer(f"Ошибка: {exc}")
     await callback.answer()
 
 

@@ -7,6 +7,7 @@ from tracegate.enums import ConnectionMode, ConnectionProtocol, ConnectionVarian
 from tracegate.models import Connection, Device, User
 from tracegate.schemas import ConnectionCreate, ConnectionRead, ConnectionUpdate
 from tracegate.security import require_internal_api_token
+from tracegate.services.connections import ConnectionRevokeError, revoke_connection
 from tracegate.services.overrides import OverrideValidationError, validate_overrides
 
 router = APIRouter(prefix="/connections", tags=["connections"], dependencies=[Depends(require_internal_api_token)])
@@ -112,3 +113,13 @@ async def update_connection(
     await session.commit()
     await session.refresh(row)
     return ConnectionRead.model_validate(row, from_attributes=True)
+
+
+@router.delete("/{connection_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_connection(connection_id: str, session: AsyncSession = Depends(db_session)) -> None:
+    try:
+        await revoke_connection(session, connection_id=connection_id)  # type: ignore[arg-type]
+        await session.commit()
+    except ConnectionRevokeError as exc:
+        await session.rollback()
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc

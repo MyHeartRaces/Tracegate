@@ -27,6 +27,8 @@ class SniDomainCreate(BaseModel):
     fqdn: str
     enabled: bool = True
     is_test: bool = False
+    note: str | None = None
+    providers: list[str] = Field(default_factory=list)
 
 
 class SniDomainRead(BaseModel):
@@ -34,11 +36,15 @@ class SniDomainRead(BaseModel):
     fqdn: str
     enabled: bool
     is_test: bool
+    note: str | None = None
+    providers: list[str] = Field(default_factory=list)
 
 
 class SniDomainUpdate(BaseModel):
     enabled: bool | None = None
     is_test: bool | None = None
+    note: str | None = None
+    providers: list[str] | None = None
 
 
 class UserCreate(BaseModel):

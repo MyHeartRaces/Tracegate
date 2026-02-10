@@ -49,8 +49,14 @@ class TracegateApiClient:
     async def get_connection(self, connection_id: UUID | str) -> dict:
         return await self._request("GET", f"/connections/{connection_id}")
 
+    async def list_sni_filtered(self, provider: str | None) -> list[dict]:
+        params = {}
+        if provider:
+            params["provider"] = provider
+        return await self._request("GET", "/sni", params=params)
+
     async def list_sni(self) -> list[dict]:
-        return await self._request("GET", "/sni")
+        return await self.list_sni_filtered(None)
 
     async def list_revisions(self, connection_id: UUID | str) -> list[dict]:
         return await self._request("GET", f"/revisions/by-connection/{connection_id}")
@@ -96,3 +102,6 @@ class TracegateApiClient:
             json={"camouflage_sni_id": sni_id, "force": False},
         )
         return connection, revision
+
+    async def delete_connection(self, connection_id: UUID | str) -> None:
+        await self._request("DELETE", f"/connections/{connection_id}")

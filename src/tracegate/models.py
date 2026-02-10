@@ -35,6 +35,10 @@ class SniDomain(Base):
     fqdn: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
     enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     is_test: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    # Optional annotation shown in admin/bot UI.
+    note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Provider tags for filtering in bot UI, e.g. ["mts","megafon"].
+    providers: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
 
 

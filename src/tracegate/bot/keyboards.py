@@ -1,6 +1,19 @@
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 
+PROVIDER_CHOICES: list[tuple[str, str]] = [
+    ("Все", "all"),
+    ("МТС", "mts"),
+    ("Мегафон", "megafon"),
+    ("T2", "t2"),
+    ("Тмобайл", "tmobile"),
+    ("РТК", "rtk"),
+    ("Yota", "yota"),
+    ("Beeline", "beeline"),
+    ("Без тега", "other"),
+]
+
+
 def main_menu_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
@@ -30,7 +43,11 @@ def device_actions_keyboard(device_id: str, connections: list[dict] | None = Non
                 InlineKeyboardButton(
                     text=f"Ревизии {connection['variant']}",
                     callback_data=f"revs:{connection['id']}",
-                )
+                ),
+                InlineKeyboardButton(
+                    text="Удалить",
+                    callback_data=f"delconn:{device_id}:{connection['id']}",
+                ),
             ]
         )
     rows.append([InlineKeyboardButton(text="Назад", callback_data="devices")])
@@ -39,7 +56,12 @@ def device_actions_keyboard(device_id: str, connections: list[dict] | None = Non
 
 def sni_keyboard(spec: str, device_id: str, sni_rows: list[dict]) -> InlineKeyboardMarkup:
     rows = [
-        [InlineKeyboardButton(text=row["fqdn"], callback_data=f"sni:{spec}:{device_id}:{row['id']}")]
+        [
+            InlineKeyboardButton(
+                text=row["fqdn"],
+                callback_data=f"sni:{spec}:{device_id}:{row['id']}",
+            )
+        ]
         for row in sni_rows
     ]
     rows.append([InlineKeyboardButton(text="Отмена", callback_data=f"device:{device_id}")])
@@ -52,6 +74,16 @@ def issue_sni_keyboard(connection_id: str, sni_rows: list[dict]) -> InlineKeyboa
         for row in sni_rows
     ]
     rows.append([InlineKeyboardButton(text="Отмена", callback_data=f"revs:{connection_id}")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def provider_keyboard(context: str, target_id: str) -> InlineKeyboardMarkup:
+    # context: "new" or "issue"
+    rows = [
+        [InlineKeyboardButton(text=label, callback_data=f"prov:{context}:{target_id}:{code}")]
+        for (label, code) in PROVIDER_CHOICES
+    ]
+    rows.append([InlineKeyboardButton(text="Отмена", callback_data="devices")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 

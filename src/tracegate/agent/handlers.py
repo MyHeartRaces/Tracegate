@@ -101,6 +101,37 @@ def handle_revoke_user(settings: Settings, payload: dict[str, Any]) -> str:
     return f"revoked user artifacts for {user_id}"
 
 
+def handle_revoke_connection(settings: Settings, payload: dict[str, Any]) -> str:
+    user_id = payload.get("user_id")
+    connection_id = payload.get("connection_id")
+    if not user_id or not connection_id:
+        raise HandlerError("missing user_id/connection_id")
+
+    user_root = _user_dir(Path(settings.agent_data_root), user_id)
+    target = user_root / f"connection-{connection_id}.json"
+    if target.exists():
+        target.unlink()
+    # Remove empty user dir to keep filesystem tidy.
+    try:
+        if user_root.exists() and not any(user_root.iterdir()):
+            user_root.rmdir()
+    except OSError:
+        pass
+
+    changed = set(reconcile_all(settings))
+    if changed:
+        cmds: list[str] = []
+        if "xray" in changed:
+            cmds.append(settings.agent_reload_xray_cmd)
+        if "hysteria" in changed:
+            cmds.append(settings.agent_reload_hysteria_cmd)
+        _run_reload_commands(settings, cmds)
+    else:
+        _run_reload_commands(settings, _proxy_reload_commands(settings))
+
+    return f"revoked connection artifacts for user={user_id} connection={connection_id}"
+
+
 def handle_wg_peer_upsert(settings: Settings, payload: dict[str, Any]) -> str:
     if "peer_public_key" not in payload or "peer_ip" not in payload:
         raise HandlerError("missing wireguard peer fields")
@@ -142,6 +173,8 @@ def dispatch_event(settings: Settings, event_type: OutboxEventType, payload: dic
         return handle_upsert_user(settings, payload)
     if event_type == OutboxEventType.REVOKE_USER:
         return handle_revoke_user(settings, payload)
+    if event_type == OutboxEventType.REVOKE_CONNECTION:
+        return handle_revoke_connection(settings, payload)
     if event_type == OutboxEventType.WG_PEER_UPSERT:
         return handle_wg_peer_upsert(settings, payload)
     if event_type == OutboxEventType.WG_PEER_REMOVE:

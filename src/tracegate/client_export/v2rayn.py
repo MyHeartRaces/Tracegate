@@ -62,6 +62,8 @@ def _export_vless_reality(effective: dict[str, Any]) -> ExportResult:
         "fp": "chrome",
         "pbk": pbk,
         "sid": sid,
+        # Many clients default to spiderX="/". Export explicitly to reduce interop issues.
+        "spx": "/",
     }
 
     name = effective.get("profile") or "tracegate-vless"
@@ -128,4 +130,3 @@ def _export_wireguard(effective: dict[str, Any]) -> ExportResult:
     name = effective.get("profile") or "tracegate-wg"
     filename = f"{name}.conf"
     return ExportResult(kind="wg_conf", title="WireGuard config", content="\n".join(lines), filename=filename)
-
