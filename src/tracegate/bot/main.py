@@ -808,12 +808,9 @@ async def activate_revision(callback: CallbackQuery) -> None:
         revision = await api.activate_revision(revision_id)
         text, keyboard = await render_revisions_page(revision["connection_id"])
         edited = await _safe_edit_text(callback.message, text, reply_markup=keyboard)
-        if not edited:
-            await callback.answer("Без изменений")
-            return
+        await callback.answer("Активировано" if edited else "Без изменений")
     except Exception as exc:  # noqa: BLE001
         await callback.message.answer(f"Ошибка: {exc}")
-    finally:
         await callback.answer()
 
 
@@ -824,12 +821,9 @@ async def revoke_revision(callback: CallbackQuery) -> None:
         revision = await api.revoke_revision(revision_id)
         text, keyboard = await render_revisions_page(revision["connection_id"])
         edited = await _safe_edit_text(callback.message, text, reply_markup=keyboard)
-        if not edited:
-            await callback.answer("Без изменений")
-            return
+        await callback.answer("Удалено" if edited else "Без изменений")
     except Exception as exc:  # noqa: BLE001
         await callback.message.answer(f"Ошибка: {exc}")
-    finally:
         await callback.answer()
 
 
