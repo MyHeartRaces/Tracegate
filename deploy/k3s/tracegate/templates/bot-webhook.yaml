@@ -12,11 +12,10 @@ spec:
   externalTrafficPolicy: Local
   ports:
     - name: https
-      port: {{ .Values.controlPlane.botWebhook.publicPort }}
+      port: {{ default 8443 .Values.controlPlane.botWebhook.publicPort }}
       targetPort: webhook
       protocol: TCP
   selector:
     app.kubernetes.io/component: bot
     app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
-
