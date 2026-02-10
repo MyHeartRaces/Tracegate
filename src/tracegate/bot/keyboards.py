@@ -106,7 +106,7 @@ def provider_keyboard_with_cancel(context: str, target_id: str, *, cancel_callba
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-def revisions_keyboard(connection_id: str, revisions: list[dict], is_vless: bool) -> InlineKeyboardMarkup:
+def revisions_keyboard(connection_id: str, revisions: list[dict], is_vless: bool, device_id: str) -> InlineKeyboardMarkup:
     rows: list[list[InlineKeyboardButton]] = []
     if is_vless:
         rows.append([InlineKeyboardButton(text="Новая ревизия (SNI)", callback_data=f"issuepick:{connection_id}")])
@@ -116,10 +116,11 @@ def revisions_keyboard(connection_id: str, revisions: list[dict], is_vless: bool
         rows.append(
             [
                 InlineKeyboardButton(text=f"Activate slot0 {rev['slot']}", callback_data=f"activate:{rev['id']}"),
-                InlineKeyboardButton(text="Revoke", callback_data=f"revoke:{rev['id']}"),
+                InlineKeyboardButton(text="Удалить", callback_data=f"revoke:{rev['id']}"),
             ]
         )
     rows.append([InlineKeyboardButton(text="Обновить", callback_data=f"revs:{connection_id}")])
+    rows.append([InlineKeyboardButton(text="Назад", callback_data=f"device:{device_id}")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 

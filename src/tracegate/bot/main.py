@@ -5,6 +5,7 @@ import ssl
 from pathlib import Path
 
 from aiogram import Bot, Dispatcher, F, Router
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
@@ -72,13 +73,23 @@ async def render_revisions_page(connection_id: str) -> tuple[str, object]:
         text += "пока нет"
 
     is_vless = connection["protocol"] == ConnectionProtocol.VLESS_REALITY.value
-    return text, revisions_keyboard(connection_id, revisions, is_vless)
+    return text, revisions_keyboard(connection_id, revisions, is_vless, connection["device_id"])
 
 
 @router.callback_query(F.data == "noop")
 async def noop(callback: CallbackQuery) -> None:
     # Used for non-clickable pagination labels.
     await callback.answer()
+
+async def _safe_edit_text(message_obj, text: str, reply_markup: object | None = None) -> bool:
+    try:
+        await message_obj.edit_text(text, reply_markup=reply_markup)
+        return True
+    except TelegramBadRequest as exc:
+        msg = str(exc).lower()
+        if "message is not modified" in msg:
+            return False
+        raise
 
 
 def _format_v2rayn_instructions(uri: str) -> str:
@@ -760,7 +771,10 @@ async def sni_catalog_issue_revision(callback: CallbackQuery, state: FSMContext)
 async def list_revisions(callback: CallbackQuery) -> None:
     _, connection_id = callback.data.split(":", 1)
     text, keyboard = await render_revisions_page(connection_id)
-    await callback.message.edit_text(text, reply_markup=keyboard)
+    edited = await _safe_edit_text(callback.message, text, reply_markup=keyboard)
+    if not edited:
+        await callback.answer("Без изменений")
+        return
     await callback.answer()
 
 
@@ -780,7 +794,7 @@ async def issue_revision(callback: CallbackQuery) -> None:
     try:
         revision = await api.issue_revision(connection_id)
         text, keyboard = await render_revisions_page(revision["connection_id"])
-        await callback.message.edit_text(text, reply_markup=keyboard)
+        await _safe_edit_text(callback.message, text, reply_markup=keyboard)
         await _send_client_config(callback, revision)
     except ApiClientError as exc:
         await callback.message.answer(f"Ошибка: {exc}")
@@ -793,7 +807,10 @@ async def activate_revision(callback: CallbackQuery) -> None:
     try:
         revision = await api.activate_revision(revision_id)
         text, keyboard = await render_revisions_page(revision["connection_id"])
-        await callback.message.edit_text(text, reply_markup=keyboard)
+        edited = await _safe_edit_text(callback.message, text, reply_markup=keyboard)
+        if not edited:
+            await callback.answer("Без изменений")
+            return
     except Exception as exc:  # noqa: BLE001
         await callback.message.answer(f"Ошибка: {exc}")
     finally:
@@ -806,7 +823,10 @@ async def revoke_revision(callback: CallbackQuery) -> None:
     try:
         revision = await api.revoke_revision(revision_id)
         text, keyboard = await render_revisions_page(revision["connection_id"])
-        await callback.message.edit_text(text, reply_markup=keyboard)
+        edited = await _safe_edit_text(callback.message, text, reply_markup=keyboard)
+        if not edited:
+            await callback.answer("Без изменений")
+            return
     except Exception as exc:  # noqa: BLE001
         await callback.message.answer(f"Ошибка: {exc}")
     finally:
@@ -819,7 +839,7 @@ async def issue_revision_with_sni(callback: CallbackQuery) -> None:
     try:
         revision = await api.issue_revision(connection_id, sni_id=int(sni_id_raw))
         text, keyboard = await render_revisions_page(revision["connection_id"])
-        await callback.message.edit_text(text, reply_markup=keyboard)
+        await _safe_edit_text(callback.message, text, reply_markup=keyboard)
         await _send_client_config(callback, revision)
     except Exception as exc:  # noqa: BLE001
         await callback.message.answer(f"Ошибка: {exc}")
