@@ -116,6 +116,8 @@ def _export_vless_ws_tls(effective: dict[str, Any]) -> ExportResult:
         "security": "tls",
         "type": "ws",
         "alpn": "http/1.1",
+        # Keep browser-like fingerprint for clients that support uTLS fingerprint selection via share-link.
+        "fp": "chrome",
         "sni": sni,
         "host": ws_host,
         "path": ws_path,

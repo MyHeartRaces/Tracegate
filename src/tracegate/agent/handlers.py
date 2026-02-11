@@ -21,10 +21,19 @@ def _user_dir(root: Path, user_id: str) -> Path:
 
 
 def _run_reload_commands(settings: Settings, commands: list[str]) -> None:
+    failures: list[str] = []
     for cmd in commands:
         if not cmd:
             continue
-        run_command(cmd, settings.agent_dry_run)
+        ok, out = run_command(cmd, settings.agent_dry_run)
+        if ok:
+            continue
+        details = (out or "").strip() or "no output"
+        if len(details) > 400:
+            details = details[:400].rstrip() + "..."
+        failures.append(f"{cmd}: {details}")
+    if failures:
+        raise HandlerError("reload command failed: " + " | ".join(failures))
 
 
 def _proxy_reload_commands(settings: Settings) -> list[str]:

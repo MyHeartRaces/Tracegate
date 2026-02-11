@@ -76,7 +76,9 @@ class Settings(BaseSettings):
     agent_runtime_mode: str = "kubernetes"
     # In k3s pipeline prefer graceful signal where supported.
     agent_reload_xray_cmd: str = "pkill -HUP xray || true"
-    agent_reload_hysteria_cmd: str = "pkill -TERM hysteria || true"
+    # Hysteria supports graceful SIGHUP reload in current production build.
+    # It avoids full container restart and minimizes active session interruption.
+    agent_reload_hysteria_cmd: str = "pkill -HUP hysteria || true"
     agent_reload_wg_cmd: str = "wg syncconf wg0 /etc/wireguard/wg0.conf"
     agent_server_cert: str | None = None
     agent_server_key: str | None = None

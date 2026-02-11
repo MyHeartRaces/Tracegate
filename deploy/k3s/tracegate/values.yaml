@@ -186,7 +186,8 @@ gateway:
       wgExpectedPort: 51820
       # Prefer graceful config reload for xray to minimize active session drops.
       reloadXrayCmd: pkill -HUP xray || true
-      reloadHysteriaCmd: pkill -TERM hysteria || true
+      # Prefer graceful config reload to reduce client interruption.
+      reloadHysteriaCmd: pkill -HUP hysteria || true
       # Apply wg-quick config by stripping it to wg format and syncing live interface.
       reloadWgCmd: wg-quick strip /etc/wireguard/wg0.conf | wg syncconf wg0 /dev/fd/0 || true
 

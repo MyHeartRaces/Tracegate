@@ -76,6 +76,9 @@ gateway:
     agent:
       authToken: REPLACE_AGENT_AUTH_TOKEN
       statsSecret: REPLACE_HYSTERIA_STATS_SECRET
+      reloadXrayCmd: pkill -HUP xray || true
+      reloadHysteriaCmd: pkill -HUP hysteria || true
+      reloadWgCmd: wg-quick strip /etc/wireguard/wg0.conf | wg syncconf wg0 /dev/fd/0 || true
 
   vpsE:
     publicIPv4: 203.0.113.20
