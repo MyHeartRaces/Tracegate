@@ -139,9 +139,9 @@ metadata:
 spec:
   type: ClusterIP
   ports:
-    - name: metrics
+    - name: dmetrics
       port: {{ int (.Values.controlPlane.dispatcherMetrics.port | default 9091) }}
-      targetPort: dispatcher-metrics
+      targetPort: dmetrics
   selector:
     app.kubernetes.io/component: dispatcher
     app.kubernetes.io/instance: {{ .Release.Name }}
@@ -193,7 +193,7 @@ spec:
           command: ["tracegate-dispatcher"]
 {{ if .Values.controlPlane.dispatcherMetrics.enabled }}
           ports:
-            - name: dispatcher-metrics
+            - name: dmetrics
               containerPort: {{ int (.Values.controlPlane.dispatcherMetrics.port | default 9091) }}
 {{ end }}
           env:
