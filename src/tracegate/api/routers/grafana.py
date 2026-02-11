@@ -6,6 +6,7 @@ import hmac
 import json
 import secrets
 from datetime import datetime, timedelta, timezone
+from enum import Enum
 from typing import Any
 
 import httpx
@@ -26,12 +27,19 @@ router = APIRouter(prefix="/grafana", tags=["grafana"])
 
 class GrafanaOtpCreate(BaseModel):
     telegram_id: int
+    scope: str = "user"
 
 
 class GrafanaOtpCreated(BaseModel):
     code: str
     expires_at: datetime
     login_url: str
+    scope: str
+
+
+class GrafanaSessionScope(str, Enum):
+    USER = "user"
+    ADMIN = "admin"
 
 
 def _b64url(data: bytes) -> str:
@@ -83,25 +91,29 @@ def _cookie_secret() -> str:
     return secret
 
 
-def _session_cookie_value(*, telegram_id: int, ttl_seconds: int) -> str:
+def _session_cookie_value(*, telegram_id: int, ttl_seconds: int, scope: GrafanaSessionScope) -> str:
     now = int(datetime.now(timezone.utc).timestamp())
-    payload = {"telegram_id": int(telegram_id), "exp": now + int(ttl_seconds)}
+    payload = {"telegram_id": int(telegram_id), "exp": now + int(ttl_seconds), "scope": scope.value}
     return _sign(payload, _cookie_secret())
 
 
-def _session_telegram_id_from_cookie(raw: str) -> int | None:
+def _session_data_from_cookie(raw: str) -> tuple[int, GrafanaSessionScope] | None:
     payload = _verify(raw, _cookie_secret())
     if not payload:
         return None
     try:
         exp = int(payload.get("exp") or 0)
         telegram_id = int(payload.get("telegram_id") or 0)
+        scope_raw = str(payload.get("scope") or GrafanaSessionScope.USER.value).strip().lower()
+        scope = GrafanaSessionScope(scope_raw)
     except Exception:
         return None
     now = int(datetime.now(timezone.utc).timestamp())
     if exp <= now:
         return None
-    return telegram_id or None
+    if not telegram_id:
+        return None
+    return telegram_id, scope
 
 
 async def _ensure_grafana_user_role(telegram_id: int, role: UserRole) -> None:
@@ -151,6 +163,11 @@ async def create_grafana_otp(payload: GrafanaOtpCreate, session: AsyncSession = 
     if user is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
 
+    requested_scope_raw = str(payload.scope or GrafanaSessionScope.USER.value).strip().lower()
+    requested_scope = GrafanaSessionScope.ADMIN if requested_scope_raw == GrafanaSessionScope.ADMIN.value else GrafanaSessionScope.USER
+    is_admin_role = user.role in {UserRole.ADMIN, UserRole.SUPERADMIN}
+    effective_scope = GrafanaSessionScope.ADMIN if (requested_scope == GrafanaSessionScope.ADMIN and is_admin_role) else GrafanaSessionScope.USER
+
     # Best-effort user provisioning in Grafana (role mapping is needed for admin dashboards).
     try:
         await _ensure_grafana_user_role(user.telegram_id, user.role)
@@ -177,14 +194,15 @@ async def create_grafana_otp(payload: GrafanaOtpCreate, session: AsyncSession = 
     public = settings.public_base_url.rstrip("/")
     if not public:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="PUBLIC_BASE_URL is not set")
-    login_url = f"{public}/grafana/login?code={code}"
-    return GrafanaOtpCreated(code=code, expires_at=expires_at, login_url=login_url)
+    login_url = f"{public}/grafana/login?code={code}&scope={effective_scope.value}"
+    return GrafanaOtpCreated(code=code, expires_at=expires_at, login_url=login_url, scope=effective_scope.value)
 
 
 @router.get("/login")
 async def grafana_login(
     request: Request,
     code: str = Query(min_length=8),
+    scope: str = Query(default=GrafanaSessionScope.USER.value),
     session: AsyncSession = Depends(db_session),
 ) -> Response:
     settings = get_settings()
@@ -199,14 +217,26 @@ async def grafana_login(
     if row.expires_at < now:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="OTP expired")
 
+    user = await session.get(User, row.telegram_id)
+    if user is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
+    is_admin_role = user.role in {UserRole.ADMIN, UserRole.SUPERADMIN}
+    requested_scope = str(scope or GrafanaSessionScope.USER.value).strip().lower()
+    session_scope = GrafanaSessionScope.ADMIN if (requested_scope == GrafanaSessionScope.ADMIN.value and is_admin_role) else GrafanaSessionScope.USER
+
     # Telegram/CF preview bots may hit the login URL before the real user.
     # Keep login idempotent within OTP TTL so a prefetch does not burn the link.
     if row.used_at is None:
         row.used_at = now
         await session.commit()
 
-    cookie_value = _session_cookie_value(telegram_id=row.telegram_id, ttl_seconds=int(settings.grafana_session_ttl_seconds))
-    resp = RedirectResponse(url="/grafana/", status_code=status.HTTP_302_FOUND)
+    cookie_value = _session_cookie_value(
+        telegram_id=row.telegram_id,
+        ttl_seconds=int(settings.grafana_session_ttl_seconds),
+        scope=session_scope,
+    )
+    landing = "/grafana/d/tracegate-admin/tracegate-admin" if session_scope == GrafanaSessionScope.ADMIN else "/grafana/d/tracegate-user/tracegate-user"
+    resp = RedirectResponse(url=landing, status_code=status.HTTP_302_FOUND)
     resp.set_cookie(
         "tg_grafana_session",
         cookie_value,
@@ -227,21 +257,43 @@ async def grafana_logout(request: Request) -> Response:
 
 
 @router.api_route("/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"])
-async def grafana_proxy(path: str, request: Request) -> Response:
+async def grafana_proxy(path: str, request: Request, session: AsyncSession = Depends(db_session)) -> Response:
     settings = get_settings()
     if not settings.grafana_enabled:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Grafana is disabled")
 
     raw = request.cookies.get("tg_grafana_session") or ""
-    telegram_id = _session_telegram_id_from_cookie(raw)
-    if not telegram_id:
+    session_data = _session_data_from_cookie(raw)
+    if not session_data:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Grafana session required (get OTP in bot)")
+    telegram_id, session_scope = session_data
+    # Resolve role for each request to avoid stale privileges after role changes.
+    user = await session.get(User, telegram_id)
+    if user is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
+    is_admin_role = user.role in {UserRole.ADMIN, UserRole.SUPERADMIN}
+    admin_scope = session_scope == GrafanaSessionScope.ADMIN and is_admin_role
 
     upstream = settings.grafana_internal_url.rstrip("/")
     if not upstream:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="GRAFANA_INTERNAL_URL is not set")
 
-    upstream_path = "/grafana" if not path else f"/grafana/{path}"
+    normalized_path = (path or "").lstrip("/")
+    admin_only_prefixes = (
+        "d/tracegate-admin",
+        "d-solo/tracegate-admin",
+        "api/dashboards/uid/tracegate-admin",
+        "api/folders/tracegate-admin",
+        "dashboards/f/tracegate-admin",
+    )
+    if not admin_scope and normalized_path.startswith(admin_only_prefixes):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin dashboard scope required")
+
+    if not normalized_path:
+        landing = "/grafana/d/tracegate-admin/tracegate-admin" if admin_scope else "/grafana/d/tracegate-user/tracegate-user"
+        return RedirectResponse(url=landing, status_code=status.HTTP_302_FOUND)
+
+    upstream_path = "/grafana" if not normalized_path else f"/grafana/{normalized_path}"
     url = upstream + upstream_path
 
     # Forward cookies except our own session marker.
@@ -288,6 +340,26 @@ async def grafana_proxy(path: str, request: Request) -> Response:
             content=body if body else None,
             follow_redirects=False,
         )
+
+    if not admin_scope and normalized_path == "api/search":
+        try:
+            body_json = r.json()
+        except Exception:
+            body_json = None
+        if isinstance(body_json, list):
+            filtered = [
+                row
+                for row in body_json
+                if isinstance(row, dict)
+                and str(row.get("uid") or "") != "tracegate-admin"
+                and str(row.get("folderUid") or "") != "tracegate-admin"
+                and "tracegate-admin" not in str(row.get("url") or "")
+            ]
+            return Response(
+                content=json.dumps(filtered, separators=(",", ":"), ensure_ascii=True),
+                status_code=r.status_code,
+                media_type="application/json",
+            )
 
     response_headers = {
         k: v

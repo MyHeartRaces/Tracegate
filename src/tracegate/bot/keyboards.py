@@ -31,7 +31,7 @@ def main_menu_keyboard(*, is_admin: bool = False) -> InlineKeyboardMarkup:
 
 def admin_menu_keyboard(*, is_superadmin: bool) -> InlineKeyboardMarkup:
     rows = [
-        [InlineKeyboardButton(text="Grafana (OTP)", callback_data="grafana_otp")],
+        [InlineKeyboardButton(text="Grafana (OTP, admin)", callback_data="grafana_otp_admin")],
     ]
     if is_superadmin:
         rows.extend(

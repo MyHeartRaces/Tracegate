@@ -292,9 +292,28 @@ async def admin_menu(callback: CallbackQuery, state: FSMContext) -> None:
 async def grafana_otp(callback: CallbackQuery) -> None:
     try:
         user = await ensure_user(callback.from_user.id)
-        otp = await api.create_grafana_otp(user["telegram_id"])
+        otp = await api.create_grafana_otp(user["telegram_id"], scope="user")
         await callback.message.answer(
-            "Grafana OTP:\n"
+            "Grafana OTP (user scope):\n"
+            f"- expires_at: {otp.get('expires_at')}\n"
+            f"- link: {otp.get('login_url')}",
+            disable_web_page_preview=True,
+        )
+    except ApiClientError as exc:
+        await callback.message.answer(f"Ошибка: {exc}")
+    await callback.answer()
+
+
+@router.callback_query(F.data == "grafana_otp_admin")
+async def grafana_otp_admin(callback: CallbackQuery) -> None:
+    try:
+        user = await ensure_user(callback.from_user.id)
+        if not _is_admin(user):
+            await callback.answer("Недостаточно прав")
+            return
+        otp = await api.create_grafana_otp(user["telegram_id"], scope="admin")
+        await callback.message.answer(
+            "Grafana OTP (admin scope):\n"
             f"- expires_at: {otp.get('expires_at')}\n"
             f"- link: {otp.get('login_url')}",
             disable_web_page_preview=True,

@@ -22,6 +22,11 @@ def _q(s: str) -> str:
     return quote(s, safe="")
 
 
+def _encode_query(params: dict[str, Any], *, safe: str = "") -> str:
+    # `path=/ws` is more interoperable than `%2Fws` for some clients.
+    return urlencode(params, safe=safe)
+
+
 def export_client_config(effective: dict[str, Any]) -> ExportResult:
     """
     Build a client-importable payload from Tracegate effective_config_json.
@@ -83,7 +88,7 @@ def _export_vless_reality(effective: dict[str, Any]) -> ExportResult:
     }
 
     name = effective.get("profile") or "tracegate-vless"
-    uri = f"vless://{uuid}@{server}:{port}?{urlencode(params)}#{_q(str(name))}"
+    uri = f"vless://{uuid}@{server}:{port}?{_encode_query(params)}#{_q(str(name))}"
     return ExportResult(kind="uri", title="VLESS REALITY link", content=uri)
 
 
@@ -110,6 +115,7 @@ def _export_vless_ws_tls(effective: dict[str, Any]) -> ExportResult:
         "encryption": "none",
         "security": "tls",
         "type": "ws",
+        "alpn": "http/1.1",
         "sni": sni,
         "host": ws_host,
         "path": ws_path,
@@ -118,7 +124,7 @@ def _export_vless_ws_tls(effective: dict[str, Any]) -> ExportResult:
         params["allowInsecure"] = "1"
 
     name = effective.get("profile") or "tracegate-vless-ws"
-    uri = f"vless://{uuid}@{server}:{port}?{urlencode(params)}#{_q(str(name))}"
+    uri = f"vless://{uuid}@{server}:{port}?{_encode_query(params, safe='/,')}#{_q(str(name))}"
     return ExportResult(kind="uri", title="VLESS WS+TLS link", content=uri)
 
 
@@ -139,7 +145,7 @@ def _export_hysteria2(effective: dict[str, Any]) -> ExportResult:
     }
 
     name = effective.get("profile") or "tracegate-hysteria2"
-    uri = f"hysteria2://{_q(username)}:{_q(password)}@{server}:{port}/?{urlencode(params)}#{_q(str(name))}"
+    uri = f"hysteria2://{_q(username)}:{_q(password)}@{server}:{port}/?{_encode_query(params)}#{_q(str(name))}"
     return ExportResult(kind="uri", title="Hysteria2 link", content=uri)
 
 

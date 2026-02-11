@@ -112,8 +112,8 @@ class TracegateApiClient:
     async def delete_connection(self, connection_id: UUID | str) -> None:
         await self._request("DELETE", f"/connections/{connection_id}")
 
-    async def create_grafana_otp(self, telegram_id: int) -> dict:
-        return await self._request("POST", "/grafana/otp", json={"telegram_id": telegram_id})
+    async def create_grafana_otp(self, telegram_id: int, scope: str = "user") -> dict:
+        return await self._request("POST", "/grafana/otp", json={"telegram_id": telegram_id, "scope": scope})
 
     async def register_bot_message(
         self,
