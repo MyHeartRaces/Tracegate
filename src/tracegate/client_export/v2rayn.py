@@ -18,13 +18,13 @@ class ExportResult:
 
 
 def _q(s: str) -> str:
-    # v2rayN share links typically expect URL-encoded fragments/params.
+    # Share links typically expect URL-encoded fragments/params.
     return quote(s, safe="")
 
 
-def export_v2rayn(effective: dict[str, Any]) -> ExportResult:
+def export_client_config(effective: dict[str, Any]) -> ExportResult:
     """
-    Build a v2rayN-importable payload from Tracegate effective_config_json.
+    Build a client-importable payload from Tracegate effective_config_json.
 
     - VLESS+REALITY: returns a `vless://...` URI
     - Hysteria2: returns a `hysteria2://...` URI (with insecure=1 by default)
@@ -44,12 +44,17 @@ def export_v2rayn(effective: dict[str, Any]) -> ExportResult:
             return _export_vless_reality(effective)
         if transport in {"ws_tls", "ws+tls", "ws-tls"}:
             return _export_vless_ws_tls(effective)
-        raise V2RayNExportError(f"Unsupported VLESS transport for v2rayN export: {transport!r}")
+        raise V2RayNExportError(f"Unsupported VLESS transport for export: {transport!r}")
     if proto == "hysteria2":
         return _export_hysteria2(effective)
     if proto == "wireguard":
         return _export_wireguard(effective)
-    raise V2RayNExportError(f"Unsupported protocol for v2rayN export: {proto!r}")
+    raise V2RayNExportError(f"Unsupported protocol for export: {proto!r}")
+
+
+def export_v2rayn(effective: dict[str, Any]) -> ExportResult:
+    # Backward-compatible alias.
+    return export_client_config(effective)
 
 
 def _export_vless_reality(effective: dict[str, Any]) -> ExportResult:
@@ -64,7 +69,7 @@ def _export_vless_reality(effective: dict[str, Any]) -> ExportResult:
     if not server or not uuid or not sni or not pbk or not sid:
         raise V2RayNExportError("Missing fields for VLESS/REALITY export")
 
-    # v2rayN parameters (Xray share format)
+    # Xray share-link parameters.
     params = {
         "encryption": "none",
         "security": "reality",
@@ -79,7 +84,7 @@ def _export_vless_reality(effective: dict[str, Any]) -> ExportResult:
 
     name = effective.get("profile") or "tracegate-vless"
     uri = f"vless://{uuid}@{server}:{port}?{urlencode(params)}#{_q(str(name))}"
-    return ExportResult(kind="uri", title="v2rayN VLESS/REALITY link", content=uri)
+    return ExportResult(kind="uri", title="VLESS REALITY link", content=uri)
 
 
 def _export_vless_ws_tls(effective: dict[str, Any]) -> ExportResult:
@@ -114,7 +119,7 @@ def _export_vless_ws_tls(effective: dict[str, Any]) -> ExportResult:
 
     name = effective.get("profile") or "tracegate-vless-ws"
     uri = f"vless://{uuid}@{server}:{port}?{urlencode(params)}#{_q(str(name))}"
-    return ExportResult(kind="uri", title="v2rayN VLESS+WS+TLS link", content=uri)
+    return ExportResult(kind="uri", title="VLESS WS+TLS link", content=uri)
 
 
 def _export_hysteria2(effective: dict[str, Any]) -> ExportResult:
@@ -127,8 +132,7 @@ def _export_hysteria2(effective: dict[str, Any]) -> ExportResult:
     if not server or not username or not password:
         raise V2RayNExportError("Missing fields for Hysteria2 export")
 
-    # We deploy self-signed by default in v0.1, so exporting with insecure=1 avoids user confusion.
-    # If you later switch to a public CA cert, users can set insecure=0 in v2rayN UI.
+    # Export with insecure=1 for compatibility with self-signed/non-public cert deployments.
     params = {
         "alpn": "h3",
         "insecure": "1",
@@ -136,7 +140,7 @@ def _export_hysteria2(effective: dict[str, Any]) -> ExportResult:
 
     name = effective.get("profile") or "tracegate-hysteria2"
     uri = f"hysteria2://{_q(username)}:{_q(password)}@{server}:{port}/?{urlencode(params)}#{_q(str(name))}"
-    return ExportResult(kind="uri", title="v2rayN Hysteria2 link", content=uri)
+    return ExportResult(kind="uri", title="Hysteria2 link", content=uri)
 
 
 def _export_wireguard(effective: dict[str, Any]) -> ExportResult:

@@ -22,6 +22,7 @@ dependencies = [
   "prometheus-client>=0.20.0",
   "aiogram>=3.15.0",
   "python-dateutil>=2.9.0",
+  "qrcode[pil]>=7.4.2",
 ]
 
 [project.optional-dependencies]

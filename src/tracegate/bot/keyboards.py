@@ -1,5 +1,6 @@
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
+from tracegate.enums import ConnectionMode, ConnectionProtocol
 
 PROVIDER_CHOICES: list[tuple[str, str]] = [
     ("Все", "all"),
@@ -58,17 +59,30 @@ def devices_keyboard(devices: list[dict]) -> InlineKeyboardMarkup:
 
 
 def device_actions_keyboard(device_id: str, connections: list[dict] | None = None) -> InlineKeyboardMarkup:
+    def _title(conn: dict) -> str:
+        protocol = (conn.get("protocol") or "").strip().lower()
+        mode = (conn.get("mode") or "").strip().lower()
+        if protocol == ConnectionProtocol.VLESS_REALITY.value:
+            return "VLESS Reality Chain" if mode == ConnectionMode.CHAIN.value else "VLESS Reality Direct"
+        if protocol == ConnectionProtocol.VLESS_WS_TLS.value:
+            return "VLESS TLS Chain" if mode == ConnectionMode.CHAIN.value else "VLESS TLS Direct"
+        if protocol == ConnectionProtocol.HYSTERIA2.value:
+            return "Hysteria2"
+        if protocol == ConnectionProtocol.WIREGUARD.value:
+            return "WireGuard"
+        return f"{conn.get('variant')} ({conn.get('protocol')})"
+
     rows = [
-        [InlineKeyboardButton(text="VLESS (TCP) напрямую", callback_data=f"vlessnew:b1:{device_id}")],
-        [InlineKeyboardButton(text="VLESS (TCP) через VPS-E", callback_data=f"vlessnew:b2:{device_id}")],
-        [InlineKeyboardButton(text="Turbo UDP (Hysteria2)", callback_data=f"new:b3:{device_id}")],
-        [InlineKeyboardButton(text="Gaming VPN (WireGuard)", callback_data=f"new:b5:{device_id}")],
+        [InlineKeyboardButton(text="VLESS Direct", callback_data=f"vlessnew:b1:{device_id}")],
+        [InlineKeyboardButton(text="VLESS Chain (через VPS-E)", callback_data=f"vlessnew:b2:{device_id}")],
+        [InlineKeyboardButton(text="Hysteria2 (UDP/QUIC)", callback_data=f"new:b3:{device_id}")],
+        [InlineKeyboardButton(text="WireGuard", callback_data=f"new:b5:{device_id}")],
     ]
     for connection in connections or []:
         rows.append(
             [
                 InlineKeyboardButton(
-                    text=f"Ревизии {connection['variant']}",
+                    text=f"Ревизии {_title(connection)}",
                     callback_data=f"revs:{connection['id']}",
                 ),
                 InlineKeyboardButton(
@@ -273,8 +287,8 @@ def sni_catalog_pick_keyboard(
 
 def sni_catalog_action_keyboard(*, sni_id: int, provider: str, page: int) -> InlineKeyboardMarkup:
     rows: list[list[InlineKeyboardButton]] = [
-        [InlineKeyboardButton(text="Создать VLESS direct (B1)", callback_data=f"catnewpick:b1:{sni_id}:{provider}:{page}")],
-        [InlineKeyboardButton(text="Создать VLESS chain (B2)", callback_data=f"catnewpick:b2:{sni_id}:{provider}:{page}")],
+        [InlineKeyboardButton(text="Создать VLESS Direct", callback_data=f"catnewpick:b1:{sni_id}:{provider}:{page}")],
+        [InlineKeyboardButton(text="Создать VLESS Chain", callback_data=f"catnewpick:b2:{sni_id}:{provider}:{page}")],
         [InlineKeyboardButton(text="Новая ревизия для VLESS", callback_data=f"catissuepick:{sni_id}:{provider}:{page}")],
         [InlineKeyboardButton(text="Назад", callback_data=f"cat:{provider}:{page}")],
         [InlineKeyboardButton(text="Меню", callback_data="menu")],

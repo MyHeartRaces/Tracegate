@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import io
 import ssl
 from pathlib import Path
 
@@ -32,9 +33,10 @@ from tracegate.bot.keyboards import (
     sni_page_keyboard_new,
     vless_transport_keyboard,
 )
-from tracegate.client_export.v2rayn import V2RayNExportError, export_v2rayn
+from tracegate.client_export.v2rayn import V2RayNExportError, export_client_config
 from tracegate.enums import ConnectionMode, ConnectionProtocol, ConnectionVariant, NodeRole
 from tracegate.settings import get_settings
+import qrcode
 
 settings = get_settings()
 api = TracegateApiClient(settings.bot_api_base_url, settings.bot_api_token)
@@ -65,11 +67,25 @@ def _is_superadmin(user: dict) -> bool:
     return (user.get("role") or "").strip().lower() == "superadmin"
 
 
+def _connection_family_name(protocol: str, mode: str) -> str:
+    p = (protocol or "").strip().lower()
+    m = (mode or "").strip().lower()
+    if p == ConnectionProtocol.VLESS_REALITY.value:
+        return "VLESS Reality Chain" if m == ConnectionMode.CHAIN.value else "VLESS Reality Direct"
+    if p == ConnectionProtocol.VLESS_WS_TLS.value:
+        return "VLESS TLS Chain" if m == ConnectionMode.CHAIN.value else "VLESS TLS Direct"
+    if p == ConnectionProtocol.HYSTERIA2.value:
+        return "Hysteria2"
+    if p == ConnectionProtocol.WIREGUARD.value:
+        return "WireGuard"
+    return f"{protocol}/{mode}"
+
+
 async def render_device_page(device_id: str) -> tuple[str, object]:
     connections = await api.list_connections(device_id)
     text = "Подключения:\n"
     if connections:
-        lines = [f"- {c['variant']} ({c['protocol']}) id={c['id']}" for c in connections]
+        lines = [f"- {_connection_family_name(c['protocol'], c['mode'])} id={c['id']}" for c in connections]
         text += "\n".join(lines)
     else:
         text += "пока нет"
@@ -79,14 +95,15 @@ async def render_device_page(device_id: str) -> tuple[str, object]:
 async def render_revisions_page(connection_id: str) -> tuple[str, object]:
     connection = await api.get_connection(connection_id)
     revisions = await api.list_revisions(connection_id)
-    text = f"Ревизии connection={connection_id}\n"
+    family = _connection_family_name(connection["protocol"], connection["mode"])
+    text = f"Ревизии: {family}\nconnection={connection_id}\n"
     if revisions:
         rows = [f"- id={r['id']} slot={r['slot']} status={r['status']}" for r in revisions]
         text += "\n".join(rows)
     else:
         text += "пока нет"
 
-    is_vless = connection["protocol"] == ConnectionProtocol.VLESS_REALITY.value
+    is_vless = connection["protocol"] in {ConnectionProtocol.VLESS_REALITY.value, ConnectionProtocol.VLESS_WS_TLS.value}
     return text, revisions_keyboard(connection_id, revisions, is_vless, connection["device_id"])
 
 
@@ -106,32 +123,132 @@ async def _safe_edit_text(message_obj, text: str, reply_markup: object | None = 
         raise
 
 
-def _format_v2rayn_instructions(uri: str) -> str:
-    # Keep it short: Telegram message length is limited and users mainly want the share link.
+def _format_uri_instructions(uri: str) -> str:
     return (
-        "v2rayN import:\n"
-        "1) Copy the link below\n"
-        "2) In v2rayN: Ctrl+V (or Import from clipboard)\n\n"
+        "Ссылка для импорта в клиент:\n\n"
         f"{uri}"
     )
 
 
+def _build_qr_png(payload: str) -> bytes:
+    qr = qrcode.QRCode(
+        version=None,
+        error_correction=qrcode.constants.ERROR_CORRECT_M,
+        box_size=8,
+        border=2,
+    )
+    qr.add_data(payload)
+    qr.make(fit=True)
+    img = qr.make_image(fill_color="black", back_color="white")
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    return buf.getvalue()
+
+
+async def _register_bot_message_ref(
+    callback: CallbackQuery,
+    *,
+    message_id: int,
+    connection_id: str | None,
+    device_id: str | None,
+    revision_id: str | None,
+) -> None:
+    msg = callback.message
+    if msg is None:
+        return
+    try:
+        await api.register_bot_message(
+            telegram_id=callback.from_user.id,
+            chat_id=msg.chat.id,
+            message_id=message_id,
+            connection_id=connection_id,
+            device_id=device_id,
+            revision_id=revision_id,
+        )
+    except Exception:
+        # Message cleanup is best-effort and must not break the main flow.
+        pass
+
+
+async def _cleanup_related_messages(
+    callback: CallbackQuery,
+    *,
+    connection_id: str | None = None,
+    device_id: str | None = None,
+    revision_id: str | None = None,
+) -> None:
+    if not any([connection_id, device_id, revision_id]):
+        return
+    try:
+        refs = await api.cleanup_bot_messages(
+            connection_id=connection_id,
+            device_id=device_id,
+            revision_id=revision_id,
+        )
+    except Exception:
+        return
+    for ref in refs:
+        try:
+            await callback.bot.delete_message(chat_id=int(ref["chat_id"]), message_id=int(ref["message_id"]))
+        except Exception:
+            continue
+
+
 async def _send_client_config(callback: CallbackQuery, revision: dict) -> None:
     effective = revision.get("effective_config_json") or {}
+    revision_id = str(revision.get("id") or "")
+    connection_id = str(revision.get("connection_id") or "")
+    device_id: str | None = None
     try:
-        exported = export_v2rayn(effective)
+        if connection_id:
+            conn = await api.get_connection(connection_id)
+            device_id = str(conn.get("device_id") or "")
+    except Exception:
+        device_id = None
+
+    try:
+        exported = export_client_config(effective)
     except V2RayNExportError as exc:
-        await callback.message.answer(f"Не смог собрать конфиг для v2rayN: {exc}")
+        await callback.message.answer(f"Не смог собрать конфиг для клиента: {exc}")
         return
 
     if exported.kind == "uri":
-        await callback.message.answer(_format_v2rayn_instructions(exported.content))
+        sent = await callback.message.answer(
+            _format_uri_instructions(exported.content),
+            disable_web_page_preview=True,
+        )
+        await _register_bot_message_ref(
+            callback,
+            message_id=sent.message_id,
+            connection_id=connection_id or None,
+            device_id=device_id or None,
+            revision_id=revision_id or None,
+        )
+        qr_bytes = _build_qr_png(exported.content)
+        qr_msg = await callback.message.answer_photo(
+            BufferedInputFile(qr_bytes, filename="tracegate-config-qr.png"),
+            caption=f"{exported.title} (QR)",
+        )
+        await _register_bot_message_ref(
+            callback,
+            message_id=qr_msg.message_id,
+            connection_id=connection_id or None,
+            device_id=device_id or None,
+            revision_id=revision_id or None,
+        )
         return
 
     if exported.kind == "wg_conf":
         data = exported.content.encode("utf-8")
         filename = exported.filename or "wg0.conf"
-        await callback.message.answer_document(BufferedInputFile(data, filename=filename), caption=exported.title)
+        sent = await callback.message.answer_document(BufferedInputFile(data, filename=filename), caption=exported.title)
+        await _register_bot_message_ref(
+            callback,
+            message_id=sent.message_id,
+            connection_id=connection_id or None,
+            device_id=device_id or None,
+            revision_id=revision_id or None,
+        )
         return
 
     await callback.message.answer(f"Неизвестный тип экспорта: {exported.kind}")
@@ -179,7 +296,8 @@ async def grafana_otp(callback: CallbackQuery) -> None:
         await callback.message.answer(
             "Grafana OTP:\n"
             f"- expires_at: {otp.get('expires_at')}\n"
-            f"- link: {otp.get('login_url')}"
+            f"- link: {otp.get('login_url')}",
+            disable_web_page_preview=True,
         )
     except ApiClientError as exc:
         await callback.message.answer(f"Ошибка: {exc}")
@@ -299,6 +417,7 @@ async def delete_device(callback: CallbackQuery) -> None:
     _, device_id = callback.data.split(":", 1)
     try:
         await api.delete_device(device_id)
+        await _cleanup_related_messages(callback, device_id=device_id)
         user = await ensure_user(callback.from_user.id)
         devices = await api.list_devices(user["telegram_id"])
         text = "Устройства:\n" + ("\n".join([f"- {d['name']} id={d['id']}" for d in devices]) if devices else "пока нет")
@@ -948,7 +1067,7 @@ async def sni_catalog_issue_pick_connection(callback: CallbackQuery) -> None:
             for conn in await api.list_connections(dev["id"]):
                 if conn.get("protocol") != ConnectionProtocol.VLESS_REALITY.value:
                     continue
-                label = f"{dev['name']} | {conn.get('variant')} | {conn.get('mode')}"
+                label = f"{dev['name']} | {_connection_family_name(conn.get('protocol', ''), conn.get('mode', ''))}"
                 vless_connections.append({"id": conn["id"], "label": label})
 
         if not vless_connections:
@@ -1044,6 +1163,7 @@ async def revoke_revision(callback: CallbackQuery) -> None:
     _, revision_id = callback.data.split(":", 1)
     try:
         revision = await api.revoke_revision(revision_id)
+        await _cleanup_related_messages(callback, revision_id=revision_id)
         text, keyboard = await render_revisions_page(revision["connection_id"])
         await _safe_edit_text(callback.message, text, reply_markup=keyboard)
         await callback.answer("Удалено")
@@ -1074,6 +1194,7 @@ async def delete_connection(callback: CallbackQuery) -> None:
         conn = await api.get_connection(connection_id)
         device_id = conn["device_id"]
         await api.delete_connection(connection_id)
+        await _cleanup_related_messages(callback, connection_id=connection_id)
         text, keyboard = await render_device_page(device_id)
         await callback.message.edit_text(text, reply_markup=keyboard)
         await callback.message.answer("Подключение удалено (доступ отозван).")

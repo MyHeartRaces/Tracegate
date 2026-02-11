@@ -74,8 +74,8 @@ class Settings(BaseSettings):
     agent_wg_expected_port: int = 51820
     agent_dry_run: bool = True
     agent_runtime_mode: str = "kubernetes"
-    # In k3s pipeline we restart sidecars to pick up config changes.
-    agent_reload_xray_cmd: str = "pkill -TERM xray || true"
+    # In k3s pipeline prefer graceful signal where supported.
+    agent_reload_xray_cmd: str = "pkill -HUP xray || true"
     agent_reload_hysteria_cmd: str = "pkill -TERM hysteria || true"
     agent_reload_wg_cmd: str = "wg syncconf wg0 /etc/wireguard/wg0.conf"
     agent_server_cert: str | None = None

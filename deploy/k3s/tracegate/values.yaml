@@ -184,8 +184,8 @@ gateway:
       statsSecret: ""
       wgInterface: wg0
       wgExpectedPort: 51820
-      # In k8s we restart the sidecar processes to pick up config changes.
-      reloadXrayCmd: pkill -TERM xray || true
+      # Prefer graceful config reload for xray to minimize active session drops.
+      reloadXrayCmd: pkill -HUP xray || true
       reloadHysteriaCmd: pkill -TERM hysteria || true
       # Apply wg-quick config by stripping it to wg format and syncing live interface.
       reloadWgCmd: wg-quick strip /etc/wireguard/wg0.conf | wg syncconf wg0 /dev/fd/0 || true

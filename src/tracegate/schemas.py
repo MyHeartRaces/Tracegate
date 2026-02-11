@@ -160,6 +160,33 @@ class NodeEndpointRead(BaseModel):
     active: bool
 
 
+class BotMessageRefCreate(BaseModel):
+    telegram_id: int
+    chat_id: int
+    message_id: int
+    connection_id: UUID | None = None
+    device_id: UUID | None = None
+    revision_id: UUID | None = None
+
+
+class BotMessageRefRead(BaseModel):
+    id: UUID
+    telegram_id: int
+    chat_id: int
+    message_id: int
+    connection_id: UUID | None
+    device_id: UUID | None
+    revision_id: UUID | None
+    removed_at: datetime | None
+    created_at: datetime
+
+
+class BotMessageCleanupRequest(BaseModel):
+    connection_id: UUID | None = None
+    device_id: UUID | None = None
+    revision_id: UUID | None = None
+
+
 class OutboxEventRead(BaseModel):
     id: UUID
     event_type: OutboxEventType

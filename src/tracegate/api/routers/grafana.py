@@ -196,13 +196,14 @@ async def grafana_login(
     row = await session.scalar(select(GrafanaOtp).where(GrafanaOtp.code_hash == code_hash))
     if row is None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid OTP")
-    if row.used_at is not None:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="OTP already used")
     if row.expires_at < now:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="OTP expired")
 
-    row.used_at = now
-    await session.commit()
+    # Telegram/CF preview bots may hit the login URL before the real user.
+    # Keep login idempotent within OTP TTL so a prefetch does not burn the link.
+    if row.used_at is None:
+        row.used_at = now
+        await session.commit()
 
     cookie_value = _session_cookie_value(telegram_id=row.telegram_id, ttl_seconds=int(settings.grafana_session_ttl_seconds))
     resp = RedirectResponse(url="/grafana/", status_code=status.HTTP_302_FOUND)

@@ -115,6 +115,46 @@ class TracegateApiClient:
     async def create_grafana_otp(self, telegram_id: int) -> dict:
         return await self._request("POST", "/grafana/otp", json={"telegram_id": telegram_id})
 
+    async def register_bot_message(
+        self,
+        *,
+        telegram_id: int,
+        chat_id: int,
+        message_id: int,
+        connection_id: UUID | str | None = None,
+        device_id: UUID | str | None = None,
+        revision_id: UUID | str | None = None,
+    ) -> dict:
+        return await self._request(
+            "POST",
+            "/bot-messages",
+            json={
+                "telegram_id": telegram_id,
+                "chat_id": chat_id,
+                "message_id": message_id,
+                "connection_id": str(connection_id) if connection_id else None,
+                "device_id": str(device_id) if device_id else None,
+                "revision_id": str(revision_id) if revision_id else None,
+            },
+        )
+
+    async def cleanup_bot_messages(
+        self,
+        *,
+        connection_id: UUID | str | None = None,
+        device_id: UUID | str | None = None,
+        revision_id: UUID | str | None = None,
+    ) -> list[dict]:
+        return await self._request(
+            "POST",
+            "/bot-messages/cleanup",
+            json={
+                "connection_id": str(connection_id) if connection_id else None,
+                "device_id": str(device_id) if device_id else None,
+                "revision_id": str(revision_id) if revision_id else None,
+            },
+        )
+
     async def set_user_role(self, telegram_id: int, role: str) -> dict:
         return await self._request("PATCH", f"/users/{telegram_id}/role", json={"role": role})
 

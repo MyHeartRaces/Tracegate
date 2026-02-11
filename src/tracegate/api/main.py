@@ -4,7 +4,7 @@ import anyio
 import uvicorn
 from fastapi import FastAPI
 
-from tracegate.api.routers import auth, connections, devices, dispatch, grafana, health, metrics, nodes, revisions, sni, users
+from tracegate.api.routers import auth, bot_messages, connections, devices, dispatch, grafana, health, metrics, nodes, revisions, sni, users
 from tracegate.cli.migrate_db import migrate_db
 from tracegate.db import get_sessionmaker
 from tracegate.services.ipam import ensure_pool_exists
@@ -35,6 +35,7 @@ app.include_router(devices.router)
 app.include_router(connections.router)
 app.include_router(revisions.router)
 app.include_router(nodes.router)
+app.include_router(bot_messages.router)
 app.include_router(dispatch.router)
 
 
