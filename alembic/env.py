@@ -79,11 +79,8 @@ def run_migrations_online() -> None:
     """
     connectable = create_engine(_sync_database_url(), poolclass=pool.NullPool)
 
-    with connectable.connect() as connection:
-        if connection.dialect.name == "postgresql":
-            # Transaction-scoped advisory lock avoids concurrent runners and is auto-released on commit/rollback.
-            connection.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": MIGRATION_ADVISORY_LOCK_KEY})
-
+    # Use an explicit outer transaction so advisory lock + migrations commit atomically.
+    with connectable.begin() as connection:
         context.configure(
             connection=connection,
             target_metadata=target_metadata,
@@ -91,6 +88,9 @@ def run_migrations_online() -> None:
         )
 
         with context.begin_transaction():
+            if connection.dialect.name == "postgresql":
+                # Transaction-scoped advisory lock avoids concurrent runners and is auto-released on commit/rollback.
+                connection.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": MIGRATION_ADVISORY_LOCK_KEY})
             context.run_migrations()
 
 
