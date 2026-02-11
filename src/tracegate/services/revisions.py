@@ -349,7 +349,8 @@ async def create_revision(
         effective_config_json=effective_config,
         created_at=datetime.now(timezone.utc),
     )
-    session.add(revision)
+    # Keep ORM collection consistent for _compact_slots() in the same transaction.
+    connection.revisions.append(revision)
     await session.flush()
 
     # For WireGuard keep DB peer state consistent with slot0 immediately.
