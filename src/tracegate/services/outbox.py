@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from uuid import UUID
 
 from sqlalchemy import and_, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracegate.enums import DeliveryStatus, NodeRole, OutboxEventType, OutboxStatus
@@ -34,17 +35,30 @@ async def create_outbox_event(
     if existing:
         return existing
 
-    event = OutboxEvent(
-        event_type=event_type,
-        aggregate_id=aggregate_id,
-        payload_json=payload,
-        role_target=role_target,
-        node_id=node_id,
-        idempotency_key=idempotency_key,
-        status=OutboxStatus.PENDING,
-    )
-    session.add(event)
-    await session.flush()
+    event: OutboxEvent | None = None
+    try:
+        async with session.begin_nested():
+            event = OutboxEvent(
+                event_type=event_type,
+                aggregate_id=aggregate_id,
+                payload_json=payload,
+                role_target=role_target,
+                node_id=node_id,
+                idempotency_key=idempotency_key,
+                status=OutboxStatus.PENDING,
+            )
+            session.add(event)
+            await session.flush()
+    except IntegrityError:
+        existing = await session.scalar(select(OutboxEvent).where(OutboxEvent.idempotency_key == idempotency_key))
+        if existing is not None:
+            return existing
+        raise
+    if event is None:
+        existing = await session.scalar(select(OutboxEvent).where(OutboxEvent.idempotency_key == idempotency_key))
+        if existing is not None:
+            return existing
+        raise RuntimeError("failed to create outbox event")
 
     await fanout_deliveries(session, event)
     return event

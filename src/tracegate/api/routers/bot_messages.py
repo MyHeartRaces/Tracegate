@@ -8,11 +8,16 @@ from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracegate.api.deps import db_session
+from tracegate.enums import ApiScope
 from tracegate.models import BotMessageRef
 from tracegate.schemas import BotMessageCleanupRequest, BotMessageRefCreate, BotMessageRefRead
-from tracegate.security import require_internal_api_token
+from tracegate.security import require_api_scope
 
-router = APIRouter(prefix="/bot-messages", tags=["bot-messages"], dependencies=[Depends(require_internal_api_token)])
+router = APIRouter(
+    prefix="/bot-messages",
+    tags=["bot-messages"],
+    dependencies=[Depends(require_api_scope(ApiScope.BOT_MESSAGES_RW))],
+)
 
 
 def _build_filters(

@@ -6,7 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracegate.enums import ConnectionProtocol, NodeRole, OutboxEventType, RecordStatus
-from tracegate.models import Connection, ConnectionRevision, IpamLease, WireguardPeer
+from tracegate.models import Connection, ConnectionRevision, Device, IpamLease, WireguardPeer
 from tracegate.services.ipam import release_lease
 from tracegate.services.outbox import create_outbox_event
 
@@ -72,3 +72,35 @@ async def revoke_connection(session: AsyncSession, connection_id: UUID) -> None:
         role_target=NodeRole.VPS_T,
         idempotency_suffix=f"conn-revoke:{conn.id}",
     )
+
+
+async def revoke_user_access(session: AsyncSession, user_id: int) -> tuple[int, int]:
+    """
+    Revoke all active user connections and mark all user devices as revoked.
+
+    Returns:
+      (revoked_connections_count, revoked_devices_count)
+    """
+    connections = (
+        await session.execute(
+            select(Connection).where(
+                Connection.user_id == user_id,
+                Connection.status == RecordStatus.ACTIVE,
+            )
+        )
+    ).scalars().all()
+    for conn in connections:
+        await revoke_connection(session, connection_id=conn.id)
+
+    devices = (
+        await session.execute(
+            select(Device).where(
+                Device.user_id == user_id,
+                Device.status == RecordStatus.ACTIVE,
+            )
+        )
+    ).scalars().all()
+    for device in devices:
+        device.status = RecordStatus.REVOKED
+
+    return len(connections), len(devices)

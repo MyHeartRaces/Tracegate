@@ -27,18 +27,26 @@ def apply_files(root: Path, files: dict[str, str]) -> None:
         atomic_write(root, relative, content)
 
 
-def run_command(cmd: str, dry_run: bool) -> tuple[bool, str]:
+def run_command(cmd: str, dry_run: bool, *, timeout_seconds: int = 30) -> tuple[bool, str]:
     if dry_run:
         return True, f"dry-run: {cmd}"
-    proc = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+    if "\n" in cmd or "\r" in cmd:
+        return False, "multiline commands are not allowed"
+    try:
+        proc = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=timeout_seconds)
+    except subprocess.TimeoutExpired:
+        return False, f"timeout after {timeout_seconds}s"
     output = (proc.stdout + "\n" + proc.stderr).strip()
     return proc.returncode == 0, output
 
 
 def check_port(protocol: str, port: int) -> tuple[bool, str]:
     # Be strict: the generic ss -lntup output mixes TCP/UDP, which can cause false positives.
-    cmd = "ss -ltn" if protocol == "tcp" else "ss -lun"
-    proc = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+    cmd = ["ss", "-ltn"] if protocol == "tcp" else ["ss", "-lun"]
+    try:
+        proc = subprocess.run(cmd, capture_output=True, text=True)
+    except FileNotFoundError:
+        return False, "ss not found"
     if proc.returncode != 0:
         return False, f"cannot run ss: {proc.stderr.strip()}"
 

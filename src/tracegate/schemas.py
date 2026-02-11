@@ -7,6 +7,7 @@ from uuid import UUID
 from pydantic import BaseModel, Field
 
 from tracegate.enums import (
+    ApiScope,
     ConnectionMode,
     ConnectionProtocol,
     ConnectionVariant,
@@ -55,10 +56,15 @@ class UserCreate(BaseModel):
 
 class UserRead(BaseModel):
     telegram_id: int
+    telegram_username: str | None = None
+    telegram_first_name: str | None = None
+    telegram_last_name: str | None = None
     role: UserRole
     devices_max: int
     entitlement_status: EntitlementStatus
     grace_ends_at: datetime | None
+    bot_blocked_until: datetime | None = None
+    bot_block_reason: str | None = None
 
 
 class UserEntitlementUpdate(BaseModel):
@@ -68,6 +74,18 @@ class UserEntitlementUpdate(BaseModel):
 
 class UserRoleUpdate(BaseModel):
     role: UserRole
+
+
+class UserProfileUpdate(BaseModel):
+    telegram_username: str | None = Field(default=None, max_length=64)
+    telegram_first_name: str | None = Field(default=None, max_length=128)
+    telegram_last_name: str | None = Field(default=None, max_length=128)
+
+
+class UserBotBlockUpdate(BaseModel):
+    hours: int = Field(ge=1, le=24 * 365)
+    reason: str | None = Field(default=None, max_length=255)
+    revoke_access: bool = True
 
 
 class DeviceCreate(BaseModel):
@@ -108,6 +126,9 @@ class ConnectionRead(BaseModel):
     id: UUID
     user_id: int
     device_id: UUID
+    device_name: str | None = None
+    user_display: str | None = None
+    alias: str | None = None
     protocol: ConnectionProtocol
     mode: ConnectionMode
     variant: ConnectionVariant
@@ -209,11 +230,13 @@ class OutboxDeliveryRead(BaseModel):
 
 class ApiTokenCreate(BaseModel):
     name: str = Field(min_length=1, max_length=128)
+    scopes: list[ApiScope] = Field(default_factory=lambda: [ApiScope.ALL], min_length=1)
 
 
 class ApiTokenRead(BaseModel):
     id: UUID
     name: str
+    scopes: list[str]
     status: RecordStatus
     created_at: datetime
     last_used_at: datetime | None

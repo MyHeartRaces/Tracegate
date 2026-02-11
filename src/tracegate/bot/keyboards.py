@@ -32,6 +32,9 @@ def main_menu_keyboard(*, is_admin: bool = False) -> InlineKeyboardMarkup:
 def admin_menu_keyboard(*, is_superadmin: bool) -> InlineKeyboardMarkup:
     rows = [
         [InlineKeyboardButton(text="Grafana (OTP, admin)", callback_data="grafana_otp_admin")],
+        [InlineKeyboardButton(text="Список пользователей", callback_data="admin_users")],
+        [InlineKeyboardButton(text="Блокировать пользователя", callback_data="admin_user_block")],
+        [InlineKeyboardButton(text="Снять блокировку", callback_data="admin_user_unblock")],
     ]
     if is_superadmin:
         rows.extend(
@@ -79,10 +82,13 @@ def device_actions_keyboard(device_id: str, connections: list[dict] | None = Non
         [InlineKeyboardButton(text="WireGuard", callback_data=f"new:b5:{device_id}")],
     ]
     for connection in connections or []:
+        label = (connection.get("alias") or "").strip() or _title(connection)
+        if len(label) > 52:
+            label = label[:49].rstrip() + "..."
         rows.append(
             [
                 InlineKeyboardButton(
-                    text=f"Ревизии {_title(connection)}",
+                    text=f"Ревизии {label}",
                     callback_data=f"revs:{connection['id']}",
                 ),
                 InlineKeyboardButton(

@@ -6,13 +6,18 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracegate.api.deps import db_session
+from tracegate.enums import ApiScope
 from tracegate.models import ConnectionRevision
 from tracegate.schemas import RevisionCreate, RevisionRead
-from tracegate.security import require_internal_api_token
+from tracegate.security import require_api_scope
 from tracegate.services.grace import GraceError
 from tracegate.services.revisions import RevisionError, activate_revision, create_revision, revoke_revision
 
-router = APIRouter(prefix="/revisions", tags=["revisions"], dependencies=[Depends(require_internal_api_token)])
+router = APIRouter(
+    prefix="/revisions",
+    tags=["revisions"],
+    dependencies=[Depends(require_api_scope(ApiScope.REVISIONS_RW))],
+)
 
 
 @router.get("/by-connection/{connection_id}", response_model=list[RevisionRead])
@@ -60,6 +65,9 @@ async def set_active_revision(revision_id: UUID, session: AsyncSession = Depends
     except RevisionError as exc:
         await session.rollback()
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except IntegrityError as exc:
+        await session.rollback()
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Revision activation conflicts with current state") from exc
 
     await session.refresh(revision)
     return RevisionRead.model_validate(revision, from_attributes=True)
@@ -73,6 +81,9 @@ async def revoke_revision_endpoint(revision_id: UUID, session: AsyncSession = De
     except RevisionError as exc:
         await session.rollback()
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except IntegrityError as exc:
+        await session.rollback()
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Revision revoke conflicts with current state") from exc
 
     await session.refresh(revision)
     return RevisionRead.model_validate(revision, from_attributes=True)

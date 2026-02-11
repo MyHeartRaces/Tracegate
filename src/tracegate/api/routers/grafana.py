@@ -17,9 +17,9 @@ from sqlalchemy import delete, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracegate.api.deps import db_session
-from tracegate.enums import UserRole
+from tracegate.enums import ApiScope, UserRole
 from tracegate.models import GrafanaOtp, User
-from tracegate.security import require_internal_api_token
+from tracegate.security import require_api_scope
 from tracegate.settings import get_settings
 
 router = APIRouter(prefix="/grafana", tags=["grafana"])
@@ -153,7 +153,7 @@ async def _ensure_grafana_user_role(telegram_id: int, role: UserRole) -> None:
         await client.patch(f"/api/org/users/{user_id}", json={"role": target_role})
 
 
-@router.post("/otp", response_model=GrafanaOtpCreated, dependencies=[Depends(require_internal_api_token)])
+@router.post("/otp", response_model=GrafanaOtpCreated, dependencies=[Depends(require_api_scope(ApiScope.GRAFANA_OTP))])
 async def create_grafana_otp(payload: GrafanaOtpCreate, session: AsyncSession = Depends(db_session)) -> GrafanaOtpCreated:
     settings = get_settings()
     if not settings.grafana_enabled:

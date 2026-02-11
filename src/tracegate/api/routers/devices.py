@@ -5,13 +5,13 @@ from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracegate.api.deps import db_session
-from tracegate.enums import EntitlementStatus, RecordStatus
+from tracegate.enums import ApiScope, EntitlementStatus, RecordStatus
 from tracegate.models import Connection, Device, User
 from tracegate.schemas import DeviceCreate, DeviceRead, DeviceRename
-from tracegate.security import require_internal_api_token
+from tracegate.security import require_api_scope
 from tracegate.services.connections import revoke_connection
 
-router = APIRouter(prefix="/devices", tags=["devices"], dependencies=[Depends(require_internal_api_token)])
+router = APIRouter(prefix="/devices", tags=["devices"], dependencies=[Depends(require_api_scope(ApiScope.DEVICES_RW))])
 
 
 def _blocked_by_grace(user: User) -> bool:

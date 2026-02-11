@@ -1,4 +1,4 @@
-# Tracegate v0.2
+# Tracegate v0.3
 
 Tracegate implements a control-plane + node-agent architecture for:
 - B1 `VLESS + REALITY` direct (443/tcp)
@@ -19,19 +19,23 @@ SOCKS5 is intentionally local on the client (`127.0.0.1:1080`) and not exposed a
   - outbox event creation
   - Alembic migrations on startup
   - Grafana OTP login + reverse proxy (`/grafana/*`) (optional)
+  - scoped API tokens (`users:rw`, `dispatch:rw`, `metrics:read`, etc.)
 - `tracegate-dispatcher`
   - polls pending deliveries
   - pushes events to node-agents
   - at-least-once retries with backoff
   - delivery locking (`FOR UPDATE SKIP LOCKED`) and dead-lettering (`DEAD`)
+  - Prometheus delivery metrics endpoint (`DISPATCHER_METRICS_PORT`, default `9091`)
 - `tracegate-agent` (FastAPI)
   - idempotent event processing
   - bundle/user/WG artifact apply
   - health checks (ports, hysteria stats auth, WG listen-port, sidecar process checks)
   - Prometheus metrics (`/metrics`)
+  - runtime artifact index (zero-rescan reconcile path for user/WG artifacts)
 - `tracegate-bot` (aiogram)
   - inline keyboards for devices and connection provisioning
   - admin/superadmin mode (Telegram ID roles)
+  - admin user list + timed bot blocks with immediate access revoke
   - Grafana OTP issuing
 
 Monetization objects are intentionally removed in this state: there is no `wallet`, `coins`, or billing ledger in the DB model.
@@ -40,13 +44,16 @@ Monetization objects are intentionally removed in this state: there is no `walle
 SNI is a static catalog bundled with the app: `src/tracegate/staticdata/sni_catalog.yaml` (no Postgres SNI table).
 Bot users are keyed by Telegram `telegram_id` (primary key).
 
-## v0.2 highlights
+## v0.3 highlights
 
 - Alembic migrations (v0.1 baseline stamping + upgrade to head).
 - WireGuard peer lifecycle fix: single peer per device, consistent slot0 state, IPAM reuse/release.
 - Outbox dispatcher hardening: locking, concurrency, max-attempt dead-letter.
 - k3s-only deployment pipeline (legacy non-k3s assets removed).
 - Optional observability stack (Prometheus + Grafana) with Telegram OTP login via bot.
+- Timed bot blocks with immediate user access revoke and alias propagation into metrics/Grafana.
+- Scoped API tokens with route-level RBAC.
+- Agent host-load/memory/network metrics + per-connection throughput table in admin dashboard.
 
 ## Quick start
 
@@ -83,6 +90,16 @@ All management endpoints require header:
 
 ```text
 x-api-token: <API_INTERNAL_TOKEN>
+```
+
+`API_INTERNAL_TOKEN` (bootstrap) keeps full access (`*` scope).  
+Issued tokens can be scoped. Example payload:
+
+```json
+{
+  "name": "bot-token",
+  "scopes": ["users:rw", "devices:rw", "connections:rw", "revisions:rw", "sni:read", "grafana:otp", "bot_messages:rw"]
+}
 ```
 
 Examples:
@@ -159,3 +176,4 @@ No full DB restore is required for architecture migration if control-plane data 
 - Chain mode enforces the same SNI on client->E and E->T legs.
 - User device limit defaults to `5`.
 - Active revision limit is enforced to `3` slots (`0..2`).
+- Recommended Xray reload mode is graceful `SIGHUP` (no hard restarts) to preserve existing sessions.

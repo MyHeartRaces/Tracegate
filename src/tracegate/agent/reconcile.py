@@ -3,10 +3,14 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from pathlib import Path
+import threading
 
 import yaml
 
 from tracegate.settings import Settings
+
+_INDEX_FILE_NAME = "artifact-index.json"
+_INDEX_LOCK = threading.Lock()
 
 
 @dataclass(frozen=True)
@@ -50,28 +54,169 @@ def _safe_dump_text(path: Path, content: str) -> None:
     tmp.replace(path)
 
 
-def load_all_user_artifacts(paths: AgentPaths) -> list[dict]:
+def _empty_index() -> dict[str, dict[str, dict]]:
+    return {"users": {}, "wg_peers": {}}
+
+
+def _scan_user_artifacts(paths: AgentPaths) -> dict[str, dict]:
     if not paths.users_dir.exists():
-        return []
-    artifacts: list[dict] = []
+        return {}
+    artifacts: dict[str, dict] = {}
     for json_path in paths.users_dir.rglob("connection-*.json"):
         try:
-            artifacts.append(_load_json(json_path))
+            row = _load_json(json_path)
         except Exception:
             continue
+        connection_id = str(row.get("connection_id") or "").strip()
+        if not connection_id:
+            continue
+        artifacts[connection_id] = row
     return artifacts
+
+
+def _scan_wg_peer_artifacts(paths: AgentPaths) -> dict[str, dict]:
+    if not paths.wg_peers_dir.exists():
+        return {}
+    artifacts: dict[str, dict] = {}
+    for json_path in paths.wg_peers_dir.glob("peer-*.json"):
+        key = json_path.stem.replace("peer-", "", 1).strip()
+        if not key:
+            continue
+        try:
+            row = _load_json(json_path)
+        except Exception:
+            continue
+        artifacts[key] = row
+    return artifacts
+
+
+def _index_path(paths: AgentPaths) -> Path:
+    return paths.runtime / _INDEX_FILE_NAME
+
+
+def _load_index(paths: AgentPaths) -> dict[str, dict[str, dict]] | None:
+    path = _index_path(paths)
+    if not path.exists():
+        return None
+    try:
+        raw = _load_json(path)
+    except Exception:
+        return None
+    if not isinstance(raw, dict):
+        return None
+
+    users_raw = raw.get("users")
+    wg_raw = raw.get("wg_peers")
+    users = users_raw if isinstance(users_raw, dict) else {}
+    wg_peers = wg_raw if isinstance(wg_raw, dict) else {}
+
+    out = _empty_index()
+    for key, value in users.items():
+        key_s = str(key).strip()
+        if not key_s or not isinstance(value, dict):
+            continue
+        out["users"][key_s] = value
+    for key, value in wg_peers.items():
+        key_s = str(key).strip()
+        if not key_s or not isinstance(value, dict):
+            continue
+        out["wg_peers"][key_s] = value
+    return out
+
+
+def _save_index(paths: AgentPaths, index: dict[str, dict[str, dict]]) -> None:
+    payload = {
+        "users": dict(index.get("users") or {}),
+        "wg_peers": dict(index.get("wg_peers") or {}),
+    }
+    _safe_dump_json(_index_path(paths), payload)
+
+
+def _rebuild_index(paths: AgentPaths) -> dict[str, dict[str, dict]]:
+    rebuilt = _empty_index()
+    rebuilt["users"] = _scan_user_artifacts(paths)
+    rebuilt["wg_peers"] = _scan_wg_peer_artifacts(paths)
+    _save_index(paths, rebuilt)
+    return rebuilt
+
+
+def _ensure_index(paths: AgentPaths) -> dict[str, dict[str, dict]]:
+    loaded = _load_index(paths)
+    if loaded is not None:
+        return loaded
+    return _rebuild_index(paths)
+
+
+def load_all_user_artifacts(paths: AgentPaths) -> list[dict]:
+    with _INDEX_LOCK:
+        index = _ensure_index(paths)
+        return [index["users"][key] for key in sorted(index["users"], key=str)]
 
 
 def load_all_wg_peer_artifacts(paths: AgentPaths) -> list[dict]:
-    if not paths.wg_peers_dir.exists():
-        return []
-    artifacts: list[dict] = []
-    for json_path in paths.wg_peers_dir.glob("peer-*.json"):
-        try:
-            artifacts.append(_load_json(json_path))
-        except Exception:
-            continue
-    return artifacts
+    with _INDEX_LOCK:
+        index = _ensure_index(paths)
+        return [index["wg_peers"][key] for key in sorted(index["wg_peers"], key=str)]
+
+
+def upsert_user_artifact_index(settings: Settings, payload: dict) -> None:
+    connection_id = str(payload.get("connection_id") or "").strip()
+    if not connection_id:
+        return
+    paths = AgentPaths.from_settings(settings)
+    with _INDEX_LOCK:
+        index = _ensure_index(paths)
+        index["users"][connection_id] = payload
+        _save_index(paths, index)
+
+
+def remove_user_artifact_index(settings: Settings, user_id: str) -> None:
+    user_id_str = str(user_id).strip()
+    if not user_id_str:
+        return
+    paths = AgentPaths.from_settings(settings)
+    with _INDEX_LOCK:
+        index = _ensure_index(paths)
+        keep: dict[str, dict] = {}
+        for key, value in index["users"].items():
+            if str(value.get("user_id") or "").strip() == user_id_str:
+                continue
+            keep[key] = value
+        index["users"] = keep
+        _save_index(paths, index)
+
+
+def remove_connection_artifact_index(settings: Settings, connection_id: str) -> None:
+    connection_id_str = str(connection_id).strip()
+    if not connection_id_str:
+        return
+    paths = AgentPaths.from_settings(settings)
+    with _INDEX_LOCK:
+        index = _ensure_index(paths)
+        index["users"].pop(connection_id_str, None)
+        _save_index(paths, index)
+
+
+def upsert_wg_peer_artifact_index(settings: Settings, *, peer_key: str, payload: dict) -> None:
+    key = str(peer_key).strip()
+    if not key:
+        return
+    paths = AgentPaths.from_settings(settings)
+    with _INDEX_LOCK:
+        index = _ensure_index(paths)
+        index["wg_peers"][key] = payload
+        _save_index(paths, index)
+
+
+def remove_wg_peer_artifact_index(settings: Settings, *, peer_key: str) -> None:
+    key = str(peer_key).strip()
+    if not key:
+        return
+    paths = AgentPaths.from_settings(settings)
+    with _INDEX_LOCK:
+        index = _ensure_index(paths)
+        index["wg_peers"].pop(key, None)
+        _save_index(paths, index)
 
 
 def reconcile_xray(settings: Settings) -> bool:

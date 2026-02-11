@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import shutil
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -9,11 +10,21 @@ from tracegate.enums import OutboxEventType
 from tracegate.settings import Settings
 
 from .system import apply_files, run_command
-from .reconcile import reconcile_all
+from .reconcile import (
+    reconcile_all,
+    remove_connection_artifact_index,
+    remove_user_artifact_index,
+    remove_wg_peer_artifact_index,
+    upsert_user_artifact_index,
+    upsert_wg_peer_artifact_index,
+)
 
 
 class HandlerError(RuntimeError):
     pass
+
+
+_RELOAD_LOCK = threading.Lock()
 
 
 def _user_dir(root: Path, user_id: str) -> Path:
@@ -22,16 +33,18 @@ def _user_dir(root: Path, user_id: str) -> Path:
 
 def _run_reload_commands(settings: Settings, commands: list[str]) -> None:
     failures: list[str] = []
-    for cmd in commands:
-        if not cmd:
-            continue
-        ok, out = run_command(cmd, settings.agent_dry_run)
-        if ok:
-            continue
-        details = (out or "").strip() or "no output"
-        if len(details) > 400:
-            details = details[:400].rstrip() + "..."
-        failures.append(f"{cmd}: {details}")
+    # Serialize reload hooks so concurrent event handlers never drop a pending Xray apply.
+    with _RELOAD_LOCK:
+        for cmd in commands:
+            if not cmd:
+                continue
+            ok, out = run_command(cmd, settings.agent_dry_run)
+            if ok:
+                continue
+            details = (out or "").strip() or "no output"
+            if len(details) > 400:
+                details = details[:400].rstrip() + "..."
+            failures.append(f"{cmd}: {details}")
     if failures:
         raise HandlerError("reload command failed: " + " | ".join(failures))
 
@@ -72,6 +85,7 @@ def handle_upsert_user(settings: Settings, payload: dict[str, Any]) -> str:
 
     target = user_root / f"connection-{payload['connection_id']}.json"
     target.write_text(json.dumps(payload, ensure_ascii=True, indent=2), encoding="utf-8")
+    upsert_user_artifact_index(settings, payload)
 
     changed = set(reconcile_all(settings))
     if changed:
@@ -93,6 +107,7 @@ def handle_revoke_user(settings: Settings, payload: dict[str, Any]) -> str:
     path = _user_dir(Path(settings.agent_data_root), user_id)
     if path.exists():
         shutil.rmtree(path)
+    remove_user_artifact_index(settings, user_id)
 
     changed = set(reconcile_all(settings))
     if changed:
@@ -116,6 +131,7 @@ def handle_revoke_connection(settings: Settings, payload: dict[str, Any]) -> str
     target = user_root / f"connection-{connection_id}.json"
     if target.exists():
         target.unlink()
+    remove_connection_artifact_index(settings, connection_id)
     # Remove empty user dir to keep filesystem tidy.
     try:
         if user_root.exists() and not any(user_root.iterdir()):
@@ -147,6 +163,7 @@ def handle_wg_peer_upsert(settings: Settings, payload: dict[str, Any]) -> str:
     root.mkdir(parents=True, exist_ok=True)
     target = root / f"peer-{peer_key}.json"
     target.write_text(json.dumps(payload, ensure_ascii=True, indent=2), encoding="utf-8")
+    upsert_wg_peer_artifact_index(settings, peer_key=str(peer_key), payload=payload)
 
     changed = set(reconcile_all(settings))
     if "wireguard" in changed:
@@ -162,6 +179,7 @@ def handle_wg_peer_remove(settings: Settings, payload: dict[str, Any]) -> str:
     target = Path(settings.agent_data_root) / "wg-peers" / f"peer-{peer_key}.json"
     if target.exists():
         target.unlink()
+    remove_wg_peer_artifact_index(settings, peer_key=str(peer_key))
 
     changed = set(reconcile_all(settings))
     if "wireguard" in changed:

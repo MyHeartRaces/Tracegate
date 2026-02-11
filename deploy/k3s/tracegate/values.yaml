@@ -7,13 +7,18 @@ controlPlane:
   enabled: true
   image:
     repository: ghcr.io/your-org/tracegate
-    tag: "0.2.0"
+    tag: "0.3.0"
     pullPolicy: IfNotPresent
 
   replicas:
     api: 1
     dispatcher: 1
     bot: 0
+
+  dispatcherMetrics:
+    enabled: true
+    host: 0.0.0.0
+    port: 9091
 
   service:
     type: ClusterIP
@@ -69,6 +74,9 @@ controlPlane:
   nodeSelector: {}
   tolerations: []
   affinity: {}
+  terminationGracePeriodSeconds: 30
+  pdb:
+    enabled: true
 
   resources:
     api: {}
@@ -81,7 +89,7 @@ gateway:
 
   agentImage:
     repository: ghcr.io/your-org/tracegate
-    tag: "0.2.0"
+    tag: "0.3.0"
     pullPolicy: IfNotPresent
 
   vpsT:
@@ -153,7 +161,7 @@ gateway:
           secret: CHANGE_ME_HYSTERIA_STATS
 
     wireguard:
-      image: ghcr.io/your-org/tracegate-wireguard:0.2.0
+      image: ghcr.io/your-org/tracegate-wireguard:0.3.0
       pullPolicy: IfNotPresent
       interface: wg0
       config: |
@@ -185,7 +193,7 @@ gateway:
       wgInterface: wg0
       wgExpectedPort: 51820
       # Coalesce burst events into a single xray reload and avoid CrashLoopBackOff.
-      reloadXrayCmd: sh -lc '(flock -n 9 || exit 0; sleep 1; pkill -HUP xray || true) 9>/tmp/xray-reload.lock'
+      reloadXrayCmd: sh -lc '(flock 9; sleep 1; pkill -HUP xray || true) 9>/tmp/xray-reload.lock'
       # Prefer graceful config reload to reduce client interruption.
       reloadHysteriaCmd: pkill -HUP hysteria || true
       # Apply wg-quick config by stripping it to wg format and syncing live interface.
@@ -264,7 +272,7 @@ gateway:
       statsSecret: ""
       wgInterface: wg0
       wgExpectedPort: 51820
-      reloadXrayCmd: sh -lc '(flock -n 9 || exit 0; sleep 1; pkill -HUP xray || true) 9>/tmp/xray-reload.lock'
+      reloadXrayCmd: sh -lc '(flock 9; sleep 1; pkill -HUP xray || true) 9>/tmp/xray-reload.lock'
       reloadHysteriaCmd: ""
       reloadWgCmd: ""
 

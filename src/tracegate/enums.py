@@ -36,6 +36,23 @@ class RecordStatus(str, Enum):
     REVOKED = "revoked"
 
 
+class ApiScope(str, Enum):
+    ALL = "*"
+    USERS_RW = "users:rw"
+    USERS_ROLE = "users:role"
+    DEVICES_RW = "devices:rw"
+    CONNECTIONS_RW = "connections:rw"
+    REVISIONS_RW = "revisions:rw"
+    NODES_RW = "nodes:rw"
+    SNI_READ = "sni:read"
+    DISPATCH_RW = "dispatch:rw"
+    BOT_MESSAGES_RW = "bot_messages:rw"
+    GRAFANA_OTP = "grafana:otp"
+    TOKENS_READ = "tokens:read"
+    TOKENS_WRITE = "tokens:write"
+    METRICS_READ = "metrics:read"
+
+
 class IpamLeaseStatus(str, Enum):
     ACTIVE = "active"
     QUARANTINED = "quarantined"

@@ -2,12 +2,13 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Query
 
+from tracegate.enums import ApiScope
 from tracegate.schemas import SniDomainRead
-from tracegate.security import require_internal_api_token
+from tracegate.security import require_api_scope
 from tracegate.services.sni_catalog import load_catalog
 from tracegate.settings import get_settings
 
-router = APIRouter(prefix="/sni", tags=["sni"], dependencies=[Depends(require_internal_api_token)])
+router = APIRouter(prefix="/sni", tags=["sni"], dependencies=[Depends(require_api_scope(ApiScope.SNI_READ))])
 
 
 @router.get("", response_model=list[SniDomainRead])
@@ -59,4 +60,3 @@ async def list_sni(
         )
         for r in rows
     ]
-

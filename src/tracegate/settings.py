@@ -34,6 +34,9 @@ class Settings(BaseSettings):
     dispatcher_lock_ttl_seconds: int = 60
     dispatcher_max_attempts: int = 25
     dispatcher_concurrency: int = 10
+    dispatcher_metrics_enabled: bool = True
+    dispatcher_metrics_host: str = "0.0.0.0"
+    dispatcher_metrics_port: int = 9091
     dispatcher_client_cert: str | None = None
     dispatcher_client_key: str | None = None
     dispatcher_ca_cert: str | None = None
@@ -78,7 +81,7 @@ class Settings(BaseSettings):
     # Coalesce bursty outbox events into a single reload to avoid xray CrashLoopBackOff
     # while still applying the latest runtime config.
     agent_reload_xray_cmd: str = (
-        "sh -lc '(flock -n 9 || exit 0; sleep 1; pkill -HUP xray || true) 9>/tmp/xray-reload.lock'"
+        "sh -lc '(flock 9; sleep 1; pkill -HUP xray || true) 9>/tmp/xray-reload.lock'"
     )
     # Hysteria supports graceful SIGHUP reload in current production build.
     # It avoids full container restart and minimizes active session interruption.

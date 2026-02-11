@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 from pathlib import Path
 
@@ -33,7 +34,10 @@ def _load_wg_peer_map(root: Path) -> dict[str, dict[str, str]]:
             continue
         out[pub] = {
             "user_id": str(row.get("user_id") or "").strip(),
+            "user_display": str(row.get("user_display") or "").strip(),
             "device_id": str(row.get("device_id") or "").strip(),
+            "device_name": str(row.get("device_name") or "").strip(),
+            "connection_alias": str(row.get("connection_alias") or "").strip(),
         }
     return out
 
@@ -58,6 +62,84 @@ def _wg_dump(interface: str) -> list[list[str]]:
     return rows
 
 
+def _read_loadavg() -> tuple[float, float, float] | None:
+    try:
+        one, five, fifteen = os.getloadavg()
+    except Exception:
+        return None
+    return float(one), float(five), float(fifteen)
+
+
+def _parse_meminfo(text: str) -> tuple[int, int] | None:
+    total_kib: int | None = None
+    available_kib: int | None = None
+    try:
+        for raw in text.splitlines():
+            line = raw.strip()
+            if line.startswith("MemTotal:"):
+                parts = line.split()
+                if len(parts) >= 2:
+                    total_kib = int(parts[1])
+            elif line.startswith("MemAvailable:"):
+                parts = line.split()
+                if len(parts) >= 2:
+                    available_kib = int(parts[1])
+            if total_kib is not None and available_kib is not None:
+                break
+    except Exception:
+        return None
+    if total_kib is None or available_kib is None:
+        return None
+    return total_kib * 1024, available_kib * 1024
+
+
+def _read_meminfo() -> tuple[int, int] | None:
+    """
+    Read memory totals from `/proc/meminfo`.
+
+    Returns `(mem_total_bytes, mem_available_bytes)`.
+    """
+    path = Path("/proc/meminfo")
+    if not path.exists():
+        return None
+    try:
+        return _parse_meminfo(path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+
+
+def _parse_netdev(text: str) -> list[tuple[str, int, int]]:
+    rows: list[tuple[str, int, int]] = []
+    try:
+        for raw in text.splitlines()[2:]:
+            left, sep, right = raw.partition(":")
+            if not sep:
+                continue
+            iface = left.strip()
+            fields = right.split()
+            if len(fields) < 16:
+                continue
+            rx_bytes = int(fields[0])
+            tx_bytes = int(fields[8])
+            rows.append((iface, rx_bytes, tx_bytes))
+    except Exception:
+        return []
+    return rows
+
+
+def _read_network_totals() -> list[tuple[str, int, int]]:
+    """
+    Parse `/proc/net/dev` and return `(iface, rx_bytes, tx_bytes)` rows.
+    """
+    path = Path("/proc/net/dev")
+    if not path.exists():
+        return []
+    try:
+        return _parse_netdev(path.read_text(encoding="utf-8"))
+    except Exception:
+        return []
+
+
 class AgentMetricsCollector:
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
@@ -77,6 +159,41 @@ class AgentMetricsCollector:
         artifacts.add_metric(["wg_peers"], sum(1 for _ in (self.root / "wg-peers").glob("peer-*.json")) if (self.root / "wg-peers").exists() else 0)
         yield artifacts
 
+        load_rows = _read_loadavg()
+        if load_rows is not None:
+            host_load = GaugeMetricFamily(
+                "tracegate_host_load_average",
+                "Host load average by rolling window",
+                labels=["window"],
+            )
+            host_load.add_metric(["1m"], load_rows[0])
+            host_load.add_metric(["5m"], load_rows[1])
+            host_load.add_metric(["15m"], load_rows[2])
+            yield host_load
+
+        mem_rows = _read_meminfo()
+        if mem_rows is not None:
+            host_memory = GaugeMetricFamily(
+                "tracegate_host_memory_bytes",
+                "Host memory totals from /proc/meminfo",
+                labels=["kind"],
+            )
+            host_memory.add_metric(["total"], mem_rows[0])
+            host_memory.add_metric(["available"], mem_rows[1])
+            yield host_memory
+
+        net_rows = _read_network_totals()
+        if net_rows:
+            host_net = GaugeMetricFamily(
+                "tracegate_host_network_bytes_total",
+                "Host network byte counters from /proc/net/dev",
+                labels=["interface", "direction"],
+            )
+            for iface, rx_bytes, tx_bytes in net_rows:
+                host_net.add_metric([iface, "rx"], rx_bytes)
+                host_net.add_metric([iface, "tx"], tx_bytes)
+            yield host_net
+
         if str(self.settings.agent_role) != "VPS_T":
             return
 
@@ -85,17 +202,17 @@ class AgentMetricsCollector:
         rx = GaugeMetricFamily(
             "tracegate_wg_peer_rx_bytes",
             "WireGuard peer received bytes",
-            labels=["user_id", "device_id", "peer_public_key"],
+            labels=["user_id", "user_display", "device_id", "device_name", "connection_alias", "peer_public_key"],
         )
         tx = GaugeMetricFamily(
             "tracegate_wg_peer_tx_bytes",
             "WireGuard peer transmitted bytes",
-            labels=["user_id", "device_id", "peer_public_key"],
+            labels=["user_id", "user_display", "device_id", "device_name", "connection_alias", "peer_public_key"],
         )
         hs = GaugeMetricFamily(
             "tracegate_wg_peer_latest_handshake_seconds",
             "WireGuard peer latest handshake timestamp (unix seconds)",
-            labels=["user_id", "device_id", "peer_public_key"],
+            labels=["user_id", "user_display", "device_id", "device_name", "connection_alias", "peer_public_key"],
         )
 
         try:
@@ -118,10 +235,14 @@ class AgentMetricsCollector:
 
             labels = peer_map.get(peer_pub) or {}
             user_id = labels.get("user_id") or ""
+            user_display = labels.get("user_display") or user_id
             device_id = labels.get("device_id") or ""
-            rx.add_metric([user_id, device_id, peer_pub], transfer_rx)
-            tx.add_metric([user_id, device_id, peer_pub], transfer_tx)
-            hs.add_metric([user_id, device_id, peer_pub], latest_handshake)
+            device_name = labels.get("device_name") or device_id
+            conn_alias = labels.get("connection_alias") or ""
+            metric_labels = [user_id, user_display, device_id, device_name, conn_alias, peer_pub]
+            rx.add_metric(metric_labels, transfer_rx)
+            tx.add_metric(metric_labels, transfer_tx)
+            hs.add_metric(metric_labels, latest_handshake)
 
         yield ok_metric
         yield rx

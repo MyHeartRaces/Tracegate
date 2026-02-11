@@ -8,14 +8,15 @@ from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracegate.api.deps import db_session
-from tracegate.enums import NodeRole, OutboxEventType, RecordStatus
-from tracegate.models import Connection, ConnectionRevision, OutboxDelivery, OutboxEvent, WireguardPeer
+from tracegate.enums import ApiScope, NodeRole, OutboxEventType, RecordStatus
+from tracegate.models import Connection, ConnectionRevision, Device, OutboxDelivery, OutboxEvent, User, WireguardPeer
 from tracegate.schemas import OutboxDeliveryRead, OutboxEventRead, ReapplyBaseRequest, ReissueRequest
-from tracegate.security import require_internal_api_token
+from tracegate.security import require_api_scope
+from tracegate.services.aliases import connection_alias, user_display
 from tracegate.services.outbox import create_outbox_event
 from tracegate.settings import get_settings
 
-router = APIRouter(prefix="/dispatch", tags=["dispatch"], dependencies=[Depends(require_internal_api_token)])
+router = APIRouter(prefix="/dispatch", tags=["dispatch"], dependencies=[Depends(require_api_scope(ApiScope.DISPATCH_RW))])
 
 
 def _bundle_path(name: str) -> Path:
@@ -86,6 +87,27 @@ async def reissue_current_revisions(payload: ReissueRequest, session: AsyncSessi
     created: list[OutboxEvent] = []
 
     for conn in connections:
+        user = await session.get(User, conn.user_id)
+        device = await session.get(Device, conn.device_id)
+        user_label = (
+            user_display(
+                telegram_id=conn.user_id,
+                telegram_username=user.telegram_username if user else None,
+                telegram_first_name=user.telegram_first_name if user else None,
+                telegram_last_name=user.telegram_last_name if user else None,
+            )
+            if user is not None
+            else str(conn.user_id)
+        )
+        device_name = (device.name if device else "").strip() or str(conn.device_id)
+        conn_alias = connection_alias(
+            telegram_id=conn.user_id,
+            telegram_username=user.telegram_username if user else None,
+            telegram_first_name=user.telegram_first_name if user else None,
+            telegram_last_name=user.telegram_last_name if user else None,
+            device_name=device_name,
+            connection_id=str(conn.id),
+        )
         revision = await session.scalar(
             select(ConnectionRevision).where(
                 and_(
@@ -111,8 +133,12 @@ async def reissue_current_revisions(payload: ReissueRequest, session: AsyncSessi
         for role in roles:
             payload = {
                 "user_id": str(conn.user_id),
+                "user_display": user_label,
+                "telegram_username": user.telegram_username if user else None,
                 "device_id": str(conn.device_id),
+                "device_name": device_name,
                 "connection_id": str(conn.id),
+                "connection_alias": conn_alias,
                 "revision_id": str(revision.id),
                 "protocol": conn.protocol.value,
                 "variant": conn.variant.value,

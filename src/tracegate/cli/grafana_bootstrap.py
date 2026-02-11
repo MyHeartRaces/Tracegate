@@ -87,12 +87,12 @@ def _dashboard_user(ds_uid: str) -> dict[str, Any]:
             {
                 "id": 1,
                 "type": "timeseries",
-                "title": "WireGuard RX rate (bytes/s) by device",
+                "title": "WireGuard RX rate (bytes/s) by connection alias",
                 "datasource": _ds(ds_uid),
                 "targets": [
                     {
                         "refId": "A",
-                        "expr": 'sum by (device_id) (rate(tracegate_wg_peer_rx_bytes{user_id="$__user.login"}[5m]))',
+                        "expr": 'sum by (connection_alias) (rate(tracegate_wg_peer_rx_bytes{user_id="$__user.login"}[5m]))',
                     }
                 ],
                 "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
@@ -100,12 +100,12 @@ def _dashboard_user(ds_uid: str) -> dict[str, Any]:
             {
                 "id": 2,
                 "type": "timeseries",
-                "title": "WireGuard TX rate (bytes/s) by device",
+                "title": "WireGuard TX rate (bytes/s) by connection alias",
                 "datasource": _ds(ds_uid),
                 "targets": [
                     {
                         "refId": "A",
-                        "expr": 'sum by (device_id) (rate(tracegate_wg_peer_tx_bytes{user_id="$__user.login"}[5m]))',
+                        "expr": 'sum by (connection_alias) (rate(tracegate_wg_peer_tx_bytes{user_id="$__user.login"}[5m]))',
                     }
                 ],
                 "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
@@ -113,12 +113,12 @@ def _dashboard_user(ds_uid: str) -> dict[str, Any]:
             {
                 "id": 3,
                 "type": "timeseries",
-                "title": "WireGuard handshake age (seconds) by device",
+                "title": "WireGuard handshake age (seconds) by connection alias",
                 "datasource": _ds(ds_uid),
                 "targets": [
                     {
                         "refId": "A",
-                        "expr": 'time() - max by (device_id) (tracegate_wg_peer_latest_handshake_seconds{user_id="$__user.login"})',
+                        "expr": 'time() - max by (connection_alias) (tracegate_wg_peer_latest_handshake_seconds{user_id="$__user.login"})',
                     }
                 ],
                 "gridPos": {"h": 8, "w": 24, "x": 0, "y": 8},
@@ -176,6 +176,31 @@ def _dashboard_user(ds_uid: str) -> dict[str, Any]:
                 ],
                 "gridPos": {"h": 8, "w": 12, "x": 12, "y": 24},
             },
+            {
+                "id": 8,
+                "type": "timeseries",
+                "title": "Host load average (agent)",
+                "datasource": _ds(ds_uid),
+                "targets": [
+                    {"refId": "A", "expr": 'tracegate_host_load_average{window="1m"}'},
+                    {"refId": "B", "expr": 'tracegate_host_load_average{window="5m"}'},
+                    {"refId": "C", "expr": 'tracegate_host_load_average{window="15m"}'},
+                ],
+                "gridPos": {"h": 8, "w": 12, "x": 0, "y": 32},
+            },
+            {
+                "id": 9,
+                "type": "timeseries",
+                "title": "Host memory used (%) (agent)",
+                "datasource": _ds(ds_uid),
+                "targets": [
+                    {
+                        "refId": "A",
+                        "expr": '(1 - (tracegate_host_memory_bytes{kind="available"} / tracegate_host_memory_bytes{kind="total"})) * 100',
+                    },
+                ],
+                "gridPos": {"h": 8, "w": 12, "x": 12, "y": 32},
+            },
         ],
     }
 
@@ -191,20 +216,20 @@ def _dashboard_admin(ds_uid: str) -> dict[str, Any]:
             {
                 "id": 1,
                 "type": "timeseries",
-                "title": "WireGuard RX rate (bytes/s) by user+device",
+                "title": "WireGuard RX rate (bytes/s) by user alias + connection",
                 "datasource": _ds(ds_uid),
                 "targets": [
-                    {"refId": "A", "expr": "sum by (user_id, device_id) (rate(tracegate_wg_peer_rx_bytes[5m]))"},
+                    {"refId": "A", "expr": "sum by (user_display, connection_alias) (rate(tracegate_wg_peer_rx_bytes[5m]))"},
                 ],
                 "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
             },
             {
                 "id": 2,
                 "type": "timeseries",
-                "title": "WireGuard TX rate (bytes/s) by user+device",
+                "title": "WireGuard TX rate (bytes/s) by user alias + connection",
                 "datasource": _ds(ds_uid),
                 "targets": [
-                    {"refId": "A", "expr": "sum by (user_id, device_id) (rate(tracegate_wg_peer_tx_bytes[5m]))"},
+                    {"refId": "A", "expr": "sum by (user_display, connection_alias) (rate(tracegate_wg_peer_tx_bytes[5m]))"},
                 ],
                 "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
             },
@@ -250,6 +275,50 @@ def _dashboard_admin(ds_uid: str) -> dict[str, Any]:
                     }
                 ],
                 "gridPos": {"h": 8, "w": 12, "x": 12, "y": 16},
+            },
+            {
+                "id": 6,
+                "type": "table",
+                "title": "Per-connection throughput table (bytes/s)",
+                "datasource": _ds(ds_uid),
+                "targets": [
+                    {
+                        "refId": "A",
+                        "expr": "sum by (user_display, device_name, connection_alias) (rate(tracegate_wg_peer_rx_bytes[5m]))",
+                        "legendFormat": "rx",
+                    },
+                    {
+                        "refId": "B",
+                        "expr": "sum by (user_display, device_name, connection_alias) (rate(tracegate_wg_peer_tx_bytes[5m]))",
+                        "legendFormat": "tx",
+                    },
+                ],
+                "gridPos": {"h": 10, "w": 24, "x": 0, "y": 24},
+            },
+            {
+                "id": 7,
+                "type": "timeseries",
+                "title": "Host load average (agent)",
+                "datasource": _ds(ds_uid),
+                "targets": [
+                    {"refId": "A", "expr": 'avg by (instance) (tracegate_host_load_average{window="1m"})'},
+                    {"refId": "B", "expr": 'avg by (instance) (tracegate_host_load_average{window="5m"})'},
+                    {"refId": "C", "expr": 'avg by (instance) (tracegate_host_load_average{window="15m"})'},
+                ],
+                "gridPos": {"h": 8, "w": 12, "x": 0, "y": 34},
+            },
+            {
+                "id": 8,
+                "type": "timeseries",
+                "title": "Host memory used (%) (agent)",
+                "datasource": _ds(ds_uid),
+                "targets": [
+                    {
+                        "refId": "A",
+                        "expr": 'avg by (instance) ((1 - (tracegate_host_memory_bytes{kind=\"available\"} / tracegate_host_memory_bytes{kind=\"total\"})) * 100)',
+                    },
+                ],
+                "gridPos": {"h": 8, "w": 12, "x": 12, "y": 34},
             },
         ],
     }

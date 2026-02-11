@@ -57,6 +57,15 @@ data:
           - targets:
               - {{ printf "%s-api:%d" (include "tracegate.fullname" .) (int .Values.controlPlane.service.port) }}
 
+      {{- if .Values.controlPlane.dispatcherMetrics.enabled }}
+      - job_name: tracegate-dispatcher
+        metrics_path: /metrics
+        scheme: http
+        static_configs:
+          - targets:
+              - {{ printf "%s-dispatcher:%d" (include "tracegate.fullname" .) (int (.Values.controlPlane.dispatcherMetrics.port | default 9091)) }}
+      {{- end }}
+
       - job_name: tracegate-agent
         metrics_path: /metrics
         scheme: http

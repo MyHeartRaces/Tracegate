@@ -3,11 +3,12 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracegate.api.deps import db_session
+from tracegate.enums import ApiScope
 from tracegate.models import NodeEndpoint
 from tracegate.schemas import NodeEndpointCreate, NodeEndpointRead, NodeEndpointUpdate
-from tracegate.security import require_internal_api_token
+from tracegate.security import require_api_scope
 
-router = APIRouter(prefix="/nodes", tags=["nodes"], dependencies=[Depends(require_internal_api_token)])
+router = APIRouter(prefix="/nodes", tags=["nodes"], dependencies=[Depends(require_api_scope(ApiScope.NODES_RW))])
 
 
 @router.get("", response_model=list[NodeEndpointRead])

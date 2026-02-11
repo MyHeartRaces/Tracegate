@@ -7,6 +7,7 @@ from fastapi import FastAPI
 from tracegate.api.routers import auth, bot_messages, connections, devices, dispatch, grafana, health, metrics, nodes, revisions, sni, users
 from tracegate.cli.migrate_db import migrate_db
 from tracegate.db import get_sessionmaker
+from tracegate.observability import configure_logging, install_http_observability
 from tracegate.services.ipam import ensure_pool_exists
 from tracegate.settings import get_settings
 
@@ -23,7 +24,11 @@ async def lifespan(_: FastAPI):
     yield
 
 
-app = FastAPI(title="Tracegate Control Plane", version="0.2.0", lifespan=lifespan)
+settings = get_settings()
+configure_logging(settings.log_level)
+
+app = FastAPI(title="Tracegate Control Plane", version="0.3.0", lifespan=lifespan)
+install_http_observability(app, component="api")
 
 app.include_router(health.router)
 app.include_router(metrics.router)
@@ -40,7 +45,6 @@ app.include_router(dispatch.router)
 
 
 def run() -> None:
-    settings = get_settings()
     if not settings.api_internal_token:
         raise RuntimeError("API_INTERNAL_TOKEN is required")
     uvicorn.run(

@@ -8,34 +8,67 @@ from tracegate.enums import ConnectionMode, ConnectionProtocol, ConnectionVarian
 
 
 class ApiClientError(RuntimeError):
-    pass
+    def __init__(self, *, status_code: int, path: str, detail: str) -> None:
+        self.status_code = int(status_code)
+        self.path = path
+        self.detail = detail
+        super().__init__(f"{status_code} {path}: {detail}")
 
 
 class TracegateApiClient:
     def __init__(self, base_url: str, token: str) -> None:
         self.base_url = base_url.rstrip("/")
         self.token = token
+        self._client = httpx.AsyncClient(base_url=self.base_url, timeout=20)
 
     async def _request(self, method: str, path: str, **kwargs):
         headers = kwargs.pop("headers", {})
         headers["x-api-token"] = self.token
-
-        async with httpx.AsyncClient(base_url=self.base_url) as client:
-            response = await client.request(method, path, headers=headers, timeout=20, **kwargs)
+        response = await self._client.request(method, path, headers=headers, **kwargs)
 
         if response.status_code >= 400:
             detail = response.text
-            raise ApiClientError(f"{response.status_code} {path}: {detail}")
+            raise ApiClientError(status_code=response.status_code, path=path, detail=detail)
 
         if response.status_code == 204:
             return None
         return response.json()
 
-    async def get_or_create_user(self, telegram_id: int) -> dict:
+    async def close(self) -> None:
+        await self._client.aclose()
+
+    async def get_or_create_user(
+        self,
+        telegram_id: int,
+        *,
+        telegram_username: str | None = None,
+        telegram_first_name: str | None = None,
+        telegram_last_name: str | None = None,
+    ) -> dict:
         try:
-            return await self._request("GET", f"/users/telegram/{telegram_id}")
-        except ApiClientError:
-            return await self._request("POST", "/users", json={"telegram_id": telegram_id})
+            user = await self._request("GET", f"/users/telegram/{telegram_id}")
+        except ApiClientError as exc:
+            if exc.status_code != 404:
+                raise
+            try:
+                user = await self._request("POST", "/users", json={"telegram_id": telegram_id})
+            except ApiClientError as create_exc:
+                if create_exc.status_code != 409:
+                    raise
+                user = await self._request("GET", f"/users/telegram/{telegram_id}")
+
+        profile_payload = {
+            "telegram_username": telegram_username,
+            "telegram_first_name": telegram_first_name,
+            "telegram_last_name": telegram_last_name,
+        }
+        if any(value is not None for value in profile_payload.values()):
+            try:
+                user = await self._request("PATCH", f"/users/{telegram_id}/profile", json=profile_payload)
+            except ApiClientError:
+                # Profile sync is best-effort and must not break user flow.
+                pass
+        return user
 
     async def list_devices(self, user_id: int | str) -> list[dict]:
         return await self._request("GET", f"/devices/by-user/{user_id}")
@@ -158,11 +191,33 @@ class TracegateApiClient:
     async def set_user_role(self, telegram_id: int, role: str) -> dict:
         return await self._request("PATCH", f"/users/{telegram_id}/role", json={"role": role})
 
-    async def list_users(self, role: str | None = None, limit: int = 200) -> list[dict]:
+    async def get_user(self, telegram_id: int) -> dict:
+        return await self._request("GET", f"/users/{telegram_id}")
+
+    async def list_users(self, role: str | None = None, limit: int = 200, *, blocked_only: bool = False) -> list[dict]:
         params = {"limit": str(limit)}
         if role:
             params["role"] = role
+        if blocked_only:
+            params["blocked_only"] = "true"
         return await self._request("GET", "/users", params=params)
+
+    async def block_user_bot(
+        self,
+        telegram_id: int,
+        *,
+        hours: int,
+        reason: str | None = None,
+        revoke_access: bool = True,
+    ) -> dict:
+        return await self._request(
+            "PATCH",
+            f"/users/{telegram_id}/bot-block",
+            json={"hours": hours, "reason": reason, "revoke_access": revoke_access},
+        )
+
+    async def unblock_user_bot(self, telegram_id: int) -> dict:
+        return await self._request("POST", f"/users/{telegram_id}/bot-unblock")
 
     async def list_nodes(self) -> list[dict]:
         return await self._request("GET", "/nodes")

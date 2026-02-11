@@ -6,6 +6,7 @@ import uvicorn
 from fastapi import Depends, FastAPI, HTTPException, Response, status
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
+from tracegate.observability import configure_logging, install_http_observability
 from tracegate.schemas import AgentEventEnvelope, AgentEventResponse, AgentHealthCheckResult, AgentHealthResponse
 from tracegate.security import require_agent_token
 from tracegate.settings import ensure_agent_dirs, get_settings
@@ -16,6 +17,7 @@ from .state import AgentStateStore
 from .system import gather_health_checks
 
 settings = get_settings()
+configure_logging(settings.log_level)
 if not settings.agent_auth_token:
     raise RuntimeError("AGENT_AUTH_TOKEN is required")
 if settings.agent_role == "VPS_T" and not settings.agent_stats_secret:
@@ -24,7 +26,8 @@ ensure_agent_dirs(settings)
 state_store = AgentStateStore(Path(settings.agent_data_root))
 register_agent_metrics(settings)
 
-app = FastAPI(title="Tracegate Node Agent", version="0.2.0")
+app = FastAPI(title="Tracegate Node Agent", version="0.3.0")
+install_http_observability(app, component="agent")
 
 
 @app.post("/v1/events", response_model=AgentEventResponse, dependencies=[Depends(require_agent_token)])

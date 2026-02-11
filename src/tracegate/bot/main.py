@@ -3,9 +3,10 @@ from __future__ import annotations
 import asyncio
 import io
 import ssl
+from datetime import datetime, timezone
 from pathlib import Path
 
-from aiogram import Bot, Dispatcher, F, Router
+from aiogram import BaseMiddleware, Bot, Dispatcher, F, Router
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import CommandStart
 from aiogram.fsm.context import FSMContext
@@ -16,6 +17,16 @@ from aiogram.types.input_file import BufferedInputFile
 from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
 from aiohttp import web
 
+import qrcode
+from tracegate.bot.access import (
+    blocked_message,
+    bot_block_until,
+    can_manage_block,
+    is_admin,
+    is_bot_blocked,
+    is_superadmin,
+    user_label,
+)
 from tracegate.bot.client import ApiClientError, TracegateApiClient
 from tracegate.bot.keyboards import (
     SNI_PAGE_SIZE,
@@ -35,8 +46,8 @@ from tracegate.bot.keyboards import (
 )
 from tracegate.client_export.v2rayn import V2RayNExportError, export_client_config
 from tracegate.enums import ConnectionMode, ConnectionProtocol, ConnectionVariant
+from tracegate.observability import configure_logging
 from tracegate.settings import get_settings
-import qrcode
 
 settings = get_settings()
 api = TracegateApiClient(settings.bot_api_base_url, settings.bot_api_token)
@@ -53,18 +64,45 @@ class SniCatalogFlow(StatesGroup):
 class AdminFlow(StatesGroup):
     waiting_for_grant_id = State()
     waiting_for_revoke_id = State()
+    waiting_for_user_block = State()
+    waiting_for_user_unblock = State()
+
+
+class BotAccessMiddleware(BaseMiddleware):
+    async def __call__(self, handler, event, data):  # noqa: ANN001, ANN204
+        from_user = data.get("event_from_user")
+        if from_user is None:
+            return await handler(event, data)
+
+        try:
+            user = await api.get_or_create_user(
+                from_user.id,
+                telegram_username=getattr(from_user, "username", None),
+                telegram_first_name=getattr(from_user, "first_name", None),
+                telegram_last_name=getattr(from_user, "last_name", None),
+            )
+        except ApiClientError:
+            return await handler(event, data)
+        data["tracegate_user"] = user
+
+        if is_bot_blocked(user):
+            text = blocked_message(user)
+            if isinstance(event, CallbackQuery):
+                try:
+                    await event.answer("Доступ ограничен", show_alert=True)
+                except Exception:
+                    pass
+                if event.message is not None:
+                    await event.message.answer(text)
+                return None
+            if isinstance(event, Message):
+                await event.answer(text)
+                return None
+        return await handler(event, data)
 
 
 async def ensure_user(telegram_id: int) -> dict:
     return await api.get_or_create_user(telegram_id)
-
-
-def _is_admin(user: dict) -> bool:
-    return (user.get("role") or "").strip().lower() in {"admin", "superadmin"}
-
-
-def _is_superadmin(user: dict) -> bool:
-    return (user.get("role") or "").strip().lower() == "superadmin"
 
 
 def _connection_family_name(protocol: str, mode: str) -> str:
@@ -85,7 +123,15 @@ async def render_device_page(device_id: str) -> tuple[str, object]:
     connections = await api.list_connections(device_id)
     text = "Подключения:\n"
     if connections:
-        lines = [f"- {_connection_family_name(c['protocol'], c['mode'])} id={c['id']}" for c in connections]
+        lines = []
+        for connection in connections:
+            alias = (connection.get("alias") or "").strip()
+            if alias:
+                lines.append(f"- {alias}")
+            else:
+                lines.append(
+                    f"- {_connection_family_name(connection['protocol'], connection['mode'])} id={connection['id']}"
+                )
         text += "\n".join(lines)
     else:
         text += "пока нет"
@@ -96,7 +142,8 @@ async def render_revisions_page(connection_id: str) -> tuple[str, object]:
     connection = await api.get_connection(connection_id)
     revisions = await api.list_revisions(connection_id)
     family = _connection_family_name(connection["protocol"], connection["mode"])
-    text = f"Ревизии: {family}\nconnection={connection_id}\n"
+    alias = (connection.get("alias") or "").strip()
+    text = f"Ревизии: {alias or family}\nconnection={connection_id}\n"
     if revisions:
         rows = [f"- id={r['id']} slot={r['slot']} status={r['status']}" for r in revisions]
         text += "\n".join(rows)
@@ -258,8 +305,8 @@ async def _send_client_config(callback: CallbackQuery, revision: dict) -> None:
 async def start(message: Message) -> None:
     user = await ensure_user(message.from_user.id)
     await message.answer(
-        "Tracegate v0.2\nВыберите действие:",
-        reply_markup=main_menu_keyboard(is_admin=_is_admin(user)),
+        "Tracegate v0.3\nВыберите действие:",
+        reply_markup=main_menu_keyboard(is_admin=is_admin(user)),
     )
 
 
@@ -268,8 +315,8 @@ async def menu(callback: CallbackQuery, state: FSMContext) -> None:
     await state.clear()
     user = await ensure_user(callback.from_user.id)
     await callback.message.edit_text(
-        "Tracegate v0.2\nВыберите действие:",
-        reply_markup=main_menu_keyboard(is_admin=_is_admin(user)),
+        "Tracegate v0.3\nВыберите действие:",
+        reply_markup=main_menu_keyboard(is_admin=is_admin(user)),
     )
     await callback.answer()
 
@@ -278,12 +325,12 @@ async def menu(callback: CallbackQuery, state: FSMContext) -> None:
 async def admin_menu(callback: CallbackQuery, state: FSMContext) -> None:
     await state.clear()
     user = await ensure_user(callback.from_user.id)
-    if not _is_admin(user):
+    if not is_admin(user):
         await callback.answer("Недостаточно прав")
         return
     await callback.message.edit_text(
         "Админ меню:",
-        reply_markup=admin_menu_keyboard(is_superadmin=_is_superadmin(user)),
+        reply_markup=admin_menu_keyboard(is_superadmin=is_superadmin(user)),
     )
     await callback.answer()
 
@@ -308,7 +355,7 @@ async def grafana_otp(callback: CallbackQuery) -> None:
 async def grafana_otp_admin(callback: CallbackQuery) -> None:
     try:
         user = await ensure_user(callback.from_user.id)
-        if not _is_admin(user):
+        if not is_admin(user):
             await callback.answer("Недостаточно прав")
             return
         otp = await api.create_grafana_otp(user["telegram_id"], scope="admin")
@@ -326,7 +373,7 @@ async def grafana_otp_admin(callback: CallbackQuery) -> None:
 @router.callback_query(F.data == "admin_grant")
 async def admin_grant(callback: CallbackQuery, state: FSMContext) -> None:
     user = await ensure_user(callback.from_user.id)
-    if not _is_superadmin(user):
+    if not is_superadmin(user):
         await callback.answer("Только superadmin")
         return
     await state.set_state(AdminFlow.waiting_for_grant_id)
@@ -337,7 +384,7 @@ async def admin_grant(callback: CallbackQuery, state: FSMContext) -> None:
 @router.callback_query(F.data == "admin_revoke")
 async def admin_revoke(callback: CallbackQuery, state: FSMContext) -> None:
     user = await ensure_user(callback.from_user.id)
-    if not _is_superadmin(user):
+    if not is_superadmin(user):
         await callback.answer("Только superadmin")
         return
     await state.set_state(AdminFlow.waiting_for_revoke_id)
@@ -348,7 +395,7 @@ async def admin_revoke(callback: CallbackQuery, state: FSMContext) -> None:
 @router.callback_query(F.data == "admin_list")
 async def admin_list(callback: CallbackQuery) -> None:
     user = await ensure_user(callback.from_user.id)
-    if not _is_superadmin(user):
+    if not is_superadmin(user):
         await callback.answer("Только superadmin")
         return
     try:
@@ -359,6 +406,55 @@ async def admin_list(callback: CallbackQuery) -> None:
         await callback.message.answer("\n".join(lines) if (admins or supers) else "Нет админов.")
     except ApiClientError as exc:
         await callback.message.answer(f"Ошибка: {exc}")
+    await callback.answer()
+
+@router.callback_query(F.data == "admin_users")
+async def admin_users(callback: CallbackQuery) -> None:
+    actor = await ensure_user(callback.from_user.id)
+    if not is_admin(actor):
+        await callback.answer("Недостаточно прав")
+        return
+    try:
+        users = await api.list_users(limit=300)
+        users.sort(key=lambda row: (str(row.get("role") or ""), int(row.get("telegram_id") or 0)))
+        lines = ["Пользователи (до 300):"]
+        max_rows = 80
+        for idx, user in enumerate(users[:max_rows], start=1):
+            role = (user.get("role") or "").strip()
+            until = bot_block_until(user)
+            block_suffix = f" [BLOCK до {until.isoformat()}]" if until and until > datetime.now(timezone.utc) else ""
+            lines.append(f"{idx}. {user_label(user)} | role={role}{block_suffix}")
+        if len(users) > max_rows:
+            lines.append("")
+            lines.append(f"Показано {max_rows} из {len(users)}.")
+        await callback.message.answer("\n".join(lines))
+    except ApiClientError as exc:
+        await callback.message.answer(f"Ошибка: {exc}")
+    await callback.answer()
+
+
+@router.callback_query(F.data == "admin_user_block")
+async def admin_user_block(callback: CallbackQuery, state: FSMContext) -> None:
+    actor = await ensure_user(callback.from_user.id)
+    if not is_admin(actor):
+        await callback.answer("Недостаточно прав")
+        return
+    await state.set_state(AdminFlow.waiting_for_user_block)
+    await callback.message.answer(
+        "Введи: <telegram_id> <hours> [reason]\n"
+        "Пример: 123456789 72 abuse"
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data == "admin_user_unblock")
+async def admin_user_unblock(callback: CallbackQuery, state: FSMContext) -> None:
+    actor = await ensure_user(callback.from_user.id)
+    if not is_admin(actor):
+        await callback.answer("Недостаточно прав")
+        return
+    await state.set_state(AdminFlow.waiting_for_user_unblock)
+    await callback.message.answer("Введи Telegram ID пользователя для снятия блокировки:")
     await callback.answer()
 
 
@@ -392,6 +488,59 @@ async def receive_admin_revoke_id(message: Message, state: FSMContext) -> None:
         await state.clear()
 
 
+@router.message(AdminFlow.waiting_for_user_block)
+async def receive_user_block(message: Message, state: FSMContext) -> None:
+    try:
+        actor = await ensure_user(message.from_user.id)
+        if not is_admin(actor):
+            await message.answer("Недостаточно прав.")
+            return
+
+        parts = (message.text or "").strip().split(maxsplit=2)
+        if len(parts) < 2:
+            await message.answer("Формат: <telegram_id> <hours> [reason]")
+            return
+        target_id = int(parts[0])
+        hours = int(parts[1])
+        reason = parts[2].strip() if len(parts) >= 3 else None
+
+        target = await api.get_or_create_user(target_id)
+        if not can_manage_block(actor, target):
+            await message.answer("Недостаточно прав для блокировки этой роли.")
+            return
+
+        blocked = await api.block_user_bot(target_id, hours=hours, reason=reason, revoke_access=True)
+        await message.answer(
+            f"Готово: {user_label(target)} заблокирован до {blocked.get('bot_blocked_until')}."
+        )
+    except Exception as exc:  # noqa: BLE001
+        await message.answer(f"Ошибка: {exc}")
+    finally:
+        await state.clear()
+
+
+@router.message(AdminFlow.waiting_for_user_unblock)
+async def receive_user_unblock(message: Message, state: FSMContext) -> None:
+    try:
+        actor = await ensure_user(message.from_user.id)
+        if not is_admin(actor):
+            await message.answer("Недостаточно прав.")
+            return
+
+        target_id = int((message.text or "").strip())
+        target = await api.get_user(target_id)
+        if not can_manage_block(actor, target):
+            await message.answer("Недостаточно прав для снятия блокировки этой роли.")
+            return
+
+        await api.unblock_user_bot(target_id)
+        await message.answer(f"Готово: блокировка снята для {user_label(target)}.")
+    except Exception as exc:  # noqa: BLE001
+        await message.answer(f"Ошибка: {exc}")
+    finally:
+        await state.clear()
+
+
 @router.callback_query(F.data == "devices")
 async def list_devices(callback: CallbackQuery, state: FSMContext) -> None:
     await state.clear()
@@ -412,8 +561,12 @@ async def add_device(callback: CallbackQuery, state: FSMContext) -> None:
 @router.message(DeviceFlow.waiting_for_name)
 async def receive_device_name(message: Message, state: FSMContext) -> None:
     try:
+        name = (message.text or "").strip()
+        if not name:
+            await message.answer("Имя устройства не может быть пустым.")
+            return
         user = await ensure_user(message.from_user.id)
-        await api.create_device(user["telegram_id"], message.text.strip())
+        await api.create_device(user["telegram_id"], name)
         devices = await api.list_devices(user["telegram_id"])
         await message.answer("Устройство добавлено", reply_markup=devices_keyboard(devices))
     except ApiClientError as exc:
@@ -1054,7 +1207,10 @@ async def sni_catalog_issue_pick_connection(callback: CallbackQuery) -> None:
             for conn in await api.list_connections(dev["id"]):
                 if conn.get("protocol") != ConnectionProtocol.VLESS_REALITY.value:
                     continue
-                label = f"{dev['name']} | {_connection_family_name(conn.get('protocol', ''), conn.get('mode', ''))}"
+                label = (
+                    str(conn.get("alias") or "").strip()
+                    or f"{dev['name']} | {_connection_family_name(conn.get('protocol', ''), conn.get('mode', ''))}"
+                )
                 vless_connections.append({"id": conn["id"], "label": label})
 
         if not vless_connections:
@@ -1191,6 +1347,7 @@ async def delete_connection(callback: CallbackQuery) -> None:
 
 
 def run() -> None:
+    configure_logging(settings.log_level)
     if not settings.bot_token:
         raise RuntimeError("BOT_TOKEN is required")
     if not settings.bot_api_token:
@@ -1210,16 +1367,26 @@ def run() -> None:
 async def _run_polling() -> None:
     bot = Bot(token=settings.bot_token)
     dp = Dispatcher()
+    access_mw = BotAccessMiddleware()
+    dp.message.middleware(access_mw)
+    dp.callback_query.middleware(access_mw)
     dp.include_router(router)
 
     # Ensure webhook is disabled; otherwise Telegram rejects getUpdates.
     await bot.delete_webhook(drop_pending_updates=True)
-    await dp.start_polling(bot)
+    try:
+        await dp.start_polling(bot)
+    finally:
+        await api.close()
+        await bot.session.close()
 
 
 def _run_webhook() -> None:
     bot = Bot(token=settings.bot_token)
     dp = Dispatcher()
+    access_mw = BotAccessMiddleware()
+    dp.message.middleware(access_mw)
+    dp.callback_query.middleware(access_mw)
     dp.include_router(router)
 
     path = settings.bot_webhook_path or "/"
@@ -1257,6 +1424,8 @@ def _run_webhook() -> None:
 
     async def on_shutdown(_: web.Application) -> None:
         await bot.delete_webhook(drop_pending_updates=False)
+        await api.close()
+        await bot.session.close()
 
     app.on_startup.append(on_startup)
     app.on_shutdown.append(on_shutdown)

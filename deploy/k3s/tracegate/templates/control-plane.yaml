@@ -37,6 +37,7 @@ spec:
         {{- include "tracegate.labels" . | nindent 8 }}
         app.kubernetes.io/component: api
     spec:
+      terminationGracePeriodSeconds: {{ int (.Values.controlPlane.terminationGracePeriodSeconds | default 30) }}
       {{- if .Values.imagePullSecrets }}
       imagePullSecrets:
         {{- toYaml .Values.imagePullSecrets | nindent 8 }}
@@ -126,6 +127,26 @@ spec:
           resources:
             {{- toYaml .Values.controlPlane.resources.api | nindent 12 }}
 ---
+{{- if .Values.controlPlane.dispatcherMetrics.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "tracegate.fullname" . }}-dispatcher
+  namespace: {{ include "tracegate.namespace" . }}
+  labels:
+    {{- include "tracegate.labels" . | nindent 4 }}
+    app.kubernetes.io/component: dispatcher
+spec:
+  type: ClusterIP
+  ports:
+    - name: metrics
+      port: {{ int (.Values.controlPlane.dispatcherMetrics.port | default 9091) }}
+      targetPort: dispatcher-metrics
+  selector:
+    app.kubernetes.io/component: dispatcher
+    app.kubernetes.io/instance: {{ .Release.Name }}
+---
+{{- end }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -146,6 +167,7 @@ spec:
         {{- include "tracegate.labels" . | nindent 8 }}
         app.kubernetes.io/component: dispatcher
     spec:
+      terminationGracePeriodSeconds: {{ int (.Values.controlPlane.terminationGracePeriodSeconds | default 30) }}
       {{- if .Values.imagePullSecrets }}
       imagePullSecrets:
         {{- toYaml .Values.imagePullSecrets | nindent 8 }}
@@ -169,6 +191,11 @@ spec:
           image: {{ include "tracegate.image" .Values.controlPlane.image }}
           imagePullPolicy: {{ .Values.controlPlane.image.pullPolicy }}
           command: ["tracegate-dispatcher"]
+{{ if .Values.controlPlane.dispatcherMetrics.enabled }}
+          ports:
+            - name: dispatcher-metrics
+              containerPort: {{ int (.Values.controlPlane.dispatcherMetrics.port | default 9091) }}
+{{ end }}
           env:
             - name: APP_ENV
               value: {{ .Values.controlPlane.env.appEnv | quote }}
@@ -181,6 +208,12 @@ spec:
                 secretKeyRef:
                   name: {{ include "tracegate.fullname" . }}-control-plane-auth
                   key: agent-auth-token
+            - name: DISPATCHER_METRICS_ENABLED
+              value: {{ ternary "true" "false" (.Values.controlPlane.dispatcherMetrics.enabled | default true) | quote }}
+            - name: DISPATCHER_METRICS_HOST
+              value: {{ (.Values.controlPlane.dispatcherMetrics.host | default "0.0.0.0") | quote }}
+            - name: DISPATCHER_METRICS_PORT
+              value: {{ printf "%d" (int (.Values.controlPlane.dispatcherMetrics.port | default 9091)) | quote }}
           resources:
             {{- toYaml .Values.controlPlane.resources.dispatcher | nindent 12 }}
 {{- if gt (int .Values.controlPlane.replicas.bot) 0 }}
@@ -205,6 +238,7 @@ spec:
         {{- include "tracegate.labels" . | nindent 8 }}
         app.kubernetes.io/component: bot
     spec:
+      terminationGracePeriodSeconds: {{ int (.Values.controlPlane.terminationGracePeriodSeconds | default 30) }}
       {{- if .Values.imagePullSecrets }}
       imagePullSecrets:
         {{- toYaml .Values.imagePullSecrets | nindent 8 }}
@@ -281,5 +315,39 @@ spec:
 {{ end }}
           resources:
             {{- toYaml .Values.controlPlane.resources.bot | nindent 12 }}
+{{- end }}
+{{- if and .Values.controlPlane.pdb.enabled (gt (int .Values.controlPlane.replicas.api) 1) }}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "tracegate.fullname" . }}-api
+  namespace: {{ include "tracegate.namespace" . }}
+  labels:
+    {{- include "tracegate.labels" . | nindent 4 }}
+    app.kubernetes.io/component: api
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: api
+      app.kubernetes.io/instance: {{ .Release.Name }}
+{{- end }}
+{{- if and .Values.controlPlane.pdb.enabled (gt (int .Values.controlPlane.replicas.dispatcher) 1) }}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "tracegate.fullname" . }}-dispatcher
+  namespace: {{ include "tracegate.namespace" . }}
+  labels:
+    {{- include "tracegate.labels" . | nindent 4 }}
+    app.kubernetes.io/component: dispatcher
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: dispatcher
+      app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 {{- end }}

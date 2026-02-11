@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, Index, Integer, BigInteger, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, Index, Integer, BigInteger, String, Text, UniqueConstraint, text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy import JSON
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -33,6 +33,9 @@ class User(Base):
 
     # Telegram user id is the primary key in v0.1 (Telegram is the only identity provider).
     telegram_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    telegram_username: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    telegram_first_name: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    telegram_last_name: Mapped[str | None] = mapped_column(String(128), nullable=True)
     role: Mapped[UserRole] = mapped_column(
         Enum(UserRole, name="user_role"),
         default=UserRole.USER,
@@ -44,6 +47,8 @@ class User(Base):
         Enum(EntitlementStatus, name="entitlement_status"), default=EntitlementStatus.ACTIVE, nullable=False
     )
     grace_ends_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    bot_blocked_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    bot_block_reason: Mapped[str | None] = mapped_column(String(255), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False)
 
@@ -104,7 +109,16 @@ class ConnectionRevision(Base):
 
     connection: Mapped[Connection] = relationship(back_populates="revisions")
 
-    __table_args__ = (Index("ix_connection_revision_active_slot", "connection_id", "status", "slot"),)
+    __table_args__ = (
+        Index("ix_connection_revision_active_slot", "connection_id", "status", "slot"),
+        Index(
+            "uq_connection_revision_active_slot",
+            "connection_id",
+            "slot",
+            unique=True,
+            postgresql_where=text("status = 'ACTIVE'"),
+        ),
+    )
 
 
 class IpamPool(Base):
@@ -136,7 +150,17 @@ class IpamLease(Base):
 
     pool: Mapped[IpamPool] = relationship(back_populates="leases")
 
-    __table_args__ = (UniqueConstraint("pool_id", "ip", name="uq_ipam_pool_ip"),)
+    __table_args__ = (
+        UniqueConstraint("pool_id", "ip", name="uq_ipam_pool_ip"),
+        Index(
+            "uq_ipam_lease_active_owner",
+            "pool_id",
+            "owner_type",
+            "owner_id",
+            unique=True,
+            postgresql_where=text("status = 'ACTIVE'"),
+        ),
+    )
 
 
 class WireguardPeer(Base):
@@ -228,6 +252,7 @@ class ApiToken(Base):
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     name: Mapped[str] = mapped_column(String(128), unique=True, nullable=False)
     token_hash: Mapped[str] = mapped_column(String(64), unique=True, nullable=False, index=True)
+    scopes: Mapped[list[str]] = mapped_column(JSON, default=lambda: ["*"], nullable=False)
     status: Mapped[RecordStatus] = mapped_column(
         Enum(RecordStatus, name="api_token_status"), default=RecordStatus.ACTIVE, nullable=False
     )

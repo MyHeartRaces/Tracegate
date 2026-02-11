@@ -1,20 +1,69 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import and_, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracegate.api.deps import db_session
-from tracegate.enums import ConnectionMode, ConnectionProtocol, ConnectionVariant, RecordStatus
+from tracegate.enums import ApiScope, ConnectionMode, ConnectionProtocol, ConnectionVariant, RecordStatus
 from tracegate.models import Connection, Device, User
 from tracegate.schemas import ConnectionCreate, ConnectionRead, ConnectionUpdate
-from tracegate.security import require_internal_api_token
+from tracegate.security import require_api_scope
+from tracegate.services.aliases import connection_alias, user_display
 from tracegate.services.connections import ConnectionRevokeError, revoke_connection
 from tracegate.services.overrides import OverrideValidationError, validate_overrides
 
-router = APIRouter(prefix="/connections", tags=["connections"], dependencies=[Depends(require_internal_api_token)])
+router = APIRouter(
+    prefix="/connections",
+    tags=["connections"],
+    dependencies=[Depends(require_api_scope(ApiScope.CONNECTIONS_RW))],
+)
 
 
 class ConnectionValidationError(ValueError):
     pass
+
+
+def _to_connection_read(connection: Connection, *, user: User | None, device: Device | None) -> ConnectionRead:
+    username = user.telegram_username if user else None
+    first_name = user.telegram_first_name if user else None
+    last_name = user.telegram_last_name if user else None
+    device_name = device.name if device else None
+    user_label = (
+        user_display(
+            telegram_id=connection.user_id,
+            telegram_username=username,
+            telegram_first_name=first_name,
+            telegram_last_name=last_name,
+        )
+        if user is not None
+        else str(connection.user_id)
+    )
+    alias = (
+        connection_alias(
+            telegram_id=connection.user_id,
+            telegram_username=username,
+            telegram_first_name=first_name,
+            telegram_last_name=last_name,
+            device_name=device_name or str(connection.device_id),
+            connection_id=str(connection.id),
+        )
+        if user is not None
+        else f"{connection.user_id} - {connection.device_id} - {connection.id}"
+    )
+    return ConnectionRead(
+        id=connection.id,
+        user_id=connection.user_id,
+        device_id=connection.device_id,
+        device_name=device_name,
+        user_display=user_label,
+        alias=alias,
+        protocol=connection.protocol,
+        mode=connection.mode,
+        variant=connection.variant,
+        profile_name=connection.profile_name,
+        custom_overrides_json=connection.custom_overrides_json,
+        status=connection.status,
+    )
 
 
 def validate_variant(protocol: ConnectionProtocol, mode: ConnectionMode, variant: ConnectionVariant) -> None:
@@ -43,7 +92,9 @@ async def list_connections(
     if not include_revoked:
         q = q.where(Connection.status == RecordStatus.ACTIVE)
     rows = (await session.execute(q)).scalars().all()
-    return [ConnectionRead.model_validate(row, from_attributes=True) for row in rows]
+    device = await session.get(Device, device_id)
+    user = await session.get(User, device.user_id) if device is not None else None
+    return [_to_connection_read(row, user=user, device=device) for row in rows]
 
 
 @router.get("/{connection_id}", response_model=ConnectionRead)
@@ -51,7 +102,9 @@ async def get_connection(connection_id: str, session: AsyncSession = Depends(db_
     row = await session.get(Connection, connection_id)
     if row is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Connection not found")
-    return ConnectionRead.model_validate(row, from_attributes=True)
+    device = await session.get(Device, row.device_id)
+    user = await session.get(User, row.user_id)
+    return _to_connection_read(row, user=user, device=device)
 
 
 @router.post("", response_model=ConnectionRead, status_code=status.HTTP_201_CREATED)
@@ -97,9 +150,13 @@ async def create_connection(payload: ConnectionCreate, session: AsyncSession = D
         custom_overrides_json=payload.custom_overrides_json,
     )
     session.add(row)
-    await session.commit()
+    try:
+        await session.commit()
+    except IntegrityError as exc:
+        await session.rollback()
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Connection conflicts with current state") from exc
     await session.refresh(row)
-    return ConnectionRead.model_validate(row, from_attributes=True)
+    return _to_connection_read(row, user=user, device=device)
 
 
 @router.patch("/{connection_id}", response_model=ConnectionRead)
@@ -136,7 +193,9 @@ async def update_connection(
 
     await session.commit()
     await session.refresh(row)
-    return ConnectionRead.model_validate(row, from_attributes=True)
+    device = await session.get(Device, row.device_id)
+    user = await session.get(User, row.user_id)
+    return _to_connection_read(row, user=user, device=device)
 
 
 @router.delete("/{connection_id}", status_code=status.HTTP_204_NO_CONTENT)

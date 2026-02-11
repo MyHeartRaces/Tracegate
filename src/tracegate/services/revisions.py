@@ -10,6 +10,7 @@ from sqlalchemy.orm import selectinload
 from tracegate.enums import ConnectionProtocol, ConnectionVariant, IpamLeaseStatus, NodeRole, OutboxEventType, RecordStatus
 from tracegate.enums import OwnerType
 from tracegate.models import Connection, ConnectionRevision, IpamLease, NodeEndpoint, User, WireguardPeer
+from tracegate.services.aliases import connection_alias, user_display
 from tracegate.services.config_builder import EndpointSet, build_effective_config
 from tracegate.services.ipam import allocate_lease, ensure_pool_exists, release_lease
 from tracegate.services.grace import ensure_can_issue_new_config
@@ -208,11 +209,30 @@ async def _emit_apply_for_revision(
 ) -> None:
     user = await _load_user(session, connection.user_id)
     event_type = _event_type_for_protocol(connection.protocol)
+    device_name = (connection.device.name if connection.device else "").strip() or str(connection.device_id)
+    user_label = user_display(
+        telegram_id=user.telegram_id,
+        telegram_username=user.telegram_username,
+        telegram_first_name=user.telegram_first_name,
+        telegram_last_name=user.telegram_last_name,
+    )
+    conn_alias = connection_alias(
+        telegram_id=user.telegram_id,
+        telegram_username=user.telegram_username,
+        telegram_first_name=user.telegram_first_name,
+        telegram_last_name=user.telegram_last_name,
+        device_name=device_name,
+        connection_id=str(connection.id),
+    )
 
     payload: dict = {
         "user_id": str(user.telegram_id),
+        "user_display": user_label,
+        "telegram_username": user.telegram_username,
         "device_id": str(connection.device_id),
+        "device_name": device_name,
         "connection_id": str(connection.id),
+        "connection_alias": conn_alias,
         "revision_id": str(revision.id),
         "protocol": connection.protocol.value,
         "variant": connection.variant.value,
@@ -342,10 +362,29 @@ async def create_revision(
         )
 
     event_type = _event_type_for_protocol(connection.protocol)
+    device_name = (connection.device.name if connection.device else "").strip() or str(connection.device_id)
+    user_label = user_display(
+        telegram_id=user.telegram_id,
+        telegram_username=user.telegram_username,
+        telegram_first_name=user.telegram_first_name,
+        telegram_last_name=user.telegram_last_name,
+    )
+    conn_alias = connection_alias(
+        telegram_id=user.telegram_id,
+        telegram_username=user.telegram_username,
+        telegram_first_name=user.telegram_first_name,
+        telegram_last_name=user.telegram_last_name,
+        device_name=device_name,
+        connection_id=str(connection.id),
+    )
     payload = {
         "user_id": str(user.telegram_id),
+        "user_display": user_label,
+        "telegram_username": user.telegram_username,
         "device_id": str(connection.device_id),
+        "device_name": device_name,
         "connection_id": str(connection.id),
+        "connection_alias": conn_alias,
         "revision_id": str(revision.id),
         "protocol": connection.protocol.value,
         "variant": connection.variant.value,
