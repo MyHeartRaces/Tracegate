@@ -302,19 +302,25 @@ async def create_revision(
         wg_lease = await allocate_lease(session, pool, OwnerType.DEVICE, connection.device_id)
         wg_private_key, wg_public_key = generate_keypair()
 
-    for rev in sorted(
+    active_revisions = sorted(
         [r for r in connection.revisions if r.status == RecordStatus.ACTIVE],
         key=lambda r: r.slot,
         reverse=True,
-    ):
-        next_slot = rev.slot + 1
+    )
+    # Two-phase shift avoids transient unique collisions on (connection_id, slot)
+    # for active revisions when multiple slots are present.
+    for rev in active_revisions:
+        rev.slot = rev.slot + 10
+    await session.flush()
+
+    for rev in active_revisions:
+        prev_slot = rev.slot - 10
+        next_slot = prev_slot + 1
         if next_slot > 2:
             rev.status = RecordStatus.REVOKED
             rev.slot = 2
         else:
             rev.slot = next_slot
-    # Persist slot shifts before inserting the new slot0 revision to satisfy
-    # uq_connection_revision_active_slot at the DB level.
     await session.flush()
 
     effective_config = build_effective_config(
