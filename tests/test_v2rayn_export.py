@@ -51,8 +51,8 @@ def test_export_vless_ws_tls_uri() -> None:
     assert out.content.startswith("vless://11111111-2222-3333-4444-555555555555@t.example.com:443?")
     assert "security=tls" in out.content
     assert "type=ws" in out.content
-    assert "alpn=http/1.1" in out.content
-    assert "fp=chrome" in out.content
+    assert "alpn=" not in out.content
+    assert "fp=" not in out.content
     assert "path=/ws" in out.content
     assert "host=t.example.com" in out.content
     assert "allowInsecure=1" in out.content
