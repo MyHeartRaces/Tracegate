@@ -115,6 +115,8 @@ def _export_vless_ws_tls(effective: dict[str, Any]) -> ExportResult:
         "encryption": "none",
         "security": "tls",
         "type": "ws",
+        # Some clients default to h2 and fail WS over Cloudflare; pin ALPN to HTTP/1.1.
+        "alpn": "http/1.1",
         "sni": sni,
         "host": ws_host,
         "path": ws_path,
