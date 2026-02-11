@@ -93,18 +93,26 @@ def build_effective_config(
         if connection.variant not in {ConnectionVariant.B1, ConnectionVariant.B2}:
             raise ValueError("VLESS+WS+TLS supports only B1/B2 variants")
 
-        # For WS+TLS the TLS SNI must match the certificate that Xray serves.
-        # By default we use the entry hostname (vps_t_host/vps_e_host). Operators can override via custom_overrides_json.
+        # For WS+TLS the TLS SNI must match where TLS is actually terminated.
+        # In direct mode it is VPS-T. In chain mode with a plain L4 forwarder on VPS-E
+        # (no proxy host), TLS still terminates on VPS-T.
+        # Operators can override via custom_overrides_json.
         tls_server_name = str(overrides.get("tls_server_name") or "").strip()
         if not tls_server_name and selected_sni is not None:
             tls_server_name = selected_sni.fqdn
 
         if connection.mode == ConnectionMode.DIRECT:
             entry_host = endpoints.vps_t_proxy_host or endpoints.vps_t_host
+            tls_termination_host = endpoints.vps_t_proxy_host or endpoints.vps_t_host
         else:
             entry_host = endpoints.vps_e_proxy_host or endpoints.vps_e_host
+            tls_termination_host = (
+                endpoints.vps_e_proxy_host
+                if endpoints.vps_e_proxy_host
+                else (endpoints.vps_t_proxy_host or endpoints.vps_t_host)
+            )
         if not tls_server_name:
-            tls_server_name = entry_host
+            tls_server_name = tls_termination_host
 
         ws_path = str(overrides.get("ws_path") or endpoints.vless_ws_path or "/ws").strip() or "/ws"
         ws_host = str(overrides.get("ws_host") or tls_server_name or "").strip()

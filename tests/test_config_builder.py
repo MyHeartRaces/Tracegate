@@ -81,3 +81,66 @@ def test_wireguard_uses_fixed_port_51820() -> None:
     )
 
     assert cfg["endpoint"].endswith(":51820")
+
+
+def test_ws_tls_chain_uses_vps_t_sni_when_vps_e_is_l4_forwarder() -> None:
+    user = _user()
+    device = _device(user.telegram_id)
+    conn = Connection(
+        id=uuid4(),
+        user_id=user.telegram_id,
+        device_id=device.id,
+        protocol=ConnectionProtocol.VLESS_WS_TLS,
+        mode=ConnectionMode.CHAIN,
+        variant=ConnectionVariant.B2,
+        profile_name="B2",
+        custom_overrides_json={},
+        status=RecordStatus.ACTIVE,
+    )
+
+    cfg = build_effective_config(
+        user=user,
+        device=device,
+        connection=conn,
+        selected_sni=None,
+        endpoints=EndpointSet(
+            vps_t_host="myheartraces.space",
+            vps_e_host="entry.myheartraces.space",
+        ),
+    )
+
+    assert cfg["server"] == "entry.myheartraces.space"
+    assert cfg["sni"] == "myheartraces.space"
+    assert cfg["ws"]["host"] == "myheartraces.space"
+
+
+def test_ws_tls_chain_uses_vps_e_proxy_sni_when_proxy_enabled() -> None:
+    user = _user()
+    device = _device(user.telegram_id)
+    conn = Connection(
+        id=uuid4(),
+        user_id=user.telegram_id,
+        device_id=device.id,
+        protocol=ConnectionProtocol.VLESS_WS_TLS,
+        mode=ConnectionMode.CHAIN,
+        variant=ConnectionVariant.B2,
+        profile_name="B2",
+        custom_overrides_json={},
+        status=RecordStatus.ACTIVE,
+    )
+
+    cfg = build_effective_config(
+        user=user,
+        device=device,
+        connection=conn,
+        selected_sni=None,
+        endpoints=EndpointSet(
+            vps_t_host="transit.myheartraces.space",
+            vps_e_host="entry.myheartraces.space",
+            vps_e_proxy_host="re.myheartraces.space",
+        ),
+    )
+
+    assert cfg["server"] == "re.myheartraces.space"
+    assert cfg["sni"] == "re.myheartraces.space"
+    assert cfg["ws"]["host"] == "re.myheartraces.space"
