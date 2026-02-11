@@ -34,7 +34,7 @@ from tracegate.bot.keyboards import (
     vless_transport_keyboard,
 )
 from tracegate.client_export.v2rayn import V2RayNExportError, export_client_config
-from tracegate.enums import ConnectionMode, ConnectionProtocol, ConnectionVariant, NodeRole
+from tracegate.enums import ConnectionMode, ConnectionProtocol, ConnectionVariant
 from tracegate.settings import get_settings
 import qrcode
 
@@ -463,30 +463,6 @@ def _profile(spec: str) -> tuple[ConnectionProtocol, ConnectionMode, ConnectionV
     raise ValueError("unknown profile")
 
 
-async def _tls_domain_for_role(role: NodeRole) -> str:
-    """
-    TLS SNI must match a certificate served by the entry gateway.
-
-    Source of truth is NodeEndpoint.proxy_fqdn (preferred) or NodeEndpoint.fqdn for the active node of the role.
-    """
-    nodes = await api.list_nodes()
-    for row in nodes:
-        if (row.get("role") or "").strip() != role.value:
-            continue
-        if not row.get("active", True):
-            continue
-        proxy_fqdn = (row.get("proxy_fqdn") or "").strip()
-        if proxy_fqdn:
-            return proxy_fqdn
-        direct_fqdn = (row.get("fqdn") or "").strip()
-        if direct_fqdn:
-            return direct_fqdn
-        break
-    raise ValueError(
-        f"TLS mode requires node fqdn for {role.value}. Set nodes.proxy_fqdn (preferred) or nodes.fqdn in control-plane."
-    )
-
-
 @router.callback_query(F.data.startswith("new:"))
 async def new_connection(callback: CallbackQuery) -> None:
     _, spec, device_id = callback.data.split(":", 2)
@@ -507,11 +483,6 @@ async def new_connection(callback: CallbackQuery) -> None:
 
         user = await ensure_user(callback.from_user.id)
         protocol, mode, variant = _profile(spec)
-        overrides = None
-        if protocol == ConnectionProtocol.VLESS_WS_TLS:
-            entry_role = NodeRole.VPS_T if mode == ConnectionMode.DIRECT else NodeRole.VPS_E
-            tls_domain = await _tls_domain_for_role(entry_role)
-            overrides = {"tls_server_name": tls_domain, "ws_host": tls_domain}
         connection, revision = await api.create_connection_and_revision(
             user["telegram_id"],
             device_id,
@@ -519,7 +490,7 @@ async def new_connection(callback: CallbackQuery) -> None:
             mode,
             variant,
             None,
-            custom_overrides_json=overrides,
+            custom_overrides_json=None,
         )
         text, keyboard = await render_device_page(device_id)
         await callback.message.edit_text(text, reply_markup=keyboard)
@@ -575,9 +546,6 @@ async def vless_transport(callback: CallbackQuery) -> None:
         if transport != "tls":
             raise ValueError("unknown transport")
 
-        entry_role = NodeRole.VPS_T if spec == "b1" else NodeRole.VPS_E
-        tls_domain = await _tls_domain_for_role(entry_role)
-
         user = await ensure_user(callback.from_user.id)
         protocol, mode, variant = _profile(f"{spec}ws")
         connection, revision = await api.create_connection_and_revision(
@@ -587,7 +555,7 @@ async def vless_transport(callback: CallbackQuery) -> None:
             mode,
             variant,
             None,
-            custom_overrides_json={"tls_server_name": tls_domain, "ws_host": tls_domain},
+            custom_overrides_json=None,
         )
         text, keyboard = await render_device_page(device_id)
         await callback.message.edit_text(text, reply_markup=keyboard)
