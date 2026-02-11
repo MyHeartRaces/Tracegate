@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from uuid import UUID
 
-from sqlalchemy import and_, select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -158,7 +158,22 @@ async def _sync_wireguard_peer_state(
     if lease.ip != peer_ip:
         raise RevisionError(f"wireguard peer_ip mismatch: revision={peer_ip} lease={lease.ip}")
 
-    peer = await session.scalar(select(WireguardPeer).where(WireguardPeer.device_id == connection.device_id))
+    # A recycled lease can still be referenced by an old revoked peer row.
+    # Reuse whichever row matches current device or current lease to avoid unique(lease_id) conflicts.
+    peers = (
+        await session.execute(
+            select(WireguardPeer).where(
+                or_(
+                    WireguardPeer.device_id == connection.device_id,
+                    WireguardPeer.lease_id == lease.id,
+                )
+            )
+        )
+    ).scalars().all()
+    peer = next((row for row in peers if row.device_id == connection.device_id), None)
+    if peer is None:
+        peer = next((row for row in peers if row.lease_id == lease.id), None)
+
     if peer is None:
         peer = WireguardPeer(
             user_id=user.telegram_id,
@@ -174,6 +189,7 @@ async def _sync_wireguard_peer_state(
         return peer
 
     peer.user_id = user.telegram_id
+    peer.device_id = connection.device_id
     peer.status = RecordStatus.ACTIVE
     peer.peer_public_key = peer_public_key
     peer.lease_id = lease.id
