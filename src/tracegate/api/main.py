@@ -16,7 +16,7 @@ async def lifespan(_: FastAPI):
     # Migrations are sync (Alembic). Run them before serving any traffic.
     await anyio.to_thread.run_sync(migrate_db)
 
-    async with get_sessionmaker() as session:
+    async with get_sessionmaker()() as session:
         await ensure_pool_exists(session)
         await session.commit()
 

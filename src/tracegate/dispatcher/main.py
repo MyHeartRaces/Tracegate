@@ -51,7 +51,7 @@ async def _claim_deliveries(
     double-sending the same OutboxDelivery in parallel.
     """
     lock_until = now + timedelta(seconds=lock_ttl_seconds)
-    async with get_sessionmaker() as session:
+    async with get_sessionmaker()() as session:
         rows = (
             await session.execute(
                 select(OutboxDelivery)
@@ -119,7 +119,7 @@ async def _process_delivery(
     max_attempts: int,
 ) -> None:
     now = datetime.now(timezone.utc)
-    async with get_sessionmaker() as session:
+    async with get_sessionmaker()() as session:
         row = await session.get(OutboxDelivery, delivery_id)
         if row is None:
             return
@@ -211,4 +211,3 @@ def run() -> None:
 
 if __name__ == "__main__":
     run()
-

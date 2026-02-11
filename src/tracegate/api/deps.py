@@ -6,5 +6,5 @@ from tracegate.db import get_sessionmaker
 
 
 async def db_session() -> AsyncGenerator[AsyncSession, None]:
-    async with get_sessionmaker() as session:
+    async with get_sessionmaker()() as session:
         yield session
