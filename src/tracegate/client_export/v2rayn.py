@@ -33,7 +33,18 @@ def export_v2rayn(effective: dict[str, Any]) -> ExportResult:
 
     proto = (effective.get("protocol") or "").strip().lower()
     if proto == "vless":
-        return _export_vless_reality(effective)
+        transport = (effective.get("transport") or "").strip().lower()
+        if not transport:
+            # Backward-compatible heuristics (older payloads / tests may omit transport).
+            if effective.get("reality"):
+                transport = "reality"
+            elif effective.get("ws"):
+                transport = "ws_tls"
+        if transport in {"reality"}:
+            return _export_vless_reality(effective)
+        if transport in {"ws_tls", "ws+tls", "ws-tls"}:
+            return _export_vless_ws_tls(effective)
+        raise V2RayNExportError(f"Unsupported VLESS transport for v2rayN export: {transport!r}")
     if proto == "hysteria2":
         return _export_hysteria2(effective)
     if proto == "wireguard":
@@ -69,6 +80,41 @@ def _export_vless_reality(effective: dict[str, Any]) -> ExportResult:
     name = effective.get("profile") or "tracegate-vless"
     uri = f"vless://{uuid}@{server}:{port}?{urlencode(params)}#{_q(str(name))}"
     return ExportResult(kind="uri", title="v2rayN VLESS/REALITY link", content=uri)
+
+
+def _export_vless_ws_tls(effective: dict[str, Any]) -> ExportResult:
+    server = effective.get("server")
+    port = int(effective.get("port") or 443)
+    uuid = effective.get("uuid")
+    sni = (effective.get("sni") or "").strip()
+    ws = effective.get("ws") or {}
+    ws_path = (ws.get("path") or "/ws").strip()
+    ws_host = (ws.get("host") or "").strip()
+    tls = effective.get("tls") or {}
+    insecure = bool(tls.get("insecure", False))
+
+    if not server or not uuid:
+        raise V2RayNExportError("Missing fields for VLESS+WS+TLS export")
+    if not sni:
+        # Some clients allow empty SNI (use server host), but make it explicit to avoid interop issues.
+        sni = str(server)
+    if not ws_host:
+        ws_host = sni
+
+    params = {
+        "encryption": "none",
+        "security": "tls",
+        "type": "ws",
+        "sni": sni,
+        "host": ws_host,
+        "path": ws_path,
+    }
+    if insecure:
+        params["allowInsecure"] = "1"
+
+    name = effective.get("profile") or "tracegate-vless-ws"
+    uri = f"vless://{uuid}@{server}:{port}?{urlencode(params)}#{_q(str(name))}"
+    return ExportResult(kind="uri", title="v2rayN VLESS+WS+TLS link", content=uri)
 
 
 def _export_hysteria2(effective: dict[str, Any]) -> ExportResult:

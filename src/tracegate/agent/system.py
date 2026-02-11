@@ -104,9 +104,8 @@ async def gather_health_checks(
     wg_interface: str,
     wg_port: int,
     role: str,
-    runtime_mode: str,
+    runtime_mode: str,  # kept for backward compatibility; k3s-only pipeline ignores it
 ) -> list[dict]:
-    runtime_mode = runtime_mode.lower().strip()
     checks: list[dict] = []
 
     expected_ports: list[tuple[str, int, str]] = [("tcp", 443, "listen tcp/443")]
@@ -122,24 +121,18 @@ async def gather_health_checks(
         ok, details = check_port(protocol, port)
         checks.append({"name": name, "ok": ok, "details": details})
 
-    if runtime_mode == "kubernetes":
-        if role == "VPS_E":
-            # VPS-E can be implemented as an L4 forwarder (haproxy) or as xray (future).
-            ok_x, det_x = check_process("xray")
-            ok_h, det_h = check_process("haproxy")
-            ok = ok_x or ok_h
-            details = det_x if ok_x else det_h
-            checks.append({"name": "process entry", "ok": ok, "details": details})
-        else:
-            processes = ["xray", "hysteria"]
-            for process_name in processes:
-                ok, details = check_process(process_name)
-                checks.append({"name": f"process {process_name}", "ok": ok, "details": details})
+    # k3s-only pipeline: the agent runs in a pod with shareProcessNamespace and checks sidecar processes directly.
+    if role == "VPS_E":
+        # VPS-E can be implemented as an L4 forwarder (haproxy) or as xray.
+        ok_x, det_x = check_process("xray")
+        ok_h, det_h = check_process("haproxy")
+        ok = ok_x or ok_h
+        details = det_x if ok_x else det_h
+        checks.append({"name": "process entry", "ok": ok, "details": details})
     else:
-        units = ["xray"] if role == "VPS_E" else ["xray", "hysteria-server", f"wg-quick@{wg_interface}"]
-        for unit in units:
-            ok, details = check_systemd(unit)
-            checks.append({"name": f"systemd {unit}", "ok": ok, "details": details})
+        for process_name in ["xray", "hysteria"]:
+            ok, details = check_process(process_name)
+            checks.append({"name": f"process {process_name}", "ok": ok, "details": details})
 
     if role == "VPS_T":
         ok, details = await check_hysteria_stats_secret(stats_url, stats_secret)

@@ -18,6 +18,7 @@ from aiohttp import web
 from tracegate.bot.client import ApiClientError, TracegateApiClient
 from tracegate.bot.keyboards import (
     SNI_PAGE_SIZE,
+    admin_menu_keyboard,
     device_actions_keyboard,
     devices_keyboard,
     main_menu_keyboard,
@@ -29,9 +30,10 @@ from tracegate.bot.keyboards import (
     sni_catalog_pick_keyboard,
     sni_page_keyboard_issue,
     sni_page_keyboard_new,
+    vless_transport_keyboard,
 )
 from tracegate.client_export.v2rayn import V2RayNExportError, export_v2rayn
-from tracegate.enums import ConnectionMode, ConnectionProtocol, ConnectionVariant
+from tracegate.enums import ConnectionMode, ConnectionProtocol, ConnectionVariant, NodeRole
 from tracegate.settings import get_settings
 
 settings = get_settings()
@@ -46,9 +48,21 @@ class DeviceFlow(StatesGroup):
 class SniCatalogFlow(StatesGroup):
     waiting_for_input = State()
 
+class AdminFlow(StatesGroup):
+    waiting_for_grant_id = State()
+    waiting_for_revoke_id = State()
+
 
 async def ensure_user(telegram_id: int) -> dict:
     return await api.get_or_create_user(telegram_id)
+
+
+def _is_admin(user: dict) -> bool:
+    return (user.get("role") or "").strip().lower() in {"admin", "superadmin"}
+
+
+def _is_superadmin(user: dict) -> bool:
+    return (user.get("role") or "").strip().lower() == "superadmin"
 
 
 async def render_device_page(device_id: str) -> tuple[str, object]:
@@ -125,15 +139,120 @@ async def _send_client_config(callback: CallbackQuery, revision: dict) -> None:
 
 @router.message(CommandStart())
 async def start(message: Message) -> None:
-    await ensure_user(message.from_user.id)
-    await message.answer("Tracegate v0.1\nВыберите действие:", reply_markup=main_menu_keyboard())
+    user = await ensure_user(message.from_user.id)
+    await message.answer(
+        "Tracegate v0.2\nВыберите действие:",
+        reply_markup=main_menu_keyboard(is_admin=_is_admin(user)),
+    )
 
 
 @router.callback_query(F.data == "menu")
 async def menu(callback: CallbackQuery, state: FSMContext) -> None:
     await state.clear()
-    await callback.message.edit_text("Tracegate v0.1\nВыберите действие:", reply_markup=main_menu_keyboard())
+    user = await ensure_user(callback.from_user.id)
+    await callback.message.edit_text(
+        "Tracegate v0.2\nВыберите действие:",
+        reply_markup=main_menu_keyboard(is_admin=_is_admin(user)),
+    )
     await callback.answer()
+
+
+@router.callback_query(F.data == "admin_menu")
+async def admin_menu(callback: CallbackQuery, state: FSMContext) -> None:
+    await state.clear()
+    user = await ensure_user(callback.from_user.id)
+    if not _is_admin(user):
+        await callback.answer("Недостаточно прав")
+        return
+    await callback.message.edit_text(
+        "Админ меню:",
+        reply_markup=admin_menu_keyboard(is_superadmin=_is_superadmin(user)),
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data == "grafana_otp")
+async def grafana_otp(callback: CallbackQuery) -> None:
+    try:
+        user = await ensure_user(callback.from_user.id)
+        otp = await api.create_grafana_otp(user["telegram_id"])
+        await callback.message.answer(
+            "Grafana OTP:\n"
+            f"- expires_at: {otp.get('expires_at')}\n"
+            f"- link: {otp.get('login_url')}"
+        )
+    except ApiClientError as exc:
+        await callback.message.answer(f"Ошибка: {exc}")
+    await callback.answer()
+
+
+@router.callback_query(F.data == "admin_grant")
+async def admin_grant(callback: CallbackQuery, state: FSMContext) -> None:
+    user = await ensure_user(callback.from_user.id)
+    if not _is_superadmin(user):
+        await callback.answer("Только superadmin")
+        return
+    await state.set_state(AdminFlow.waiting_for_grant_id)
+    await callback.message.answer("Введи Telegram ID пользователя, которому выдать роль admin:")
+    await callback.answer()
+
+
+@router.callback_query(F.data == "admin_revoke")
+async def admin_revoke(callback: CallbackQuery, state: FSMContext) -> None:
+    user = await ensure_user(callback.from_user.id)
+    if not _is_superadmin(user):
+        await callback.answer("Только superadmin")
+        return
+    await state.set_state(AdminFlow.waiting_for_revoke_id)
+    await callback.message.answer("Введи Telegram ID пользователя, у которого снять роль admin:")
+    await callback.answer()
+
+
+@router.callback_query(F.data == "admin_list")
+async def admin_list(callback: CallbackQuery) -> None:
+    user = await ensure_user(callback.from_user.id)
+    if not _is_superadmin(user):
+        await callback.answer("Только superadmin")
+        return
+    try:
+        admins = await api.list_users(role="admin", limit=500)
+        supers = await api.list_users(role="superadmin", limit=500)
+        lines = ["Superadmins:"] + [f"- {u['telegram_id']}" for u in supers]
+        lines += ["", "Admins:"] + [f"- {u['telegram_id']}" for u in admins]
+        await callback.message.answer("\n".join(lines) if (admins or supers) else "Нет админов.")
+    except ApiClientError as exc:
+        await callback.message.answer(f"Ошибка: {exc}")
+    await callback.answer()
+
+
+@router.message(AdminFlow.waiting_for_grant_id)
+async def receive_admin_grant_id(message: Message, state: FSMContext) -> None:
+    try:
+        text = (message.text or "").strip()
+        telegram_id = int(text)
+        await api.get_or_create_user(telegram_id)
+        await api.set_user_role(telegram_id, "admin")
+        await message.answer(f"Готово: {telegram_id} теперь admin.")
+    except Exception as exc:  # noqa: BLE001
+        await message.answer(f"Ошибка: {exc}")
+    finally:
+        await state.clear()
+
+
+@router.message(AdminFlow.waiting_for_revoke_id)
+async def receive_admin_revoke_id(message: Message, state: FSMContext) -> None:
+    try:
+        text = (message.text or "").strip()
+        telegram_id = int(text)
+        if telegram_id in (settings.superadmin_telegram_ids or []):
+            await message.answer("Нельзя снять superadmin.")
+            return
+        await api.set_user_role(telegram_id, "user")
+        await message.answer(f"Готово: {telegram_id} теперь user.")
+    except Exception as exc:  # noqa: BLE001
+        await message.answer(f"Ошибка: {exc}")
+    finally:
+        await state.clear()
 
 
 @router.callback_query(F.data == "devices")
@@ -193,13 +312,41 @@ async def delete_device(callback: CallbackQuery) -> None:
 def _profile(spec: str) -> tuple[ConnectionProtocol, ConnectionMode, ConnectionVariant]:
     if spec == "b1":
         return ConnectionProtocol.VLESS_REALITY, ConnectionMode.DIRECT, ConnectionVariant.B1
+    if spec == "b1ws":
+        return ConnectionProtocol.VLESS_WS_TLS, ConnectionMode.DIRECT, ConnectionVariant.B1
     if spec == "b2":
         return ConnectionProtocol.VLESS_REALITY, ConnectionMode.CHAIN, ConnectionVariant.B2
+    if spec == "b2ws":
+        return ConnectionProtocol.VLESS_WS_TLS, ConnectionMode.CHAIN, ConnectionVariant.B2
     if spec == "b3":
         return ConnectionProtocol.HYSTERIA2, ConnectionMode.DIRECT, ConnectionVariant.B3
     if spec == "b5":
         return ConnectionProtocol.WIREGUARD, ConnectionMode.DIRECT, ConnectionVariant.B5
     raise ValueError("unknown profile")
+
+
+async def _tls_domain_for_role(role: NodeRole) -> str:
+    """
+    TLS SNI must match a certificate served by the entry gateway.
+
+    Source of truth is NodeEndpoint.proxy_fqdn (preferred) or NodeEndpoint.fqdn for the active node of the role.
+    """
+    nodes = await api.list_nodes()
+    for row in nodes:
+        if (row.get("role") or "").strip() != role.value:
+            continue
+        if not row.get("active", True):
+            continue
+        proxy_fqdn = (row.get("proxy_fqdn") or "").strip()
+        if proxy_fqdn:
+            return proxy_fqdn
+        direct_fqdn = (row.get("fqdn") or "").strip()
+        if direct_fqdn:
+            return direct_fqdn
+        break
+    raise ValueError(
+        f"TLS mode requires node fqdn for {role.value}. Set nodes.proxy_fqdn (preferred) or nodes.fqdn in control-plane."
+    )
 
 
 @router.callback_query(F.data.startswith("new:"))
@@ -222,6 +369,11 @@ async def new_connection(callback: CallbackQuery) -> None:
 
         user = await ensure_user(callback.from_user.id)
         protocol, mode, variant = _profile(spec)
+        overrides = None
+        if protocol == ConnectionProtocol.VLESS_WS_TLS:
+            entry_role = NodeRole.VPS_T if mode == ConnectionMode.DIRECT else NodeRole.VPS_E
+            tls_domain = await _tls_domain_for_role(entry_role)
+            overrides = {"tls_server_name": tls_domain, "ws_host": tls_domain}
         connection, revision = await api.create_connection_and_revision(
             user["telegram_id"],
             device_id,
@@ -229,6 +381,7 @@ async def new_connection(callback: CallbackQuery) -> None:
             mode,
             variant,
             None,
+            custom_overrides_json=overrides,
         )
         text, keyboard = await render_device_page(device_id)
         await callback.message.edit_text(text, reply_markup=keyboard)
@@ -240,6 +393,74 @@ async def new_connection(callback: CallbackQuery) -> None:
         await callback.message.answer(f"Ошибка: {exc}")
 
     await callback.answer()
+
+
+@router.callback_query(F.data.startswith("vlessnew:"))
+async def vless_new(callback: CallbackQuery) -> None:
+    # vlessnew:<spec>:<device_id> where spec is "b1" (direct) or "b2" (chain)
+    _, spec, device_id = callback.data.split(":", 2)
+    if spec not in {"b1", "b2"}:
+        await callback.message.answer("Ошибка: неизвестный профиль VLESS")
+        await callback.answer()
+        return
+
+    await callback.message.edit_text(
+        "VLESS: выбери транспорт подключения:",
+        reply_markup=vless_transport_keyboard(spec=spec, device_id=device_id),
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("vlesstrans:"))
+async def vless_transport(callback: CallbackQuery) -> None:
+    # vlesstrans:<spec>:<device_id>:<transport>
+    _, spec, device_id, transport = callback.data.split(":", 3)
+    transport = (transport or "").strip().lower()
+    if spec not in {"b1", "b2"}:
+        await callback.message.answer("Ошибка: неизвестный профиль VLESS")
+        await callback.answer()
+        return
+
+    try:
+        if transport == "reality":
+            await callback.message.edit_text(
+                "Выбери провайдера (для фильтра SNI):",
+                reply_markup=provider_keyboard_with_cancel(
+                    "new",
+                    f"{spec}:{device_id}",
+                    cancel_callback_data=f"device:{device_id}",
+                ),
+            )
+            await callback.answer()
+            return
+
+        if transport != "tls":
+            raise ValueError("unknown transport")
+
+        entry_role = NodeRole.VPS_T if spec == "b1" else NodeRole.VPS_E
+        tls_domain = await _tls_domain_for_role(entry_role)
+
+        user = await ensure_user(callback.from_user.id)
+        protocol, mode, variant = _profile(f"{spec}ws")
+        connection, revision = await api.create_connection_and_revision(
+            user["telegram_id"],
+            device_id,
+            protocol,
+            mode,
+            variant,
+            None,
+            custom_overrides_json={"tls_server_name": tls_domain, "ws_host": tls_domain},
+        )
+        text, keyboard = await render_device_page(device_id)
+        await callback.message.edit_text(text, reply_markup=keyboard)
+        await callback.message.answer(
+            f"Создано: connection={connection['id']} revision={revision['id']} slot={revision['slot']}"
+        )
+        await _send_client_config(callback, revision)
+    except Exception as exc:  # noqa: BLE001
+        await callback.message.answer(f"Ошибка: {exc}")
+    finally:
+        await callback.answer()
 
 
 @router.callback_query(F.data.startswith("sni:"))

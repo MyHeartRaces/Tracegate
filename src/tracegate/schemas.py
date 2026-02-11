@@ -16,6 +16,7 @@ from tracegate.enums import (
     OutboxEventType,
     OutboxStatus,
     RecordStatus,
+    UserRole,
 )
 
 
@@ -54,6 +55,7 @@ class UserCreate(BaseModel):
 
 class UserRead(BaseModel):
     telegram_id: int
+    role: UserRole
     devices_max: int
     entitlement_status: EntitlementStatus
     grace_ends_at: datetime | None
@@ -62,6 +64,10 @@ class UserRead(BaseModel):
 class UserEntitlementUpdate(BaseModel):
     entitlement_status: EntitlementStatus
     grace_ends_at: datetime | None = None
+
+
+class UserRoleUpdate(BaseModel):
+    role: UserRole
 
 
 class DeviceCreate(BaseModel):
@@ -131,7 +137,16 @@ class NodeEndpointCreate(BaseModel):
     base_url: str
     public_ipv4: str
     fqdn: str | None = None
+    proxy_fqdn: str | None = None
     active: bool = True
+
+
+class NodeEndpointUpdate(BaseModel):
+    base_url: str | None = None
+    public_ipv4: str | None = None
+    fqdn: str | None = None
+    proxy_fqdn: str | None = None
+    active: bool | None = None
 
 
 class NodeEndpointRead(BaseModel):
@@ -141,6 +156,7 @@ class NodeEndpointRead(BaseModel):
     base_url: str
     public_ipv4: str
     fqdn: str | None
+    proxy_fqdn: str | None
     active: bool
 
 

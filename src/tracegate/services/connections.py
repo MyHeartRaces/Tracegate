@@ -6,7 +6,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracegate.enums import ConnectionProtocol, NodeRole, OutboxEventType, RecordStatus
-from tracegate.models import Connection, ConnectionRevision, WireguardPeer
+from tracegate.models import Connection, ConnectionRevision, IpamLease, WireguardPeer
+from tracegate.services.ipam import release_lease
 from tracegate.services.outbox import create_outbox_event
 
 
@@ -41,6 +42,9 @@ async def revoke_connection(session: AsyncSession, connection_id: UUID) -> None:
         )
         if peer is not None:
             peer.status = RecordStatus.REVOKED
+            lease: IpamLease | None = await session.get(IpamLease, peer.lease_id)
+            if lease is not None:
+                await release_lease(session, lease)
 
         await create_outbox_event(
             session,
@@ -68,4 +72,3 @@ async def revoke_connection(session: AsyncSession, connection_id: UUID) -> None:
         role_target=NodeRole.VPS_T,
         idempotency_suffix=f"conn-revoke:{conn.id}",
     )
-

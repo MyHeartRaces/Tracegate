@@ -11,17 +11,29 @@ class Settings(BaseSettings):
     app_env: str = "dev"
     log_level: str = "INFO"
 
+    # Telegram role bootstrap. Roles are persisted in DB, but we need an initial superadmin.
+    superadmin_telegram_ids: list[int] = Field(default_factory=lambda: [255761416])
+
     # Secrets must not be hardcoded in repo files; provide via `.env` (not committed).
     database_url: str = ""
+
+    # Runtime filesystem roots (container image includes ./bundles).
+    bundle_root: str = "bundles"
 
     api_host: str = "0.0.0.0"
     api_port: int = 8080
     api_internal_token: str = ""
 
+    # Public URL of the control-plane (used by bot links, e.g. Grafana OTP login).
+    public_base_url: str = ""
+
     dispatcher_host: str = "0.0.0.0"
     dispatcher_port: int = 8090
     dispatcher_poll_seconds: int = 3
     dispatcher_batch_size: int = 50
+    dispatcher_lock_ttl_seconds: int = 60
+    dispatcher_max_attempts: int = 25
+    dispatcher_concurrency: int = 10
     dispatcher_client_cert: str | None = None
     dispatcher_client_key: str | None = None
     dispatcher_ca_cert: str | None = None
@@ -42,6 +54,15 @@ class Settings(BaseSettings):
     bot_webhook_tls_key: str = "/etc/tracegate/bot-webhook/tls.key"
     bot_webhook_upload_cert: bool = True  # upload cert to Telegram (required for self-signed)
 
+    # Observability (Grafana is optional; can be deployed via Helm).
+    grafana_enabled: bool = False
+    grafana_internal_url: str = "http://tracegate-grafana:3000"
+    grafana_admin_user: str = "admin"
+    grafana_admin_password: str = ""
+    grafana_cookie_secret: str = ""
+    grafana_otp_ttl_seconds: int = 300
+    grafana_session_ttl_seconds: int = 3600
+
     agent_host: str = "0.0.0.0"
     agent_port: int = 8070
     agent_role: str = "VPS_T"
@@ -52,9 +73,10 @@ class Settings(BaseSettings):
     agent_wg_interface: str = "wg0"
     agent_wg_expected_port: int = 51820
     agent_dry_run: bool = True
-    agent_runtime_mode: str = "systemd"
-    agent_reload_xray_cmd: str = "systemctl reload xray"
-    agent_reload_hysteria_cmd: str = "systemctl reload hysteria-server"
+    agent_runtime_mode: str = "kubernetes"
+    # In k3s pipeline we restart sidecars to pick up config changes.
+    agent_reload_xray_cmd: str = "pkill -TERM xray || true"
+    agent_reload_hysteria_cmd: str = "pkill -TERM hysteria || true"
     agent_reload_wg_cmd: str = "wg syncconf wg0 /etc/wireguard/wg0.conf"
     agent_server_cert: str | None = None
     agent_server_key: str | None = None
@@ -76,6 +98,10 @@ class Settings(BaseSettings):
     wireguard_server_public_key: str = ""
 
     sni_seed: list[str] = Field(default_factory=lambda: ["google.com", "yandex.ru", "microsoft.com", "twitch.tv"])
+
+    # Optional VLESS over WebSocket+TLS settings (operator-controlled; must match Xray inbound settings).
+    vless_ws_path: str = "/ws"
+    vless_ws_tls_port: int = 443
 
 
 @lru_cache(maxsize=1)

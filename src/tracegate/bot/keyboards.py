@@ -16,14 +16,32 @@ PROVIDER_CHOICES: list[tuple[str, str]] = [
 SNI_PAGE_SIZE = 20
 
 
-def main_menu_keyboard() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text="Устройства", callback_data="devices")],
-            [InlineKeyboardButton(text="Добавить устройство", callback_data="add_device")],
-            [InlineKeyboardButton(text="Каталог SNI", callback_data="sni_catalog")],
-        ]
-    )
+def main_menu_keyboard(*, is_admin: bool = False) -> InlineKeyboardMarkup:
+    rows = [
+        [InlineKeyboardButton(text="Устройства", callback_data="devices")],
+        [InlineKeyboardButton(text="Добавить устройство", callback_data="add_device")],
+        [InlineKeyboardButton(text="Каталог SNI", callback_data="sni_catalog")],
+        [InlineKeyboardButton(text="Статистика (Grafana)", callback_data="grafana_otp")],
+    ]
+    if is_admin:
+        rows.append([InlineKeyboardButton(text="Админ", callback_data="admin_menu")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def admin_menu_keyboard(*, is_superadmin: bool) -> InlineKeyboardMarkup:
+    rows = [
+        [InlineKeyboardButton(text="Grafana (OTP)", callback_data="grafana_otp")],
+    ]
+    if is_superadmin:
+        rows.extend(
+            [
+                [InlineKeyboardButton(text="Выдать admin", callback_data="admin_grant")],
+                [InlineKeyboardButton(text="Снять admin", callback_data="admin_revoke")],
+                [InlineKeyboardButton(text="Список admins", callback_data="admin_list")],
+            ]
+        )
+    rows.append([InlineKeyboardButton(text="Меню", callback_data="menu")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def devices_keyboard(devices: list[dict]) -> InlineKeyboardMarkup:
@@ -41,10 +59,10 @@ def devices_keyboard(devices: list[dict]) -> InlineKeyboardMarkup:
 
 def device_actions_keyboard(device_id: str, connections: list[dict] | None = None) -> InlineKeyboardMarkup:
     rows = [
-        [InlineKeyboardButton(text="B1 VLESS direct", callback_data=f"new:b1:{device_id}")],
-        [InlineKeyboardButton(text="B2 VLESS chain", callback_data=f"new:b2:{device_id}")],
-        [InlineKeyboardButton(text="B3 Hysteria2", callback_data=f"new:b3:{device_id}")],
-        [InlineKeyboardButton(text="B5 WireGuard", callback_data=f"new:b5:{device_id}")],
+        [InlineKeyboardButton(text="VLESS (TCP) напрямую", callback_data=f"vlessnew:b1:{device_id}")],
+        [InlineKeyboardButton(text="VLESS (TCP) через VPS-E", callback_data=f"vlessnew:b2:{device_id}")],
+        [InlineKeyboardButton(text="Turbo UDP (Hysteria2)", callback_data=f"new:b3:{device_id}")],
+        [InlineKeyboardButton(text="Gaming VPN (WireGuard)", callback_data=f"new:b5:{device_id}")],
     ]
     for connection in connections or []:
         rows.append(
@@ -61,6 +79,16 @@ def device_actions_keyboard(device_id: str, connections: list[dict] | None = Non
             ]
         )
     rows.append([InlineKeyboardButton(text="Назад", callback_data="devices")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def vless_transport_keyboard(*, spec: str, device_id: str) -> InlineKeyboardMarkup:
+    # spec: "b1" | "b2" (direct/chain profile)
+    rows = [
+        [InlineKeyboardButton(text="Reality (выбор SNI)", callback_data=f"vlesstrans:{spec}:{device_id}:reality")],
+        [InlineKeyboardButton(text="TLS (WS, SNI=сертификат)", callback_data=f"vlesstrans:{spec}:{device_id}:tls")],
+        [InlineKeyboardButton(text="Отмена", callback_data=f"device:{device_id}")],
+    ]
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -115,7 +143,7 @@ def revisions_keyboard(connection_id: str, revisions: list[dict], is_vless: bool
     for rev in revisions:
         rows.append(
             [
-                InlineKeyboardButton(text=f"Activate slot0 {rev['slot']}", callback_data=f"activate:{rev['id']}"),
+                InlineKeyboardButton(text=f"Сделать активной (slot {rev['slot']})", callback_data=f"activate:{rev['id']}"),
                 InlineKeyboardButton(text="Удалить", callback_data=f"revoke:{rev['id']}"),
             ]
         )

@@ -115,6 +115,12 @@ spec:
             - containerPort: 443
               protocol: TCP
               name: vless-tcp
+            {{- $wsPort := int (.Values.controlPlane.env.vlessWsTlsPort | default 443) -}}
+            {{- if ne $wsPort 443 }}
+            - containerPort: {{ $wsPort }}
+              protocol: TCP
+              name: vless-ws-tls
+            {{- end }}
           volumeMounts:
             - name: agent-data
               mountPath: /etc/xray
@@ -335,6 +341,12 @@ spec:
             - containerPort: 443
               protocol: TCP
               name: entry-tcp
+            {{- $wsPort := int (.Values.controlPlane.env.vlessWsTlsPort | default 443) -}}
+            {{- if ne $wsPort 443 }}
+            - containerPort: {{ $wsPort }}
+              protocol: TCP
+              name: ws-tls-tcp
+            {{- end }}
           volumeMounts:
             - name: haproxy-config
               mountPath: /usr/local/etc/haproxy/haproxy.cfg

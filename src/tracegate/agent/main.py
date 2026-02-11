@@ -3,12 +3,14 @@ from __future__ import annotations
 from pathlib import Path
 
 import uvicorn
-from fastapi import Depends, FastAPI, HTTPException, status
+from fastapi import Depends, FastAPI, HTTPException, Response, status
+from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
 from tracegate.schemas import AgentEventEnvelope, AgentEventResponse, AgentHealthCheckResult, AgentHealthResponse
 from tracegate.security import require_agent_token
 from tracegate.settings import ensure_agent_dirs, get_settings
 
+from .metrics import register_agent_metrics
 from .handlers import HandlerError, dispatch_event
 from .state import AgentStateStore
 from .system import gather_health_checks
@@ -20,8 +22,9 @@ if settings.agent_role == "VPS_T" and not settings.agent_stats_secret:
     raise RuntimeError("AGENT_STATS_SECRET is required for VPS_T health checks")
 ensure_agent_dirs(settings)
 state_store = AgentStateStore(Path(settings.agent_data_root))
+register_agent_metrics(settings)
 
-app = FastAPI(title="Tracegate Node Agent", version="0.1.0")
+app = FastAPI(title="Tracegate Node Agent", version="0.2.0")
 
 
 @app.post("/v1/events", response_model=AgentEventResponse, dependencies=[Depends(require_agent_token)])
@@ -51,6 +54,11 @@ async def health() -> AgentHealthResponse:
     )
     checks = [AgentHealthCheckResult(**row) for row in rows]
     return AgentHealthResponse(role=settings.agent_role, checks=checks, overall_ok=all(row["ok"] for row in rows))
+
+
+@app.get("/metrics", dependencies=[Depends(require_agent_token)])
+async def metrics() -> Response:
+    return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
 
 def run() -> None:

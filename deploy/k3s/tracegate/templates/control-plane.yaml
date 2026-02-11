@@ -47,6 +47,14 @@ spec:
         {{- toYaml .Values.controlPlane.tolerations | nindent 8 }}
       affinity:
         {{- toYaml .Values.controlPlane.affinity | nindent 8 }}
+      initContainers:
+        - name: migrate-db
+          image: {{ include "tracegate.image" .Values.controlPlane.image }}
+          imagePullPolicy: {{ .Values.controlPlane.image.pullPolicy }}
+          command: ["tracegate-migrate-db"]
+          env:
+            - name: DATABASE_URL
+              value: {{ include "tracegate.databaseUrl" . | quote }}
       containers:
         - name: api
           image: {{ include "tracegate.image" .Values.controlPlane.image }}
@@ -60,6 +68,8 @@ spec:
               value: {{ .Values.controlPlane.env.appEnv | quote }}
             - name: LOG_LEVEL
               value: {{ .Values.controlPlane.env.logLevel | quote }}
+            - name: PUBLIC_BASE_URL
+              value: {{ .Values.controlPlane.env.publicBaseUrl | quote }}
             - name: DATABASE_URL
               value: {{ include "tracegate.databaseUrl" . | quote }}
             - name: API_INTERNAL_TOKEN
@@ -77,6 +87,30 @@ spec:
               value: {{ .Values.controlPlane.env.realityShortId | quote }}
             - name: WIREGUARD_SERVER_PUBLIC_KEY
               value: {{ .Values.controlPlane.env.wireguardServerPublicKey | quote }}
+            - name: VLESS_WS_PATH
+              value: {{ (.Values.controlPlane.env.vlessWsPath | default "/ws") | quote }}
+            - name: VLESS_WS_TLS_PORT
+              value: {{ printf "%d" (int (.Values.controlPlane.env.vlessWsTlsPort | default 443)) | quote }}
+            - name: GRAFANA_ENABLED
+              value: {{ ternary "true" "false" (.Values.controlPlane.env.grafana.enabled | default false) | quote }}
+            - name: GRAFANA_INTERNAL_URL
+              value: {{ printf "http://%s-grafana:3000" (include "tracegate.fullname" .) | quote }}
+            - name: GRAFANA_ADMIN_USER
+              value: "admin"
+            - name: GRAFANA_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "tracegate.fullname" . }}-grafana-auth
+                  key: admin-password
+            - name: GRAFANA_COOKIE_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "tracegate.fullname" . }}-grafana-auth
+                  key: cookie-secret
+            - name: GRAFANA_OTP_TTL_SECONDS
+              value: {{ printf "%d" (int (.Values.controlPlane.env.grafana.otpTtlSeconds | default 300)) | quote }}
+            - name: GRAFANA_SESSION_TTL_SECONDS
+              value: {{ printf "%d" (int (.Values.controlPlane.env.grafana.sessionTtlSeconds | default 3600)) | quote }}
           readinessProbe:
             httpGet:
               path: /health
@@ -122,6 +156,14 @@ spec:
         {{- toYaml .Values.controlPlane.tolerations | nindent 8 }}
       affinity:
         {{- toYaml .Values.controlPlane.affinity | nindent 8 }}
+      initContainers:
+        - name: migrate-db
+          image: {{ include "tracegate.image" .Values.controlPlane.image }}
+          imagePullPolicy: {{ .Values.controlPlane.image.pullPolicy }}
+          command: ["tracegate-migrate-db"]
+          env:
+            - name: DATABASE_URL
+              value: {{ include "tracegate.databaseUrl" . | quote }}
       containers:
         - name: dispatcher
           image: {{ include "tracegate.image" .Values.controlPlane.image }}

@@ -69,9 +69,21 @@ async def require_bootstrap_token(
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Bootstrap token required")
 
 
-async def require_agent_token(x_agent_token: str | None = Header(default=None)) -> None:
+async def require_agent_token(
+    x_agent_token: str | None = Header(default=None),
+    authorization: str | None = Header(default=None),
+) -> None:
     expected = get_settings().agent_auth_token
     if not expected:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Agent token is not configured")
-    if x_agent_token != expected:
+
+    token = x_agent_token.strip() if x_agent_token else None
+    if not token and authorization:
+        scheme, _, value = authorization.partition(" ")
+        if scheme.lower() == "bearer":
+            token = value.strip() or None
+
+    if not token:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing agent token")
+    if token != expected:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid agent token")

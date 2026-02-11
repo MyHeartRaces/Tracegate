@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "tracegate"
-version = "0.1.0"
-description = "Tracegate v0.1 control-plane, node-agent and Telegram bot"
+version = "0.2.0"
+description = "Tracegate v0.2 control-plane, node-agent and Telegram bot"
 requires-python = ">=3.11"
 authors = [{name = "Tracegate"}]
 dependencies = [
@@ -19,6 +19,7 @@ dependencies = [
   "pydantic-settings>=2.6.0",
   "pyyaml>=6.0.0",
   "httpx>=0.28.0",
+  "prometheus-client>=0.20.0",
   "aiogram>=3.15.0",
   "python-dateutil>=2.9.0",
 ]
@@ -36,6 +37,8 @@ tracegate-dispatcher = "tracegate.dispatcher.main:run"
 tracegate-agent = "tracegate.agent.main:run"
 tracegate-bot = "tracegate.bot.main:run"
 tracegate-init-db = "tracegate.cli.init_db:main"
+tracegate-migrate-db = "tracegate.cli.migrate_db:main"
+tracegate-grafana-bootstrap = "tracegate.cli.grafana_bootstrap:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}

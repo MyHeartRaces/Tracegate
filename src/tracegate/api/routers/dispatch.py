@@ -13,12 +13,17 @@ from tracegate.models import Connection, ConnectionRevision, OutboxDelivery, Out
 from tracegate.schemas import OutboxDeliveryRead, OutboxEventRead, ReapplyBaseRequest, ReissueRequest
 from tracegate.security import require_internal_api_token
 from tracegate.services.outbox import create_outbox_event
+from tracegate.settings import get_settings
 
 router = APIRouter(prefix="/dispatch", tags=["dispatch"], dependencies=[Depends(require_internal_api_token)])
 
 
 def _bundle_path(name: str) -> Path:
-    return Path(__file__).resolve().parents[4] / "bundles" / name
+    settings = get_settings()
+    root = Path(settings.bundle_root)
+    if not root.is_absolute():
+        root = Path.cwd() / root
+    return root / name
 
 
 def _load_bundle_files(name: str) -> dict[str, str]:

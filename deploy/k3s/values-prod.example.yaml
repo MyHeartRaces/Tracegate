@@ -1,7 +1,7 @@
 controlPlane:
   image:
     repository: ghcr.io/your-org/tracegate
-    tag: "0.1.0"
+    tag: "0.2.0"
   auth:
     apiInternalToken: REPLACE_API_INTERNAL_TOKEN
     agentAuthToken: REPLACE_AGENT_AUTH_TOKEN
@@ -13,20 +13,27 @@ controlPlane:
   postgres:
     password: REPLACE_DB_PASSWORD
   env:
+    publicBaseUrl: https://cp.example.com
     defaultVpsTHost: vps-t.example.com
     defaultVpsEHost: vps-e.example.com
     realityPublicKey: REPLACE_REALITY_PUBLIC_KEY
     realityShortId: REPLACE_REALITY_SHORT_ID
     wireguardServerPublicKey: REPLACE_WG_SERVER_PUBLIC_KEY
+    vlessWsPath: /ws
+    vlessWsTlsPort: 443
+    grafana:
+      enabled: false
 
 gateway:
   agentImage:
     repository: ghcr.io/your-org/tracegate
-    tag: "0.1.0"
+    tag: "0.2.0"
 
   vpsT:
     publicIPv4: 203.0.113.10
     fqdn: vps-t.example.com
+    # Optional: proxied hostname for WS+TLS (e.g. ws-t.example.com with Cloudflare orange cloud).
+    proxyFqdn: ""
     xray:
       config: |
         {
@@ -59,7 +66,7 @@ gateway:
       crt: ""
       key: ""
     wireguard:
-      image: ghcr.io/your-org/tracegate-wireguard:0.1.0
+      image: ghcr.io/your-org/tracegate-wireguard:0.2.0
       config: |
         [Interface]
         Address = 10.70.0.1/24
@@ -73,6 +80,7 @@ gateway:
   vpsE:
     publicIPv4: 203.0.113.20
     fqdn: vps-e.example.com
+    proxyFqdn: ""
     mode: tcpForward
     tcpForward:
       upstreamHost: vps-t.example.com
@@ -86,3 +94,9 @@ gateway:
         }
     agent:
       authToken: REPLACE_AGENT_AUTH_TOKEN
+
+observability:
+  enabled: false
+  grafana:
+    # Optional; if empty, the chart will generate and persist a random password in a Secret.
+    adminPassword: ""

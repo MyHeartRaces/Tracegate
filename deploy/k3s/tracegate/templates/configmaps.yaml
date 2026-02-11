@@ -39,5 +39,16 @@ data:
 
     backend be_transit
       server transit {{ .Values.gateway.vpsE.tcpForward.upstreamHost }}:{{ .Values.gateway.vpsE.tcpForward.upstreamPort }}
+
+    {{ $wsPort := int (.Values.controlPlane.env.vlessWsTlsPort | default 443) }}
+    {{ if ne $wsPort 443 }}
+
+    frontend fe_{{ $wsPort }}
+      bind :{{ $wsPort }}
+      default_backend be_ws_tls
+
+    backend be_ws_tls
+      server transit_ws {{ .Values.gateway.vpsE.tcpForward.upstreamHost }}:{{ $wsPort }}
+    {{ end }}
 {{- end }}
 {{- end }}

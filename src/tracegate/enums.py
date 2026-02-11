@@ -6,9 +6,15 @@ class EntitlementStatus(str, Enum):
     GRACE = "grace"
     BLOCKED = "blocked"
 
+class UserRole(str, Enum):
+    USER = "user"
+    ADMIN = "admin"
+    SUPERADMIN = "superadmin"
+
 
 class ConnectionProtocol(str, Enum):
     VLESS_REALITY = "vless_reality"
+    VLESS_WS_TLS = "vless_ws_tls"
     HYSTERIA2 = "hysteria2"
     WIREGUARD = "wireguard"
 
@@ -61,6 +67,7 @@ class DeliveryStatus(str, Enum):
     PENDING = "pending"
     SENT = "sent"
     FAILED = "failed"
+    DEAD = "dead"
 
 
 class OwnerType(str, Enum):

@@ -1,8 +1,9 @@
-# Tracegate v0.1
+# Tracegate v0.2
 
-Tracegate v0.1 implements a control-plane + node-agent architecture for:
+Tracegate implements a control-plane + node-agent architecture for:
 - B1 `VLESS + REALITY` direct (443/tcp)
 - B2 `VLESS + REALITY` chain via VPS-E -> VPS-T (443/tcp), with identical SNI on both legs
+- Optional: `VLESS + WebSocket + TLS` (requires a domain + certificate you control)
 - B3 `Hysteria2` direct (443/udp), masquerade file mode
 - B5 `WireGuard` direct (51820/udp)
 
@@ -16,33 +17,41 @@ SOCKS5 is intentionally local on the client (`127.0.0.1:1080`) and not exposed a
   - revision slot policy (0..2 active)
   - grace period enforcement (7 days: no new revisions/devices)
   - outbox event creation
+  - Alembic migrations on startup
+  - Grafana OTP login + reverse proxy (`/grafana/*`) (optional)
 - `tracegate-dispatcher`
   - polls pending deliveries
   - pushes events to node-agents
   - at-least-once retries with backoff
+  - delivery locking (`FOR UPDATE SKIP LOCKED`) and dead-lettering (`DEAD`)
 - `tracegate-agent` (FastAPI)
   - idempotent event processing
   - bundle/user/WG artifact apply
-  - health checks (ports, systemd, hysteria stats auth, WG listen-port)
+  - health checks (ports, hysteria stats auth, WG listen-port, sidecar process checks)
+  - Prometheus metrics (`/metrics`)
 - `tracegate-bot` (aiogram)
   - inline keyboards for devices and connection provisioning
+  - admin/superadmin mode (Telegram ID roles)
+  - Grafana OTP issuing
 
 Monetization objects are intentionally removed in this state: there is no `wallet`, `coins`, or billing ledger in the DB model.
 `API_INTERNAL_TOKEN`, `AGENT_AUTH_TOKEN`, `BOT_TOKEN` are auth credentials, not payment tokens.
 
-SNI is a static catalog bundled with the app: `src/tracegate/staticdata/sni_catalog.yaml` (no Postgres SNI table in v0.1).
+SNI is a static catalog bundled with the app: `src/tracegate/staticdata/sni_catalog.yaml` (no Postgres SNI table).
 Bot users are keyed by Telegram `telegram_id` (primary key).
 
-## GitHub-ready state
+## v0.2 highlights
 
-Repository now includes:
-- CI workflow: `.github/workflows/ci.yml`
-- Container image workflow: `.github/workflows/images.yml`
-- k3s Helm deploy assets: `deploy/k3s/*`, `deploy/scripts/k3s_*`
-- Production deploy assets: `deploy/systemd/*`, `deploy/env/*`, `deploy/scripts/*` (legacy/non-k3s path)
-- Docker ignore and local cache ignores for clean commits.
+- Alembic migrations (v0.1 baseline stamping + upgrade to head).
+- WireGuard peer lifecycle fix: single peer per device, consistent slot0 state, IPAM reuse/release.
+- Outbox dispatcher hardening: locking, concurrency, max-attempt dead-letter.
+- k3s-only deployment pipeline (legacy non-k3s assets removed).
+- Optional observability stack (Prometheus + Grafana) with Telegram OTP login via bot.
 
 ## Quick start
+
+Local docker-compose is intended for control-plane development (API + DB + dispatcher, optional bot).
+Gateway (xray/hysteria/wireguard + agent sidecar) is deployed via k3s Helm chart.
 
 1. Create env file:
 
@@ -56,7 +65,7 @@ cp .env.example .env
 docker compose up --build
 ```
 
-3. Initialize DB seed (optional if API startup has already created schema):
+3. Initialize DB (creates/updates schema via Alembic + seeds IPAM pool):
 
 ```bash
 docker compose exec api tracegate-init-db
@@ -66,7 +75,6 @@ docker compose exec api tracegate-init-db
 
 ```bash
 curl http://localhost:8080/health
-curl http://localhost:8070/v1/health
 ```
 
 ## API essentials
@@ -115,54 +123,7 @@ Create `deploy/k3s/values-prod.yaml` and set:
 
 Detailed guide: `deploy/k3s/README.md`
 
-## Deploy on VPS-T / VPS-E (legacy, non-k3s)
-
-### 1) Control-plane host (can be VPS-T for v0.1)
-
-```bash
-sudo ./deploy/scripts/bootstrap_control_plane.sh <your-github-repo-url> main
-sudo nano /etc/tracegate/control-plane.env
-sudo systemctl restart tracegate-api tracegate-dispatcher
-sudo /opt/tracegate/.venv/bin/tracegate-init-db
-```
-
-For all-in-one on VPS-T (control-plane + agent on one host):
-
-```bash
-sudo ./deploy/scripts/bootstrap_all_in_one_vps_t.sh <your-github-repo-url> main
-```
-
-### 2) Agent on VPS-T
-
-```bash
-sudo ./deploy/scripts/bootstrap_agent.sh <your-github-repo-url> VPS_T main
-sudo nano /etc/tracegate/agent.env
-sudo systemctl restart tracegate-agent
-```
-
-### 3) Agent on VPS-E (optional chain mode)
-
-```bash
-sudo ./deploy/scripts/bootstrap_agent.sh <your-github-repo-url> VPS_E main
-sudo nano /etc/tracegate/agent.env
-sudo systemctl restart tracegate-agent
-```
-
-### 4) Register nodes and trigger rollout from control-plane
-
-```bash
-./deploy/scripts/register_nodes.sh \
-  http://127.0.0.1:8080 \
-  <API_INTERNAL_TOKEN> \
-  https://<vps-t-agent-host>:8070 \
-  <vps-t-public-ip> \
-  https://<vps-e-agent-host>:8070 \
-  <vps-e-public-ip>
-
-./deploy/scripts/reapply_and_reissue.sh http://127.0.0.1:8080 <API_INTERNAL_TOKEN>
-```
-
-## Base bundles
+## Base bundles (optional)
 
 - `bundles/base-vps-t`
   - `xray.json`, `hysteria.yaml`, `wg0.conf`, `nftables.conf`, `decoy/index.html`
@@ -171,7 +132,17 @@ sudo systemctl restart tracegate-agent
 
 `/dispatch/reapply-base` loads these files and sends them to node agents via outbox events.
 
-## Fast migration flow (VPS-E or VPS-T replacement)
+## Observability (Prometheus + Grafana)
+
+The Helm chart can optionally deploy Prometheus + Grafana (`observability.enabled=true`).
+
+Grafana is exposed only via the control-plane reverse proxy at `/grafana/*`.
+Users request a one-time login link (OTP) in Telegram bot: `Статистика (Grafana)`.
+
+Regular users are scoped in dashboards by `${__user.login}` (Telegram ID); Explore is disabled.
+Admins/superadmins have access to the Admin dashboard folder.
+
+## Node replacement flow (VPS-E or VPS-T)
 
 1. Bring up new node and register it in `node_endpoint`.
 2. Run `reapply-base` for the role.
@@ -180,7 +151,7 @@ sudo systemctl restart tracegate-agent
 
 No full DB restore is required for architecture migration if control-plane data is intact.
 
-## Notes on constraints from v0.1
+## Notes
 
 - IPv4-only assumptions.
 - VLESS/Hysteria fixed on 443; WireGuard fixed on 51820.

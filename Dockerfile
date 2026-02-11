@@ -11,6 +11,8 @@ ENV PYTHONUNBUFFERED=1 \
 WORKDIR /app
 
 COPY pyproject.toml /app/
+COPY alembic.ini /app/
+COPY alembic /app/alembic
 COPY src /app/src
 COPY bundles /app/bundles
 

@@ -47,17 +47,21 @@ spec:
               done
 
               {{- if .Values.gateway.vpsT.agent.enabled }}
+              {{- $payloadT := dict "role" "VPS_T" "name" "vps-t" "base_url" (printf "http://%s-agent-vps-t:%d" (include "tracegate.fullname" .) (int .Values.gateway.vpsT.agent.port)) "public_ipv4" .Values.gateway.vpsT.publicIPv4 "fqdn" .Values.gateway.vpsT.fqdn "active" true -}}
+              {{- if .Values.gateway.vpsT.proxyFqdn }}{{- $_ := set $payloadT "proxy_fqdn" .Values.gateway.vpsT.proxyFqdn -}}{{- end }}
               curl -fsS -X POST "$API/nodes" \
                 -H "x-api-token: $TOKEN" \
                 -H "Content-Type: application/json" \
-                -d '{"role":"VPS_T","name":"vps-t","base_url":"http://{{ include "tracegate.fullname" . }}-agent-vps-t:{{ .Values.gateway.vpsT.agent.port }}","public_ipv4":"{{ .Values.gateway.vpsT.publicIPv4 }}","fqdn":"{{ .Values.gateway.vpsT.fqdn }}","active":true}' || true
+                -d '{{ $payloadT | toJson }}' || true
               {{- end }}
 
               {{- if and .Values.gateway.vpsE.enabled .Values.gateway.vpsE.agent.enabled }}
+              {{- $payloadE := dict "role" "VPS_E" "name" "vps-e" "base_url" (printf "http://%s-agent-vps-e:%d" (include "tracegate.fullname" .) (int .Values.gateway.vpsE.agent.port)) "public_ipv4" .Values.gateway.vpsE.publicIPv4 "fqdn" .Values.gateway.vpsE.fqdn "active" true -}}
+              {{- if .Values.gateway.vpsE.proxyFqdn }}{{- $_ := set $payloadE "proxy_fqdn" .Values.gateway.vpsE.proxyFqdn -}}{{- end }}
               curl -fsS -X POST "$API/nodes" \
                 -H "x-api-token: $TOKEN" \
                 -H "Content-Type: application/json" \
-                -d '{"role":"VPS_E","name":"vps-e","base_url":"http://{{ include "tracegate.fullname" . }}-agent-vps-e:{{ .Values.gateway.vpsE.agent.port }}","public_ipv4":"{{ .Values.gateway.vpsE.publicIPv4 }}","fqdn":"{{ .Values.gateway.vpsE.fqdn }}","active":true}' || true
+                -d '{{ $payloadE | toJson }}' || true
               {{- end }}
 
               curl -fsS -X POST "$API/dispatch/reapply-base" \

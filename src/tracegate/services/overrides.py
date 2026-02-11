@@ -31,6 +31,21 @@ def validate_overrides(protocol: ConnectionProtocol, overrides: dict[str, Any]) 
         forbidden = {"port", "server_port", "reality_server_port", "chain_sni"}
         _ensure_keys(overrides, allowed, forbidden)
 
+    elif protocol == ConnectionProtocol.VLESS_WS_TLS:
+        allowed = {
+            "connect_timeout_ms",
+            "dial_timeout_ms",
+            "local_socks_port",
+            "tcp_fast_open",
+            # WS+TLS specifics
+            "ws_path",
+            "ws_host",
+            "tls_server_name",
+            "tls_insecure",
+        }
+        forbidden = {"port", "server_port"}
+        _ensure_keys(overrides, allowed, forbidden)
+
     elif protocol == ConnectionProtocol.HYSTERIA2:
         allowed = {
             "client_mode",

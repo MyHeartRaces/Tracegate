@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracegate.api.deps import db_session
@@ -18,7 +18,7 @@ class ConnectionValidationError(ValueError):
 
 
 def validate_variant(protocol: ConnectionProtocol, mode: ConnectionMode, variant: ConnectionVariant) -> None:
-    if protocol == ConnectionProtocol.VLESS_REALITY and (mode, variant) in {
+    if protocol in {ConnectionProtocol.VLESS_REALITY, ConnectionProtocol.VLESS_WS_TLS} and (mode, variant) in {
         (ConnectionMode.DIRECT, ConnectionVariant.B1),
         (ConnectionMode.CHAIN, ConnectionVariant.B2),
     }:
@@ -30,7 +30,7 @@ def validate_variant(protocol: ConnectionProtocol, mode: ConnectionMode, variant
     if protocol == ConnectionProtocol.WIREGUARD and mode == ConnectionMode.DIRECT and variant == ConnectionVariant.B5:
         return
 
-    raise ConnectionValidationError("Unsupported protocol/mode/variant combination for v0.1")
+    raise ConnectionValidationError("Unsupported protocol/mode/variant combination")
 
 
 @router.get("/by-device/{device_id}", response_model=list[ConnectionRead])
@@ -63,6 +63,23 @@ async def create_connection(payload: ConnectionCreate, session: AsyncSession = D
     device = await session.get(Device, payload.device_id)
     if device is None or device.user_id != user.telegram_id:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Device does not belong to user")
+
+    # WireGuard is effectively device-scoped; keep exactly one active WG connection per device.
+    if payload.protocol == ConnectionProtocol.WIREGUARD:
+        existing_wg = await session.scalar(
+            select(Connection.id).where(
+                and_(
+                    Connection.device_id == device.id,
+                    Connection.protocol == ConnectionProtocol.WIREGUARD,
+                    Connection.status == RecordStatus.ACTIVE,
+                )
+            )
+        )
+        if existing_wg is not None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="WireGuard connection already exists for this device",
+            )
 
     try:
         validate_variant(payload.protocol, payload.mode, payload.variant)

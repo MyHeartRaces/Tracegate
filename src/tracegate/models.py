@@ -21,6 +21,7 @@ from tracegate.enums import (
     OutboxStatus,
     OwnerType,
     RecordStatus,
+    UserRole,
 )
 
 
@@ -32,6 +33,12 @@ class User(Base):
 
     # Telegram user id is the primary key in v0.1 (Telegram is the only identity provider).
     telegram_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    role: Mapped[UserRole] = mapped_column(
+        Enum(UserRole, name="user_role"),
+        default=UserRole.USER,
+        nullable=False,
+        index=True,
+    )
     devices_max: Mapped[int] = mapped_column(Integer, default=5, nullable=False)
     entitlement_status: Mapped[EntitlementStatus] = mapped_column(
         Enum(EntitlementStatus, name="entitlement_status"), default=EntitlementStatus.ACTIVE, nullable=False
@@ -137,7 +144,9 @@ class WireguardPeer(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("tg_user.telegram_id", ondelete="CASCADE"), index=True)
-    device_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("device.id", ondelete="CASCADE"), index=True)
+    device_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("device.id", ondelete="CASCADE"), unique=True, index=True
+    )
     peer_public_key: Mapped[str] = mapped_column(String(256), unique=True, nullable=False)
     lease_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("ipam_lease.id", ondelete="RESTRICT"), unique=True)
     preshared_key: Mapped[str | None] = mapped_column(String(256), nullable=True)
@@ -146,6 +155,7 @@ class WireguardPeer(Base):
         Enum(RecordStatus, name="wireguard_peer_status"), default=RecordStatus.ACTIVE, nullable=False
     )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False)
 
 
 class NodeEndpoint(Base):
@@ -157,6 +167,9 @@ class NodeEndpoint(Base):
     base_url: Mapped[str] = mapped_column(String(255), nullable=False)
     public_ipv4: Mapped[str] = mapped_column(String(64), nullable=False)
     fqdn: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # Optional hostname that is expected to be reachable via an L7 proxy (e.g. Cloudflare orange cloud).
+    # Used for HTTPS/WebSocket transports where the client must connect by name.
+    proxy_fqdn: Mapped[str | None] = mapped_column(String(255), nullable=True)
     active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False)
@@ -197,6 +210,8 @@ class OutboxDelivery(Base):
     )
     attempts: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     next_attempt_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False, index=True)
+    locked_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    locked_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
     last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False)
@@ -218,3 +233,16 @@ class ApiToken(Base):
     )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
     last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class GrafanaOtp(Base):
+    __tablename__ = "grafana_otp"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    telegram_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("tg_user.telegram_id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    code_hash: Mapped[str] = mapped_column(String(64), unique=True, nullable=False, index=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
+    used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)

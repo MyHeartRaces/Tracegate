@@ -4,6 +4,7 @@ This chart deploys:
 - control-plane (`api`, `dispatcher`, optional `bot`, optional `postgres`)
 - gateway on VPS-T (`xray`, `hysteria2`, `wireguard`, `agent`) in one pod
 - gateway on VPS-E (`xray`, `agent`) in one pod
+- optional observability stack (`prometheus`, `grafana`)
 
 ## Prerequisites
 
@@ -62,6 +63,17 @@ kubectl -n tracegate get job
 - The gateway uses a hostPath (`/var/lib/tracegate-agent`) for runtime configs. The init container seeds files only if they are missing.
   If you change the embedded base configs in Helm values, you may need to delete the corresponding runtime file on the node
   (for example `/var/lib/tracegate-agent/runtime/hysteria/config.yaml`) and restart the gateway pod.
+
+### Observability (optional)
+
+Set `observability.enabled=true` to deploy Prometheus + Grafana.
+
+- Prometheus scrapes:
+  - control-plane `/metrics` (internal token)
+  - agents `/metrics` (agent token)
+  - node-exporter + cadvisor for node/container metrics
+- Grafana is reachable only via the control-plane reverse proxy: `https://<control-plane>/grafana/`
+  (login is via Telegram OTP issued by the bot).
 
 ### Namespace behavior
 

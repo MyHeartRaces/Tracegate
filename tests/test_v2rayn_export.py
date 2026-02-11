@@ -34,6 +34,28 @@ def test_export_hysteria2_uri() -> None:
     assert "insecure=1" in out.content
 
 
+def test_export_vless_ws_tls_uri() -> None:
+    effective = {
+        "protocol": "vless",
+        "transport": "ws_tls",
+        "server": "t.example.com",
+        "port": 443,
+        "uuid": "11111111-2222-3333-4444-555555555555",
+        "sni": "t.example.com",
+        "ws": {"path": "/ws", "host": "t.example.com"},
+        "tls": {"server_name": "t.example.com", "insecure": True},
+        "profile": "B1-https-ws-direct",
+    }
+    out = export_v2rayn(effective)
+    assert out.kind == "uri"
+    assert out.content.startswith("vless://11111111-2222-3333-4444-555555555555@t.example.com:443?")
+    assert "security=tls" in out.content
+    assert "type=ws" in out.content
+    assert "path=%2Fws" in out.content
+    assert "host=t.example.com" in out.content
+    assert "allowInsecure=1" in out.content
+
+
 def test_export_wireguard_conf() -> None:
     effective = {
         "protocol": "wireguard",
@@ -46,4 +68,3 @@ def test_export_wireguard_conf() -> None:
     assert out.kind == "wg_conf"
     assert "[Interface]" in out.content
     assert "Endpoint = t.example.com:51820" in out.content
-

@@ -1,21 +1,20 @@
 from contextlib import asynccontextmanager
 
+import anyio
 import uvicorn
 from fastapi import FastAPI
 
-from tracegate.api.routers import auth, connections, devices, dispatch, health, nodes, revisions, sni, users
-from tracegate.db import Base, get_engine, get_sessionmaker
-from tracegate.db_migrate import migrate
+from tracegate.api.routers import auth, connections, devices, dispatch, grafana, health, metrics, nodes, revisions, sni, users
+from tracegate.cli.migrate_db import migrate_db
+from tracegate.db import get_sessionmaker
 from tracegate.services.ipam import ensure_pool_exists
 from tracegate.settings import get_settings
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    engine = get_engine()
-    async with engine.begin() as conn:
-        await migrate(conn)
-        await conn.run_sync(Base.metadata.create_all)
+    # Migrations are sync (Alembic). Run them before serving any traffic.
+    await anyio.to_thread.run_sync(migrate_db)
 
     async with get_sessionmaker() as session:
         await ensure_pool_exists(session)
@@ -24,9 +23,11 @@ async def lifespan(_: FastAPI):
     yield
 
 
-app = FastAPI(title="Tracegate Control Plane", version="0.1.0", lifespan=lifespan)
+app = FastAPI(title="Tracegate Control Plane", version="0.2.0", lifespan=lifespan)
 
 app.include_router(health.router)
+app.include_router(metrics.router)
+app.include_router(grafana.router)
 app.include_router(auth.router)
 app.include_router(sni.router)
 app.include_router(users.router)

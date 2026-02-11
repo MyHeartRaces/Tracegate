@@ -83,27 +83,38 @@ def reconcile_xray(settings: Settings) -> bool:
 
     base = _load_json(base_path)
     artifacts = load_all_user_artifacts(paths)
-    clients: list[dict] = []
+    clients_reality: list[dict] = []
+    clients_ws: list[dict] = []
     server_names: set[str] = set()
     for row in artifacts:
-        if row.get("protocol") != "vless_reality":
+        proto = (row.get("protocol") or "").strip().lower()
+        if proto not in {"vless_reality", "vless_ws_tls"}:
             continue
         cfg = row.get("config") or {}
         uuid = cfg.get("uuid")
         if not uuid:
             continue
-        sni = (cfg.get("sni") or "").strip()
-        if sni:
-            server_names.add(sni)
-        clients.append(
-            {
-                "id": uuid,
-                "email": f"{row.get('user_id')}:{row.get('connection_id')}",
-            }
-        )
+        if proto == "vless_reality":
+            sni = (cfg.get("sni") or "").strip()
+            if sni:
+                server_names.add(sni)
+            clients_reality.append(
+                {
+                    "id": uuid,
+                    "email": f"{row.get('user_id')}:{row.get('connection_id')}",
+                }
+            )
+        else:
+            clients_ws.append(
+                {
+                    "id": uuid,
+                    "email": f"{row.get('user_id')}:{row.get('connection_id')}",
+                }
+            )
 
     # Stable ordering for deterministic diffs.
-    clients.sort(key=lambda c: str(c.get("id") or ""))
+    clients_reality.sort(key=lambda c: str(c.get("id") or ""))
+    clients_ws.sort(key=lambda c: str(c.get("id") or ""))
 
     for inbound in base.get("inbounds", []):
         stream = inbound.get("streamSettings") or {}
@@ -111,7 +122,7 @@ def reconcile_xray(settings: Settings) -> bool:
             inbound.get("protocol") == "vless" and stream.get("security") == "reality"
         )
         if is_reality:
-            inbound.setdefault("settings", {})["clients"] = clients
+            inbound.setdefault("settings", {})["clients"] = clients_reality
             if server_names:
                 stream = inbound.setdefault("streamSettings", {})
                 reality = stream.setdefault("realitySettings", {})
@@ -120,6 +131,12 @@ def reconcile_xray(settings: Settings) -> bool:
                     existing = []
                 merged = sorted(set([*existing, *server_names]), key=lambda s: str(s).lower())
                 reality["serverNames"] = merged
+            continue
+
+        # VLESS over WebSocket (with or without TLS termination upstream).
+        is_ws = inbound.get("protocol") == "vless" and str((stream.get("network") or "")).lower() == "ws"
+        if is_ws:
+            inbound.setdefault("settings", {})["clients"] = clients_ws
 
     # Only write when there is a real change; otherwise we trigger unnecessary reloads.
     current = _load_json(runtime_path) if runtime_path.exists() else None
@@ -212,10 +229,6 @@ def reconcile_wireguard(settings: Settings) -> bool:
 
 
 def reconcile_all(settings: Settings) -> list[str]:
-    # Only meaningful in kubernetes mode where the pod reads runtime configs from agent-data hostPath.
-    if settings.agent_runtime_mode.lower().strip() != "kubernetes":
-        return []
-
     changed: list[str] = []
     if settings.agent_role == "VPS_T":
         if reconcile_xray(settings):

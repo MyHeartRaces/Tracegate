@@ -87,6 +87,7 @@ class TracegateApiClient:
         mode: ConnectionMode,
         variant: ConnectionVariant,
         sni_id: int | None,
+        custom_overrides_json: dict | None = None,
     ) -> tuple[dict, dict]:
         connection = await self._request(
             "POST",
@@ -98,7 +99,7 @@ class TracegateApiClient:
                 "mode": mode.value,
                 "variant": variant.value,
                 "profile_name": variant.value,
-                "custom_overrides_json": {},
+                "custom_overrides_json": custom_overrides_json or {},
             },
         )
         revision = await self._request(
@@ -110,3 +111,18 @@ class TracegateApiClient:
 
     async def delete_connection(self, connection_id: UUID | str) -> None:
         await self._request("DELETE", f"/connections/{connection_id}")
+
+    async def create_grafana_otp(self, telegram_id: int) -> dict:
+        return await self._request("POST", "/grafana/otp", json={"telegram_id": telegram_id})
+
+    async def set_user_role(self, telegram_id: int, role: str) -> dict:
+        return await self._request("PATCH", f"/users/{telegram_id}/role", json={"role": role})
+
+    async def list_users(self, role: str | None = None, limit: int = 200) -> list[dict]:
+        params = {"limit": str(limit)}
+        if role:
+            params["role"] = role
+        return await self._request("GET", "/users", params=params)
+
+    async def list_nodes(self) -> list[dict]:
+        return await self._request("GET", "/nodes")

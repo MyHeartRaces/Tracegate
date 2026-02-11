@@ -12,9 +12,14 @@ from tracegate.services.sni_catalog import SniCatalogEntry
 class EndpointSet:
     vps_t_host: str
     vps_e_host: str
+    # Optional per-role proxy hostname (e.g. Cloudflare orange cloud) used for HTTPS-based transports.
+    vps_t_proxy_host: str | None = None
+    vps_e_proxy_host: str | None = None
     reality_public_key: str = ""
     reality_short_id: str = ""
     wireguard_server_public_key: str = ""
+    vless_ws_path: str = "/ws"
+    vless_ws_tls_port: int = 443
 
 
 def build_effective_config(
@@ -83,6 +88,76 @@ def build_effective_config(
             }
 
         raise ValueError("Inconsistent VLESS/REALITY mode and variant")
+
+    if connection.protocol == ConnectionProtocol.VLESS_WS_TLS:
+        if connection.variant not in {ConnectionVariant.B1, ConnectionVariant.B2}:
+            raise ValueError("VLESS+WS+TLS supports only B1/B2 variants")
+
+        # For WS+TLS the TLS SNI must match the certificate that Xray serves.
+        # By default we use the entry hostname (vps_t_host/vps_e_host). Operators can override via custom_overrides_json.
+        tls_server_name = str(overrides.get("tls_server_name") or "").strip()
+        if not tls_server_name and selected_sni is not None:
+            tls_server_name = selected_sni.fqdn
+
+        if connection.mode == ConnectionMode.DIRECT:
+            entry_host = endpoints.vps_t_proxy_host or endpoints.vps_t_host
+        else:
+            entry_host = endpoints.vps_e_proxy_host or endpoints.vps_e_host
+        if not tls_server_name:
+            tls_server_name = entry_host
+
+        ws_path = str(overrides.get("ws_path") or endpoints.vless_ws_path or "/ws").strip() or "/ws"
+        ws_host = str(overrides.get("ws_host") or tls_server_name or "").strip()
+
+        common = {
+            "protocol": "vless",
+            "transport": "ws_tls",
+            "port": int(endpoints.vless_ws_tls_port or 443),
+            "uuid": str(connection.id),
+            "device_id": str(device.id),
+            "sni": tls_server_name,
+            "tls": {
+                "server_name": tls_server_name,
+                "insecure": bool(overrides.get("tls_insecure", False)),
+            },
+            "ws": {
+                "path": ws_path,
+                "host": ws_host,
+            },
+            "local_socks": {
+                "enabled": True,
+                "listen": f"127.0.0.1:{overrides.get('local_socks_port', 1080)}",
+            },
+            "client_options": {
+                "connect_timeout_ms": overrides.get("connect_timeout_ms", 8000),
+                "dial_timeout_ms": overrides.get("dial_timeout_ms", 8000),
+                "tcp_fast_open": bool(overrides.get("tcp_fast_open", True)),
+            },
+        }
+
+        if connection.mode == ConnectionMode.DIRECT and connection.variant == ConnectionVariant.B1:
+            return {
+                **common,
+                "profile": "B1-https-ws-direct",
+                "server": entry_host,
+                "chain": None,
+                "design_constraints": {
+                    "fixed_port_tcp": int(endpoints.vless_ws_tls_port or 443),
+                },
+            }
+
+        if connection.mode == ConnectionMode.CHAIN and connection.variant == ConnectionVariant.B2:
+            return {
+                **common,
+                "profile": "B2-https-ws-chain",
+                "server": entry_host,
+                "chain": {"type": "tcp_forward", "upstream": endpoints.vps_t_host, "port": int(endpoints.vless_ws_tls_port or 443)},
+                "design_constraints": {
+                    "fixed_port_tcp": int(endpoints.vless_ws_tls_port or 443),
+                },
+            }
+
+        raise ValueError("Inconsistent VLESS+WS+TLS mode and variant")
 
     if connection.protocol == ConnectionProtocol.HYSTERIA2:
         if connection.variant != ConnectionVariant.B3 or connection.mode != ConnectionMode.DIRECT:

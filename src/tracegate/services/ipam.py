@@ -62,23 +62,38 @@ async def allocate_lease(
         return existing
 
     candidates = iter_candidate_ips(pool)
-    busy = {
-        ip
-        for ip, status, until in (
-            await session.execute(
-                select(IpamLease.ip, IpamLease.status, IpamLease.quarantined_until).where(IpamLease.pool_id == pool.id)
-            )
-        ).all()
-        if status == IpamLeaseStatus.ACTIVE or (status == IpamLeaseStatus.QUARANTINED and until and until > now)
-    }
+    existing_leases = (
+        await session.execute(select(IpamLease).where(IpamLease.pool_id == pool.id))
+    ).scalars().all()
+    by_ip = {row.ip: row for row in existing_leases}
 
     for ip in candidates:
-        if ip in busy:
+        row = by_ip.get(ip)
+        if row is None:
+            lease = IpamLease(
+                pool_id=pool.id,
+                ip=ip,
+                owner_type=owner_type,
+                owner_id=owner_id,
+                status=IpamLeaseStatus.ACTIVE,
+                quarantined_until=None,
+            )
+            session.add(lease)
+            await session.flush()
+            return lease
+
+        if row.status == IpamLeaseStatus.ACTIVE:
             continue
-        lease = IpamLease(pool_id=pool.id, ip=ip, owner_type=owner_type, owner_id=owner_id, status=IpamLeaseStatus.ACTIVE)
-        session.add(lease)
+        if row.status == IpamLeaseStatus.QUARANTINED and row.quarantined_until and row.quarantined_until > now:
+            continue
+
+        # Reuse the existing row (keeps the unique(pool_id, ip) invariant intact).
+        row.owner_type = owner_type
+        row.owner_id = owner_id
+        row.status = IpamLeaseStatus.ACTIVE
+        row.quarantined_until = None
         await session.flush()
-        return lease
+        return row
 
     raise IpamError("IPAM pool exhausted")
 

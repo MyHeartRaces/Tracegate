@@ -28,6 +28,12 @@ def test_reconcile_xray_and_hysteria(tmp_path: Path) -> None:
                         "protocol": "vless",
                         "settings": {"clients": []},
                         "streamSettings": {"security": "reality", "realitySettings": {"serverNames": []}},
+                    },
+                    {
+                        "tag": "vless-ws-in",
+                        "protocol": "vless",
+                        "settings": {"clients": []},
+                        "streamSettings": {"security": "tls", "network": "ws"},
                     }
                 ],
                 "outbounds": [{"protocol": "freedom"}],
@@ -67,6 +73,19 @@ def test_reconcile_xray_and_hysteria(tmp_path: Path) -> None:
             }
         ),
     )
+    _write(
+        tmp_path / "users/u1/connection-c3.json",
+        json.dumps(
+            {
+                "user_id": "u1",
+                "device_id": "d1",
+                "connection_id": "c3",
+                "revision_id": "r3",
+                "protocol": "vless_ws_tls",
+                "config": {"uuid": "c3", "sni": "t.example.com", "ws": {"path": "/ws"}},
+            }
+        ),
+    )
 
     changed = reconcile_all(settings)
     assert set(changed) >= {"xray", "hysteria", "wireguard"}
@@ -74,6 +93,7 @@ def test_reconcile_xray_and_hysteria(tmp_path: Path) -> None:
     rendered_xray = json.loads((tmp_path / "runtime/xray/config.json").read_text(encoding="utf-8"))
     assert rendered_xray["inbounds"][0]["settings"]["clients"][0]["id"] == "c1"
     assert "splitter.wb.ru" in rendered_xray["inbounds"][0]["streamSettings"]["realitySettings"]["serverNames"]
+    assert rendered_xray["inbounds"][1]["settings"]["clients"][0]["id"] == "c3"
 
     rendered_hy = (tmp_path / "runtime/hysteria/config.yaml").read_text(encoding="utf-8")
     assert "bootstrap: bootstrap" in rendered_hy

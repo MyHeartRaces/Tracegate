@@ -3,15 +3,15 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from tracegate.enums import ConnectionProtocol, ConnectionVariant, NodeRole, OutboxEventType, RecordStatus
+from tracegate.enums import ConnectionProtocol, ConnectionVariant, IpamLeaseStatus, NodeRole, OutboxEventType, RecordStatus
 from tracegate.enums import OwnerType
 from tracegate.models import Connection, ConnectionRevision, IpamLease, NodeEndpoint, User, WireguardPeer
 from tracegate.services.config_builder import EndpointSet, build_effective_config
-from tracegate.services.ipam import allocate_lease, ensure_pool_exists
+from tracegate.services.ipam import allocate_lease, ensure_pool_exists, release_lease
 from tracegate.services.grace import ensure_can_issue_new_config
 from tracegate.services.outbox import create_outbox_event
 from tracegate.services.overrides import validate_overrides
@@ -76,9 +76,13 @@ async def _resolve_endpoints(session: AsyncSession) -> EndpointSet:
     return EndpointSet(
         vps_t_host=(vps_t.fqdn or vps_t.public_ipv4) if vps_t else settings.default_vps_t_host,
         vps_e_host=(vps_e.fqdn or vps_e.public_ipv4) if vps_e else settings.default_vps_e_host,
+        vps_t_proxy_host=vps_t.proxy_fqdn if vps_t else None,
+        vps_e_proxy_host=vps_e.proxy_fqdn if vps_e else None,
         reality_public_key=settings.reality_public_key,
         reality_short_id=settings.reality_short_id,
         wireguard_server_public_key=settings.wireguard_server_public_key,
+        vless_ws_path=settings.vless_ws_path,
+        vless_ws_tls_port=settings.vless_ws_tls_port,
     )
 
 
@@ -111,6 +115,74 @@ def _event_type_for_protocol(protocol: ConnectionProtocol) -> OutboxEventType:
     return OutboxEventType.UPSERT_USER
 
 
+def _wg_peer_fields_from_revision(revision: ConnectionRevision) -> tuple[str, str, list[str]]:
+    cfg = revision.effective_config_json or {}
+    peer_pub = (cfg.get("device_public_key") or "").strip()
+    peer_ip = (cfg.get("assigned_ip") or "").strip()
+    allowed_ips = ((cfg.get("peer") or {}).get("allowed_ips") or ["0.0.0.0/0"]) if isinstance(cfg.get("peer"), dict) else ["0.0.0.0/0"]
+    allowed_ips = [str(x).strip() for x in (allowed_ips or []) if str(x).strip()]
+    if not peer_pub or not peer_ip:
+        raise RevisionError("wireguard revision is missing device_public_key/assigned_ip")
+    return peer_pub, peer_ip, allowed_ips
+
+
+async def _sync_wireguard_peer_state(
+    session: AsyncSession,
+    *,
+    user: User,
+    connection: Connection,
+    peer_public_key: str,
+    peer_ip: str,
+    allowed_ips: list[str],
+) -> WireguardPeer:
+    """
+    Keep DB peer state consistent with the currently active slot0 revision.
+
+    This is important because other control-plane actions (like /dispatch/reissue-current-revisions)
+    read the peer public key from DB.
+    """
+    pool = await ensure_pool_exists(session)
+    lease = await session.scalar(
+        select(IpamLease).where(
+            and_(
+                IpamLease.pool_id == pool.id,
+                IpamLease.owner_type == OwnerType.DEVICE,
+                IpamLease.owner_id == connection.device_id,
+                IpamLease.status == IpamLeaseStatus.ACTIVE,
+            )
+        )
+    )
+    if lease is None:
+        lease = await allocate_lease(session, pool, OwnerType.DEVICE, connection.device_id)
+
+    if lease.ip != peer_ip:
+        raise RevisionError(f"wireguard peer_ip mismatch: revision={peer_ip} lease={lease.ip}")
+
+    peer = await session.scalar(select(WireguardPeer).where(WireguardPeer.device_id == connection.device_id))
+    if peer is None:
+        peer = WireguardPeer(
+            user_id=user.telegram_id,
+            device_id=connection.device_id,
+            peer_public_key=peer_public_key,
+            lease_id=lease.id,
+            preshared_key=None,
+            allowed_ips=allowed_ips,
+            status=RecordStatus.ACTIVE,
+        )
+        session.add(peer)
+        await session.flush()
+        return peer
+
+    peer.user_id = user.telegram_id
+    peer.status = RecordStatus.ACTIVE
+    peer.peer_public_key = peer_public_key
+    peer.lease_id = lease.id
+    peer.preshared_key = None
+    peer.allowed_ips = allowed_ips
+    await session.flush()
+    return peer
+
+
 async def _emit_apply_for_revision(
     session: AsyncSession,
     *,
@@ -132,11 +204,7 @@ async def _emit_apply_for_revision(
 
     if connection.protocol == ConnectionProtocol.WIREGUARD:
         # Do NOT send any client private keys to nodes; the node only needs peer public key + assigned IP.
-        cfg = revision.effective_config_json or {}
-        peer_pub = (cfg.get("device_public_key") or "").strip()
-        peer_ip = (cfg.get("assigned_ip") or "").strip()
-        if not peer_pub or not peer_ip:
-            raise RevisionError("wireguard revision is missing peer_public_key/assigned_ip")
+        peer_pub, peer_ip, _allowed_ips = _wg_peer_fields_from_revision(revision)
         payload.update(
             {
                 "peer_public_key": peer_pub,
@@ -198,30 +266,6 @@ async def create_revision(
         wg_lease = await allocate_lease(session, pool, OwnerType.DEVICE, connection.device_id)
         wg_private_key, wg_public_key = generate_keypair()
 
-        # Revoke any previous peers on this device (new revision => new keypair).
-        previous = (
-            await session.execute(
-                select(WireguardPeer).where(
-                    WireguardPeer.device_id == connection.device_id,
-                    WireguardPeer.status == RecordStatus.ACTIVE,
-                )
-            )
-        ).scalars().all()
-        for row in previous:
-            row.status = RecordStatus.REVOKED
-
-        peer = WireguardPeer(
-            user_id=user.telegram_id,
-            device_id=connection.device_id,
-            peer_public_key=wg_public_key,
-            lease_id=wg_lease.id,
-            preshared_key=None,
-            allowed_ips=connection.custom_overrides_json.get("allowed_ips", ["0.0.0.0/0"]),
-            status=RecordStatus.ACTIVE,
-        )
-        session.add(peer)
-        await session.flush()
-
     for rev in sorted(
         [r for r in connection.revisions if r.status == RecordStatus.ACTIVE],
         key=lambda r: r.slot,
@@ -268,6 +312,18 @@ async def create_revision(
     )
     session.add(revision)
     await session.flush()
+
+    # For WireGuard keep DB peer state consistent with slot0 immediately.
+    if connection.protocol == ConnectionProtocol.WIREGUARD and wg_public_key and wg_lease:
+        allowed_ips = ((effective_config.get("peer") or {}).get("allowed_ips") or ["0.0.0.0/0"]) if isinstance(effective_config.get("peer"), dict) else ["0.0.0.0/0"]
+        await _sync_wireguard_peer_state(
+            session,
+            user=user,
+            connection=connection,
+            peer_public_key=wg_public_key,
+            peer_ip=wg_lease.ip,
+            allowed_ips=[str(x).strip() for x in allowed_ips if str(x).strip()],
+        )
 
     event_type = _event_type_for_protocol(connection.protocol)
     payload = {
@@ -335,6 +391,18 @@ async def activate_revision(session: AsyncSession, revision_id: UUID) -> Connect
             rev.slot = idx
 
     await session.flush()
+
+    # If slot0 changes for WireGuard, ensure DB peer state matches it.
+    if connection.protocol == ConnectionProtocol.WIREGUARD:
+        peer_pub, peer_ip, allowed_ips = _wg_peer_fields_from_revision(revision)
+        await _sync_wireguard_peer_state(
+            session,
+            user=await _load_user(session, connection.user_id),
+            connection=connection,
+            peer_public_key=peer_pub,
+            peer_ip=peer_ip,
+            allowed_ips=allowed_ips,
+        )
     await _emit_apply_for_revision(
         session,
         connection=connection,
@@ -358,6 +426,16 @@ async def revoke_revision(session: AsyncSession, revision_id: UUID) -> Connectio
     active_now = [r for r in connection.revisions if r.status == RecordStatus.ACTIVE]
     active_slot0 = next((r for r in active_now if r.slot == 0), None)
     if active_slot0 is not None:
+        if connection.protocol == ConnectionProtocol.WIREGUARD:
+            peer_pub, peer_ip, allowed_ips = _wg_peer_fields_from_revision(active_slot0)
+            await _sync_wireguard_peer_state(
+                session,
+                user=await _load_user(session, connection.user_id),
+                connection=connection,
+                peer_public_key=peer_pub,
+                peer_ip=peer_ip,
+                allowed_ips=allowed_ips,
+            )
         # Keep the connection active by re-applying the current slot0 revision to nodes.
         await _emit_apply_for_revision(
             session,
@@ -377,6 +455,16 @@ async def revoke_revision(session: AsyncSession, revision_id: UUID) -> Connectio
             if connection.protocol == ConnectionProtocol.WIREGUARD
             else OutboxEventType.REVOKE_CONNECTION
         )
+        if connection.protocol == ConnectionProtocol.WIREGUARD:
+            peer = await session.scalar(select(WireguardPeer).where(WireguardPeer.device_id == connection.device_id))
+            if peer is not None:
+                peer.status = RecordStatus.REVOKED
+                lease: IpamLease | None = await session.get(IpamLease, peer.lease_id)
+                if lease is not None:
+                    await release_lease(session, lease)
+
+        # No active revisions left => the connection is effectively revoked.
+        connection.status = RecordStatus.REVOKED
         for role in [NodeRole.VPS_T]:
             await create_outbox_event(
                 session,
