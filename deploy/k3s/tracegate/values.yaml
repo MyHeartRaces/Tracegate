@@ -184,8 +184,8 @@ gateway:
       statsSecret: ""
       wgInterface: wg0
       wgExpectedPort: 51820
-      # Prefer graceful config reload for xray to minimize active session drops.
-      reloadXrayCmd: pkill -HUP xray || true
+      # Coalesce burst events into a single xray reload and avoid CrashLoopBackOff.
+      reloadXrayCmd: sh -lc '(flock -n 9 || exit 0; sleep 1; pkill -HUP xray || true) 9>/tmp/xray-reload.lock'
       # Prefer graceful config reload to reduce client interruption.
       reloadHysteriaCmd: pkill -HUP hysteria || true
       # Apply wg-quick config by stripping it to wg format and syncing live interface.
@@ -264,7 +264,7 @@ gateway:
       statsSecret: ""
       wgInterface: wg0
       wgExpectedPort: 51820
-      reloadXrayCmd: pkill -HUP xray || true
+      reloadXrayCmd: sh -lc '(flock -n 9 || exit 0; sleep 1; pkill -HUP xray || true) 9>/tmp/xray-reload.lock'
       reloadHysteriaCmd: ""
       reloadWgCmd: ""
 

@@ -75,7 +75,11 @@ class Settings(BaseSettings):
     agent_dry_run: bool = True
     agent_runtime_mode: str = "kubernetes"
     # In k3s pipeline prefer graceful signal where supported.
-    agent_reload_xray_cmd: str = "pkill -HUP xray || true"
+    # Coalesce bursty outbox events into a single reload to avoid xray CrashLoopBackOff
+    # while still applying the latest runtime config.
+    agent_reload_xray_cmd: str = (
+        "sh -lc '(flock -n 9 || exit 0; sleep 1; pkill -HUP xray || true) 9>/tmp/xray-reload.lock'"
+    )
     # Hysteria supports graceful SIGHUP reload in current production build.
     # It avoids full container restart and minimizes active session interruption.
     agent_reload_hysteria_cmd: str = "pkill -HUP hysteria || true"
