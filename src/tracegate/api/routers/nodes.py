@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -17,11 +17,23 @@ async def list_nodes(session: AsyncSession = Depends(db_session)) -> list[NodeEn
     return [NodeEndpointRead.model_validate(row, from_attributes=True) for row in rows]
 
 
-@router.post("", response_model=NodeEndpointRead, status_code=status.HTTP_201_CREATED)
-async def create_node(payload: NodeEndpointCreate, session: AsyncSession = Depends(db_session)) -> NodeEndpointRead:
+@router.post("", response_model=NodeEndpointRead)
+async def create_node(
+    payload: NodeEndpointCreate,
+    response: Response,
+    session: AsyncSession = Depends(db_session),
+) -> NodeEndpointRead:
     existing = await session.scalar(select(NodeEndpoint).where(NodeEndpoint.name == payload.name))
     if existing:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Node with this name already exists")
+        existing.role = payload.role
+        existing.base_url = payload.base_url.rstrip("/")
+        existing.public_ipv4 = payload.public_ipv4
+        existing.fqdn = payload.fqdn
+        existing.proxy_fqdn = payload.proxy_fqdn
+        existing.active = payload.active
+        await session.commit()
+        await session.refresh(existing)
+        return NodeEndpointRead.model_validate(existing, from_attributes=True)
 
     row = NodeEndpoint(
         role=payload.role,
@@ -35,6 +47,7 @@ async def create_node(payload: NodeEndpointCreate, session: AsyncSession = Depen
     session.add(row)
     await session.commit()
     await session.refresh(row)
+    response.status_code = status.HTTP_201_CREATED
     return NodeEndpointRead.model_validate(row, from_attributes=True)
 
 

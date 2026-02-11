@@ -141,6 +141,38 @@ def test_ws_tls_chain_uses_vps_e_proxy_sni_when_proxy_enabled() -> None:
         ),
     )
 
-    assert cfg["server"] == "re.myheartraces.space"
+    assert cfg["server"] == "entry.myheartraces.space"
     assert cfg["sni"] == "re.myheartraces.space"
     assert cfg["ws"]["host"] == "re.myheartraces.space"
+
+
+def test_ws_tls_direct_uses_vps_t_proxy_sni_but_transport_hits_vps_t_host() -> None:
+    user = _user()
+    device = _device(user.telegram_id)
+    conn = Connection(
+        id=uuid4(),
+        user_id=user.telegram_id,
+        device_id=device.id,
+        protocol=ConnectionProtocol.VLESS_WS_TLS,
+        mode=ConnectionMode.DIRECT,
+        variant=ConnectionVariant.B1,
+        profile_name="B1",
+        custom_overrides_json={},
+        status=RecordStatus.ACTIVE,
+    )
+
+    cfg = build_effective_config(
+        user=user,
+        device=device,
+        connection=conn,
+        selected_sni=None,
+        endpoints=EndpointSet(
+            vps_t_host="entry.myheartraces.space",
+            vps_e_host="transit.myheartraces.space",
+            vps_t_proxy_host="myheartraces.space",
+        ),
+    )
+
+    assert cfg["server"] == "entry.myheartraces.space"
+    assert cfg["sni"] == "myheartraces.space"
+    assert cfg["ws"]["host"] == "myheartraces.space"

@@ -102,10 +102,13 @@ def build_effective_config(
             tls_server_name = selected_sni.fqdn
 
         if connection.mode == ConnectionMode.DIRECT:
-            entry_host = endpoints.vps_t_proxy_host or endpoints.vps_t_host
+            # Keep transport endpoint tied to the node address and use proxy host only for TLS/SNI.
+            # This allows WS+TLS over a proxy cert even when proxy DNS is not publicly resolvable.
+            entry_host = endpoints.vps_t_host
             tls_termination_host = endpoints.vps_t_proxy_host or endpoints.vps_t_host
         else:
-            entry_host = endpoints.vps_e_proxy_host or endpoints.vps_e_host
+            # Chain mode enters through VPS-E node, while TLS can still terminate on a proxy host.
+            entry_host = endpoints.vps_e_host
             tls_termination_host = (
                 endpoints.vps_e_proxy_host
                 if endpoints.vps_e_proxy_host
