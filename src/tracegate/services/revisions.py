@@ -313,6 +313,9 @@ async def create_revision(
             rev.slot = 2
         else:
             rev.slot = next_slot
+    # Persist slot shifts before inserting the new slot0 revision to satisfy
+    # uq_connection_revision_active_slot at the DB level.
+    await session.flush()
 
     effective_config = build_effective_config(
         user=user,
