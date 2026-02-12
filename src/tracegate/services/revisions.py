@@ -234,6 +234,9 @@ async def _emit_apply_for_revision(
         "connection_id": str(connection.id),
         "connection_alias": conn_alias,
         "revision_id": str(revision.id),
+        # Revision timestamp is used by nodes to make applying state robust against
+        # out-of-order delivery (dispatcher concurrency).
+        "op_ts": revision.created_at.isoformat(),
         "protocol": connection.protocol.value,
         "variant": connection.variant.value,
     }
@@ -396,6 +399,9 @@ async def create_revision(
         "connection_id": str(connection.id),
         "connection_alias": conn_alias,
         "revision_id": str(revision.id),
+        # Revision timestamp is used by nodes to make applying state robust against
+        # out-of-order delivery (dispatcher concurrency).
+        "op_ts": revision.created_at.isoformat(),
         "protocol": connection.protocol.value,
         "variant": connection.variant.value,
         "config": effective_config,
@@ -509,11 +515,13 @@ async def revoke_revision(session: AsyncSession, revision_id: UUID) -> Connectio
             idempotency_prefix=f"revoke-promote:{revision.id}",
         )
     else:
+        op_ts = datetime.now(timezone.utc).isoformat()
         payload = {
             "connection_id": str(connection.id),
             "revision_id": str(revision.id),
             "user_id": str(connection.user_id),
             "device_id": str(connection.device_id),
+            "op_ts": op_ts,
         }
         event_type = (
             OutboxEventType.WG_PEER_REMOVE

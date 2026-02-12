@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from uuid import UUID
 
 from sqlalchemy import select
@@ -20,6 +21,7 @@ async def revoke_connection(session: AsyncSession, connection_id: UUID) -> None:
     if conn is None:
         raise ConnectionRevokeError("Connection not found")
 
+    op_ts = datetime.now(timezone.utc).isoformat()
     conn.status = RecordStatus.REVOKED
 
     # Mark all revisions revoked (keep history).
@@ -54,6 +56,7 @@ async def revoke_connection(session: AsyncSession, connection_id: UUID) -> None:
                 "user_id": str(conn.user_id),
                 "device_id": str(conn.device_id),
                 "connection_id": str(conn.id),
+                "op_ts": op_ts,
             },
             role_target=NodeRole.VPS_T,
             idempotency_suffix=f"conn-revoke:{conn.id}",
@@ -68,6 +71,7 @@ async def revoke_connection(session: AsyncSession, connection_id: UUID) -> None:
             "user_id": str(conn.user_id),
             "device_id": str(conn.device_id),
             "connection_id": str(conn.id),
+            "op_ts": op_ts,
         },
         role_target=NodeRole.VPS_T,
         idempotency_suffix=f"conn-revoke:{conn.id}",
