@@ -63,6 +63,8 @@ kubectl -n tracegate get job
 - The gateway uses a hostPath (`/var/lib/tracegate-agent`) for runtime configs. The init container seeds files only if they are missing.
   If you change the embedded base configs in Helm values, you may need to delete the corresponding runtime file on the node
   (for example `/var/lib/tracegate-agent/runtime/hysteria/config.yaml`) and restart the gateway pod.
+- For VPS-E splitter mode (`gateway.vpsE.mode=xray`), set transit params in
+  `gateway.splitter.transit.*` (`uuid`, `publicKey`, `shortId`, `upstreamHost`).
 
 ### Observability (optional)
 

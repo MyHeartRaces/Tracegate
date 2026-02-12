@@ -95,7 +95,8 @@ class Settings(BaseSettings):
     default_vps_e_host: str = "vps-e.example.com"
 
     # Material required to build working client configs.
-    # For v0.1 we treat REALITY handshake as terminating on VPS-T even in chain mode (VPS-E may be L4 forwarder).
+    # For direct mode this is VPS-T key.
+    # For chain mode with VPS-E splitter, this can be reused as transit REALITY public key unless overridden in Helm values.
     reality_public_key: str = ""
     reality_short_id: str = ""
     # REALITY "dest" is a single upstream used for the mimic handshake.

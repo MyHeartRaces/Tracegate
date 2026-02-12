@@ -316,6 +316,28 @@ spec:
           hostPath:
             path: {{ .Values.gateway.vpsE.agentDataHostPath | quote }}
             type: DirectoryOrCreate
+      {{- if eq .Values.gateway.vpsE.mode "xray" }}
+      initContainers:
+        - name: seed-runtime
+          image: busybox:1.36
+          imagePullPolicy: IfNotPresent
+          command:
+            - sh
+            - -ec
+            - |
+              set -eu
+
+              mkdir -p /agent-data/base/xray
+              cp /base/xray/config.json /agent-data/base/xray/config.json
+
+              mkdir -p /agent-data/runtime/xray
+              [ -f /agent-data/runtime/xray/config.json ] || cp /agent-data/base/xray/config.json /agent-data/runtime/xray/config.json
+          volumeMounts:
+            - name: agent-data
+              mountPath: /agent-data
+            - name: xray-config
+              mountPath: /base/xray
+      {{- end }}
       containers:
         {{- if eq .Values.gateway.vpsE.mode "xray" }}
         - name: xray
@@ -327,9 +349,9 @@ spec:
               protocol: TCP
               name: vless-tcp
           volumeMounts:
-            - name: xray-config
-              mountPath: /etc/xray/config.json
-              subPath: config.json
+            - name: agent-data
+              mountPath: /etc/xray
+              subPath: runtime/xray
           securityContext:
             runAsUser: 0
             runAsGroup: 0

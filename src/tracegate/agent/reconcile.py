@@ -54,6 +54,29 @@ def _safe_dump_text(path: Path, content: str) -> None:
     tmp.replace(path)
 
 
+def _merge_clients(existing: list[dict] | None, dynamic: list[dict]) -> list[dict]:
+    """
+    Merge base and dynamic client lists by UUID.
+
+    Base clients are kept (for operator-defined static users, e.g. inter-node transit),
+    while dynamic users override by the same id.
+    """
+    out: dict[str, dict] = {}
+    for row in existing or []:
+        if not isinstance(row, dict):
+            continue
+        client_id = str(row.get("id") or "").strip()
+        if not client_id:
+            continue
+        out[client_id] = row
+    for row in dynamic:
+        client_id = str(row.get("id") or "").strip()
+        if not client_id:
+            continue
+        out[client_id] = row
+    return [out[key] for key in sorted(out, key=str)]
+
+
 def _empty_index() -> dict[str, dict[str, dict]]:
     return {"users": {}, "wg_peers": {}}
 
@@ -261,13 +284,25 @@ def reconcile_xray(settings: Settings) -> bool:
     clients_reality.sort(key=lambda c: str(c.get("id") or ""))
     clients_ws.sort(key=lambda c: str(c.get("id") or ""))
 
-    for inbound in base.get("inbounds", []):
+    inbounds = base.get("inbounds", [])
+    managed_reality_tags = {"vless-reality-in", "entry-in"}
+    managed_ws_tags = {"vless-ws-in"}
+    has_tagged_reality = any(str((row or {}).get("tag") or "").strip() in managed_reality_tags for row in inbounds)
+    has_tagged_ws = any(str((row or {}).get("tag") or "").strip() in managed_ws_tags for row in inbounds)
+
+    for inbound in inbounds:
+        tag = str(inbound.get("tag") or "").strip()
         stream = inbound.get("streamSettings") or {}
-        is_reality = inbound.get("tag") == "vless-reality-in" or (
-            inbound.get("protocol") == "vless" and stream.get("security") == "reality"
-        )
+        is_reality = inbound.get("protocol") == "vless" and stream.get("security") == "reality"
+        should_manage_reality = (tag in managed_reality_tags) if has_tagged_reality else is_reality
         if is_reality:
-            inbound.setdefault("settings", {})["clients"] = clients_reality
+            if not should_manage_reality:
+                continue
+            settings = inbound.setdefault("settings", {})
+            inbound.setdefault("settings", {})["clients"] = _merge_clients(
+                settings.get("clients") if isinstance(settings.get("clients"), list) else [],
+                clients_reality,
+            )
             if server_names:
                 stream = inbound.setdefault("streamSettings", {})
                 reality = stream.setdefault("realitySettings", {})
@@ -281,7 +316,14 @@ def reconcile_xray(settings: Settings) -> bool:
         # VLESS over WebSocket (with or without TLS termination upstream).
         is_ws = inbound.get("protocol") == "vless" and str((stream.get("network") or "")).lower() == "ws"
         if is_ws:
-            inbound.setdefault("settings", {})["clients"] = clients_ws
+            should_manage_ws = (tag in managed_ws_tags) if has_tagged_ws else True
+            if not should_manage_ws:
+                continue
+            settings = inbound.setdefault("settings", {})
+            inbound.setdefault("settings", {})["clients"] = _merge_clients(
+                settings.get("clients") if isinstance(settings.get("clients"), list) else [],
+                clients_ws,
+            )
 
     # Only write when there is a real change; otherwise we trigger unnecessary reloads.
     current = _load_json(runtime_path) if runtime_path.exists() else None
@@ -375,15 +417,12 @@ def reconcile_wireguard(settings: Settings) -> bool:
 
 def reconcile_all(settings: Settings) -> list[str]:
     changed: list[str] = []
+    if reconcile_xray(settings):
+        changed.append("xray")
     if settings.agent_role == "VPS_T":
-        if reconcile_xray(settings):
-            changed.append("xray")
         if reconcile_hysteria(settings):
             changed.append("hysteria")
         if reconcile_wireguard(settings):
             changed.append("wireguard")
-    else:
-        # VPS-E in v0.1 can be an L4 forwarder; no runtime proxy configs required.
-        pass
 
     return changed

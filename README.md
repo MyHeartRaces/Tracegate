@@ -2,7 +2,7 @@
 
 Tracegate implements a control-plane + node-agent architecture for:
 - B1 `VLESS + REALITY` direct (443/tcp)
-- B2 `VLESS + REALITY` chain via VPS-E -> VPS-T (443/tcp), with identical SNI on both legs
+- B2 `VLESS + REALITY` chain via VPS-E -> VPS-T (443/tcp), with splitter-capable transit routing
 - Optional: `VLESS + WebSocket + TLS` (requires a domain + certificate you control)
 - B3 `Hysteria2` direct (443/udp), masquerade file mode
 - B5 `WireGuard` direct (51820/udp)
@@ -173,7 +173,9 @@ No full DB restore is required for architecture migration if control-plane data 
 - IPv4-only assumptions.
 - VLESS/Hysteria fixed on 443; WireGuard fixed on 51820.
 - Hysteria Traffic Stats API must remain secret-protected.
-- Chain mode enforces the same SNI on client->E and E->T legs.
+- Legacy chain mode (`tcpForward`) preserves client SNI end-to-end; splitter mode may use a dedicated transit SNI on the E->T leg.
+- Split-routing on VPS-E is available in `gateway.vpsE.mode=xray`: `geosite:ru` + `.ru/.su/.xn--p1ai` + `geoip:ru` routes direct via VPS-E, default routes via VPS-T transit.
+- Splitter transit credentials are configured once via `gateway.splitter.transit.*` and reused on both VPS-E and VPS-T Xray configs.
 - User device limit defaults to `5`.
 - Active revision limit is enforced to `3` slots (`0..2`).
 - Recommended Xray reload mode is graceful `SIGHUP` (no hard restarts) to preserve existing sessions.

@@ -74,8 +74,9 @@ def build_effective_config(
             }
 
         if connection.mode == ConnectionMode.CHAIN and connection.variant == ConnectionVariant.B2:
-            # v0.1 contract: client SNI choice is preserved end-to-end.
-            # Implementation may be an L4 forwarder on VPS-E, so the REALITY handshake terminates on VPS-T.
+            # Chain profile always enters via VPS-E.
+            # The E->T leg can be implemented either as plain L4 forward (legacy) or as
+            # a splitter transit hop managed on VPS-E.
             return {
                 **common,
                 "profile": "B2-stealth-chain",
@@ -83,7 +84,8 @@ def build_effective_config(
                 "chain": {"type": "tcp_forward", "upstream": endpoints.vps_t_host, "port": 443},
                 "design_constraints": {
                     "fixed_port_tcp": 443,
-                    "single_sni_for_all_legs": True,
+                    "entry_via_vps_e": True,
+                    "transit_via_vps_t": True,
                 },
             }
 
@@ -93,9 +95,9 @@ def build_effective_config(
         if connection.variant not in {ConnectionVariant.B1, ConnectionVariant.B2}:
             raise ValueError("VLESS+WS+TLS supports only B1/B2 variants")
 
-        # For WS+TLS the TLS SNI must match where TLS is actually terminated.
-        # In direct mode it is VPS-T. In chain mode with a plain L4 forwarder on VPS-E
-        # (no proxy host), TLS still terminates on VPS-T.
+        # For WS+TLS the TLS SNI must match where TLS is terminated.
+        # In direct mode it is VPS-T. In chain mode it depends on the VPS-E implementation:
+        # legacy L4 forwarder can still terminate on VPS-T; splitter/proxy mode can terminate on VPS-E.
         # Operators can override via custom_overrides_json.
         tls_server_name = str(overrides.get("tls_server_name") or "").strip()
         if not tls_server_name and selected_sni is not None:

@@ -14,6 +14,7 @@ from tracegate.schemas import OutboxDeliveryRead, OutboxEventRead, ReapplyBaseRe
 from tracegate.security import require_api_scope
 from tracegate.services.aliases import connection_alias, user_display
 from tracegate.services.outbox import create_outbox_event
+from tracegate.services.role_targeting import target_roles_for_connection
 from tracegate.settings import get_settings
 
 router = APIRouter(prefix="/dispatch", tags=["dispatch"], dependencies=[Depends(require_api_scope(ApiScope.DISPATCH_RW))])
@@ -120,7 +121,7 @@ async def reissue_current_revisions(payload: ReissueRequest, session: AsyncSessi
         if revision is None:
             continue
 
-        roles = [NodeRole.VPS_T]
+        roles = target_roles_for_connection(conn.protocol, conn.variant)
         event_type = OutboxEventType.WG_PEER_UPSERT if conn.protocol.value == "wireguard" else OutboxEventType.UPSERT_USER
         wg_peer: WireguardPeer | None = None
         if event_type == OutboxEventType.WG_PEER_UPSERT:
@@ -140,6 +141,7 @@ async def reissue_current_revisions(payload: ReissueRequest, session: AsyncSessi
                 "connection_id": str(conn.id),
                 "connection_alias": conn_alias,
                 "revision_id": str(revision.id),
+                "op_ts": revision.created_at.isoformat(),
                 "protocol": conn.protocol.value,
                 "variant": conn.variant.value,
                 "config": revision.effective_config_json,

@@ -92,6 +92,17 @@ gateway:
     tag: "0.3.0"
     pullPolicy: IfNotPresent
 
+  splitter:
+    transit:
+      # Must match VPS-T static transit client id in Xray.
+      uuid: "00000000-0000-4000-8000-000000000123"
+      # If empty, falls back to controlPlane.env.realityPublicKey.
+      publicKey: ""
+      shortId: "0123456789abcdef"
+      serverName: "google.com"
+      upstreamHost: "vps-t.example.com"
+      upstreamPort: 443
+
   vpsT:
     enabled: true
     nodeSelector:
@@ -121,7 +132,15 @@ gateway:
               "listen": "0.0.0.0",
               "port": 443,
               "protocol": "vless",
-              "settings": {"clients": [], "decryption": "none"},
+              "settings": {
+                "clients": [
+                  {
+                    "id": "{{ .Values.gateway.splitter.transit.uuid }}",
+                    "email": "vps-e-transit"
+                  }
+                ],
+                "decryption": "none"
+              },
               "streamSettings": {
                 "network": "tcp",
                 "security": "reality",
@@ -215,8 +234,8 @@ gateway:
     hostNetwork: true
     shareProcessNamespace: true
 
-    # "tcpForward" is the default v0.1 chain implementation: L4 forward :443 -> VPS-T:443.
-    # It preserves the client's REALITY SNI end-to-end and avoids any user mapping on VPS-E.
+    # "tcpForward" is the legacy v0.1 chain implementation: L4 forward :443 -> VPS-T:443.
+    # "xray" enables VPS-E user mapping and split-routing (RU/domestic via VPS-E, rest via VPS-T transit).
     mode: tcpForward
     tcpForward:
       image: haproxy:2.9-alpine
@@ -227,6 +246,7 @@ gateway:
     xray:
       image: ghcr.io/xtls/xray-core:latest
       pullPolicy: IfNotPresent
+      # Splitter mode uses gateway.splitter.transit.* values for VPS-E -> VPS-T transit.
       config: |
         {
           "log": {"loglevel": "warning"},
@@ -248,15 +268,82 @@ gateway:
                   "privateKey": "REPLACE_PRIVATE_KEY",
                   "shortIds": ["fedcba9876543210"]
                 }
+              },
+              "sniffing": {
+                "enabled": true,
+                "destOverride": ["http", "tls", "quic"]
               }
             }
           ],
           "outbounds": [
             {
-              "tag": "to-transit",
+              "tag": "direct",
               "protocol": "freedom"
+            },
+            {
+              "tag": "to-transit",
+              "protocol": "vless",
+              "settings": {
+                "vnext": [
+                  {
+                    "address": "{{ .Values.gateway.splitter.transit.upstreamHost }}",
+                    "port": {{ .Values.gateway.splitter.transit.upstreamPort }},
+                    "users": [
+                      {
+                        "id": "{{ .Values.gateway.splitter.transit.uuid }}",
+                        "encryption": "none"
+                      }
+                    ]
+                  }
+                ]
+              },
+              "streamSettings": {
+                "network": "tcp",
+                "security": "reality",
+                "realitySettings": {
+                  "serverName": "{{ .Values.gateway.splitter.transit.serverName }}",
+                  "publicKey": "{{ required "gateway.splitter.transit.publicKey (or controlPlane.env.realityPublicKey) is required for vpsE xray mode" (.Values.gateway.splitter.transit.publicKey | default .Values.controlPlane.env.realityPublicKey) }}",
+                  "shortId": "{{ .Values.gateway.splitter.transit.shortId }}"
+                }
+              }
+            },
+            {
+              "tag": "block",
+              "protocol": "blackhole"
             }
-          ]
+          ],
+          "routing": {
+            "domainStrategy": "IPIfNonMatch",
+            "rules": [
+              {
+                "type": "field",
+                "ip": ["geoip:private"],
+                "outboundTag": "block"
+              },
+              {
+                "type": "field",
+                "inboundTag": ["entry-in"],
+                "domain": [
+                  "geosite:ru",
+                  "regexp:(?i)\\.ru$",
+                  "regexp:(?i)\\.su$",
+                  "regexp:(?i)\\.xn--p1ai$"
+                ],
+                "outboundTag": "direct"
+              },
+              {
+                "type": "field",
+                "inboundTag": ["entry-in"],
+                "ip": ["geoip:ru"],
+                "outboundTag": "direct"
+              },
+              {
+                "type": "field",
+                "inboundTag": ["entry-in"],
+                "outboundTag": "to-transit"
+              }
+            ]
+          }
         }
 
     agent:

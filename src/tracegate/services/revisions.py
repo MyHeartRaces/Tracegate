@@ -7,7 +7,7 @@ from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from tracegate.enums import ConnectionProtocol, ConnectionVariant, IpamLeaseStatus, NodeRole, OutboxEventType, RecordStatus
+from tracegate.enums import ConnectionProtocol, IpamLeaseStatus, NodeRole, OutboxEventType, RecordStatus
 from tracegate.enums import OwnerType
 from tracegate.models import Connection, ConnectionRevision, IpamLease, NodeEndpoint, User, WireguardPeer
 from tracegate.services.aliases import connection_alias, user_display
@@ -16,6 +16,7 @@ from tracegate.services.ipam import allocate_lease, ensure_pool_exists, release_
 from tracegate.services.grace import ensure_can_issue_new_config
 from tracegate.services.outbox import create_outbox_event
 from tracegate.services.overrides import validate_overrides
+from tracegate.services.role_targeting import target_roles_for_connection
 from tracegate.services.sni_catalog import SniCatalogEntry, get_by_id, load_catalog
 from tracegate.services.wireguard import generate_keypair
 from tracegate.settings import get_settings
@@ -101,13 +102,6 @@ def _is_allowed_reality_sni(fqdn: str) -> bool:
             if name == s or name.endswith("." + s):
                 return True
     return False
-
-
-def _slot_target_role(variant: ConnectionVariant) -> list[NodeRole]:
-    if variant == ConnectionVariant.B2:
-        # In v0.1 kubernetes deploy, VPS-E can be an L4 forwarder to VPS-T, so it does not need user mapping.
-        return [NodeRole.VPS_T]
-    return [NodeRole.VPS_T]
 
 
 def _event_type_for_protocol(protocol: ConnectionProtocol) -> OutboxEventType:
@@ -258,7 +252,7 @@ async def _emit_apply_for_revision(
         if connection.protocol == ConnectionProtocol.VLESS_REALITY:
             payload["camouflage_sni"] = cfg.get("sni")
 
-    for role in _slot_target_role(connection.variant):
+    for role in target_roles_for_connection(connection.protocol, connection.variant):
         await create_outbox_event(
             session,
             event_type=event_type,
@@ -408,7 +402,7 @@ async def create_revision(
         "camouflage_sni": selected_sni.fqdn if selected_sni else None,
     }
 
-    for role in _slot_target_role(connection.variant):
+    for role in target_roles_for_connection(connection.protocol, connection.variant):
         if event_type == OutboxEventType.WG_PEER_UPSERT:
             if not wg_lease or not wg_public_key:
                 raise RevisionError("wireguard peer state is missing")
@@ -538,7 +532,7 @@ async def revoke_revision(session: AsyncSession, revision_id: UUID) -> Connectio
 
         # No active revisions left => the connection is effectively revoked.
         connection.status = RecordStatus.REVOKED
-        for role in [NodeRole.VPS_T]:
+        for role in target_roles_for_connection(connection.protocol, connection.variant):
             await create_outbox_event(
                 session,
                 event_type=event_type,

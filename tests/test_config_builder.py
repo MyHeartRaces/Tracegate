@@ -22,7 +22,7 @@ def _device(user_id):
     return Device(id=uuid4(), user_id=user_id, name="phone", status=RecordStatus.ACTIVE)
 
 
-def test_chain_sni_same_on_both_legs() -> None:
+def test_chain_reality_enters_via_vps_e_and_points_to_vps_t_transit() -> None:
     user = _user()
     device = _device(user.telegram_id)
     conn = Connection(

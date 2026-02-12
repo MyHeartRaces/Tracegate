@@ -30,10 +30,22 @@
             "fedcba9876543210"
           ]
         }
+      },
+      "sniffing": {
+        "enabled": true,
+        "destOverride": [
+          "http",
+          "tls",
+          "quic"
+        ]
       }
     }
   ],
   "outbounds": [
+    {
+      "tag": "direct",
+      "protocol": "freedom"
+    },
     {
       "tag": "to-transit",
       "protocol": "vless",
@@ -44,7 +56,7 @@
             "port": 443,
             "users": [
               {
-                "id": "REPLACE_CHAIN_UUID",
+                "id": "00000000-0000-4000-8000-000000000123",
                 "encryption": "none",
                 "flow": ""
               }
@@ -61,10 +73,45 @@
           "shortId": "0123456789abcdef"
         }
       }
+    },
+    {
+      "tag": "block",
+      "protocol": "blackhole"
     }
   ],
   "routing": {
+    "domainStrategy": "IPIfNonMatch",
     "rules": [
+      {
+        "type": "field",
+        "inboundTag": [
+          "entry-in"
+        ],
+        "domain": [
+          "geosite:ru",
+          "regexp:(?i)\\.ru$",
+          "regexp:(?i)\\.su$",
+          "regexp:(?i)\\.xn--p1ai$"
+        ],
+        "outboundTag": "direct"
+      },
+      {
+        "type": "field",
+        "inboundTag": [
+          "entry-in"
+        ],
+        "ip": [
+          "geoip:ru"
+        ],
+        "outboundTag": "direct"
+      },
+      {
+        "type": "field",
+        "ip": [
+          "geoip:private"
+        ],
+        "outboundTag": "block"
+      },
       {
         "type": "field",
         "inboundTag": [

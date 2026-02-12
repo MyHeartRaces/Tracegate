@@ -6,10 +6,11 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from tracegate.enums import ConnectionProtocol, NodeRole, OutboxEventType, RecordStatus
+from tracegate.enums import ConnectionProtocol, OutboxEventType, RecordStatus
 from tracegate.models import Connection, ConnectionRevision, Device, IpamLease, WireguardPeer
 from tracegate.services.ipam import release_lease
 from tracegate.services.outbox import create_outbox_event
+from tracegate.services.role_targeting import target_roles_for_connection
 
 
 class ConnectionRevokeError(RuntimeError):
@@ -48,9 +49,26 @@ async def revoke_connection(session: AsyncSession, connection_id: UUID) -> None:
             if lease is not None:
                 await release_lease(session, lease)
 
+        for role in target_roles_for_connection(conn.protocol, conn.variant):
+            await create_outbox_event(
+                session,
+                event_type=OutboxEventType.WG_PEER_REMOVE,
+                aggregate_id=str(conn.id),
+                payload={
+                    "user_id": str(conn.user_id),
+                    "device_id": str(conn.device_id),
+                    "connection_id": str(conn.id),
+                    "op_ts": op_ts,
+                },
+                role_target=role,
+                idempotency_suffix=f"conn-revoke:{conn.id}:{role.value}",
+            )
+        return
+
+    for role in target_roles_for_connection(conn.protocol, conn.variant):
         await create_outbox_event(
             session,
-            event_type=OutboxEventType.WG_PEER_REMOVE,
+            event_type=OutboxEventType.REVOKE_CONNECTION,
             aggregate_id=str(conn.id),
             payload={
                 "user_id": str(conn.user_id),
@@ -58,24 +76,9 @@ async def revoke_connection(session: AsyncSession, connection_id: UUID) -> None:
                 "connection_id": str(conn.id),
                 "op_ts": op_ts,
             },
-            role_target=NodeRole.VPS_T,
-            idempotency_suffix=f"conn-revoke:{conn.id}",
+            role_target=role,
+            idempotency_suffix=f"conn-revoke:{conn.id}:{role.value}",
         )
-        return
-
-    await create_outbox_event(
-        session,
-        event_type=OutboxEventType.REVOKE_CONNECTION,
-        aggregate_id=str(conn.id),
-        payload={
-            "user_id": str(conn.user_id),
-            "device_id": str(conn.device_id),
-            "connection_id": str(conn.id),
-            "op_ts": op_ts,
-        },
-        role_target=NodeRole.VPS_T,
-        idempotency_suffix=f"conn-revoke:{conn.id}",
-    )
 
 
 async def revoke_user_access(session: AsyncSession, user_id: int) -> tuple[int, int]:

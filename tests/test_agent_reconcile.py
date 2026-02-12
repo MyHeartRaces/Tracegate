@@ -102,3 +102,101 @@ def test_reconcile_xray_and_hysteria(tmp_path: Path) -> None:
     # Second run should be a no-op (no unnecessary reload triggers).
     changed2 = reconcile_all(settings)
     assert changed2 == []
+
+
+def test_reconcile_vps_e_updates_only_xray(tmp_path: Path) -> None:
+    settings = Settings(
+        agent_data_root=str(tmp_path),
+        agent_runtime_mode="kubernetes",
+        agent_role="VPS_E",
+    )
+
+    _write(
+        tmp_path / "base/xray/config.json",
+        json.dumps(
+            {
+                "inbounds": [
+                    {
+                        "tag": "entry-in",
+                        "protocol": "vless",
+                        "settings": {"clients": []},
+                        "streamSettings": {"security": "reality", "realitySettings": {"serverNames": []}},
+                    }
+                ],
+                "outbounds": [{"protocol": "freedom"}],
+            }
+        ),
+    )
+    _write(tmp_path / "base/hysteria/config.yaml", "listen: :443\n")
+    _write(tmp_path / "base/wireguard/wg0.conf", "[Interface]\nListenPort = 51820\n")
+    _write(
+        tmp_path / "users/u2/connection-c1.json",
+        json.dumps(
+            {
+                "user_id": "u2",
+                "device_id": "d2",
+                "connection_id": "c1",
+                "revision_id": "r1",
+                "protocol": "vless_reality",
+                "config": {"uuid": "c1", "sni": "vk.com"},
+            }
+        ),
+    )
+
+    changed = reconcile_all(settings)
+    assert changed == ["xray"]
+    assert (tmp_path / "runtime/xray/config.json").exists()
+    assert not (tmp_path / "runtime/hysteria/config.yaml").exists()
+    assert not (tmp_path / "runtime/wireguard/wg0.conf").exists()
+
+
+def test_reconcile_keeps_static_base_reality_clients(tmp_path: Path) -> None:
+    settings = Settings(
+        agent_data_root=str(tmp_path),
+        agent_runtime_mode="kubernetes",
+        agent_role="VPS_T",
+    )
+    _write(
+        tmp_path / "base/xray/config.json",
+        json.dumps(
+            {
+                "inbounds": [
+                    {
+                        "tag": "vless-reality-in",
+                        "protocol": "vless",
+                        "settings": {
+                            "clients": [
+                                {
+                                    "id": "00000000-0000-4000-8000-000000000123",
+                                    "email": "vps-e-transit",
+                                }
+                            ]
+                        },
+                        "streamSettings": {"security": "reality", "realitySettings": {"serverNames": []}},
+                    }
+                ],
+                "outbounds": [{"protocol": "freedom"}],
+            }
+        ),
+    )
+    _write(
+        tmp_path / "users/u1/connection-c1.json",
+        json.dumps(
+            {
+                "user_id": "u1",
+                "device_id": "d1",
+                "connection_id": "c1",
+                "revision_id": "r1",
+                "protocol": "vless_reality",
+                "config": {"uuid": "11111111-1111-4111-8111-111111111111", "sni": "splitter.wb.ru"},
+            }
+        ),
+    )
+
+    changed = reconcile_all(settings)
+    assert "xray" in changed
+
+    rendered = json.loads((tmp_path / "runtime/xray/config.json").read_text(encoding="utf-8"))
+    ids = {row.get("id") for row in rendered["inbounds"][0]["settings"]["clients"]}
+    assert "00000000-0000-4000-8000-000000000123" in ids
+    assert "11111111-1111-4111-8111-111111111111" in ids

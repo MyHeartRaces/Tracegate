@@ -9,7 +9,12 @@
       "port": 443,
       "protocol": "vless",
       "settings": {
-        "clients": [],
+        "clients": [
+          {
+            "id": "00000000-0000-4000-8000-000000000123",
+            "email": "vps-e-transit"
+          }
+        ],
         "decryption": "none"
       },
       "streamSettings": {
