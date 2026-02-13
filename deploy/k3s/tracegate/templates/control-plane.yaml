@@ -56,6 +56,8 @@ spec:
           env:
             - name: DATABASE_URL
               value: {{ include "tracegate.databaseUrl" . | quote }}
+            - name: SUPERADMIN_TELEGRAM_IDS
+              value: {{ toJson (.Values.controlPlane.env.superadminTelegramIds | default (list)) | quote }}
       containers:
         - name: api
           image: {{ include "tracegate.image" .Values.controlPlane.image }}
@@ -69,6 +71,8 @@ spec:
               value: {{ .Values.controlPlane.env.appEnv | quote }}
             - name: LOG_LEVEL
               value: {{ .Values.controlPlane.env.logLevel | quote }}
+            - name: SUPERADMIN_TELEGRAM_IDS
+              value: {{ toJson (.Values.controlPlane.env.superadminTelegramIds | default (list)) | quote }}
             - name: PUBLIC_BASE_URL
               value: {{ .Values.controlPlane.env.publicBaseUrl | quote }}
             - name: DATABASE_URL
@@ -186,6 +190,8 @@ spec:
           env:
             - name: DATABASE_URL
               value: {{ include "tracegate.databaseUrl" . | quote }}
+            - name: SUPERADMIN_TELEGRAM_IDS
+              value: {{ toJson (.Values.controlPlane.env.superadminTelegramIds | default (list)) | quote }}
       containers:
         - name: dispatcher
           image: {{ include "tracegate.image" .Values.controlPlane.image }}
@@ -201,6 +207,8 @@ spec:
               value: {{ .Values.controlPlane.env.appEnv | quote }}
             - name: LOG_LEVEL
               value: {{ .Values.controlPlane.env.logLevel | quote }}
+            - name: SUPERADMIN_TELEGRAM_IDS
+              value: {{ toJson (.Values.controlPlane.env.superadminTelegramIds | default (list)) | quote }}
             - name: DATABASE_URL
               value: {{ include "tracegate.databaseUrl" . | quote }}
             - name: AGENT_AUTH_TOKEN
@@ -294,6 +302,8 @@ spec:
               value: {{ .Values.controlPlane.env.appEnv | quote }}
             - name: LOG_LEVEL
               value: {{ .Values.controlPlane.env.logLevel | quote }}
+            - name: SUPERADMIN_TELEGRAM_IDS
+              value: {{ toJson (.Values.controlPlane.env.superadminTelegramIds | default (list)) | quote }}
             - name: BOT_TOKEN
               valueFrom:
                 secretKeyRef:

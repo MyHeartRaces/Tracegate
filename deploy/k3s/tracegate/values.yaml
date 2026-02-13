@@ -65,6 +65,8 @@ controlPlane:
     appEnv: prod
     logLevel: INFO
     publicBaseUrl: ""
+    # JSON list, e.g. [123456789]. Used only to bootstrap role=superadmin on first user creation.
+    superadminTelegramIds: []
     defaultVpsTHost: vps-t.example.com
     defaultVpsEHost: vps-e.example.com
     realityPublicKey: ""

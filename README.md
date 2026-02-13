@@ -131,6 +131,7 @@ Use GitHub Actions workflow `images` or build manually:
 Create `deploy/k3s/values-prod.yaml` and set:
 - image repositories/tags
 - auth tokens
+- `controlPlane.env.superadminTelegramIds` (bootstrap superadmin IDs)
 - public IP/FQDN for VPS-T and VPS-E
 - xray/hysteria/wireguard config blocks
 

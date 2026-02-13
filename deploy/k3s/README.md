@@ -30,6 +30,7 @@ Create `deploy/k3s/values-prod.yaml` and override at minimum:
 - `gateway.agentImage.repository`
 - `gateway.vpsT.wireguard.image`
 - auth tokens
+- `controlPlane.env.superadminTelegramIds`
 - `gateway.vpsT.publicIPv4` / `gateway.vpsE.publicIPv4`
 - `controlPlane.env.defaultVpsTHost` / `defaultVpsEHost`
 - xray/hysteria/wireguard configs (stored as Kubernetes Secrets by the chart)
