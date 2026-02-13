@@ -53,6 +53,9 @@ settings = get_settings()
 api = TracegateApiClient(settings.bot_api_base_url, settings.bot_api_token)
 router = Router()
 
+def _main_menu_text() -> str:
+    return "Tracegate v0.3\nВыберите действие:\n\nГайдлайн доступен по команде /guide"
+
 
 def _load_guide_text() -> str:
     guide_path = settings.bot_guide_path.strip()
@@ -84,7 +87,7 @@ async def _cleanup_chat_history(bot: Bot, chat_id: int, from_message_id: int, *,
 async def _send_main_menu(message: Message) -> None:
     user = await ensure_user(message.from_user.id)
     await message.answer(
-        "Tracegate v0.3\nВыберите действие:",
+        _main_menu_text(),
         reply_markup=main_menu_keyboard(is_admin=is_admin(user)),
     )
 
@@ -212,6 +215,16 @@ def _format_uri_instructions(uri: str) -> str:
     )
 
 
+def _connection_marker(connection: dict) -> str:
+    variant = str(connection.get("variant") or "").strip() or "B?"
+    tg_id = str(connection.get("user_id") or "").strip() or "?"
+    device_id = str(connection.get("device_id") or "").strip() or "?"
+    device_name = str(connection.get("device_name") or "").strip()
+    device_part = f"{device_id}({device_name})" if device_name else device_id
+    connection_id = str(connection.get("id") or "").strip() or "?"
+    return f"{variant} - {tg_id} - {device_part} - {connection_id}"
+
+
 def _build_qr_png(payload: str) -> bytes:
     qr = qrcode.QRCode(
         version=None,
@@ -281,12 +294,18 @@ async def _send_client_config(callback: CallbackQuery, revision: dict) -> None:
     revision_id = str(revision.get("id") or "")
     connection_id = str(revision.get("connection_id") or "")
     device_id: str | None = None
+    marker: str | None = None
     try:
         if connection_id:
             conn = await api.get_connection(connection_id)
             device_id = str(conn.get("device_id") or "")
+            marker = _connection_marker(conn)
     except Exception:
         device_id = None
+        marker = None
+
+    if not marker:
+        marker = f"B? - {callback.from_user.id} - {device_id or '?'} - {connection_id or '?'}"
 
     try:
         exported = export_client_config(effective)
@@ -296,7 +315,7 @@ async def _send_client_config(callback: CallbackQuery, revision: dict) -> None:
 
     if exported.kind == "uri":
         sent = await callback.message.answer(
-            _format_uri_instructions(exported.content),
+            f"{marker}\n\n{_format_uri_instructions(exported.content)}",
             disable_web_page_preview=True,
         )
         await _register_bot_message_ref(
@@ -309,7 +328,7 @@ async def _send_client_config(callback: CallbackQuery, revision: dict) -> None:
         qr_bytes = _build_qr_png(exported.content)
         qr_msg = await callback.message.answer_photo(
             BufferedInputFile(qr_bytes, filename="tracegate-config-qr.png"),
-            caption=f"{exported.title} (QR)",
+            caption=f"{marker}\n{exported.title} (QR)",
         )
         await _register_bot_message_ref(
             callback,
@@ -323,7 +342,10 @@ async def _send_client_config(callback: CallbackQuery, revision: dict) -> None:
     if exported.kind == "wg_conf":
         data = exported.content.encode("utf-8")
         filename = exported.filename or "wg0.conf"
-        sent = await callback.message.answer_document(BufferedInputFile(data, filename=filename), caption=exported.title)
+        sent = await callback.message.answer_document(
+            BufferedInputFile(data, filename=filename),
+            caption=f"{marker}\n{exported.title}",
+        )
         await _register_bot_message_ref(
             callback,
             message_id=sent.message_id,
@@ -370,7 +392,7 @@ async def menu(callback: CallbackQuery, state: FSMContext) -> None:
     await state.clear()
     user = await ensure_user(callback.from_user.id)
     await callback.message.edit_text(
-        "Tracegate v0.3\nВыберите действие:",
+        _main_menu_text(),
         reply_markup=main_menu_keyboard(is_admin=is_admin(user)),
     )
     await callback.answer()
@@ -703,7 +725,7 @@ async def new_connection(callback: CallbackQuery) -> None:
         text, keyboard = await render_device_page(device_id)
         await callback.message.edit_text(text, reply_markup=keyboard)
         await callback.message.answer(
-            f"Создано: connection={connection['id']} revision={revision['id']} slot={revision['slot']}"
+            f"Создано: {_connection_marker(connection)}\nrevision={revision['id']} slot={revision['slot']}"
         )
         await _send_client_config(callback, revision)
     except Exception as exc:  # noqa: BLE001
@@ -722,7 +744,7 @@ async def vless_new(callback: CallbackQuery) -> None:
         return
 
     await callback.message.edit_text(
-        "VLESS: выбери транспорт подключения:",
+        f"{'B1' if spec == 'b1' else 'B2'} - VLESS: выбери транспорт подключения:",
         reply_markup=vless_transport_keyboard(spec=spec, device_id=device_id),
     )
     await callback.answer()
@@ -768,7 +790,7 @@ async def vless_transport(callback: CallbackQuery) -> None:
         text, keyboard = await render_device_page(device_id)
         await callback.message.edit_text(text, reply_markup=keyboard)
         await callback.message.answer(
-            f"Создано: connection={connection['id']} revision={revision['id']} slot={revision['slot']}"
+            f"Создано: {_connection_marker(connection)}\nrevision={revision['id']} slot={revision['slot']}"
         )
         await _send_client_config(callback, revision)
     except Exception as exc:  # noqa: BLE001
@@ -795,7 +817,7 @@ async def new_vless_with_sni(callback: CallbackQuery) -> None:
         text, keyboard = await render_device_page(device_id)
         await callback.message.edit_text(text, reply_markup=keyboard)
         await callback.message.answer(
-            f"Создано: connection={connection['id']} revision={revision['id']} slot={revision['slot']}"
+            f"Создано: {_connection_marker(connection)}\nrevision={revision['id']} slot={revision['slot']}"
         )
         await _send_client_config(callback, revision)
     except Exception as exc:  # noqa: BLE001

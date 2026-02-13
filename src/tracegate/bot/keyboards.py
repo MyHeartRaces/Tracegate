@@ -76,10 +76,10 @@ def device_actions_keyboard(device_id: str, connections: list[dict] | None = Non
         return f"{conn.get('variant')} ({conn.get('protocol')})"
 
     rows = [
-        [InlineKeyboardButton(text="VLESS Direct", callback_data=f"vlessnew:b1:{device_id}")],
-        [InlineKeyboardButton(text="VLESS Chain (через VPS-E)", callback_data=f"vlessnew:b2:{device_id}")],
-        [InlineKeyboardButton(text="Hysteria2 (UDP/QUIC)", callback_data=f"new:b3:{device_id}")],
-        [InlineKeyboardButton(text="WireGuard", callback_data=f"new:b5:{device_id}")],
+        [InlineKeyboardButton(text="B1 - VLESS Direct", callback_data=f"vlessnew:b1:{device_id}")],
+        [InlineKeyboardButton(text="B2 - VLESS Chain (через VPS-E)", callback_data=f"vlessnew:b2:{device_id}")],
+        [InlineKeyboardButton(text="B3 - Hysteria2 (UDP/QUIC)", callback_data=f"new:b3:{device_id}")],
+        [InlineKeyboardButton(text="B5 - WireGuard", callback_data=f"new:b5:{device_id}")],
     ]
     for connection in connections or []:
         label = (connection.get("alias") or "").strip() or _title(connection)
