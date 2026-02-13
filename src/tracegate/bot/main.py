@@ -163,13 +163,8 @@ async def render_device_page(device_id: str) -> tuple[str, object]:
     if connections:
         lines = []
         for connection in connections:
-            alias = (connection.get("alias") or "").strip()
-            if alias:
-                lines.append(f"- {alias}")
-            else:
-                lines.append(
-                    f"- {_connection_family_name(connection['protocol'], connection['mode'])} id={connection['id']}"
-                )
+            marker = _connection_marker(connection)
+            lines.append(f"- {marker}")
         text += "\n".join(lines)
     else:
         text += "пока нет"
