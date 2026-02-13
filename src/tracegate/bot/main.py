@@ -7,8 +7,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from aiogram import BaseMiddleware, Bot, Dispatcher, F, Router
-from aiogram.exceptions import TelegramBadRequest
-from aiogram.filters import CommandStart
+from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError, TelegramRetryAfter
+from aiogram.filters import Command, CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, Message
@@ -52,6 +52,41 @@ from tracegate.settings import get_settings
 settings = get_settings()
 api = TracegateApiClient(settings.bot_api_base_url, settings.bot_api_token)
 router = Router()
+
+
+def _load_guide_text() -> str:
+    guide_path = settings.bot_guide_path.strip()
+    if not guide_path:
+        guide_path = str(Path(settings.bundle_root) / "bot" / "guide.md")
+    try:
+        return Path(guide_path).read_text(encoding="utf-8").strip() or "Гайд пока пуст."
+    except FileNotFoundError:
+        return "Гайд пока не настроен."
+    except Exception:
+        return "Не смог прочитать гайд."
+
+
+async def _cleanup_chat_history(bot: Bot, chat_id: int, from_message_id: int, *, limit: int) -> None:
+    # Telegram does not provide "clear chat" API; we delete recent messages one-by-one (best-effort).
+    lower = max(1, int(from_message_id) - int(limit) + 1)
+    for mid in range(int(from_message_id), lower - 1, -1):
+        try:
+            await bot.delete_message(chat_id=chat_id, message_id=mid)
+        except TelegramRetryAfter as exc:
+            await asyncio.sleep(float(exc.retry_after))
+        except (TelegramBadRequest, TelegramForbiddenError):
+            continue
+        except Exception:
+            continue
+        await asyncio.sleep(0.02)
+
+
+async def _send_main_menu(message: Message) -> None:
+    user = await ensure_user(message.from_user.id)
+    await message.answer(
+        "Tracegate v0.3\nВыберите действие:",
+        reply_markup=main_menu_keyboard(is_admin=is_admin(user)),
+    )
 
 
 class DeviceFlow(StatesGroup):
@@ -303,11 +338,31 @@ async def _send_client_config(callback: CallbackQuery, revision: dict) -> None:
 
 @router.message(CommandStart())
 async def start(message: Message) -> None:
-    user = await ensure_user(message.from_user.id)
-    await message.answer(
-        "Tracegate v0.3\nВыберите действие:",
-        reply_markup=main_menu_keyboard(is_admin=is_admin(user)),
+    await _send_main_menu(message)
+
+
+@router.message(Command("guide"))
+async def guide(message: Message) -> None:
+    await message.answer(_load_guide_text(), disable_web_page_preview=True)
+
+
+@router.message(Command("clean"))
+async def clean(message: Message, state: FSMContext) -> None:
+    await state.clear()
+    if message.chat.type != "private":
+        await message.answer("Команда /clean доступна только в личном чате с ботом.")
+        return
+
+    from_mid = int(message.message_id)
+    asyncio.create_task(
+        _cleanup_chat_history(
+            message.bot,
+            int(message.chat.id),
+            from_mid,
+            limit=int(settings.bot_clean_max_messages),
+        )
     )
+    await _send_main_menu(message)
 
 
 @router.callback_query(F.data == "menu")

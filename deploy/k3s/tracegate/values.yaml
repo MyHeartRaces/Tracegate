@@ -55,6 +55,12 @@ controlPlane:
     secretToken: ""
     uploadCert: true
 
+  # /guide text can be overridden without touching DB by mounting it from a ConfigMap.
+  # If disabled or text is empty, bot uses bundled default: bundles/bot/guide.md
+  botGuide:
+    enabled: false
+    text: ""
+
   env:
     appEnv: prod
     logLevel: INFO

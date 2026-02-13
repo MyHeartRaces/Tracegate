@@ -249,12 +249,21 @@ spec:
         {{- toYaml .Values.controlPlane.tolerations | nindent 8 }}
       affinity:
         {{- toYaml .Values.controlPlane.affinity | nindent 8 }}
-{{ if .Values.controlPlane.botWebhook.enabled }}
+{{- $botGuideEnabled := and (.Values.controlPlane.botGuide.enabled | default false) (ne (.Values.controlPlane.botGuide.text | default "") "") }}
+{{- $needBotVolumes := or .Values.controlPlane.botWebhook.enabled $botGuideEnabled }}
+{{- if $needBotVolumes }}
       volumes:
+{{- if .Values.controlPlane.botWebhook.enabled }}
         - name: bot-webhook-tls
           secret:
             secretName: {{ include "tracegate.fullname" . }}-bot-webhook-tls
-{{ end }}
+{{- end }}
+{{- if $botGuideEnabled }}
+        - name: bot-guide
+          configMap:
+            name: {{ include "tracegate.fullname" . }}-bot-guide
+{{- end }}
+{{- end }}
       containers:
         - name: bot
           image: {{ include "tracegate.image" .Values.controlPlane.image }}
@@ -265,11 +274,21 @@ spec:
             - name: webhook
               containerPort: {{ default 8443 .Values.controlPlane.botWebhook.listenPort }}
               protocol: TCP
+{{ end }}
+{{- if $needBotVolumes }}
           volumeMounts:
+{{- if .Values.controlPlane.botWebhook.enabled }}
             - name: bot-webhook-tls
               mountPath: /etc/tracegate/bot-webhook
               readOnly: true
-{{ end }}
+{{- end }}
+{{- if $botGuideEnabled }}
+            - name: bot-guide
+              mountPath: /etc/tracegate/bot-guide.md
+              subPath: bot-guide.md
+              readOnly: true
+{{- end }}
+{{- end }}
           env:
             - name: APP_ENV
               value: {{ .Values.controlPlane.env.appEnv | quote }}
@@ -287,6 +306,10 @@ spec:
                 secretKeyRef:
                   name: {{ include "tracegate.fullname" . }}-control-plane-auth
                   key: api-internal-token
+{{- if $botGuideEnabled }}
+            - name: BOT_GUIDE_PATH
+              value: "/etc/tracegate/bot-guide.md"
+{{- end }}
 {{ if .Values.controlPlane.botWebhook.enabled }}
             - name: BOT_MODE
               value: "webhook"

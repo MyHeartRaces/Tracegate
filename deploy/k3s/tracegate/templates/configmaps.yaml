@@ -120,3 +120,18 @@ data:
     }
 {{- end }}
 {{- end }}
+
+{{- $botGuideEnabled := and .Values.controlPlane.enabled (gt (int .Values.controlPlane.replicas.bot) 0) (.Values.controlPlane.botGuide.enabled | default false) (ne (.Values.controlPlane.botGuide.text | default "") "") }}
+{{- if $botGuideEnabled }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "tracegate.fullname" . }}-bot-guide
+  namespace: {{ include "tracegate.namespace" . }}
+  labels:
+    {{- include "tracegate.labels" . | nindent 4 }}
+data:
+  bot-guide.md: |
+{{ .Values.controlPlane.botGuide.text | nindent 4 }}
+{{- end }}
