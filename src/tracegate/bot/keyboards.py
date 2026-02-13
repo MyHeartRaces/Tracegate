@@ -82,7 +82,10 @@ def device_actions_keyboard(device_id: str, connections: list[dict] | None = Non
         [InlineKeyboardButton(text="B5 - WireGuard", callback_data=f"new:b5:{device_id}")],
     ]
     for connection in connections or []:
+        variant = (connection.get("variant") or "").strip()
         label = (connection.get("alias") or "").strip() or _title(connection)
+        if variant:
+            label = f"{variant} - {label}"
         if len(label) > 52:
             label = label[:49].rstrip() + "..."
         rows.append(

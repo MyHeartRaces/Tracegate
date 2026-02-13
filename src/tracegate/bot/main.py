@@ -181,7 +181,9 @@ async def render_revisions_page(connection_id: str) -> tuple[str, object]:
     revisions = await api.list_revisions(connection_id)
     family = _connection_family_name(connection["protocol"], connection["mode"])
     alias = (connection.get("alias") or "").strip()
-    text = f"Ревизии: {alias or family}\nconnection={connection_id}\n"
+    marker = _connection_marker(connection)
+    title = marker or alias or family
+    text = f"Ревизии: {title}\nconnection={connection_id}\n"
     if revisions:
         rows = [f"- id={r['id']} slot={r['slot']} status={r['status']}" for r in revisions]
         text += "\n".join(rows)
