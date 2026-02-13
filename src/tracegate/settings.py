@@ -77,6 +77,11 @@ class Settings(BaseSettings):
     agent_wg_expected_port: int = 51820
     agent_dry_run: bool = True
     agent_runtime_mode: str = "kubernetes"
+    # When enabled, the agent uses Xray gRPC API (HandlerService) to add/remove users without restarting Xray.
+    # This is required for true "zero-downtime" connection issuance/revocation.
+    agent_xray_api_enabled: bool = False
+    agent_xray_api_server: str = "127.0.0.1:8080"
+    agent_xray_api_timeout_seconds: int = 3
     # In k3s pipeline prefer graceful signal where supported.
     # Coalesce bursty outbox events into a single reload to avoid xray CrashLoopBackOff
     # while still applying the latest runtime config.

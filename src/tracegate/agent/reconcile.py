@@ -8,6 +8,7 @@ import threading
 import yaml
 
 from tracegate.settings import Settings
+from tracegate.services.sni_catalog import load_catalog
 
 _INDEX_FILE_NAME = "artifact-index.json"
 _INDEX_LOCK = threading.Lock()
@@ -243,6 +244,10 @@ def remove_wg_peer_artifact_index(settings: Settings, *, peer_key: str) -> None:
 
 
 def reconcile_xray(settings: Settings) -> bool:
+    # Optional fast-path: if API mode is enabled, we still write the runtime config
+    # for persistence across Xray restarts, but we apply user changes live via gRPC.
+    from .xray_api import sync_inbound_users  # local import to keep agent startup lean
+
     paths = AgentPaths.from_settings(settings)
     base_path = paths.base / "xray" / "config.json"
     runtime_path = paths.runtime / "xray" / "config.json"
@@ -253,7 +258,12 @@ def reconcile_xray(settings: Settings) -> bool:
     artifacts = load_all_user_artifacts(paths)
     clients_reality: list[dict] = []
     clients_ws: list[dict] = []
-    server_names: set[str] = set()
+    # Prefer a stable, pre-seeded REALITY SNI allow-list to avoid server restarts
+    # when users issue a new revision with a different camouflage SNI.
+    server_names: set[str] = set([str(s).strip() for s in (settings.sni_seed or []) if str(s).strip()])
+    for row in load_catalog():
+        if row.enabled and row.fqdn:
+            server_names.add(row.fqdn)
     for row in artifacts:
         proto = (row.get("protocol") or "").strip().lower()
         if proto not in {"vless_reality", "vless_ws_tls"}:
@@ -290,6 +300,8 @@ def reconcile_xray(settings: Settings) -> bool:
     has_tagged_reality = any(str((row or {}).get("tag") or "").strip() in managed_reality_tags for row in inbounds)
     has_tagged_ws = any(str((row or {}).get("tag") or "").strip() in managed_ws_tags for row in inbounds)
 
+    desired_by_tag: dict[str, dict[str, str]] = {}
+
     for inbound in inbounds:
         tag = str(inbound.get("tag") or "").strip()
         stream = inbound.get("streamSettings") or {}
@@ -298,11 +310,12 @@ def reconcile_xray(settings: Settings) -> bool:
         if is_reality:
             if not should_manage_reality:
                 continue
-            settings = inbound.setdefault("settings", {})
-            inbound.setdefault("settings", {})["clients"] = _merge_clients(
-                settings.get("clients") if isinstance(settings.get("clients"), list) else [],
+            inbound_settings = inbound.setdefault("settings", {})
+            merged_clients = _merge_clients(
+                inbound_settings.get("clients") if isinstance(inbound_settings.get("clients"), list) else [],
                 clients_reality,
             )
+            inbound.setdefault("settings", {})["clients"] = merged_clients
             if server_names:
                 stream = inbound.setdefault("streamSettings", {})
                 reality = stream.setdefault("realitySettings", {})
@@ -311,6 +324,17 @@ def reconcile_xray(settings: Settings) -> bool:
                     existing = []
                 merged = sorted(set([*existing, *server_names]), key=lambda s: str(s).lower())
                 reality["serverNames"] = merged
+
+            if tag:
+                desired: dict[str, str] = {}
+                for row in merged_clients:
+                    if not isinstance(row, dict):
+                        continue
+                    email = str(row.get("email") or "").strip()
+                    client_id = str(row.get("id") or "").strip()
+                    if email and client_id:
+                        desired[email] = client_id
+                desired_by_tag[tag] = desired
             continue
 
         # VLESS over WebSocket (with or without TLS termination upstream).
@@ -319,19 +343,37 @@ def reconcile_xray(settings: Settings) -> bool:
             should_manage_ws = (tag in managed_ws_tags) if has_tagged_ws else True
             if not should_manage_ws:
                 continue
-            settings = inbound.setdefault("settings", {})
-            inbound.setdefault("settings", {})["clients"] = _merge_clients(
-                settings.get("clients") if isinstance(settings.get("clients"), list) else [],
+            inbound_settings = inbound.setdefault("settings", {})
+            merged_clients = _merge_clients(
+                inbound_settings.get("clients") if isinstance(inbound_settings.get("clients"), list) else [],
                 clients_ws,
             )
+            inbound.setdefault("settings", {})["clients"] = merged_clients
+
+            if tag:
+                desired: dict[str, str] = {}
+                for row in merged_clients:
+                    if not isinstance(row, dict):
+                        continue
+                    email = str(row.get("email") or "").strip()
+                    client_id = str(row.get("id") or "").strip()
+                    if email and client_id:
+                        desired[email] = client_id
+                desired_by_tag[tag] = desired
 
     # Only write when there is a real change; otherwise we trigger unnecessary reloads.
     current = _load_json(runtime_path) if runtime_path.exists() else None
-    if current == base:
-        return False
+    should_write = current != base
 
-    _safe_dump_json(runtime_path, base)
-    return True
+    if should_write:
+        _safe_dump_json(runtime_path, base)
+
+    if settings.agent_xray_api_enabled:
+        # Apply user changes live without restarting Xray.
+        for tag, desired in desired_by_tag.items():
+            sync_inbound_users(settings, inbound_tag=tag, desired_email_to_uuid=desired)
+
+    return should_write
 
 
 def reconcile_hysteria(settings: Settings) -> bool:

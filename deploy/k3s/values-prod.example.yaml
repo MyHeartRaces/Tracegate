@@ -49,6 +49,7 @@ gateway:
       config: |
         {
           "log": {"loglevel": "warning"},
+          "api": {"tag":"api","listen":"127.0.0.1:8080","services":["HandlerService"]},
           "inbounds": [{"tag":"vless-reality-in","listen":"0.0.0.0","port":443,"protocol":"vless","settings":{"clients":[{"id":"{{ .Values.gateway.splitter.transit.uuid }}","email":"vps-e-transit"}],"decryption":"none"},"streamSettings":{"network":"tcp","security":"reality","realitySettings":{"show":false,"dest":"www.cloudflare.com:443","xver":0,"serverNames":["google.com","microsoft.com","yandex.ru","twitch.tv"],"privateKey":"REPLACE_PRIVATE_KEY","shortIds":["0123456789abcdef"]}}}],
           "outbounds": [{"protocol": "freedom", "tag": "direct"}]
         }
@@ -87,6 +88,10 @@ gateway:
     agent:
       authToken: REPLACE_AGENT_AUTH_TOKEN
       statsSecret: REPLACE_HYSTERIA_STATS_SECRET
+      # Enable Xray gRPC API mode to add/remove users without restarting Xray.
+      xrayApiEnabled: false
+      xrayApiServer: 127.0.0.1:8080
+      xrayApiTimeoutSeconds: 3
       reloadXrayCmd: sh -lc '(flock -n 9 || exit 0; sleep 1; pkill -HUP xray || true) 9>/tmp/xray-reload.lock'
       reloadHysteriaCmd: pkill -HUP hysteria || true
       reloadWgCmd: wg-quick strip /etc/wireguard/wg0.conf | wg syncconf wg0 /dev/fd/0 || true
@@ -114,6 +119,7 @@ gateway:
       config: |
         {
           "log": {"loglevel": "warning"},
+          "api": {"tag":"api","listen":"127.0.0.1:8080","services":["HandlerService"]},
           "inbounds": [
             {
               "tag":"entry-in",
@@ -151,6 +157,10 @@ gateway:
         }
     agent:
       authToken: REPLACE_AGENT_AUTH_TOKEN
+      # Enable Xray gRPC API mode to add/remove users without restarting Xray.
+      xrayApiEnabled: false
+      xrayApiServer: 127.0.0.1:8080
+      xrayApiTimeoutSeconds: 3
 
 observability:
   enabled: false

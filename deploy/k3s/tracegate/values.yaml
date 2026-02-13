@@ -126,6 +126,7 @@ gateway:
       config: |
         {
           "log": {"loglevel": "warning"},
+          "api": {"tag":"api","listen":"127.0.0.1:8080","services":["HandlerService"]},
           "inbounds": [
             {
               "tag": "vless-reality-in",
@@ -207,6 +208,10 @@ gateway:
       dataRoot: /var/lib/tracegate-agent
       dryRun: false
       runtimeMode: kubernetes
+      # Enable Xray gRPC API mode to add/remove users without restarting Xray.
+      xrayApiEnabled: false
+      xrayApiServer: 127.0.0.1:8080
+      xrayApiTimeoutSeconds: 3
       statsUrl: http://127.0.0.1:9999/traffic
       statsSecret: ""
       wgInterface: wg0
@@ -263,6 +268,7 @@ gateway:
       config: |
         {
           "log": {"loglevel": "warning"},
+          "api": {"tag":"api","listen":"127.0.0.1:8080","services":["HandlerService"]},
           "inbounds": [
             {
               "tag": "entry-in",
@@ -386,6 +392,10 @@ gateway:
       dataRoot: /var/lib/tracegate-agent
       dryRun: false
       runtimeMode: kubernetes
+      # Enable Xray gRPC API mode to add/remove users without restarting Xray.
+      xrayApiEnabled: false
+      xrayApiServer: 127.0.0.1:8080
+      xrayApiTimeoutSeconds: 3
       statsUrl: http://127.0.0.1:9999/traffic
       statsSecret: ""
       wgInterface: wg0

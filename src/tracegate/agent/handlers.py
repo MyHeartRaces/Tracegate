@@ -175,7 +175,7 @@ def handle_upsert_user(settings: Settings, payload: dict[str, Any]) -> str:
     changed = set(reconcile_all(settings))
     if changed:
         cmds: list[str] = []
-        if "xray" in changed:
+        if "xray" in changed and not settings.agent_xray_api_enabled:
             cmds.append(settings.agent_reload_xray_cmd)
         if "hysteria" in changed:
             cmds.append(settings.agent_reload_hysteria_cmd)
@@ -197,7 +197,7 @@ def handle_revoke_user(settings: Settings, payload: dict[str, Any]) -> str:
     changed = set(reconcile_all(settings))
     if changed:
         cmds: list[str] = []
-        if "xray" in changed:
+        if "xray" in changed and not settings.agent_xray_api_enabled:
             cmds.append(settings.agent_reload_xray_cmd)
         if "hysteria" in changed:
             cmds.append(settings.agent_reload_hysteria_cmd)
@@ -250,7 +250,7 @@ def handle_revoke_connection(settings: Settings, payload: dict[str, Any]) -> str
     changed = set(reconcile_all(settings))
     if changed:
         cmds: list[str] = []
-        if "xray" in changed:
+        if "xray" in changed and not settings.agent_xray_api_enabled:
             cmds.append(settings.agent_reload_xray_cmd)
         if "hysteria" in changed:
             cmds.append(settings.agent_reload_hysteria_cmd)

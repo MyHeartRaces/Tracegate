@@ -203,6 +203,12 @@ spec:
               value: {{ .Values.gateway.vpsT.agent.dryRun | quote }}
             - name: AGENT_RUNTIME_MODE
               value: {{ .Values.gateway.vpsT.agent.runtimeMode | quote }}
+            - name: AGENT_XRAY_API_ENABLED
+              value: {{ .Values.gateway.vpsT.agent.xrayApiEnabled | quote }}
+            - name: AGENT_XRAY_API_SERVER
+              value: {{ .Values.gateway.vpsT.agent.xrayApiServer | quote }}
+            - name: AGENT_XRAY_API_TIMEOUT_SECONDS
+              value: {{ .Values.gateway.vpsT.agent.xrayApiTimeoutSeconds | quote }}
             - name: AGENT_STATS_URL
               value: {{ .Values.gateway.vpsT.agent.statsUrl | quote }}
             - name: AGENT_STATS_SECRET
@@ -443,6 +449,12 @@ spec:
               value: {{ .Values.gateway.vpsE.agent.dryRun | quote }}
             - name: AGENT_RUNTIME_MODE
               value: {{ .Values.gateway.vpsE.agent.runtimeMode | quote }}
+            - name: AGENT_XRAY_API_ENABLED
+              value: {{ .Values.gateway.vpsE.agent.xrayApiEnabled | quote }}
+            - name: AGENT_XRAY_API_SERVER
+              value: {{ .Values.gateway.vpsE.agent.xrayApiServer | quote }}
+            - name: AGENT_XRAY_API_TIMEOUT_SECONDS
+              value: {{ .Values.gateway.vpsE.agent.xrayApiTimeoutSeconds | quote }}
             - name: AGENT_STATS_URL
               value: {{ .Values.gateway.vpsE.agent.statsUrl | quote }}
             - name: AGENT_STATS_SECRET
