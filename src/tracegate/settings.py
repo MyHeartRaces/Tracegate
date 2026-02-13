@@ -12,7 +12,7 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
 
     # Telegram role bootstrap. Roles are persisted in DB, but we need an initial superadmin.
-    superadmin_telegram_ids: list[int] = Field(default_factory=lambda: [255761416])
+    superadmin_telegram_ids: list[int] = Field(default_factory=list)
 
     # Secrets must not be hardcoded in repo files; provide via `.env` (not committed).
     database_url: str = ""
