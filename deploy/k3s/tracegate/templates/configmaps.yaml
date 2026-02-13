@@ -74,9 +74,6 @@ data:
         {{- if .Values.gateway.vpsE.proxyFqdn }}
         "{{ .Values.gateway.vpsE.proxyFqdn }}" ws_tls;
         {{- end }}
-        {{- if .Values.gateway.vpsE.fqdn }}
-        "{{ .Values.gateway.vpsE.fqdn }}" ws_tls;
-        {{- end }}
         {{- range (.Values.gateway.vpsE.entryMux.wsSniHosts | default (list)) }}
         "{{ . }}" ws_tls;
         {{- end }}

@@ -238,7 +238,7 @@ gateway:
       image: nginx:1.24-alpine
       pullPolicy: IfNotPresent
       # Optional extra SNI hostnames that should be treated as VLESS+WS+TLS.
-      # `proxyFqdn` and `fqdn` are included automatically.
+      # `proxyFqdn` is included automatically (if set).
       wsSniHosts: []
 
     # TLS certificate used to terminate VLESS+WS+TLS on VPS-E (chain mode / splitter).
