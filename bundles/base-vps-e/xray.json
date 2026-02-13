@@ -5,8 +5,8 @@
   "inbounds": [
     {
       "tag": "entry-in",
-      "listen": "0.0.0.0",
-      "port": 443,
+      "listen": "127.0.0.1",
+      "port": 2443,
       "protocol": "vless",
       "settings": {
         "clients": [],
@@ -29,6 +29,31 @@
           "shortIds": [
             "fedcba9876543210"
           ]
+        }
+      },
+      "sniffing": {
+        "enabled": true,
+        "destOverride": [
+          "http",
+          "tls",
+          "quic"
+        ]
+      }
+    },
+    {
+      "tag": "vless-ws-in",
+      "listen": "127.0.0.1",
+      "port": 10000,
+      "protocol": "vless",
+      "settings": {
+        "clients": [],
+        "decryption": "none"
+      },
+      "streamSettings": {
+        "network": "ws",
+        "security": "none",
+        "wsSettings": {
+          "path": "/ws"
         }
       },
       "sniffing": {
@@ -85,10 +110,11 @@
       {
         "type": "field",
         "inboundTag": [
-          "entry-in"
+          "entry-in",
+          "vless-ws-in"
         ],
         "domain": [
-          "geosite:ru",
+          "geosite:category-ru",
           "regexp:(?i)\\.ru$",
           "regexp:(?i)\\.su$",
           "regexp:(?i)\\.xn--p1ai$"
@@ -98,7 +124,8 @@
       {
         "type": "field",
         "inboundTag": [
-          "entry-in"
+          "entry-in",
+          "vless-ws-in"
         ],
         "ip": [
           "geoip:ru"
@@ -115,7 +142,8 @@
       {
         "type": "field",
         "inboundTag": [
-          "entry-in"
+          "entry-in",
+          "vless-ws-in"
         ],
         "outboundTag": "to-transit"
       }

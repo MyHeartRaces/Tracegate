@@ -234,6 +234,19 @@ gateway:
     hostNetwork: true
     shareProcessNamespace: true
 
+    entryMux:
+      image: nginx:1.24-alpine
+      pullPolicy: IfNotPresent
+      # Optional extra SNI hostnames that should be treated as VLESS+WS+TLS.
+      # `proxyFqdn` and `fqdn` are included automatically.
+      wsSniHosts: []
+
+    # TLS certificate used to terminate VLESS+WS+TLS on VPS-E (chain mode / splitter).
+    # Leave empty to generate and persist a self-signed cert in a k8s Secret.
+    wsTls:
+      crt: ""
+      key: ""
+
     # "tcpForward" is the legacy v0.1 chain implementation: L4 forward :443 -> VPS-T:443.
     # "xray" enables VPS-E user mapping and split-routing (RU/domestic via VPS-E, rest via VPS-T transit).
     mode: tcpForward
@@ -253,8 +266,8 @@ gateway:
           "inbounds": [
             {
               "tag": "entry-in",
-              "listen": "0.0.0.0",
-              "port": 443,
+              "listen": "127.0.0.1",
+              "port": 2443,
               "protocol": "vless",
               "settings": {"clients": [], "decryption": "none"},
               "streamSettings": {
@@ -267,6 +280,24 @@ gateway:
                   "serverNames": ["google.com", "microsoft.com", "yandex.ru", "twitch.tv"],
                   "privateKey": "REPLACE_PRIVATE_KEY",
                   "shortIds": ["fedcba9876543210"]
+                }
+              },
+              "sniffing": {
+                "enabled": true,
+                "destOverride": ["http", "tls", "quic"]
+              }
+            },
+            {
+              "tag": "vless-ws-in",
+              "listen": "127.0.0.1",
+              "port": 10000,
+              "protocol": "vless",
+              "settings": {"clients": [], "decryption": "none"},
+              "streamSettings": {
+                "network": "ws",
+                "security": "none",
+                "wsSettings": {
+                  "path": "{{ .Values.controlPlane.env.vlessWsPath | default "/ws" }}"
                 }
               },
               "sniffing": {
@@ -322,9 +353,9 @@ gateway:
               },
               {
                 "type": "field",
-                "inboundTag": ["entry-in"],
+                "inboundTag": ["entry-in", "vless-ws-in"],
                 "domain": [
-                  "geosite:ru",
+                  "geosite:category-ru",
                   "regexp:(?i)\\.ru$",
                   "regexp:(?i)\\.su$",
                   "regexp:(?i)\\.xn--p1ai$"
@@ -333,13 +364,13 @@ gateway:
               },
               {
                 "type": "field",
-                "inboundTag": ["entry-in"],
+                "inboundTag": ["entry-in", "vless-ws-in"],
                 "ip": ["geoip:ru"],
                 "outboundTag": "direct"
               },
               {
                 "type": "field",
-                "inboundTag": ["entry-in"],
+                "inboundTag": ["entry-in", "vless-ws-in"],
                 "outboundTag": "to-transit"
               }
             ]

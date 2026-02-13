@@ -94,8 +94,18 @@ gateway:
   vpsE:
     publicIPv4: 203.0.113.20
     fqdn: vps-e.example.com
+    # Recommended for CHAIN WS+TLS: set to a hostname that resolves to VPS-E (e.g. entry.example.com)
+    # and provide a cert/key for it via `wsTls`.
     proxyFqdn: ""
     mode: xray
+    entryMux:
+      image: nginx:1.24-alpine
+      pullPolicy: IfNotPresent
+      wsSniHosts: []
+    # TLS certificate used to terminate VLESS+WS+TLS on VPS-E (chain mode / splitter). PEM.
+    wsTls:
+      crt: ""
+      key: ""
     tcpForward:
       upstreamHost: vps-t.example.com
       upstreamPort: 443
@@ -104,7 +114,26 @@ gateway:
       config: |
         {
           "log": {"loglevel": "warning"},
-          "inbounds": [{"tag":"entry-in","listen":"0.0.0.0","port":443,"protocol":"vless","settings":{"clients":[],"decryption":"none"},"streamSettings":{"network":"tcp","security":"reality","realitySettings":{"show":false,"dest":"vps-t.example.com:443","xver":0,"serverNames":["google.com","microsoft.com","yandex.ru","twitch.tv"],"privateKey":"REPLACE_PRIVATE_KEY","shortIds":["fedcba9876543210"]}},"sniffing":{"enabled":true,"destOverride":["http","tls","quic"]}}],
+          "inbounds": [
+            {
+              "tag":"entry-in",
+              "listen":"127.0.0.1",
+              "port":2443,
+              "protocol":"vless",
+              "settings":{"clients":[],"decryption":"none"},
+              "streamSettings":{"network":"tcp","security":"reality","realitySettings":{"show":false,"dest":"vps-t.example.com:443","xver":0,"serverNames":["google.com","microsoft.com","yandex.ru","twitch.tv"],"privateKey":"REPLACE_PRIVATE_KEY","shortIds":["fedcba9876543210"]}},
+              "sniffing":{"enabled":true,"destOverride":["http","tls","quic"]}
+            },
+            {
+              "tag":"vless-ws-in",
+              "listen":"127.0.0.1",
+              "port":10000,
+              "protocol":"vless",
+              "settings":{"clients":[],"decryption":"none"},
+              "streamSettings":{"network":"ws","security":"none","wsSettings":{"path":"{{ .Values.controlPlane.env.vlessWsPath | default "/ws" }}"}},
+              "sniffing":{"enabled":true,"destOverride":["http","tls","quic"]}
+            }
+          ],
           "outbounds": [
             {"tag":"direct","protocol":"freedom"},
             {"tag":"to-transit","protocol":"vless","settings":{"vnext":[{"address":"{{ .Values.gateway.splitter.transit.upstreamHost }}","port":{{ .Values.gateway.splitter.transit.upstreamPort }},"users":[{"id":"{{ .Values.gateway.splitter.transit.uuid }}","encryption":"none"}]}]},"streamSettings":{"network":"tcp","security":"reality","realitySettings":{"serverName":"{{ .Values.gateway.splitter.transit.serverName }}","publicKey":"{{ .Values.gateway.splitter.transit.publicKey }}","shortId":"{{ .Values.gateway.splitter.transit.shortId }}"}}},
@@ -114,9 +143,9 @@ gateway:
             "domainStrategy":"IPIfNonMatch",
             "rules":[
               {"type":"field","ip":["geoip:private"],"outboundTag":"block"},
-              {"type":"field","inboundTag":["entry-in"],"domain":["geosite:ru","regexp:(?i)\\.ru$","regexp:(?i)\\.su$","regexp:(?i)\\.xn--p1ai$"],"outboundTag":"direct"},
-              {"type":"field","inboundTag":["entry-in"],"ip":["geoip:ru"],"outboundTag":"direct"},
-              {"type":"field","inboundTag":["entry-in"],"outboundTag":"to-transit"}
+              {"type":"field","inboundTag":["entry-in","vless-ws-in"],"domain":["geosite:category-ru","regexp:(?i)\\.ru$","regexp:(?i)\\.su$","regexp:(?i)\\.xn--p1ai$"],"outboundTag":"direct"},
+              {"type":"field","inboundTag":["entry-in","vless-ws-in"],"ip":["geoip:ru"],"outboundTag":"direct"},
+              {"type":"field","inboundTag":["entry-in","vless-ws-in"],"outboundTag":"to-transit"}
             ]
           }
         }

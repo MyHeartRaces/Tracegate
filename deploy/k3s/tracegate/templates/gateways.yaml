@@ -307,6 +307,12 @@ spec:
         - name: xray-config
           secret:
             secretName: {{ include "tracegate.fullname" . }}-vps-e-xray-config
+        - name: entry-mux-config
+          configMap:
+            name: {{ include "tracegate.fullname" . }}-vps-e-entry-mux
+        - name: entry-ws-tls
+          secret:
+            secretName: {{ include "tracegate.fullname" . }}-vps-e-ws-tls
         {{- else }}
         - name: haproxy-config
           configMap:
@@ -340,14 +346,45 @@ spec:
       {{- end }}
       containers:
         {{- if eq .Values.gateway.vpsE.mode "xray" }}
+        - name: entry-mux
+          image: {{ .Values.gateway.vpsE.entryMux.image | default "nginx:1.24-alpine" }}
+          imagePullPolicy: {{ .Values.gateway.vpsE.entryMux.pullPolicy | default "IfNotPresent" }}
+          ports:
+            - containerPort: 443
+              protocol: TCP
+              name: entry-tcp
+          volumeMounts:
+            - name: entry-mux-config
+              mountPath: /etc/nginx/nginx.conf
+              subPath: nginx.conf
+              readOnly: true
+            - name: entry-ws-tls
+              mountPath: /etc/nginx/tls
+              readOnly: true
+          securityContext:
+            runAsUser: 0
+            runAsGroup: 0
+          readinessProbe:
+            tcpSocket:
+              port: entry-tcp
+            initialDelaySeconds: 2
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: entry-tcp
+            initialDelaySeconds: 10
+            periodSeconds: 20
         - name: xray
           image: {{ .Values.gateway.vpsE.xray.image }}
           imagePullPolicy: {{ .Values.gateway.vpsE.xray.pullPolicy }}
           command: ["xray", "run", "-c", "/etc/xray/config.json"]
           ports:
-            - containerPort: 443
+            - containerPort: 2443
               protocol: TCP
-              name: vless-tcp
+              name: vless-reality
+            - containerPort: 10000
+              protocol: TCP
+              name: vless-ws
           volumeMounts:
             - name: agent-data
               mountPath: /etc/xray

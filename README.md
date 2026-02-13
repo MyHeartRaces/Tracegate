@@ -174,7 +174,7 @@ No full DB restore is required for architecture migration if control-plane data 
 - VLESS/Hysteria fixed on 443; WireGuard fixed on 51820.
 - Hysteria Traffic Stats API must remain secret-protected.
 - Legacy chain mode (`tcpForward`) preserves client SNI end-to-end; splitter mode may use a dedicated transit SNI on the E->T leg.
-- Split-routing on VPS-E is available in `gateway.vpsE.mode=xray`: `geosite:ru` + `.ru/.su/.xn--p1ai` + `geoip:ru` routes direct via VPS-E, default routes via VPS-T transit.
+- Split-routing on VPS-E is available in `gateway.vpsE.mode=xray`: `geosite:category-ru` + `.ru/.su/.xn--p1ai` + `geoip:ru` routes direct via VPS-E, default routes via VPS-T transit.
 - Splitter transit credentials are configured once via `gateway.splitter.transit.*` and reused on both VPS-E and VPS-T Xray configs.
 - User device limit defaults to `5`.
 - Active revision limit is enforced to `3` slots (`0..2`).
