@@ -1,4 +1,5 @@
 from contextlib import asynccontextmanager
+from importlib.metadata import PackageNotFoundError, version as pkg_version
 
 import anyio
 import uvicorn
@@ -27,7 +28,16 @@ async def lifespan(_: FastAPI):
 settings = get_settings()
 configure_logging(settings.log_level)
 
-app = FastAPI(title="Tracegate Control Plane", version="0.3.0", lifespan=lifespan)
+def _app_version() -> str:
+    try:
+        return pkg_version("tracegate")
+    except PackageNotFoundError:
+        return "dev"
+    except Exception:
+        return "unknown"
+
+
+app = FastAPI(title="Tracegate Control Plane", version=_app_version(), lifespan=lifespan)
 install_http_observability(app, component="api")
 
 app.include_router(health.router)

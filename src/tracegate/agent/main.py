@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from importlib.metadata import PackageNotFoundError, version as pkg_version
 from pathlib import Path
 
 import uvicorn
@@ -26,7 +27,16 @@ ensure_agent_dirs(settings)
 state_store = AgentStateStore(Path(settings.agent_data_root))
 register_agent_metrics(settings)
 
-app = FastAPI(title="Tracegate Node Agent", version="0.3.0")
+def _app_version() -> str:
+    try:
+        return pkg_version("tracegate")
+    except PackageNotFoundError:
+        return "dev"
+    except Exception:
+        return "unknown"
+
+
+app = FastAPI(title="Tracegate Node Agent", version=_app_version())
 install_http_observability(app, component="agent")
 
 
