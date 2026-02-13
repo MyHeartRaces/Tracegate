@@ -4,6 +4,7 @@ import asyncio
 import io
 import ssl
 from datetime import datetime, timezone
+from importlib.metadata import PackageNotFoundError, version as pkg_version
 from pathlib import Path
 
 from aiogram import BaseMiddleware, Bot, Dispatcher, F, Router
@@ -53,8 +54,17 @@ settings = get_settings()
 api = TracegateApiClient(settings.bot_api_base_url, settings.bot_api_token)
 router = Router()
 
+def _app_version() -> str:
+    try:
+        return pkg_version("tracegate")
+    except PackageNotFoundError:
+        return "dev"
+    except Exception:
+        return "unknown"
+
+
 def _main_menu_text() -> str:
-    return "Tracegate v0.3\nВыберите действие:\n\nГайдлайн доступен по команде /guide"
+    return f"Tracegate v{_app_version()}\nВыберите действие:\n\nГайдлайн доступен по команде /guide"
 
 
 def _load_guide_text() -> str:

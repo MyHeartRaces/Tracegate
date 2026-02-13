@@ -1,4 +1,4 @@
-# Tracegate v0.3
+# Tracegate v0.3.5
 
 Tracegate implements a control-plane + node-agent architecture for:
 - B1 `VLESS + REALITY` direct (443/tcp)
@@ -44,16 +44,18 @@ Monetization objects are intentionally removed in this state: there is no `walle
 SNI is a static catalog bundled with the app: `src/tracegate/staticdata/sni_catalog.yaml` (no Postgres SNI table).
 Bot users are keyed by Telegram `telegram_id` (primary key).
 
-## v0.3 highlights
+## v0.3.5 highlights
 
 - Alembic migrations (v0.1 baseline stamping + upgrade to head).
 - WireGuard peer lifecycle fix: single peer per device, consistent slot0 state, IPAM reuse/release.
 - Outbox dispatcher hardening: locking, concurrency, max-attempt dead-letter.
 - k3s-only deployment pipeline (legacy non-k3s assets removed).
 - Optional observability stack (Prometheus + Grafana) with Telegram OTP login via bot.
+- Xray "API mode" (gRPC HandlerService) for true zero-downtime VLESS user sync (no restart on new connection issuance).
 - Timed bot blocks with immediate user access revoke and alias propagation into metrics/Grafana.
 - Scoped API tokens with route-level RBAC.
 - Agent host-load/memory/network metrics + per-connection throughput table in admin dashboard.
+- Bot QoL: `/guide` and `/clean`.
 
 ## Quick start
 
@@ -168,6 +170,19 @@ Admins/superadmins have access to the Admin dashboard folder.
 
 No full DB restore is required for architecture migration if control-plane data is intact.
 
+### Full rebuild / disaster recovery
+
+To redeploy everything on brand new VPS-T/VPS-E:
+
+1. Bring up a fresh k3s cluster (or rebuild the existing one).
+2. Restore Postgres:
+   - If you use the chart-managed Postgres PV: restore from your snapshot/backup.
+   - If you use an external DB: point `controlPlane.externalDatabaseUrl` to the restored DB.
+3. Reinstall the Helm release with the same `values-prod.yaml` (tokens + gateway secrets).
+4. Run:
+   - `/dispatch/reapply-base`
+   - `/dispatch/reissue-current-revisions`
+
 ## Notes
 
 - IPv4-only assumptions.
@@ -178,4 +193,8 @@ No full DB restore is required for architecture migration if control-plane data 
 - Splitter transit credentials are configured once via `gateway.splitter.transit.*` and reused on both VPS-E and VPS-T Xray configs.
 - User device limit defaults to `5`.
 - Active revision limit is enforced to `3` slots (`0..2`).
-- Recommended Xray reload mode is graceful `SIGHUP` (no hard restarts) to preserve existing sessions.
+- Recommended Xray update mode is gRPC API (`HandlerService`) to avoid reloads entirely when issuing/revoking users.
+
+## License
+
+GPL-3.0-only (see `LICENSE`).

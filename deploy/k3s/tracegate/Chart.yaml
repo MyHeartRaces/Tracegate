@@ -1,7 +1,7 @@
 apiVersion: v2
 name: tracegate
 description: Tracegate control-plane + gateway stack for k3s
-home: https://github.com/your-org/tracegate
 type: application
-version: 0.3.0
-appVersion: "0.3.0"
+home: https://github.com/MyHeartRaces/Tracegate
+version: 0.3.5
+appVersion: "0.3.5"

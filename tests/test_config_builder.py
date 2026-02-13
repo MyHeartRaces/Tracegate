@@ -104,14 +104,14 @@ def test_ws_tls_chain_uses_vps_t_sni_when_vps_e_is_l4_forwarder() -> None:
         connection=conn,
         selected_sni=None,
         endpoints=EndpointSet(
-            vps_t_host="myheartraces.space",
-            vps_e_host="entry.myheartraces.space",
+            vps_t_host="vps-t.example.com",
+            vps_e_host="vps-e.example.com",
         ),
     )
 
-    assert cfg["server"] == "entry.myheartraces.space"
-    assert cfg["sni"] == "myheartraces.space"
-    assert cfg["ws"]["host"] == "myheartraces.space"
+    assert cfg["server"] == "vps-e.example.com"
+    assert cfg["sni"] == "vps-t.example.com"
+    assert cfg["ws"]["host"] == "vps-t.example.com"
 
 
 def test_ws_tls_chain_uses_vps_e_proxy_sni_when_proxy_enabled() -> None:
@@ -135,15 +135,15 @@ def test_ws_tls_chain_uses_vps_e_proxy_sni_when_proxy_enabled() -> None:
         connection=conn,
         selected_sni=None,
         endpoints=EndpointSet(
-            vps_t_host="transit.myheartraces.space",
-            vps_e_host="entry.myheartraces.space",
-            vps_e_proxy_host="re.myheartraces.space",
+            vps_t_host="vps-t.example.com",
+            vps_e_host="vps-e.example.com",
+            vps_e_proxy_host="proxy-vps-e.example.com",
         ),
     )
 
-    assert cfg["server"] == "entry.myheartraces.space"
-    assert cfg["sni"] == "re.myheartraces.space"
-    assert cfg["ws"]["host"] == "re.myheartraces.space"
+    assert cfg["server"] == "vps-e.example.com"
+    assert cfg["sni"] == "proxy-vps-e.example.com"
+    assert cfg["ws"]["host"] == "proxy-vps-e.example.com"
 
 
 def test_ws_tls_direct_uses_vps_t_proxy_sni_but_transport_hits_vps_t_host() -> None:
@@ -167,12 +167,12 @@ def test_ws_tls_direct_uses_vps_t_proxy_sni_but_transport_hits_vps_t_host() -> N
         connection=conn,
         selected_sni=None,
         endpoints=EndpointSet(
-            vps_t_host="entry.myheartraces.space",
-            vps_e_host="transit.myheartraces.space",
-            vps_t_proxy_host="myheartraces.space",
+            vps_t_host="vps-t.example.com",
+            vps_e_host="vps-e.example.com",
+            vps_t_proxy_host="proxy-vps-t.example.com",
         ),
     )
 
-    assert cfg["server"] == "entry.myheartraces.space"
-    assert cfg["sni"] == "myheartraces.space"
-    assert cfg["ws"]["host"] == "myheartraces.space"
+    assert cfg["server"] == "vps-t.example.com"
+    assert cfg["sni"] == "proxy-vps-t.example.com"
+    assert cfg["ws"]["host"] == "proxy-vps-t.example.com"

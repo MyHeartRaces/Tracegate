@@ -7,7 +7,7 @@ controlPlane:
   enabled: true
   image:
     repository: ghcr.io/your-org/tracegate
-    tag: "0.3.0"
+    tag: "0.3.5"
     pullPolicy: IfNotPresent
 
   replicas:
@@ -95,7 +95,7 @@ gateway:
 
   agentImage:
     repository: ghcr.io/your-org/tracegate
-    tag: "0.3.0"
+    tag: "0.3.5"
     pullPolicy: IfNotPresent
 
   splitter:
@@ -187,7 +187,7 @@ gateway:
           secret: CHANGE_ME_HYSTERIA_STATS
 
     wireguard:
-      image: ghcr.io/your-org/tracegate-wireguard:0.3.0
+      image: ghcr.io/your-org/tracegate-wireguard:0.3.5
       pullPolicy: IfNotPresent
       interface: wg0
       config: |
