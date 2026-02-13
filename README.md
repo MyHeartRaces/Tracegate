@@ -174,12 +174,15 @@ No full DB restore is required for architecture migration if control-plane data 
 
 To redeploy everything on brand new VPS-T/VPS-E:
 
-1. Bring up a fresh k3s cluster (or rebuild the existing one).
-2. Restore Postgres:
+1. Export/backup the current release values and secrets (store offline):
+   - `helm -n tracegate get values tracegate -o yaml`
+   - plus any external `values-*.yaml` overrides you used (they contain gateway keys/certs).
+2. Bring up a fresh k3s cluster (or rebuild the existing one).
+3. Restore Postgres:
    - If you use the chart-managed Postgres PV: restore from your snapshot/backup.
    - If you use an external DB: point `controlPlane.externalDatabaseUrl` to the restored DB.
-3. Reinstall the Helm release with the same `values-prod.yaml` (tokens + gateway secrets).
-4. Run:
+4. Reinstall the Helm release with the same `values-prod.yaml` (tokens + gateway secrets).
+5. Run:
    - `/dispatch/reapply-base`
    - `/dispatch/reissue-current-revisions`
 
