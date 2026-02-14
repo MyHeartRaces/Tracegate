@@ -221,3 +221,10 @@ class TracegateApiClient:
 
     async def list_nodes(self) -> list[dict]:
         return await self._request("GET", "/nodes")
+
+    async def reset_all_connections(self, *, actor_telegram_id: int) -> dict:
+        return await self._request(
+            "POST",
+            "/admin/reset-connections",
+            json={"actor_telegram_id": int(actor_telegram_id)},
+        )

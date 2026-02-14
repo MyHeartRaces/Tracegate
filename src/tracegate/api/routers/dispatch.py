@@ -141,22 +141,29 @@ async def reissue_current_revisions(payload: ReissueRequest, session: AsyncSessi
                 )
             )
         for role in roles:
-            event_payload: dict = {
-                "user_id": str(conn.user_id),
-                "user_display": user_label,
-                "telegram_username": user.telegram_username if user else None,
-                "device_id": str(conn.device_id),
-                "device_name": device_name,
-                "connection_id": str(conn.id),
-                "connection_alias": conn_alias,
-                "revision_id": str(revision.id),
-                "op_ts": revision.created_at.isoformat(),
-                "protocol": conn.protocol.value,
-                "variant": conn.variant.value,
-                # Ensure per-role idempotency keys never collide for B2 (VPS-E + VPS-T).
-                # This also lets reissue create a fresh event when payload changes.
-                "role_target": role.value,
-            }
+            if is_wireguard:
+                # Privacy: nodes only need peer public key + assigned IP for server config sync.
+                event_payload: dict = {
+                    "device_id": str(conn.device_id),
+                    "op_ts": revision.created_at.isoformat(),
+                }
+            else:
+                event_payload = {
+                    "user_id": str(conn.user_id),
+                    "user_display": user_label,
+                    "telegram_username": user.telegram_username if user else None,
+                    "device_id": str(conn.device_id),
+                    "device_name": device_name,
+                    "connection_id": str(conn.id),
+                    "connection_alias": conn_alias,
+                    "revision_id": str(revision.id),
+                    "op_ts": revision.created_at.isoformat(),
+                    "protocol": conn.protocol.value,
+                    "variant": conn.variant.value,
+                    # Ensure per-role idempotency keys never collide for B2 (VPS-E + VPS-T).
+                    # This also lets reissue create a fresh event when payload changes.
+                    "role_target": role.value,
+                }
 
             if is_wireguard:
                 # Never send client private keys to nodes. Nodes only need peer public key + assigned IP.

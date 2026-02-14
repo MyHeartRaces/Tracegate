@@ -205,51 +205,53 @@ async def _emit_apply_for_revision(
     revision: ConnectionRevision,
     idempotency_prefix: str,
 ) -> None:
-    user = await _load_user(session, connection.user_id)
     event_type = _event_type_for_protocol(connection.protocol)
-    device_name = (connection.device.name if connection.device else "").strip() or str(connection.device_id)
-    user_label = user_display(
-        telegram_id=user.telegram_id,
-        telegram_username=user.telegram_username,
-        telegram_first_name=user.telegram_first_name,
-        telegram_last_name=user.telegram_last_name,
-    )
-    conn_alias = connection_alias(
-        telegram_id=user.telegram_id,
-        telegram_username=user.telegram_username,
-        telegram_first_name=user.telegram_first_name,
-        telegram_last_name=user.telegram_last_name,
-        device_name=device_name,
-        connection_id=str(connection.id),
-    )
-
-    payload: dict = {
-        "user_id": str(user.telegram_id),
-        "user_display": user_label,
-        "telegram_username": user.telegram_username,
-        "device_id": str(connection.device_id),
-        "device_name": device_name,
-        "connection_id": str(connection.id),
-        "connection_alias": conn_alias,
-        "revision_id": str(revision.id),
-        # Revision timestamp is used by nodes to make applying state robust against
-        # out-of-order delivery (dispatcher concurrency).
-        "op_ts": revision.created_at.isoformat(),
-        "protocol": connection.protocol.value,
-        "variant": connection.variant.value,
-    }
-
     if connection.protocol == ConnectionProtocol.WIREGUARD:
-        # Do NOT send any client private keys to nodes; the node only needs peer public key + assigned IP.
+        # Privacy: nodes only need peer public key + assigned IP for server config sync.
         peer_pub, peer_ip, _allowed_ips = _wg_peer_fields_from_revision(revision)
-        payload.update(
-            {
-                "peer_public_key": peer_pub,
-                "preshared_key": None,
-                "peer_ip": peer_ip,
-            }
-        )
+        payload: dict = {
+            "device_id": str(connection.device_id),
+            # Revision timestamp is used by nodes to make applying state robust against
+            # out-of-order delivery (dispatcher concurrency).
+            "op_ts": revision.created_at.isoformat(),
+            "peer_public_key": peer_pub,
+            "preshared_key": None,
+            "peer_ip": peer_ip,
+        }
     else:
+        user = await _load_user(session, connection.user_id)
+        device_name = (connection.device.name if connection.device else "").strip() or str(connection.device_id)
+        user_label = user_display(
+            telegram_id=user.telegram_id,
+            telegram_username=user.telegram_username,
+            telegram_first_name=user.telegram_first_name,
+            telegram_last_name=user.telegram_last_name,
+        )
+        conn_alias = connection_alias(
+            telegram_id=user.telegram_id,
+            telegram_username=user.telegram_username,
+            telegram_first_name=user.telegram_first_name,
+            telegram_last_name=user.telegram_last_name,
+            device_name=device_name,
+            connection_id=str(connection.id),
+        )
+
+        payload = {
+            "user_id": str(user.telegram_id),
+            "user_display": user_label,
+            "telegram_username": user.telegram_username,
+            "device_id": str(connection.device_id),
+            "device_name": device_name,
+            "connection_id": str(connection.id),
+            "connection_alias": conn_alias,
+            "revision_id": str(revision.id),
+            # Revision timestamp is used by nodes to make applying state robust against
+            # out-of-order delivery (dispatcher concurrency).
+            "op_ts": revision.created_at.isoformat(),
+            "protocol": connection.protocol.value,
+            "variant": connection.variant.value,
+        }
+
         # vless/hysteria: nodes need the full config to reconcile xray/hysteria auth/users.
         cfg = revision.effective_config_json or {}
         payload["config"] = cfg
@@ -373,51 +375,20 @@ async def create_revision(
         )
 
     event_type = _event_type_for_protocol(connection.protocol)
-    device_name = (connection.device.name if connection.device else "").strip() or str(connection.device_id)
-    user_label = user_display(
-        telegram_id=user.telegram_id,
-        telegram_username=user.telegram_username,
-        telegram_first_name=user.telegram_first_name,
-        telegram_last_name=user.telegram_last_name,
-    )
-    conn_alias = connection_alias(
-        telegram_id=user.telegram_id,
-        telegram_username=user.telegram_username,
-        telegram_first_name=user.telegram_first_name,
-        telegram_last_name=user.telegram_last_name,
-        device_name=device_name,
-        connection_id=str(connection.id),
-    )
-    payload = {
-        "user_id": str(user.telegram_id),
-        "user_display": user_label,
-        "telegram_username": user.telegram_username,
-        "device_id": str(connection.device_id),
-        "device_name": device_name,
-        "connection_id": str(connection.id),
-        "connection_alias": conn_alias,
-        "revision_id": str(revision.id),
-        # Revision timestamp is used by nodes to make applying state robust against
-        # out-of-order delivery (dispatcher concurrency).
-        "op_ts": revision.created_at.isoformat(),
-        "protocol": connection.protocol.value,
-        "variant": connection.variant.value,
-        "config": effective_config,
-        "camouflage_sni": selected_sni.fqdn if selected_sni else None,
-    }
-
-    for role in target_roles_for_connection(connection.protocol, connection.variant):
-        if event_type == OutboxEventType.WG_PEER_UPSERT:
-            if not wg_lease or not wg_public_key:
-                raise RevisionError("wireguard peer state is missing")
-            # Never send the client private key to nodes. Nodes only need peer pubkey + assigned IP.
-            wg_payload = {
-                k: v for (k, v) in payload.items() if k != "config"
-            } | {
-                "peer_public_key": wg_public_key,
-                "preshared_key": None,
-                "peer_ip": wg_lease.ip,
-            }
+    if event_type == OutboxEventType.WG_PEER_UPSERT:
+        if not wg_lease or not wg_public_key:
+            raise RevisionError("wireguard peer state is missing")
+        # Privacy: nodes only need peer public key + assigned IP for server config sync.
+        wg_payload = {
+            "device_id": str(connection.device_id),
+            # Revision timestamp is used by nodes to make applying state robust against
+            # out-of-order delivery (dispatcher concurrency).
+            "op_ts": revision.created_at.isoformat(),
+            "peer_public_key": wg_public_key,
+            "preshared_key": None,
+            "peer_ip": wg_lease.ip,
+        }
+        for role in target_roles_for_connection(connection.protocol, connection.variant):
             await create_outbox_event(
                 session,
                 event_type=event_type,
@@ -426,15 +397,49 @@ async def create_revision(
                 role_target=role,
                 idempotency_suffix=f"{revision.id}:{role.value}",
             )
-            continue
-        await create_outbox_event(
-            session,
-            event_type=event_type,
-            aggregate_id=str(connection.id),
-            payload=payload,
-            role_target=role,
-            idempotency_suffix=f"{revision.id}:{role.value}",
+    else:
+        device_name = (connection.device.name if connection.device else "").strip() or str(connection.device_id)
+        user_label = user_display(
+            telegram_id=user.telegram_id,
+            telegram_username=user.telegram_username,
+            telegram_first_name=user.telegram_first_name,
+            telegram_last_name=user.telegram_last_name,
         )
+        conn_alias = connection_alias(
+            telegram_id=user.telegram_id,
+            telegram_username=user.telegram_username,
+            telegram_first_name=user.telegram_first_name,
+            telegram_last_name=user.telegram_last_name,
+            device_name=device_name,
+            connection_id=str(connection.id),
+        )
+        payload = {
+            "user_id": str(user.telegram_id),
+            "user_display": user_label,
+            "telegram_username": user.telegram_username,
+            "device_id": str(connection.device_id),
+            "device_name": device_name,
+            "connection_id": str(connection.id),
+            "connection_alias": conn_alias,
+            "revision_id": str(revision.id),
+            # Revision timestamp is used by nodes to make applying state robust against
+            # out-of-order delivery (dispatcher concurrency).
+            "op_ts": revision.created_at.isoformat(),
+            "protocol": connection.protocol.value,
+            "variant": connection.variant.value,
+            "config": effective_config,
+            "camouflage_sni": selected_sni.fqdn if selected_sni else None,
+        }
+
+        for role in target_roles_for_connection(connection.protocol, connection.variant):
+            await create_outbox_event(
+                session,
+                event_type=event_type,
+                aggregate_id=str(connection.id),
+                payload=payload,
+                role_target=role,
+                idempotency_suffix=f"{revision.id}:{role.value}",
+            )
 
     await _compact_slots(connection)
     await session.flush()
@@ -514,18 +519,24 @@ async def revoke_revision(session: AsyncSession, revision_id: UUID) -> Connectio
         )
     else:
         op_ts = datetime.now(timezone.utc).isoformat()
-        payload = {
-            "connection_id": str(connection.id),
-            "revision_id": str(revision.id),
-            "user_id": str(connection.user_id),
-            "device_id": str(connection.device_id),
-            "op_ts": op_ts,
-        }
         event_type = (
             OutboxEventType.WG_PEER_REMOVE
             if connection.protocol == ConnectionProtocol.WIREGUARD
             else OutboxEventType.REVOKE_CONNECTION
         )
+        if connection.protocol == ConnectionProtocol.WIREGUARD:
+            payload = {
+                "device_id": str(connection.device_id),
+                "op_ts": op_ts,
+            }
+        else:
+            payload = {
+                "connection_id": str(connection.id),
+                "revision_id": str(revision.id),
+                "user_id": str(connection.user_id),
+                "device_id": str(connection.device_id),
+                "op_ts": op_ts,
+            }
         if connection.protocol == ConnectionProtocol.WIREGUARD:
             peer = await session.scalar(select(WireguardPeer).where(WireguardPeer.device_id == connection.device_id))
             if peer is not None:

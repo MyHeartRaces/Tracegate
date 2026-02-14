@@ -465,9 +465,7 @@ spec:
                       )
                       r.raise_for_status()
 
-                      # Avoid UID collision with the folder uid (Grafana rejects it with HTTP 400).
                       admin_dash = _dashboard_admin(ds_uid)
-                      admin_dash["uid"] = "tracegate-admin-dashboard"
 
                       r = await client.post(
                           "/api/dashboards/db",

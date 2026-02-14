@@ -1,10 +1,22 @@
 import sys
 import types
 
+
+class _FakeGaugeMetricFamily:
+    def __init__(self, name: str, documentation: str, labels=None):  # noqa: ANN001
+        self.name = name
+        self.documentation = documentation
+        self.labels = list(labels or [])
+        self.samples = []
+
+    def add_metric(self, label_values, value):  # noqa: ANN001, ANN201
+        self.samples.append((list(label_values or []), float(value)))
+
+
 fake_prometheus = types.ModuleType("prometheus_client")
 fake_prometheus.REGISTRY = types.SimpleNamespace(register=lambda _: None)
 fake_prometheus_core = types.ModuleType("prometheus_client.core")
-fake_prometheus_core.GaugeMetricFamily = object
+fake_prometheus_core.GaugeMetricFamily = _FakeGaugeMetricFamily
 sys.modules.setdefault("prometheus_client", fake_prometheus)
 sys.modules.setdefault("prometheus_client.core", fake_prometheus_core)
 

@@ -12,7 +12,7 @@ from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError, Teleg
 from aiogram.filters import Command, CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from aiogram.types import CallbackQuery, Message
+from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 from aiogram.types import FSInputFile
 from aiogram.types.input_file import BufferedInputFile
 from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
@@ -114,6 +114,7 @@ class AdminFlow(StatesGroup):
     waiting_for_revoke_id = State()
     waiting_for_user_block = State()
     waiting_for_user_unblock = State()
+    waiting_for_announce_text = State()
 
 
 class BotAccessMiddleware(BaseMiddleware):
@@ -394,6 +395,73 @@ async def clean(message: Message, state: FSMContext) -> None:
     await _send_main_menu(message)
 
 
+@router.message(Command("cancel"))
+async def cancel(message: Message, state: FSMContext) -> None:
+    await state.clear()
+    if message.chat.type != "private":
+        await message.answer("Команда /cancel доступна только в личном чате с ботом.")
+        return
+    await message.answer("Отменено.")
+    await _send_main_menu(message)
+
+
+@router.message(Command("announce"))
+async def announce(message: Message, state: FSMContext) -> None:
+    await state.clear()
+    if message.chat.type != "private":
+        await message.answer("Команда /announce доступна только в личном чате с ботом.")
+        return
+    actor = await ensure_user(message.from_user.id)
+    if not is_admin(actor):
+        await message.answer("Недостаточно прав")
+        return
+    await state.set_state(AdminFlow.waiting_for_announce_text)
+    await message.answer("Введи сообщение для рассылки всем пользователям.\n/cancel для отмены.")
+
+
+@router.message(AdminFlow.waiting_for_announce_text)
+async def announce_text(message: Message, state: FSMContext) -> None:
+    try:
+        text = (message.text or "").strip()
+        if not text:
+            await message.answer("Сообщение не может быть пустым.\n/cancel для отмены.")
+            return
+
+        actor = await ensure_user(message.from_user.id)
+        if not is_admin(actor):
+            await message.answer("Недостаточно прав")
+            return
+
+        users = await api.list_users(limit=1000)
+        sent = 0
+        failed = 0
+        for user in users:
+            telegram_id = int(user.get("telegram_id") or 0)
+            if not telegram_id:
+                continue
+            try:
+                await message.bot.send_message(chat_id=telegram_id, text=text)
+                sent += 1
+            except TelegramRetryAfter as exc:
+                await asyncio.sleep(float(exc.retry_after))
+                try:
+                    await message.bot.send_message(chat_id=telegram_id, text=text)
+                    sent += 1
+                except Exception:
+                    failed += 1
+            except (TelegramForbiddenError, TelegramBadRequest):
+                failed += 1
+            except Exception:
+                failed += 1
+            await asyncio.sleep(0.04)
+
+        await message.answer(f"Готово: sent={sent}, failed={failed}")
+    except ApiClientError as exc:
+        await message.answer(f"Ошибка: {exc}")
+    finally:
+        await state.clear()
+
+
 @router.callback_query(F.data == "menu")
 async def menu(callback: CallbackQuery, state: FSMContext) -> None:
     await state.clear()
@@ -416,6 +484,43 @@ async def admin_menu(callback: CallbackQuery, state: FSMContext) -> None:
         "Админ меню:",
         reply_markup=admin_menu_keyboard(is_superadmin=is_superadmin(user)),
     )
+    await callback.answer()
+
+
+@router.callback_query(F.data == "admin_reset_connections")
+async def admin_reset_connections(callback: CallbackQuery, state: FSMContext) -> None:
+    await state.clear()
+    actor = await ensure_user(callback.from_user.id)
+    if not is_admin(actor):
+        await callback.answer("Недостаточно прав")
+        return
+
+    kb = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="Подтвердить reset", callback_data="admin_reset_connections_confirm")],
+            [InlineKeyboardButton(text="Отмена", callback_data="admin_menu")],
+        ]
+    )
+    await callback.message.answer(
+        "Reset connections: отзовет все активные подключения у всех пользователей.\nПодтвердить?",
+        reply_markup=kb,
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data == "admin_reset_connections_confirm")
+async def admin_reset_connections_confirm(callback: CallbackQuery, state: FSMContext) -> None:
+    await state.clear()
+    actor = await ensure_user(callback.from_user.id)
+    if not is_admin(actor):
+        await callback.answer("Недостаточно прав")
+        return
+    try:
+        result = await api.reset_all_connections(actor_telegram_id=callback.from_user.id)
+        revoked = int(result.get("revoked_connections") or 0)
+        await callback.message.answer(f"Готово: revoked_connections={revoked}")
+    except ApiClientError as exc:
+        await callback.message.answer(f"Ошибка: {exc}")
     await callback.answer()
 
 
@@ -646,6 +751,10 @@ async def add_device(callback: CallbackQuery, state: FSMContext) -> None:
 async def receive_device_name(message: Message, state: FSMContext) -> None:
     try:
         name = (message.text or "").strip()
+        if name.lower() == "/cancel":
+            await message.answer("Отменено.")
+            await _send_main_menu(message)
+            return
         if not name:
             await message.answer("Имя устройства не может быть пустым.")
             return

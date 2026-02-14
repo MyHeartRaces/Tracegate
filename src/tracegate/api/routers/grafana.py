@@ -21,6 +21,7 @@ from tracegate.enums import ApiScope, UserRole
 from tracegate.models import GrafanaOtp, User
 from tracegate.security import require_api_scope
 from tracegate.settings import get_settings
+from tracegate.services.pseudonym import user_pid
 
 router = APIRouter(prefix="/grafana", tags=["grafana"])
 
@@ -128,7 +129,7 @@ async def _ensure_grafana_user_role(telegram_id: int, role: UserRole) -> None:
 
     # Org role: keep normal users as Viewer; admins/superadmins as Admin.
     target_role = "Admin" if role in {UserRole.ADMIN, UserRole.SUPERADMIN} else "Viewer"
-    login = str(telegram_id)
+    login = user_pid(settings, telegram_id)
 
     async with httpx.AsyncClient(base_url=base_url, auth=(settings.grafana_admin_user, settings.grafana_admin_password), timeout=10) as client:
         user_id: int | None = None
@@ -235,7 +236,7 @@ async def grafana_login(
         ttl_seconds=int(settings.grafana_session_ttl_seconds),
         scope=session_scope,
     )
-    landing = "/grafana/d/tracegate-admin/tracegate-admin" if session_scope == GrafanaSessionScope.ADMIN else "/grafana/d/tracegate-user/tracegate-user"
+    landing = "/grafana/d/tracegate-admin-dashboard/tracegate-admin-dashboard" if session_scope == GrafanaSessionScope.ADMIN else "/grafana/d/tracegate-user/tracegate-user"
     resp = RedirectResponse(url=landing, status_code=status.HTTP_302_FOUND)
     resp.set_cookie(
         "tg_grafana_session",
@@ -280,6 +281,9 @@ async def grafana_proxy(path: str, request: Request, session: AsyncSession = Dep
 
     normalized_path = (path or "").lstrip("/")
     admin_only_prefixes = (
+        "d/tracegate-admin-dashboard",
+        "d-solo/tracegate-admin-dashboard",
+        "api/dashboards/uid/tracegate-admin-dashboard",
         "d/tracegate-admin",
         "d-solo/tracegate-admin",
         "api/dashboards/uid/tracegate-admin",
@@ -290,7 +294,7 @@ async def grafana_proxy(path: str, request: Request, session: AsyncSession = Dep
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin dashboard scope required")
 
     if not normalized_path:
-        landing = "/grafana/d/tracegate-admin/tracegate-admin" if admin_scope else "/grafana/d/tracegate-user/tracegate-user"
+        landing = "/grafana/d/tracegate-admin-dashboard/tracegate-admin-dashboard" if admin_scope else "/grafana/d/tracegate-user/tracegate-user"
         return RedirectResponse(url=landing, status_code=status.HTTP_302_FOUND)
 
     upstream_path = "/grafana" if not normalized_path else f"/grafana/{normalized_path}"
@@ -326,7 +330,7 @@ async def grafana_proxy(path: str, request: Request, session: AsyncSession = Dep
             "upgrade",
         }
     }
-    headers["x-webauth-user"] = str(telegram_id)
+    headers["x-webauth-user"] = user_pid(settings, telegram_id)
     if out_cookie_header:
         headers["cookie"] = out_cookie_header
 
@@ -351,7 +355,7 @@ async def grafana_proxy(path: str, request: Request, session: AsyncSession = Dep
                 row
                 for row in body_json
                 if isinstance(row, dict)
-                and str(row.get("uid") or "") != "tracegate-admin"
+                and str(row.get("uid") or "") not in {"tracegate-admin", "tracegate-admin-dashboard"}
                 and str(row.get("folderUid") or "") != "tracegate-admin"
                 and "tracegate-admin" not in str(row.get("url") or "")
             ]

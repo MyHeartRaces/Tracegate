@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import os
 import subprocess
 from pathlib import Path
@@ -13,32 +12,44 @@ from tracegate.settings import Settings
 _REGISTERED = False
 
 
-def _load_wg_peer_map(root: Path) -> dict[str, dict[str, str]]:
-    """
-    Map WireGuard peer public keys -> labels (user_id/device_id).
+def _query_xray_user_traffic_bytes(settings: Settings) -> dict[str, dict[str, int]]:
+    # Local import keeps agent startup lighter when Xray isn't present/enabled.
+    from .xray_api import query_user_traffic_bytes
 
-    Source of truth is agent artifacts created from WG_PEER_* events:
-      <agent_data_root>/wg-peers/peer-*.json
+    return query_user_traffic_bytes(settings, reset=False)
+
+
+def _fetch_hysteria_traffic_bytes(url: str, secret: str) -> dict[str, dict[str, int]]:
     """
-    out: dict[str, dict[str, str]] = {}
-    peers_dir = root / "wg-peers"
-    if not peers_dir.exists():
+    Fetch Hysteria2 traffic stats API response.
+
+    Expected response (best-effort parsing):
+      { "<client_id>": {"tx": <bytes>, "rx": <bytes>}, ... }
+    """
+    import httpx
+
+    url_s = str(url or "").strip()
+    secret_s = str(secret or "").strip()
+    if not url_s or not secret_s:
+        raise ValueError("AGENT_STATS_URL/AGENT_STATS_SECRET are required for hysteria stats scrape")
+
+    r = httpx.get(url_s, headers={"Authorization": secret_s}, timeout=5)
+    r.raise_for_status()
+    data = r.json()
+
+    out: dict[str, dict[str, int]] = {}
+    if not isinstance(data, dict):
         return out
-    for path in peers_dir.glob("peer-*.json"):
+    for key, value in data.items():
+        marker = str(key or "").strip()
+        if not marker or not isinstance(value, dict):
+            continue
         try:
-            row = json.loads(path.read_text(encoding="utf-8"))
+            tx = int(value.get("tx") or 0)
+            rx = int(value.get("rx") or 0)
         except Exception:
             continue
-        pub = str(row.get("peer_public_key") or "").strip()
-        if not pub:
-            continue
-        out[pub] = {
-            "user_id": str(row.get("user_id") or "").strip(),
-            "user_display": str(row.get("user_display") or "").strip(),
-            "device_id": str(row.get("device_id") or "").strip(),
-            "device_name": str(row.get("device_name") or "").strip(),
-            "connection_alias": str(row.get("connection_alias") or "").strip(),
-        }
+        out[marker] = {"tx": tx, "rx": rx}
     return out
 
 
@@ -194,29 +205,101 @@ class AgentMetricsCollector:
                 host_net.add_metric([iface, "tx"], tx_bytes)
             yield host_net
 
-        if str(self.settings.agent_role) != "VPS_T":
+        # Xray per-connection traffic stats (bytes are counters exported by StatsService).
+        xray_ok = GaugeMetricFamily("tracegate_xray_stats_scrape_ok", "Xray stats scrape status (1=ok, 0=error)")
+        xray_rx = GaugeMetricFamily(
+            "tracegate_xray_connection_rx_bytes",
+            "Xray connection received bytes (uplink, server RX)",
+            labels=["connection_marker"],
+        )
+        xray_tx = GaugeMetricFamily(
+            "tracegate_xray_connection_tx_bytes",
+            "Xray connection transmitted bytes (downlink, server TX)",
+            labels=["connection_marker"],
+        )
+        try:
+            traffic = _query_xray_user_traffic_bytes(self.settings)
+            xray_ok.add_metric([], 1)
+        except Exception:
+            xray_ok.add_metric([], 0)
+            traffic = {}
+
+        for marker, row in (traffic or {}).items():
+            marker_s = str(marker or "").strip()
+            if not marker_s or not isinstance(row, dict):
+                continue
+            # Xray uses "uplink/downlink" naming for user stats.
+            # Map to server RX/TX to match WG/Hysteria dashboards.
+            try:
+                rx_bytes = int(row.get("uplink") or 0)
+                tx_bytes = int(row.get("downlink") or 0)
+            except Exception:
+                continue
+            xray_rx.add_metric([marker_s], rx_bytes)
+            xray_tx.add_metric([marker_s], tx_bytes)
+
+        yield xray_ok
+        yield xray_rx
+        yield xray_tx
+
+        is_vps_t = str(self.settings.agent_role) == "VPS_T"
+        if not is_vps_t:
             return
+
+        # Hysteria2 per-connection traffic stats (bytes are counters reported by Traffic Stats API).
+        hyst_ok = GaugeMetricFamily("tracegate_hysteria_stats_scrape_ok", "Hysteria2 stats scrape status (1=ok, 0=error)")
+        hyst_rx = GaugeMetricFamily(
+            "tracegate_hysteria_connection_rx_bytes",
+            "Hysteria2 connection received bytes (server RX)",
+            labels=["connection_marker"],
+        )
+        hyst_tx = GaugeMetricFamily(
+            "tracegate_hysteria_connection_tx_bytes",
+            "Hysteria2 connection transmitted bytes (server TX)",
+            labels=["connection_marker"],
+        )
+        try:
+            traffic = _fetch_hysteria_traffic_bytes(self.settings.agent_stats_url, self.settings.agent_stats_secret)
+            hyst_ok.add_metric([], 1)
+        except Exception:
+            hyst_ok.add_metric([], 0)
+            traffic = {}
+
+        for marker, row in (traffic or {}).items():
+            marker_s = str(marker or "").strip()
+            if not marker_s or not isinstance(row, dict):
+                continue
+            try:
+                rx_bytes = int(row.get("rx") or 0)
+                tx_bytes = int(row.get("tx") or 0)
+            except Exception:
+                continue
+            hyst_rx.add_metric([marker_s], rx_bytes)
+            hyst_tx.add_metric([marker_s], tx_bytes)
+
+        yield hyst_ok
+        yield hyst_rx
+        yield hyst_tx
 
         # WireGuard per-peer traffic stats (bytes are counters from the kernel).
         ok_metric = GaugeMetricFamily("tracegate_wg_scrape_ok", "WireGuard scrape status (1=ok, 0=error)")
         rx = GaugeMetricFamily(
             "tracegate_wg_peer_rx_bytes",
             "WireGuard peer received bytes",
-            labels=["user_id", "user_display", "device_id", "device_name", "connection_alias", "peer_public_key"],
+            labels=["peer_public_key"],
         )
         tx = GaugeMetricFamily(
             "tracegate_wg_peer_tx_bytes",
             "WireGuard peer transmitted bytes",
-            labels=["user_id", "user_display", "device_id", "device_name", "connection_alias", "peer_public_key"],
+            labels=["peer_public_key"],
         )
         hs = GaugeMetricFamily(
             "tracegate_wg_peer_latest_handshake_seconds",
             "WireGuard peer latest handshake timestamp (unix seconds)",
-            labels=["user_id", "user_display", "device_id", "device_name", "connection_alias", "peer_public_key"],
+            labels=["peer_public_key"],
         )
 
         try:
-            peer_map = _load_wg_peer_map(self.root)
             dump_rows = _wg_dump(self.settings.agent_wg_interface)
             ok_metric.add_metric([], 1)
         except Exception:
@@ -233,16 +316,9 @@ class AgentMetricsCollector:
             transfer_rx = int(row[5] or 0)
             transfer_tx = int(row[6] or 0)
 
-            labels = peer_map.get(peer_pub) or {}
-            user_id = labels.get("user_id") or ""
-            user_display = labels.get("user_display") or user_id
-            device_id = labels.get("device_id") or ""
-            device_name = labels.get("device_name") or device_id
-            conn_alias = labels.get("connection_alias") or ""
-            metric_labels = [user_id, user_display, device_id, device_name, conn_alias, peer_pub]
-            rx.add_metric(metric_labels, transfer_rx)
-            tx.add_metric(metric_labels, transfer_tx)
-            hs.add_metric(metric_labels, latest_handshake)
+            rx.add_metric([peer_pub], transfer_rx)
+            tx.add_metric([peer_pub], transfer_tx)
+            hs.add_metric([peer_pub], latest_handshake)
 
         yield ok_metric
         yield rx

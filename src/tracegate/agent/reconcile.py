@@ -258,6 +258,15 @@ def reconcile_xray(settings: Settings) -> bool:
     artifacts = load_all_user_artifacts(paths)
     clients_reality: list[dict] = []
     clients_ws: list[dict] = []
+
+    def _connection_marker(row: dict) -> str:
+        # Keep marker stable across bot, node configs, and metrics.
+        # Format: "B* - TG_ID - CONNECTION_ID"
+        variant = str(row.get("variant") or "").strip() or "B?"
+        user_id = str(row.get("user_id") or "").strip() or "?"
+        connection_id = str(row.get("connection_id") or "").strip() or "?"
+        return f"{variant} - {user_id} - {connection_id}"
+
     # Prefer a stable, pre-seeded REALITY SNI allow-list to avoid server restarts
     # when users issue a new revision with a different camouflage SNI.
     server_names: set[str] = set([str(s).strip() for s in (settings.sni_seed or []) if str(s).strip()])
@@ -279,14 +288,14 @@ def reconcile_xray(settings: Settings) -> bool:
             clients_reality.append(
                 {
                     "id": uuid,
-                    "email": f"{row.get('user_id')}:{row.get('connection_id')}",
+                    "email": _connection_marker(row),
                 }
             )
         else:
             clients_ws.append(
                 {
                     "id": uuid,
-                    "email": f"{row.get('user_id')}:{row.get('connection_id')}",
+                    "email": _connection_marker(row),
                 }
             )
 

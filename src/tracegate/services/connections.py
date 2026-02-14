@@ -55,9 +55,7 @@ async def revoke_connection(session: AsyncSession, connection_id: UUID) -> None:
                 event_type=OutboxEventType.WG_PEER_REMOVE,
                 aggregate_id=str(conn.id),
                 payload={
-                    "user_id": str(conn.user_id),
                     "device_id": str(conn.device_id),
-                    "connection_id": str(conn.id),
                     "op_ts": op_ts,
                 },
                 role_target=role,

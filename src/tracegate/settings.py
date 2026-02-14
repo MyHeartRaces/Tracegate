@@ -70,6 +70,9 @@ class Settings(BaseSettings):
     grafana_cookie_secret: str = ""
     grafana_otp_ttl_seconds: int = 300
     grafana_session_ttl_seconds: int = 3600
+    # Secret used to derive stable pseudo-IDs (e.g. for Grafana auth-proxy login and metrics labels).
+    # If empty, falls back to grafana_cookie_secret, then api_internal_token.
+    pseudonym_secret: str = ""
 
     agent_host: str = "0.0.0.0"
     agent_port: int = 8070

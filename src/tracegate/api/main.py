@@ -1,11 +1,13 @@
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from importlib.metadata import PackageNotFoundError, version as pkg_version
 
+import asyncio
 import anyio
 import uvicorn
 from fastapi import FastAPI
 
-from tracegate.api.routers import auth, bot_messages, connections, devices, dispatch, grafana, health, metrics, nodes, revisions, sni, users
+from tracegate.api.routers import admin, auth, bot_messages, connections, devices, dispatch, grafana, health, metrics, nodes, revisions, sni, users
+from tracegate.api.inventory_metrics import inventory_refresh_loop, register_inventory_metrics
 from tracegate.cli.migrate_db import migrate_db
 from tracegate.db import get_sessionmaker
 from tracegate.observability import configure_logging, install_http_observability
@@ -22,7 +24,15 @@ async def lifespan(_: FastAPI):
         await ensure_pool_exists(session)
         await session.commit()
 
-    yield
+    # Inventory metrics (connections/users mapping for Grafana dashboards).
+    register_inventory_metrics()
+    refresh_task = asyncio.create_task(inventory_refresh_loop(settings))
+    try:
+        yield
+    finally:
+        refresh_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await refresh_task
 
 
 settings = get_settings()
@@ -44,6 +54,7 @@ app.include_router(health.router)
 app.include_router(metrics.router)
 app.include_router(grafana.router)
 app.include_router(auth.router)
+app.include_router(admin.router)
 app.include_router(sni.router)
 app.include_router(users.router)
 app.include_router(devices.router)

@@ -120,6 +120,11 @@ spec:
                 secretKeyRef:
                   name: {{ include "tracegate.fullname" . }}-grafana-auth
                   key: cookie-secret
+            - name: PSEUDONYM_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "tracegate.fullname" . }}-grafana-auth
+                  key: pseudonym-secret
             - name: GRAFANA_OTP_TTL_SECONDS
               value: {{ printf "%d" (int (.Values.controlPlane.env.grafana.otpTtlSeconds | default 300)) | quote }}
             - name: GRAFANA_SESSION_TTL_SECONDS

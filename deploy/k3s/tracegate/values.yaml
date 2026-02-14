@@ -141,7 +141,22 @@ gateway:
       config: |
         {
           "log": {"loglevel": "warning"},
-          "api": {"tag":"api","listen":"127.0.0.1:8080","services":["HandlerService"]},
+          "api": {"tag":"api","listen":"127.0.0.1:8080","services":["HandlerService","StatsService"]},
+          "stats": {},
+          "policy": {
+            "levels": {
+              "0": {
+                "statsUserUplink": true,
+                "statsUserDownlink": true
+              }
+            },
+            "system": {
+              "statsInboundUplink": true,
+              "statsInboundDownlink": true,
+              "statsOutboundUplink": true,
+              "statsOutboundDownlink": true
+            }
+          },
           "inbounds": [
             {
               "tag": "vless-reality-in",
@@ -302,7 +317,22 @@ gateway:
       config: |
         {
           "log": {"loglevel": "warning"},
-          "api": {"tag":"api","listen":"127.0.0.1:8080","services":["HandlerService"]},
+          "api": {"tag":"api","listen":"127.0.0.1:8080","services":["HandlerService","StatsService"]},
+          "stats": {},
+          "policy": {
+            "levels": {
+              "0": {
+                "statsUserUplink": true,
+                "statsUserDownlink": true
+              }
+            },
+            "system": {
+              "statsInboundUplink": true,
+              "statsInboundDownlink": true,
+              "statsOutboundUplink": true,
+              "statsOutboundDownlink": true
+            }
+          },
           "inbounds": [
             {
               "tag": "entry-in",

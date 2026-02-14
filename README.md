@@ -159,7 +159,7 @@ The Helm chart can optionally deploy Prometheus + Grafana (`observability.enable
 Grafana is exposed only via the control-plane reverse proxy at `/grafana/*`.
 Users request a one-time login link (OTP) in Telegram bot: `Статистика (Grafana)`.
 
-Regular users are scoped in dashboards by `${__user.login}` (Telegram ID); Explore is disabled.
+Regular users are scoped in dashboards by `${__user.login}` (pseudo-ID derived from Telegram ID); Explore is disabled.
 Admins/superadmins have access to the Admin dashboard folder.
 
 ## Node replacement flow (VPS-E or VPS-T)

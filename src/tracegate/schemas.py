@@ -255,6 +255,14 @@ class ReissueRequest(BaseModel):
     user_id: int | None = None
 
 
+class AdminResetConnectionsRequest(BaseModel):
+    actor_telegram_id: int
+
+
+class AdminResetConnectionsResult(BaseModel):
+    revoked_connections: int
+
+
 class AgentEventEnvelope(BaseModel):
     event_id: UUID
     idempotency_key: str

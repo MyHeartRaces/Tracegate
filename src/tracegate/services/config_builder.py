@@ -197,6 +197,10 @@ def build_effective_config(
         if mode not in {"socks", "http", "tun"}:
             raise ValueError("Unsupported Hysteria client_mode")
 
+        # Keep it stable across bot, node configs, and metrics.
+        # Format: "B* - TG_ID - CONNECTION_ID"
+        marker = f"{connection.variant.value} - {user.telegram_id} - {connection.id}"
+
         return {
             "protocol": "hysteria2",
             "profile": "B3-h3-mimic-direct",
@@ -205,7 +209,7 @@ def build_effective_config(
             "transport": "udp-quic",
             "auth": {
                 "type": "userpass",
-                "username": str(user.telegram_id),
+                "username": marker,
                 "password": str(device.id),
             },
             "client_mode": mode,

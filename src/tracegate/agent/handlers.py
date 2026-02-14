@@ -266,17 +266,7 @@ def handle_wg_peer_upsert(settings: Settings, payload: dict[str, Any]) -> str:
     # Defense-in-depth: keep only the fields that the node needs.
     # In particular, never persist accidental `config` blobs that could contain client private keys.
     allowed_keys = {
-        "user_id",
-        "user_display",
-        "telegram_username",
-        "device_id",
-        "device_name",
-        "connection_id",
-        "connection_alias",
-        "revision_id",
         "op_ts",
-        "protocol",
-        "variant",
         "peer_public_key",
         "preshared_key",
         "peer_ip",

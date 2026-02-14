@@ -35,6 +35,7 @@ def admin_menu_keyboard(*, is_superadmin: bool) -> InlineKeyboardMarkup:
         [InlineKeyboardButton(text="Список пользователей", callback_data="admin_users")],
         [InlineKeyboardButton(text="Блокировать пользователя", callback_data="admin_user_block")],
         [InlineKeyboardButton(text="Снять блокировку", callback_data="admin_user_unblock")],
+        [InlineKeyboardButton(text="Reset connections (ALL)", callback_data="admin_reset_connections")],
     ]
     if is_superadmin:
         rows.extend(
