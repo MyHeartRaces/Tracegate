@@ -141,7 +141,7 @@ gateway:
       config: |
         {
           "log": {"loglevel": "warning"},
-          "api": {"tag":"api","listen":"127.0.0.1:8080","services":["HandlerService","StatsService"]},
+          "api": {"tag":"api","services":["HandlerService","StatsService"]},
           "stats": {},
           "policy": {
             "levels": {
@@ -158,6 +158,13 @@ gateway:
             }
           },
           "inbounds": [
+            {
+              "tag": "api",
+              "listen": "127.0.0.1",
+              "port": 8080,
+              "protocol": "dokodemo-door",
+              "settings": {"address": "127.0.0.1"}
+            },
             {
               "tag": "vless-reality-in",
               "listen": "0.0.0.0",
@@ -205,7 +212,15 @@ gateway:
               }
             }
           ],
-          "outbounds": [{"protocol": "freedom", "tag": "direct"}]
+          "outbounds": [
+            {"protocol": "freedom", "tag": "api"},
+            {"protocol": "freedom", "tag": "direct"}
+          ],
+          "routing": {
+            "rules": [
+              {"type": "field", "inboundTag": ["api"], "outboundTag": "api"}
+            ]
+          }
         }
 
     hysteria:
@@ -317,7 +332,7 @@ gateway:
       config: |
         {
           "log": {"loglevel": "warning"},
-          "api": {"tag":"api","listen":"127.0.0.1:8080","services":["HandlerService","StatsService"]},
+          "api": {"tag":"api","services":["HandlerService","StatsService"]},
           "stats": {},
           "policy": {
             "levels": {
@@ -334,6 +349,13 @@ gateway:
             }
           },
           "inbounds": [
+            {
+              "tag": "api",
+              "listen": "127.0.0.1",
+              "port": 8080,
+              "protocol": "dokodemo-door",
+              "settings": {"address": "127.0.0.1"}
+            },
             {
               "tag": "entry-in",
               "listen": "127.0.0.1",
@@ -378,6 +400,10 @@ gateway:
           ],
           "outbounds": [
             {
+              "tag": "api",
+              "protocol": "freedom"
+            },
+            {
               "tag": "direct",
               "protocol": "freedom"
             },
@@ -411,6 +437,11 @@ gateway:
           "routing": {
             "domainStrategy": "IPIfNonMatch",
             "rules": [
+              {
+                "type": "field",
+                "inboundTag": ["api"],
+                "outboundTag": "api"
+              },
               {
                 "type": "field",
                 "ip": ["geoip:private"],

@@ -4,7 +4,6 @@
   },
   "api": {
     "tag": "api",
-    "listen": "127.0.0.1:8080",
     "services": [
       "HandlerService",
       "StatsService"
@@ -26,6 +25,15 @@
     }
   },
   "inbounds": [
+    {
+      "tag": "api",
+      "listen": "127.0.0.1",
+      "port": 8080,
+      "protocol": "dokodemo-door",
+      "settings": {
+        "address": "127.0.0.1"
+      }
+    },
     {
       "tag": "entry-in",
       "listen": "127.0.0.1",
@@ -88,6 +96,10 @@
   ],
   "outbounds": [
     {
+      "tag": "api",
+      "protocol": "freedom"
+    },
+    {
       "tag": "direct",
       "protocol": "freedom"
     },
@@ -122,6 +134,13 @@
   "routing": {
     "domainStrategy": "IPIfNonMatch",
     "rules": [
+      {
+        "type": "field",
+        "inboundTag": [
+          "api"
+        ],
+        "outboundTag": "api"
+      },
       {
         "type": "field",
         "inboundTag": [

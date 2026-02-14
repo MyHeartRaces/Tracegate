@@ -157,7 +157,9 @@ def query_user_traffic_bytes(settings: Settings, *, reset: bool = False) -> dict
     channel, stub = _stats_stub(settings)
     try:
         resp = stub.QueryStats(
-            stats_command_pb2.QueryStatsRequest(pattern="user>>>*>>>traffic>>>*", reset=bool(reset)),
+            # Xray StatsService QueryStats uses prefix matching, not glob/regex.
+            # Example stat name: "user>>>EMAIL>>>traffic>>>uplink"
+            stats_command_pb2.QueryStatsRequest(pattern="user>>>", reset=bool(reset)),
             timeout=float(settings.agent_xray_api_timeout_seconds or 3),
         )
     except grpc.RpcError as exc:  # pragma: no cover
