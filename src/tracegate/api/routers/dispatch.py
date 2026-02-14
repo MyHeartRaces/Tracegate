@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import json
+import hashlib
 from pathlib import Path
 
 from fastapi import APIRouter, Depends
@@ -8,7 +10,7 @@ from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracegate.api.deps import db_session
-from tracegate.enums import ApiScope, NodeRole, OutboxEventType, RecordStatus
+from tracegate.enums import ApiScope, ConnectionProtocol, NodeRole, OutboxEventType, RecordStatus
 from tracegate.models import Connection, ConnectionRevision, Device, OutboxDelivery, OutboxEvent, User, WireguardPeer
 from tracegate.schemas import OutboxDeliveryRead, OutboxEventRead, ReapplyBaseRequest, ReissueRequest
 from tracegate.security import require_api_scope
@@ -37,6 +39,12 @@ def _load_bundle_files(name: str) -> dict[str, str]:
         if path.is_file():
             files[str(path.relative_to(root))] = path.read_text(encoding="utf-8")
     return files
+
+
+def _stable_payload_hash(payload: dict) -> str:
+    # Mirrors tracegate.services.outbox._stable_payload_hash() but kept local to avoid importing a private helper.
+    dumped = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(dumped.encode("utf-8")).hexdigest()[:24]
 
 
 @router.get("/events", response_model=list[OutboxEventRead])
@@ -122,9 +130,10 @@ async def reissue_current_revisions(payload: ReissueRequest, session: AsyncSessi
             continue
 
         roles = target_roles_for_connection(conn.protocol, conn.variant)
-        event_type = OutboxEventType.WG_PEER_UPSERT if conn.protocol.value == "wireguard" else OutboxEventType.UPSERT_USER
+        is_wireguard = conn.protocol == ConnectionProtocol.WIREGUARD
+        event_type = OutboxEventType.WG_PEER_UPSERT if is_wireguard else OutboxEventType.UPSERT_USER
         wg_peer: WireguardPeer | None = None
-        if event_type == OutboxEventType.WG_PEER_UPSERT:
+        if is_wireguard:
             wg_peer = await session.scalar(
                 select(WireguardPeer).where(
                     WireguardPeer.device_id == conn.device_id,
@@ -132,7 +141,7 @@ async def reissue_current_revisions(payload: ReissueRequest, session: AsyncSessi
                 )
             )
         for role in roles:
-            payload = {
+            event_payload: dict = {
                 "user_id": str(conn.user_id),
                 "user_display": user_label,
                 "telegram_username": user.telegram_username if user else None,
@@ -144,24 +153,42 @@ async def reissue_current_revisions(payload: ReissueRequest, session: AsyncSessi
                 "op_ts": revision.created_at.isoformat(),
                 "protocol": conn.protocol.value,
                 "variant": conn.variant.value,
-                "config": revision.effective_config_json,
+                # Ensure per-role idempotency keys never collide for B2 (VPS-E + VPS-T).
+                # This also lets reissue create a fresh event when payload changes.
+                "role_target": role.value,
             }
-            if wg_peer is not None:
-                payload.update(
+
+            if is_wireguard:
+                # Never send client private keys to nodes. Nodes only need peer public key + assigned IP.
+                cfg = revision.effective_config_json or {}
+                peer_pub = str(cfg.get("device_public_key") or "").strip()
+                peer_ip = str(cfg.get("assigned_ip") or "").strip()
+                if wg_peer is not None:
+                    peer_pub = str(wg_peer.peer_public_key or "").strip() or peer_pub
+                if not peer_pub or not peer_ip:
+                    # Broken/legacy state: cannot build a valid WG peer event.
+                    continue
+                event_payload.update(
                     {
-                        "peer_public_key": wg_peer.peer_public_key,
-                        "preshared_key": wg_peer.preshared_key,
-                        "peer_ip": (revision.effective_config_json or {}).get("assigned_ip"),
+                        "peer_public_key": peer_pub,
+                        "preshared_key": wg_peer.preshared_key if wg_peer is not None else None,
+                        "peer_ip": peer_ip,
                     }
                 )
+            else:
+                event_payload["config"] = revision.effective_config_json
+
             created.append(
                 await create_outbox_event(
                     session,
                     event_type=event_type,
                     aggregate_id=str(conn.id),
-                    payload=payload,
+                    payload=event_payload,
                     role_target=role,
-                    idempotency_suffix=f"reissue:{revision.id}:{role.value}",
+                    # Include payload hash to:
+                    # - avoid reusing legacy events that may contain WireGuard private keys (older reissue impl)
+                    # - allow reissue to update alias labels over time when user/device metadata changes
+                    idempotency_suffix=f"reissue2:{revision.id}:{role.value}:{_stable_payload_hash(event_payload)}",
                 )
             )
 

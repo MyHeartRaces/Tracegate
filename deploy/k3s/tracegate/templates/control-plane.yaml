@@ -90,6 +90,14 @@ spec:
               value: {{ .Values.controlPlane.env.realityPublicKey | quote }}
             - name: REALITY_SHORT_ID
               value: {{ .Values.controlPlane.env.realityShortId | quote }}
+            - name: REALITY_PUBLIC_KEY_VPS_T
+              value: {{ (.Values.controlPlane.env.realityPublicKeyVpsT | default "") | quote }}
+            - name: REALITY_SHORT_ID_VPS_T
+              value: {{ (.Values.controlPlane.env.realityShortIdVpsT | default "") | quote }}
+            - name: REALITY_PUBLIC_KEY_VPS_E
+              value: {{ (.Values.controlPlane.env.realityPublicKeyVpsE | default "") | quote }}
+            - name: REALITY_SHORT_ID_VPS_E
+              value: {{ (.Values.controlPlane.env.realityShortIdVpsE | default "") | quote }}
             - name: WIREGUARD_SERVER_PUBLIC_KEY
               value: {{ .Values.controlPlane.env.wireguardServerPublicKey | quote }}
             - name: VLESS_WS_PATH

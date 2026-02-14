@@ -46,15 +46,55 @@ def test_chain_reality_enters_via_vps_e_and_points_to_vps_t_transit() -> None:
         endpoints=EndpointSet(
             vps_t_host="vps-t.example.com",
             vps_e_host="vps-e.example.com",
-            reality_public_key="pub",
-            reality_short_id="abcd1234",
+            reality_public_key_vps_t="pub-t",
+            reality_short_id_vps_t="sid-t",
+            reality_public_key_vps_e="pub-e",
+            reality_short_id_vps_e="sid-e",
         ),
     )
 
     assert cfg["sni"] == "google.com"
     assert cfg["server"] == "vps-e.example.com"
+    assert cfg["reality"]["public_key"] == "pub-e"
+    assert cfg["reality"]["short_id"] == "sid-e"
     assert cfg["chain"]["type"] == "tcp_forward"
     assert cfg["chain"]["upstream"] == "vps-t.example.com"
+
+
+def test_direct_reality_uses_vps_t_reality_keys() -> None:
+    user = _user()
+    device = _device(user.telegram_id)
+    conn = Connection(
+        id=uuid4(),
+        user_id=user.telegram_id,
+        device_id=device.id,
+        protocol=ConnectionProtocol.VLESS_REALITY,
+        mode=ConnectionMode.DIRECT,
+        variant=ConnectionVariant.B1,
+        profile_name="B1",
+        custom_overrides_json={"local_socks_port": 1080},
+        status=RecordStatus.ACTIVE,
+    )
+    sni = SniCatalogEntry(id=1, fqdn="splitter.wb.ru", enabled=True, is_test=False, providers=[], note=None)
+
+    cfg = build_effective_config(
+        user=user,
+        device=device,
+        connection=conn,
+        selected_sni=sni,
+        endpoints=EndpointSet(
+            vps_t_host="vps-t.example.com",
+            vps_e_host="vps-e.example.com",
+            reality_public_key_vps_t="pub-t",
+            reality_short_id_vps_t="sid-t",
+            reality_public_key_vps_e="pub-e",
+            reality_short_id_vps_e="sid-e",
+        ),
+    )
+
+    assert cfg["server"] == "vps-t.example.com"
+    assert cfg["reality"]["public_key"] == "pub-t"
+    assert cfg["reality"]["short_id"] == "sid-t"
 
 
 def test_wireguard_uses_fixed_port_51820() -> None:

@@ -109,6 +109,12 @@ class Settings(BaseSettings):
     # For chain mode with VPS-E splitter, this can be reused as transit REALITY public key unless overridden in Helm values.
     reality_public_key: str = ""
     reality_short_id: str = ""
+    # Optional per-role REALITY keys. When set, they override reality_public_key/reality_short_id for that node.
+    # This is required when B1 (direct) and B2 (chain) terminate REALITY on different nodes with different keys.
+    reality_public_key_vps_t: str = ""
+    reality_short_id_vps_t: str = ""
+    reality_public_key_vps_e: str = ""
+    reality_short_id_vps_e: str = ""
     # REALITY "dest" is a single upstream used for the mimic handshake.
     # Default to a VK dest because it is commonly reachable on RU mobile ISPs.
     reality_dest: str = "vk.com:443"

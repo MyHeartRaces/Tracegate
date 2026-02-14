@@ -17,8 +17,14 @@ controlPlane:
     superadminTelegramIds: [123456789]
     defaultVpsTHost: vps-t.example.com
     defaultVpsEHost: vps-e.example.com
+    # Legacy fallback REALITY material (used if per-role keys below are not set).
     realityPublicKey: REPLACE_REALITY_PUBLIC_KEY
     realityShortId: REPLACE_REALITY_SHORT_ID
+    # Per-role REALITY material (recommended when VPS-T and VPS-E terminate REALITY with different keys).
+    realityPublicKeyVpsT: ""
+    realityShortIdVpsT: ""
+    realityPublicKeyVpsE: ""
+    realityShortIdVpsE: ""
     wireguardServerPublicKey: REPLACE_WG_SERVER_PUBLIC_KEY
     vlessWsPath: /ws
     vlessWsTlsPort: 443

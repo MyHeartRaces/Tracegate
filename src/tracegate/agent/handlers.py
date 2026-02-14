@@ -263,6 +263,26 @@ def handle_wg_peer_upsert(settings: Settings, payload: dict[str, Any]) -> str:
     if "peer_public_key" not in payload or "peer_ip" not in payload:
         raise HandlerError("missing wireguard peer fields")
 
+    # Defense-in-depth: keep only the fields that the node needs.
+    # In particular, never persist accidental `config` blobs that could contain client private keys.
+    allowed_keys = {
+        "user_id",
+        "user_display",
+        "telegram_username",
+        "device_id",
+        "device_name",
+        "connection_id",
+        "connection_alias",
+        "revision_id",
+        "op_ts",
+        "protocol",
+        "variant",
+        "peer_public_key",
+        "preshared_key",
+        "peer_ip",
+    }
+    safe_payload = {k: payload.get(k) for k in allowed_keys if k in payload}
+
     peer_key = payload.get("device_id") or payload.get("connection_id") or payload.get("revision_id")
     if not peer_key:
         raise HandlerError("missing peer key")
@@ -291,8 +311,8 @@ def handle_wg_peer_upsert(settings: Settings, payload: dict[str, Any]) -> str:
             existing_ts = _payload_ts(existing)
             if existing_ts is not None and incoming_ts < existing_ts:
                 return f"ignored older wg peer upsert for key={peer_key_s}"
-    target.write_text(json.dumps(payload, ensure_ascii=True, indent=2), encoding="utf-8")
-    upsert_wg_peer_artifact_index(settings, peer_key=peer_key_s, payload=payload)
+    target.write_text(json.dumps(safe_payload, ensure_ascii=True, indent=2), encoding="utf-8")
+    upsert_wg_peer_artifact_index(settings, peer_key=peer_key_s, payload=safe_payload)
 
     changed = set(reconcile_all(settings))
     if "wireguard" in changed:

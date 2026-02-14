@@ -15,8 +15,15 @@ class EndpointSet:
     # Optional per-role proxy hostname (e.g. Cloudflare orange cloud) used for HTTPS-based transports.
     vps_t_proxy_host: str | None = None
     vps_e_proxy_host: str | None = None
+    # Legacy/compat: if per-role keys are not set, fall back to these.
     reality_public_key: str = ""
     reality_short_id: str = ""
+    # Per-role REALITY material. Needed when B1 (direct to VPS-T) and B2 (chain via VPS-E)
+    # terminate REALITY on different nodes with different keys/shortIds.
+    reality_public_key_vps_t: str = ""
+    reality_short_id_vps_t: str = ""
+    reality_public_key_vps_e: str = ""
+    reality_short_id_vps_e: str = ""
     wireguard_server_public_key: str = ""
     vless_ws_path: str = "/ws"
     vless_ws_tls_port: int = 443
@@ -38,6 +45,16 @@ def build_effective_config(
         if selected_sni is None:
             raise ValueError("camouflage SNI is required for VLESS/REALITY")
 
+        # REALITY terminates on different nodes depending on mode.
+        # - DIRECT (B1): client connects to VPS-T -> use VPS-T REALITY public key + shortId.
+        # - CHAIN (B2): client connects to VPS-E -> use VPS-E REALITY public key + shortId.
+        if connection.mode == ConnectionMode.DIRECT:
+            pbk = endpoints.reality_public_key_vps_t or endpoints.reality_public_key
+            sid = endpoints.reality_short_id_vps_t or endpoints.reality_short_id
+        else:
+            pbk = endpoints.reality_public_key_vps_e or endpoints.reality_public_key
+            sid = endpoints.reality_short_id_vps_e or endpoints.reality_short_id
+
         common = {
             "protocol": "vless",
             "transport": "reality",
@@ -47,8 +64,8 @@ def build_effective_config(
             "device_id": str(device.id),
             "sni": selected_sni.fqdn,
             "reality": {
-                "public_key": endpoints.reality_public_key or "REPLACE_REALITY_PUBLIC_KEY",
-                "short_id": endpoints.reality_short_id or "REPLACE_REALITY_SHORT_ID",
+                "public_key": pbk or "REPLACE_REALITY_PUBLIC_KEY",
+                "short_id": sid or "REPLACE_REALITY_SHORT_ID",
             },
             "local_socks": {
                 "enabled": True,

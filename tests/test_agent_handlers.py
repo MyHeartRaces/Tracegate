@@ -1,3 +1,5 @@
+import json
+
 import pytest
 
 from tracegate.agent import handlers
@@ -146,3 +148,31 @@ def test_out_of_order_wg_peer_remove_then_upsert_is_ignored(
     )
     assert "wg peer upserted" in msg2
     assert (tmp_path / "wg-peers" / "peer-d1.json").exists()
+
+
+def test_wg_peer_upsert_does_not_persist_config_private_key(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    monkeypatch.setattr(handlers, "reconcile_all", lambda _settings: [])
+    monkeypatch.setattr(handlers, "_run_reload_commands", lambda _settings, _cmds: None)
+
+    settings = Settings(agent_data_root=str(tmp_path), agent_dry_run=True)
+
+    handlers.handle_wg_peer_upsert(
+        settings,
+        {
+            "device_id": "d1",
+            "user_id": "1",
+            "user_display": "@alice (1)",
+            "device_name": "Alice iPhone",
+            "connection_alias": "@alice (1) - Alice iPhone - c1",
+            "peer_public_key": "pub",
+            "peer_ip": "10.0.0.2",
+            "op_ts": "2026-02-12T00:00:01+00:00",
+            "config": {"interface": {"private_key": "VERY-SECRET"}},
+        },
+    )
+
+    persisted = json.loads((tmp_path / "wg-peers" / "peer-d1.json").read_text(encoding="utf-8"))
+    assert "config" not in persisted
+    assert "VERY-SECRET" not in json.dumps(persisted)
