@@ -114,9 +114,9 @@ gateway:
       # If empty, falls back to controlPlane.env.realityPublicKey.
       publicKey: ""
       shortId: "0123456789abcdef"
-      serverName: "google.com"
+      serverName: "splitter.wb.ru"
       upstreamHost: "vps-t.example.com"
-      upstreamPort: 443
+      upstreamPort: 50000
 
   vpsT:
     enabled: true
@@ -162,12 +162,31 @@ gateway:
                 "security": "reality",
                 "realitySettings": {
                   "show": false,
-                  "dest": "www.cloudflare.com:443",
+                  "dest": "splitter.wb.ru:443",
                   "xver": 0,
-                  "serverNames": ["google.com", "microsoft.com", "yandex.ru", "twitch.tv"],
+                  "serverNames": ["splitter.wb.ru"],
                   "privateKey": "REPLACE_PRIVATE_KEY",
                   "shortIds": ["0123456789abcdef"]
                 }
+              }
+            },
+            {
+              "tag": "vless-transit-in",
+              "listen": "0.0.0.0",
+              "port": 50000,
+              "protocol": "vless",
+              "settings": {
+                "clients": [
+                  {
+                    "id": "{{ .Values.gateway.splitter.transit.uuid }}",
+                    "email": "vps-e-transit"
+                  }
+                ],
+                "decryption": "none"
+              },
+              "streamSettings": {
+                "network": "tcp",
+                "security": "none"
               }
             }
           ],
@@ -296,9 +315,9 @@ gateway:
                 "security": "reality",
                 "realitySettings": {
                   "show": false,
-                  "dest": "vps-t.example.com:443",
+                  "dest": "splitter.wb.ru:443",
                   "xver": 0,
-                  "serverNames": ["google.com", "microsoft.com", "yandex.ru", "twitch.tv"],
+                  "serverNames": ["splitter.wb.ru"],
                   "privateKey": "REPLACE_PRIVATE_KEY",
                   "shortIds": ["fedcba9876543210"]
                 }
@@ -351,12 +370,7 @@ gateway:
               },
               "streamSettings": {
                 "network": "tcp",
-                "security": "reality",
-                "realitySettings": {
-                  "serverName": "{{ .Values.gateway.splitter.transit.serverName }}",
-                  "publicKey": "{{ required "gateway.splitter.transit.publicKey (or controlPlane.env.realityPublicKey) is required for vpsE xray mode" (.Values.gateway.splitter.transit.publicKey | default .Values.controlPlane.env.realityPublicKey) }}",
-                  "shortId": "{{ .Values.gateway.splitter.transit.shortId }}"
-                }
+                "security": "none"
               }
             },
             {

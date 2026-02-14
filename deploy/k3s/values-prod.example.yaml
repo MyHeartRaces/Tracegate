@@ -43,9 +43,9 @@ gateway:
       # Transit REALITY public key of VPS-T (usually same as controlPlane.env.realityPublicKey).
       publicKey: REPLACE_REALITY_PUBLIC_KEY
       shortId: "0123456789abcdef"
-      serverName: "google.com"
+      serverName: "splitter.wb.ru"
       upstreamHost: "vps-t.example.com"
-      upstreamPort: 443
+      upstreamPort: 50000
 
   vpsT:
     publicIPv4: 203.0.113.10
@@ -57,7 +57,10 @@ gateway:
         {
           "log": {"loglevel": "warning"},
           "api": {"tag":"api","listen":"127.0.0.1:8080","services":["HandlerService"]},
-          "inbounds": [{"tag":"vless-reality-in","listen":"0.0.0.0","port":443,"protocol":"vless","settings":{"clients":[{"id":"{{ .Values.gateway.splitter.transit.uuid }}","email":"vps-e-transit"}],"decryption":"none"},"streamSettings":{"network":"tcp","security":"reality","realitySettings":{"show":false,"dest":"www.cloudflare.com:443","xver":0,"serverNames":["google.com","microsoft.com","yandex.ru","twitch.tv"],"privateKey":"REPLACE_PRIVATE_KEY","shortIds":["0123456789abcdef"]}}}],
+          "inbounds": [
+            {"tag":"vless-reality-in","listen":"0.0.0.0","port":443,"protocol":"vless","settings":{"clients":[{"id":"{{ .Values.gateway.splitter.transit.uuid }}","email":"vps-e-transit"}],"decryption":"none"},"streamSettings":{"network":"tcp","security":"reality","realitySettings":{"show":false,"dest":"splitter.wb.ru:443","xver":0,"serverNames":["splitter.wb.ru"],"privateKey":"REPLACE_PRIVATE_KEY","shortIds":["0123456789abcdef"]}}},
+            {"tag":"vless-transit-in","listen":"0.0.0.0","port":50000,"protocol":"vless","settings":{"clients":[{"id":"{{ .Values.gateway.splitter.transit.uuid }}","email":"vps-e-transit"}],"decryption":"none"},"streamSettings":{"network":"tcp","security":"none"}}
+          ],
           "outbounds": [{"protocol": "freedom", "tag": "direct"}]
         }
     hysteria:
@@ -134,7 +137,7 @@ gateway:
               "port":2443,
               "protocol":"vless",
               "settings":{"clients":[],"decryption":"none"},
-              "streamSettings":{"network":"tcp","security":"reality","realitySettings":{"show":false,"dest":"vps-t.example.com:443","xver":0,"serverNames":["google.com","microsoft.com","yandex.ru","twitch.tv"],"privateKey":"REPLACE_PRIVATE_KEY","shortIds":["fedcba9876543210"]}},
+              "streamSettings":{"network":"tcp","security":"reality","realitySettings":{"show":false,"dest":"splitter.wb.ru:443","xver":0,"serverNames":["splitter.wb.ru"],"privateKey":"REPLACE_PRIVATE_KEY","shortIds":["fedcba9876543210"]}},
               "sniffing":{"enabled":true,"destOverride":["http","tls","quic"]}
             },
             {
@@ -149,7 +152,7 @@ gateway:
           ],
           "outbounds": [
             {"tag":"direct","protocol":"freedom"},
-            {"tag":"to-transit","protocol":"vless","settings":{"vnext":[{"address":"{{ .Values.gateway.splitter.transit.upstreamHost }}","port":{{ .Values.gateway.splitter.transit.upstreamPort }},"users":[{"id":"{{ .Values.gateway.splitter.transit.uuid }}","encryption":"none"}]}]},"streamSettings":{"network":"tcp","security":"reality","realitySettings":{"serverName":"{{ .Values.gateway.splitter.transit.serverName }}","publicKey":"{{ .Values.gateway.splitter.transit.publicKey }}","shortId":"{{ .Values.gateway.splitter.transit.shortId }}"}}},
+            {"tag":"to-transit","protocol":"vless","settings":{"vnext":[{"address":"{{ .Values.gateway.splitter.transit.upstreamHost }}","port":{{ .Values.gateway.splitter.transit.upstreamPort }},"users":[{"id":"{{ .Values.gateway.splitter.transit.uuid }}","encryption":"none"}]}]},"streamSettings":{"network":"tcp","security":"none"}},
             {"tag":"block","protocol":"blackhole"}
           ],
           "routing": {

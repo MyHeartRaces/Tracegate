@@ -22,13 +22,10 @@
         "security": "reality",
         "realitySettings": {
           "show": false,
-          "dest": "www.cloudflare.com:443",
+          "dest": "splitter.wb.ru:443",
           "xver": 0,
           "serverNames": [
-            "google.com",
-            "microsoft.com",
-            "yandex.ru",
-            "twitch.tv"
+            "splitter.wb.ru"
           ],
           "privateKey": "REPLACE_PRIVATE_KEY",
           "shortIds": [
@@ -42,6 +39,26 @@
           "http",
           "tls"
         ]
+      }
+    }
+    ,
+    {
+      "tag": "vless-transit-in",
+      "listen": "0.0.0.0",
+      "port": 50000,
+      "protocol": "vless",
+      "settings": {
+        "clients": [
+          {
+            "id": "00000000-0000-4000-8000-000000000123",
+            "email": "vps-e-transit"
+          }
+        ],
+        "decryption": "none"
+      },
+      "streamSettings": {
+        "network": "tcp",
+        "security": "none"
       }
     }
   ],

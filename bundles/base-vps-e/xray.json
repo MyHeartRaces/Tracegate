@@ -17,13 +17,10 @@
         "security": "reality",
         "realitySettings": {
           "show": false,
-          "dest": "vps-t.example.com:443",
+          "dest": "splitter.wb.ru:443",
           "xver": 0,
           "serverNames": [
-            "google.com",
-            "microsoft.com",
-            "yandex.ru",
-            "twitch.tv"
+            "splitter.wb.ru"
           ],
           "privateKey": "REPLACE_PRIVATE_KEY",
           "shortIds": [
@@ -78,7 +75,7 @@
         "vnext": [
           {
             "address": "vps-t.example.com",
-            "port": 443,
+            "port": 50000,
             "users": [
               {
                 "id": "00000000-0000-4000-8000-000000000123",
@@ -91,12 +88,7 @@
       },
       "streamSettings": {
         "network": "tcp",
-        "security": "reality",
-        "realitySettings": {
-          "serverName": "google.com",
-          "publicKey": "REPLACE_TRANSIT_PUBLIC_KEY",
-          "shortId": "0123456789abcdef"
-        }
+        "security": "none"
       }
     },
     {

@@ -116,14 +116,16 @@ class Settings(BaseSettings):
     reality_public_key_vps_e: str = ""
     reality_short_id_vps_e: str = ""
     # REALITY "dest" is a single upstream used for the mimic handshake.
-    # Default to a VK dest because it is commonly reachable on RU mobile ISPs.
-    reality_dest: str = "vk.com:443"
+    # Default to a commonly reachable whitelist-friendly dest (operator can override).
+    reality_dest: str = "splitter.wb.ru:443"
     # Optional SNI compatibility filter (used by the API/bot).
     # If empty, all enabled SNIs from DB are allowed.
     reality_sni_allow_suffixes: list[str] = Field(default_factory=list)
     wireguard_server_public_key: str = ""
 
-    sni_seed: list[str] = Field(default_factory=lambda: ["google.com", "yandex.ru", "microsoft.com", "twitch.tv"])
+    # Pre-seeded SNI allow-list for REALITY inbounds. Keep it minimal to avoid
+    # advertising unrelated camouflage targets by default.
+    sni_seed: list[str] = Field(default_factory=lambda: ["splitter.wb.ru"])
 
     # Optional VLESS over WebSocket+TLS settings (operator-controlled; must match Xray inbound settings).
     vless_ws_path: str = "/ws"
