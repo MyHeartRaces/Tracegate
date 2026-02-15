@@ -313,7 +313,7 @@ def _dashboard_admin(ds_uid: str) -> dict[str, Any]:
                 "targets": [
                     {
                         "refId": "A",
-                        "expr": 'sum by (user_handle, connection_marker) (rate(tracegate_xray_connection_rx_bytes[5m]) * on(connection_marker) group_left(user_handle, connection_marker) max by (connection_marker, user_handle) (tracegate_connection_active{protocol=~"vless_.*"}))',
+                        "expr": 'sum by (user_handle, connection_marker) (rate(tracegate_xray_connection_rx_bytes[5m]) * on(connection_marker) group_left(user_handle) max by (connection_marker, user_handle) (tracegate_connection_active{protocol=~"vless_.*"}))',
                     },
                 ],
                 "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8},
@@ -326,7 +326,7 @@ def _dashboard_admin(ds_uid: str) -> dict[str, Any]:
                 "targets": [
                     {
                         "refId": "A",
-                        "expr": 'sum by (user_handle, connection_marker) (rate(tracegate_xray_connection_tx_bytes[5m]) * on(connection_marker) group_left(user_handle, connection_marker) max by (connection_marker, user_handle) (tracegate_connection_active{protocol=~"vless_.*"}))',
+                        "expr": 'sum by (user_handle, connection_marker) (rate(tracegate_xray_connection_tx_bytes[5m]) * on(connection_marker) group_left(user_handle) max by (connection_marker, user_handle) (tracegate_connection_active{protocol=~"vless_.*"}))',
                     },
                 ],
                 "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8},
@@ -339,7 +339,7 @@ def _dashboard_admin(ds_uid: str) -> dict[str, Any]:
                 "targets": [
                     {
                         "refId": "A",
-                        "expr": 'sum by (user_handle, connection_marker) (rate(tracegate_hysteria_connection_rx_bytes[5m]) * on(connection_marker) group_left(user_handle, connection_marker) max by (connection_marker, user_handle) (tracegate_connection_active{protocol="hysteria2"}))',
+                        "expr": 'sum by (user_handle, connection_marker) (rate(tracegate_hysteria_connection_rx_bytes[5m]) * on(connection_marker) group_left(user_handle) max by (connection_marker, user_handle) (tracegate_connection_active{protocol="hysteria2"}))',
                     },
                 ],
                 "gridPos": {"h": 8, "w": 12, "x": 0, "y": 16},
@@ -352,7 +352,7 @@ def _dashboard_admin(ds_uid: str) -> dict[str, Any]:
                 "targets": [
                     {
                         "refId": "A",
-                        "expr": 'sum by (user_handle, connection_marker) (rate(tracegate_hysteria_connection_tx_bytes[5m]) * on(connection_marker) group_left(user_handle, connection_marker) max by (connection_marker, user_handle) (tracegate_connection_active{protocol="hysteria2"}))',
+                        "expr": 'sum by (user_handle, connection_marker) (rate(tracegate_hysteria_connection_tx_bytes[5m]) * on(connection_marker) group_left(user_handle) max by (connection_marker, user_handle) (tracegate_connection_active{protocol="hysteria2"}))',
                     },
                 ],
                 "gridPos": {"h": 8, "w": 12, "x": 12, "y": 16},
