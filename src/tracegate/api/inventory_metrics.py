@@ -13,7 +13,7 @@ from sqlalchemy import select
 from tracegate.db import get_sessionmaker
 from tracegate.enums import ConnectionProtocol, RecordStatus
 from tracegate.models import Connection, Device, User, WireguardPeer
-from tracegate.services.pseudonym import connection_pid, user_pid
+from tracegate.services.pseudonym import connection_pid, user_pid, wg_peer_pid
 from tracegate.settings import Settings
 
 logger = logging.getLogger("tracegate.api.inventory_metrics")
@@ -44,7 +44,7 @@ class ConnectionRow:
 
 @dataclass(frozen=True)
 class WgPeerRow:
-    peer_public_key: str
+    peer_pid: str
     connection_pid: str
     connection_marker: str
     user_pid: str
@@ -162,7 +162,7 @@ class InventoryCollector:
             "tracegate_wg_peer_info",
             "WireGuard peer identity mapping (for joining node counters with control-plane labels)",
             labels=[
-                "peer_public_key",
+                "peer_pid",
                 "connection_pid",
                 "connection_marker",
                 "user_pid",
@@ -175,7 +175,7 @@ class InventoryCollector:
         for row in snap.wg_peers:
             wg_peers.add_metric(
                 [
-                    row.peer_public_key,
+                    row.peer_pid,
                     row.connection_pid,
                     row.connection_marker,
                     row.user_pid,
@@ -267,12 +267,13 @@ async def _build_snapshot(settings: Settings) -> InventorySnapshot:
             pub = str(peer.peer_public_key or "").strip()
             if not pub:
                 continue
+            peer_id = wg_peer_pid(settings, pub)
             conn_row = wg_conn_by_device.get(str(peer.device_id))
             if conn_row is None:
                 continue
             wg_peers.append(
                 WgPeerRow(
-                    peer_public_key=pub,
+                    peer_pid=peer_id,
                     connection_pid=conn_row.connection_pid,
                     connection_marker=conn_row.connection_marker,
                     user_pid=conn_row.user_pid,

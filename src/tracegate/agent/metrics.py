@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import os
 import subprocess
 from pathlib import Path
@@ -7,6 +8,7 @@ from pathlib import Path
 from prometheus_client import REGISTRY
 from prometheus_client.core import GaugeMetricFamily
 
+from tracegate.services.pseudonym import wg_peer_pid
 from tracegate.settings import Settings
 
 _REGISTERED = False
@@ -286,17 +288,17 @@ class AgentMetricsCollector:
         rx = GaugeMetricFamily(
             "tracegate_wg_peer_rx_bytes",
             "WireGuard peer received bytes",
-            labels=["peer_public_key"],
+            labels=["peer_pid"],
         )
         tx = GaugeMetricFamily(
             "tracegate_wg_peer_tx_bytes",
             "WireGuard peer transmitted bytes",
-            labels=["peer_public_key"],
+            labels=["peer_pid"],
         )
         hs = GaugeMetricFamily(
             "tracegate_wg_peer_latest_handshake_seconds",
             "WireGuard peer latest handshake timestamp (unix seconds)",
-            labels=["peer_public_key"],
+            labels=["peer_pid"],
         )
 
         try:
@@ -312,13 +314,21 @@ class AgentMetricsCollector:
             if len(row) < 7:
                 continue
             peer_pub = (row[0] or "").strip()
+            if not peer_pub:
+                continue
+            try:
+                peer_id = wg_peer_pid(self.settings, peer_pub)
+            except Exception:
+                # Best-effort fallback if PSEUDONYM_SECRET (or its fallbacks) is missing.
+                # Still avoids exposing the raw public key.
+                peer_id = hashlib.sha256(peer_pub.encode("utf-8")).hexdigest()[:20]
             latest_handshake = int(row[4] or 0)
             transfer_rx = int(row[5] or 0)
             transfer_tx = int(row[6] or 0)
 
-            rx.add_metric([peer_pub], transfer_rx)
-            tx.add_metric([peer_pub], transfer_tx)
-            hs.add_metric([peer_pub], latest_handshake)
+            rx.add_metric([peer_id], transfer_rx)
+            tx.add_metric([peer_id], transfer_tx)
+            hs.add_metric([peer_id], latest_handshake)
 
         yield ok_metric
         yield rx

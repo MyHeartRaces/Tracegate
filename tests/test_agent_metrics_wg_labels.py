@@ -15,7 +15,7 @@ class _FakeGaugeMetricFamily:
         self.samples.append((list(label_values or []), float(value)))
 
 
-def test_wg_metrics_export_peer_public_key_only(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+def test_wg_metrics_export_peer_pid_only(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
     # Keep this unit test independent from prometheus_client availability.
     fake_prometheus = types.ModuleType("prometheus_client")
     fake_prometheus.REGISTRY = types.SimpleNamespace(register=lambda _: None)
@@ -26,6 +26,7 @@ def test_wg_metrics_export_peer_public_key_only(monkeypatch: pytest.MonkeyPatch,
 
     from tracegate.agent import metrics as m
     from tracegate.settings import Settings
+    from tracegate.services.pseudonym import wg_peer_pid
 
     # Avoid calling real `wg`.
     monkeypatch.setattr(
@@ -40,17 +41,19 @@ def test_wg_metrics_export_peer_public_key_only(monkeypatch: pytest.MonkeyPatch,
     monkeypatch.setattr(m, "_query_xray_user_traffic_bytes", lambda _settings: {})
     monkeypatch.setattr(m, "_fetch_hysteria_traffic_bytes", lambda _url, _secret: {})
 
-    collector = m.AgentMetricsCollector(Settings(agent_role="VPS_T", agent_data_root=str(tmp_path)))
+    settings = Settings(agent_role="VPS_T", agent_data_root=str(tmp_path), pseudonym_secret="test-secret")
+    collector = m.AgentMetricsCollector(settings)
     out = list(collector.collect())
 
     rx = next(row for row in out if getattr(row, "name", "") == "tracegate_wg_peer_rx_bytes")
     tx = next(row for row in out if getattr(row, "name", "") == "tracegate_wg_peer_tx_bytes")
     hs = next(row for row in out if getattr(row, "name", "") == "tracegate_wg_peer_latest_handshake_seconds")
 
-    assert rx.labels == ["peer_public_key"]
-    assert tx.labels == ["peer_public_key"]
-    assert hs.labels == ["peer_public_key"]
+    assert rx.labels == ["peer_pid"]
+    assert tx.labels == ["peer_pid"]
+    assert hs.labels == ["peer_pid"]
 
-    assert rx.samples == [(["peer-pub-1"], 10.0)]
-    assert tx.samples == [(["peer-pub-1"], 20.0)]
-    assert hs.samples == [(["peer-pub-1"], 1700000000.0)]
+    peer_id = wg_peer_pid(settings, "peer-pub-1")
+    assert rx.samples == [([peer_id], 10.0)]
+    assert tx.samples == [([peer_id], 20.0)]
+    assert hs.samples == [([peer_id], 1700000000.0)]

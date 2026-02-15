@@ -197,6 +197,11 @@ spec:
                 secretKeyRef:
                   name: {{ include "tracegate.fullname" . }}-vps-t-agent-auth
                   key: agent-auth-token
+            - name: PSEUDONYM_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "tracegate.fullname" . }}-grafana-auth
+                  key: pseudonym-secret
             - name: AGENT_DATA_ROOT
               value: {{ .Values.gateway.vpsT.agent.dataRoot | quote }}
             - name: AGENT_DRY_RUN
@@ -443,6 +448,11 @@ spec:
                 secretKeyRef:
                   name: {{ include "tracegate.fullname" . }}-vps-e-agent-auth
                   key: agent-auth-token
+            - name: PSEUDONYM_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "tracegate.fullname" . }}-grafana-auth
+                  key: pseudonym-secret
             - name: AGENT_DATA_ROOT
               value: {{ .Values.gateway.vpsE.agent.dataRoot | quote }}
             - name: AGENT_DRY_RUN

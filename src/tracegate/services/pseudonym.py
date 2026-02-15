@@ -56,3 +56,8 @@ def device_pid(settings: Settings, device_id: str) -> str:
 
 def connection_pid(settings: Settings, connection_id: str) -> str:
     return pseudo_id(settings=settings, kind="connection", raw=str(connection_id))
+
+
+def wg_peer_pid(settings: Settings, peer_public_key: str) -> str:
+    # WireGuard peer keys are stable identifiers; avoid exposing them in Prometheus labels.
+    return pseudo_id(settings=settings, kind="wg_peer", raw=str(peer_public_key))

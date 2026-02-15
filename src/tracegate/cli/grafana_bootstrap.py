@@ -106,7 +106,7 @@ def _dashboard_user(ds_uid: str) -> dict[str, Any]:
                 "targets": [
                     {
                         "refId": "A",
-                        "expr": 'sum by (connection_marker) (rate(tracegate_wg_peer_rx_bytes[5m]) * on(peer_public_key) group_left(connection_marker) max by (peer_public_key, connection_marker) (tracegate_wg_peer_info{user_pid="$__user.login"}))',
+                        "expr": 'sum by (connection_marker) (rate(tracegate_wg_peer_rx_bytes[5m]) * on(peer_pid) group_left(connection_marker) max by (peer_pid, connection_marker) (tracegate_wg_peer_info{user_pid="$__user.login"}))',
                     }
                 ],
                 "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8},
@@ -119,7 +119,7 @@ def _dashboard_user(ds_uid: str) -> dict[str, Any]:
                 "targets": [
                     {
                         "refId": "A",
-                        "expr": 'sum by (connection_marker) (rate(tracegate_wg_peer_tx_bytes[5m]) * on(peer_public_key) group_left(connection_marker) max by (peer_public_key, connection_marker) (tracegate_wg_peer_info{user_pid="$__user.login"}))',
+                        "expr": 'sum by (connection_marker) (rate(tracegate_wg_peer_tx_bytes[5m]) * on(peer_pid) group_left(connection_marker) max by (peer_pid, connection_marker) (tracegate_wg_peer_info{user_pid="$__user.login"}))',
                     }
                 ],
                 "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8},
@@ -132,7 +132,7 @@ def _dashboard_user(ds_uid: str) -> dict[str, Any]:
                 "targets": [
                     {
                         "refId": "A",
-                        "expr": 'time() - max by (connection_marker) (tracegate_wg_peer_latest_handshake_seconds * on(peer_public_key) group_left(connection_marker) max by (peer_public_key, connection_marker) (tracegate_wg_peer_info{user_pid="$__user.login"}))',
+                        "expr": 'time() - max by (connection_marker) (tracegate_wg_peer_latest_handshake_seconds * on(peer_pid) group_left(connection_marker) max by (peer_pid, connection_marker) (tracegate_wg_peer_info{user_pid="$__user.login"}))',
                     }
                 ],
                 "gridPos": {"h": 8, "w": 24, "x": 0, "y": 16},
@@ -184,7 +184,7 @@ def _dashboard_user(ds_uid: str) -> dict[str, Any]:
                 "targets": [
                     {
                         "refId": "A",
-                        "expr": 'sum by (connection_marker) (rate(tracegate_hysteria_connection_tx_bytes[5m]) * on(connection_marker) group_left max by (connection_marker) (tracegate_connection_active{user_pid=\"$__user.login\", protocol=\"hysteria2\"}))',
+                        "expr": 'sum by (connection_marker) (rate(tracegate_hysteria_connection_tx_bytes[5m]) * on(connection_marker) group_left max by (connection_marker) (tracegate_connection_active{user_pid="$__user.login", protocol="hysteria2"}))',
                     }
                 ],
                 "gridPos": {"h": 8, "w": 12, "x": 12, "y": 32},
@@ -287,7 +287,7 @@ def _dashboard_admin(ds_uid: str) -> dict[str, Any]:
                 "targets": [
                     {
                         "refId": "A",
-                        "expr": "sum by (user_handle, connection_marker) (rate(tracegate_wg_peer_rx_bytes[5m]) * on(peer_public_key) group_left(user_handle, connection_marker) max by (peer_public_key, user_handle, connection_marker) (tracegate_wg_peer_info))",
+                        "expr": "sum by (user_handle, connection_marker) (rate(tracegate_wg_peer_rx_bytes[5m]) * on(peer_pid) group_left(user_handle, connection_marker) max by (peer_pid, user_handle, connection_marker) (tracegate_wg_peer_info))",
                     },
                 ],
                 "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
@@ -300,7 +300,7 @@ def _dashboard_admin(ds_uid: str) -> dict[str, Any]:
                 "targets": [
                     {
                         "refId": "A",
-                        "expr": "sum by (user_handle, connection_marker) (rate(tracegate_wg_peer_tx_bytes[5m]) * on(peer_public_key) group_left(user_handle, connection_marker) max by (peer_public_key, user_handle, connection_marker) (tracegate_wg_peer_info))",
+                        "expr": "sum by (user_handle, connection_marker) (rate(tracegate_wg_peer_tx_bytes[5m]) * on(peer_pid) group_left(user_handle, connection_marker) max by (peer_pid, user_handle, connection_marker) (tracegate_wg_peer_info))",
                     },
                 ],
                 "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
@@ -408,12 +408,12 @@ def _dashboard_admin(ds_uid: str) -> dict[str, Any]:
                 "targets": [
                     {
                         "refId": "A",
-                        "expr": "sum by (user_handle, connection_marker) (rate(tracegate_wg_peer_rx_bytes[5m]) * on(peer_public_key) group_left(user_handle, connection_marker) max by (peer_public_key, user_handle, connection_marker) (tracegate_wg_peer_info))",
+                        "expr": "sum by (user_handle, connection_marker) (rate(tracegate_wg_peer_rx_bytes[5m]) * on(peer_pid) group_left(user_handle, connection_marker) max by (peer_pid, user_handle, connection_marker) (tracegate_wg_peer_info))",
                         "legendFormat": "rx",
                     },
                     {
                         "refId": "B",
-                        "expr": "sum by (user_handle, connection_marker) (rate(tracegate_wg_peer_tx_bytes[5m]) * on(peer_public_key) group_left(user_handle, connection_marker) max by (peer_public_key, user_handle, connection_marker) (tracegate_wg_peer_info))",
+                        "expr": "sum by (user_handle, connection_marker) (rate(tracegate_wg_peer_tx_bytes[5m]) * on(peer_pid) group_left(user_handle, connection_marker) max by (peer_pid, user_handle, connection_marker) (tracegate_wg_peer_info))",
                         "legendFormat": "tx",
                     },
                 ],
@@ -453,7 +453,7 @@ def _dashboard_admin(ds_uid: str) -> dict[str, Any]:
                 "targets": [
                     {
                         "refId": "A",
-                        "expr": 'avg by (instance) ((1 - (tracegate_host_memory_bytes{kind=\"available\"} / tracegate_host_memory_bytes{kind=\"total\"})) * 100)',
+                        "expr": 'avg by (instance) ((1 - (tracegate_host_memory_bytes{kind="available"} / tracegate_host_memory_bytes{kind="total"})) * 100)',
                     },
                 ],
                 "gridPos": {"h": 8, "w": 12, "x": 12, "y": 40},
