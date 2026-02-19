@@ -201,7 +201,7 @@ async def _sync_wireguard_peer_state(
     for row in stale_rows:
         # Old revoked rows can conflict by unique(device_id)/unique(lease_id)
         # when lease ownership is recycled between devices.
-        session.delete(row)
+        await session.delete(row)
     if stale_rows:
         await session.flush()
 
