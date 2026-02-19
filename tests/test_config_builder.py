@@ -189,7 +189,7 @@ def test_ws_tls_chain_uses_vps_e_proxy_sni_when_proxy_enabled() -> None:
     assert cfg["ws"]["host"] == "proxy-vps-e.example.com"
 
 
-def test_ws_tls_direct_uses_vps_t_proxy_sni_but_transport_hits_vps_t_host() -> None:
+def test_ws_tls_direct_uses_vps_t_proxy_host_when_dedicated_proxy_is_set() -> None:
     user = _user()
     device = _device(user.telegram_id)
     conn = Connection(
@@ -216,6 +216,39 @@ def test_ws_tls_direct_uses_vps_t_proxy_sni_but_transport_hits_vps_t_host() -> N
         ),
     )
 
-    assert cfg["server"] == "vps-t.example.com"
+    assert cfg["server"] == "proxy-vps-t.example.com"
     assert cfg["sni"] == "proxy-vps-t.example.com"
     assert cfg["ws"]["host"] == "proxy-vps-t.example.com"
+
+
+def test_ws_tls_direct_falls_back_to_vps_e_entry_mux_when_vps_t_proxy_not_dedicated() -> None:
+    user = _user()
+    device = _device(user.telegram_id)
+    conn = Connection(
+        id=uuid4(),
+        user_id=user.telegram_id,
+        device_id=device.id,
+        protocol=ConnectionProtocol.VLESS_WS_TLS,
+        mode=ConnectionMode.DIRECT,
+        variant=ConnectionVariant.B1,
+        profile_name="B1",
+        custom_overrides_json={},
+        status=RecordStatus.ACTIVE,
+    )
+
+    cfg = build_effective_config(
+        user=user,
+        device=device,
+        connection=conn,
+        selected_sni=None,
+        endpoints=EndpointSet(
+            vps_t_host="myheartraces.space",
+            vps_e_host="entry.myheartraces.space",
+            # Equal host/proxy means there is no dedicated VPS-T WS terminator.
+            vps_t_proxy_host="myheartraces.space",
+        ),
+    )
+
+    assert cfg["server"] == "entry.myheartraces.space"
+    assert cfg["sni"] == "entry.myheartraces.space"
+    assert cfg["ws"]["host"] == "entry.myheartraces.space"

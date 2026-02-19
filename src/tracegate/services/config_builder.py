@@ -117,18 +117,28 @@ def build_effective_config(
             raise ValueError("VLESS+WS+TLS supports only B1/B2 variants")
 
         # For WS+TLS the TLS SNI must match where TLS is terminated.
-        # In direct mode it is VPS-T. In chain mode it depends on the VPS-E implementation:
-        # legacy L4 forwarder can still terminate on VPS-T; splitter/proxy mode can terminate on VPS-E.
+        # In direct mode prefer a dedicated VPS-T proxy host when configured; otherwise
+        # use VPS-E entry-mux which always provides WS+TLS termination on 443 in splitter mode.
+        # In chain mode it depends on the VPS-E implementation.
         # Operators can override via custom_overrides_json.
         tls_server_name = str(overrides.get("tls_server_name") or "").strip()
         if not tls_server_name and selected_sni is not None:
             tls_server_name = selected_sni.fqdn
 
         if connection.mode == ConnectionMode.DIRECT:
-            # Keep transport endpoint tied to the node address and use proxy host only for TLS/SNI.
-            # This allows WS+TLS over a proxy cert even when proxy DNS is not publicly resolvable.
-            entry_host = endpoints.vps_t_host
-            tls_termination_host = endpoints.vps_t_proxy_host or endpoints.vps_t_host
+            t_host = str(endpoints.vps_t_host or "").strip()
+            t_proxy = str(endpoints.vps_t_proxy_host or "").strip()
+            # Dedicated VPS-T WS terminator is considered present only when proxy host differs.
+            if t_proxy and t_proxy.lower() != t_host.lower():
+                entry_host = t_proxy
+                tls_termination_host = t_proxy
+            else:
+                entry_host = (
+                    str(endpoints.vps_e_proxy_host or "").strip()
+                    or str(endpoints.vps_e_host or "").strip()
+                    or t_host
+                )
+                tls_termination_host = entry_host
         else:
             # Chain mode enters through VPS-E node, while TLS can still terminate on a proxy host.
             entry_host = endpoints.vps_e_host
