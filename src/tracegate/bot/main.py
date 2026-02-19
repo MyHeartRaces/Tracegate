@@ -216,10 +216,11 @@ async def _safe_edit_text(message_obj, text: str, reply_markup: object | None = 
         raise
 
 
-def _format_uri_instructions(uri: str) -> str:
+def _format_uri_meta(marker: str, title: str) -> str:
     return (
-        "Ссылка для импорта в клиент:\n\n"
-        f"{uri}"
+        f"{marker}\n"
+        f"{title}\n\n"
+        "Ссылка придет следующим сообщением отдельной строкой."
     )
 
 
@@ -322,13 +323,18 @@ async def _send_client_config(callback: CallbackQuery, revision: dict) -> None:
         return
 
     if exported.kind == "uri":
-        sent = await callback.message.answer(
-            f"{marker}\n\n{_format_uri_instructions(exported.content)}",
-            disable_web_page_preview=True,
-        )
+        sent = await callback.message.answer(_format_uri_meta(marker, exported.title))
         await _register_bot_message_ref(
             callback,
             message_id=sent.message_id,
+            connection_id=connection_id or None,
+            device_id=device_id or None,
+            revision_id=revision_id or None,
+        )
+        uri_msg = await callback.message.answer(exported.content, disable_web_page_preview=True)
+        await _register_bot_message_ref(
+            callback,
+            message_id=uri_msg.message_id,
             connection_id=connection_id or None,
             device_id=device_id or None,
             revision_id=revision_id or None,
