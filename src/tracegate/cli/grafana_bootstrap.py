@@ -427,10 +427,38 @@ def _dashboard_admin(ds_uid: str) -> dict[str, Any]:
                 "targets": [
                     {
                         "refId": "A",
-                        "expr": "max by (connection_pid, connection_marker, user_pid, user_handle, protocol, mode, variant, device_name, profile_name, connection_label) (tracegate_connection_active)",
+                        "expr": 'max by (connection_pid, tg_id, connection_label, protocol, mode, variant) (label_replace(tracegate_connection_active, "tg_id", "$1", "connection_marker", "^[^-]+ - ([0-9]+) - .+$"))',
                         "instant": True,
+                        "format": "table",
                     }
                 ],
+                "transformations": [
+                    {
+                        "id": "organize",
+                        "options": {
+                            "excludeByName": {
+                                "Time": True,
+                                "Value": True,
+                                "connection_pid": True,
+                            },
+                            "indexByName": {
+                                "tg_id": 0,
+                                "connection_label": 1,
+                                "protocol": 2,
+                                "mode": 3,
+                                "variant": 4,
+                            },
+                            "renameByName": {
+                                "connection_label": "connection",
+                            },
+                        },
+                    }
+                ],
+                "options": {
+                    "showHeader": True,
+                    "cellHeight": "sm",
+                    "footer": {"show": False},
+                },
                 "gridPos": {"h": 10, "w": 24, "x": 0, "y": 58},
             },
             {
