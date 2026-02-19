@@ -2,18 +2,21 @@ import sys
 import types
 
 
-fake_prometheus = types.ModuleType("prometheus_client")
-fake_prometheus.REGISTRY = types.SimpleNamespace(register=lambda _: None)
-fake_prometheus_core = types.ModuleType("prometheus_client.core")
-fake_prometheus_core.GaugeMetricFamily = object
-sys.modules.setdefault("prometheus_client", fake_prometheus)
-sys.modules.setdefault("prometheus_client.core", fake_prometheus_core)
+def _connection_label_fn():
+    fake_prometheus = types.ModuleType("prometheus_client")
+    fake_prometheus.REGISTRY = types.SimpleNamespace(register=lambda _: None)
+    fake_prometheus_core = types.ModuleType("prometheus_client.core")
+    fake_prometheus_core.GaugeMetricFamily = object
+    sys.modules.setdefault("prometheus_client", fake_prometheus)
+    sys.modules.setdefault("prometheus_client.core", fake_prometheus_core)
 
-from tracegate.api.inventory_metrics import _connection_label
+    from tracegate.api.inventory_metrics import _connection_label
+
+    return _connection_label
 
 
 def test_connection_label_uses_human_format() -> None:
-    label = _connection_label(
+    label = _connection_label_fn()(
         protocol="vless_reality_vision",
         mode="chain",
         variant="B2",
