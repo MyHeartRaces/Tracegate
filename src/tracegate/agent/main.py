@@ -13,6 +13,8 @@ from tracegate.security import require_agent_token
 from tracegate.settings import ensure_agent_dirs, get_settings
 
 from .metrics import register_agent_metrics
+from .reconcile import reconcile_all
+from .system import run_command
 from .handlers import HandlerError, dispatch_event
 from .state import AgentStateStore
 from .system import gather_health_checks
@@ -26,6 +28,38 @@ if settings.agent_role == "VPS_T" and not settings.agent_stats_secret:
 ensure_agent_dirs(settings)
 state_store = AgentStateStore(Path(settings.agent_data_root))
 register_agent_metrics(settings)
+
+
+def _startup_reconcile() -> None:
+    """
+    Rebuild runtime configs from on-disk artifacts on process start.
+
+    This prevents empty user lists after pod/node restarts when no fresh outbox events
+    are delivered immediately.
+    """
+    changed = set(reconcile_all(settings))
+    if not changed:
+        return
+
+    commands: list[str] = []
+    if "xray" in changed and not settings.agent_xray_api_enabled:
+        commands.append(settings.agent_reload_xray_cmd)
+    if "hysteria" in changed:
+        commands.append(settings.agent_reload_hysteria_cmd)
+    if "wireguard" in changed:
+        commands.append(settings.agent_reload_wg_cmd)
+
+    for cmd in commands:
+        if not cmd:
+            continue
+        ok, out = run_command(cmd, settings.agent_dry_run)
+        if ok:
+            continue
+        details = (out or "").strip() or "no output"
+        raise RuntimeError(f"startup reconcile reload failed for `{cmd}`: {details}")
+
+
+_startup_reconcile()
 
 def _app_version() -> str:
     try:
