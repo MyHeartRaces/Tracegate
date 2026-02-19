@@ -58,10 +58,6 @@ def build_effective_config(
         common = {
             "protocol": "vless",
             "transport": "reality",
-            "xhttp": {
-                "mode": "packet-up",
-                "path": "/api/v1/update",
-            },
             "port": 443,
             # Use connection-scoped UUID so one user can have multiple VLESS connections safely.
             "uuid": str(connection.id),
