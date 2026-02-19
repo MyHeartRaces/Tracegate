@@ -127,6 +127,14 @@
       },
       {
         "type": "field",
+        "inboundTag": [
+          "vless-reality-in",
+          "vless-ws-in"
+        ],
+        "outboundTag": "direct"
+      },
+      {
+        "type": "field",
         "ip": [
           "geoip:private"
         ],

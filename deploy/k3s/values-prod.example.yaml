@@ -72,8 +72,8 @@ gateway:
 	            {"tag":"vless-reality-in","listen":"0.0.0.0","port":443,"protocol":"vless","settings":{"clients":[{"id":"{{ .Values.gateway.splitter.transit.uuid }}","email":"vps-e-transit"}],"decryption":"none"},"streamSettings":{"network":"xhttp","security":"reality","realitySettings":{"show":false,"dest":"splitter.wb.ru:443","xver":0,"serverNames":["splitter.wb.ru"],"privateKey":"REPLACE_PRIVATE_KEY","shortIds":["0123456789abcdef"]},"xhttpSettings":{"mode":"packet-up","path":"/api/v1/update"}}}
 	          ],
 	          "outbounds": [{"protocol": "freedom", "tag": "api"}, {"protocol": "freedom", "tag": "direct"}],
-	          "routing": {"rules": [{"type":"field","inboundTag":["api"],"outboundTag":"api"}]}
-	        }
+		          "routing": {"rules": [{"type":"field","inboundTag":["api"],"outboundTag":"api"}, {"type":"field","inboundTag":["vless-reality-in","vless-ws-in"],"outboundTag":"direct"}]}
+		        }
     hysteria:
       config: |
         listen: :443

@@ -236,7 +236,8 @@ gateway:
           ],
           "routing": {
             "rules": [
-              {"type": "field", "inboundTag": ["api"], "outboundTag": "api"}
+              {"type": "field", "inboundTag": ["api"], "outboundTag": "api"},
+              {"type": "field", "inboundTag": ["vless-reality-in", "vless-ws-in"], "outboundTag": "direct"}
             ]
           }
         }

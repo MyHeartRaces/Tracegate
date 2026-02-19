@@ -156,7 +156,7 @@ def test_ws_tls_chain_is_rejected() -> None:
         )
 
 
-def test_ws_tls_direct_uses_vps_t_proxy_host_when_dedicated_proxy_is_set() -> None:
+def test_ws_tls_direct_ignores_proxy_host_and_uses_vps_t_host() -> None:
     user = _user()
     device = _device(user.telegram_id)
     conn = Connection(
@@ -183,9 +183,9 @@ def test_ws_tls_direct_uses_vps_t_proxy_host_when_dedicated_proxy_is_set() -> No
         ),
     )
 
-    assert cfg["server"] == "proxy-vps-t.example.com"
-    assert cfg["sni"] == "proxy-vps-t.example.com"
-    assert cfg["ws"]["host"] == "proxy-vps-t.example.com"
+    assert cfg["server"] == "vps-t.example.com"
+    assert cfg["sni"] == "vps-t.example.com"
+    assert cfg["ws"]["host"] == "vps-t.example.com"
 
 
 def test_ws_tls_direct_uses_vps_t_host_without_proxy() -> None:

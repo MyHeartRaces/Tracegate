@@ -122,7 +122,8 @@ def build_effective_config(
         if not tls_server_name and selected_sni is not None:
             tls_server_name = selected_sni.fqdn
 
-        entry_host = str(endpoints.vps_t_proxy_host or "").strip() or str(endpoints.vps_t_host or "").strip()
+        # Direct WS+TLS must terminate on VPS-T endpoint, not on VPS-E entry host.
+        entry_host = str(endpoints.vps_t_host or "").strip()
         tls_termination_host = entry_host
         if not tls_server_name:
             tls_server_name = tls_termination_host
