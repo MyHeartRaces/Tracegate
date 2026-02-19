@@ -45,7 +45,7 @@ gateway:
       shortId: "0123456789abcdef"
       serverName: "splitter.wb.ru"
       upstreamHost: "vps-t.example.com"
-      upstreamPort: 50000
+      upstreamPort: 443
 
   vpsT:
     publicIPv4: 203.0.113.10

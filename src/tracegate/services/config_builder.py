@@ -102,7 +102,7 @@ def build_effective_config(
                 **common,
                 "profile": "B2-stealth-chain",
                 "server": endpoints.vps_e_host,
-                "chain": {"type": "tcp_forward", "upstream": endpoints.vps_t_host, "port": 50000},
+                "chain": {"type": "tcp_forward", "upstream": endpoints.vps_t_host, "port": 443},
                 "design_constraints": {
                     "fixed_port_tcp": 443,
                     "entry_via_vps_e": True,
