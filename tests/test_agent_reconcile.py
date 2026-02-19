@@ -150,6 +150,43 @@ def test_reconcile_vps_e_updates_only_xray(tmp_path: Path) -> None:
     assert not (tmp_path / "runtime/wireguard/wg0.conf").exists()
 
 
+def test_reconcile_vps_e_forces_transit_port_443(tmp_path: Path) -> None:
+    settings = Settings(
+        agent_data_root=str(tmp_path),
+        agent_runtime_mode="kubernetes",
+        agent_role="VPS_E",
+    )
+
+    _write(
+        tmp_path / "base/xray/config.json",
+        json.dumps(
+            {
+                "inbounds": [
+                    {
+                        "tag": "entry-in",
+                        "protocol": "vless",
+                        "settings": {"clients": []},
+                        "streamSettings": {"security": "reality", "realitySettings": {"serverNames": []}},
+                    }
+                ],
+                "outbounds": [
+                    {
+                        "tag": "to-transit",
+                        "protocol": "vless",
+                        "settings": {"vnext": [{"address": "vps-t.example.com", "port": 50000, "users": []}]},
+                    }
+                ],
+            }
+        ),
+    )
+
+    changed = reconcile_all(settings)
+    assert changed == ["xray"]
+
+    rendered = json.loads((tmp_path / "runtime/xray/config.json").read_text(encoding="utf-8"))
+    assert rendered["outbounds"][0]["settings"]["vnext"][0]["port"] == 443
+
+
 def test_reconcile_keeps_static_base_reality_clients(tmp_path: Path) -> None:
     settings = Settings(
         agent_data_root=str(tmp_path),

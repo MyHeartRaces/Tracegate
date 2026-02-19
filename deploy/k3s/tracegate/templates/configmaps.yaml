@@ -1,4 +1,9 @@
 {{- if and .Values.gateway.enabled .Values.gateway.vpsT.enabled }}
+{{- $publicBaseUrl := (.Values.controlPlane.env.publicBaseUrl | default "" | trim) -}}
+{{- $publicBaseHost := "" -}}
+{{- if $publicBaseUrl -}}
+{{- $publicBaseHost = regexReplaceAll "^https?://([^/:]+).*$" $publicBaseUrl "${1}" -}}
+{{- end -}}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -33,6 +38,9 @@ data:
         {{- end }}
         {{- if and .Values.gateway.vpsT.proxyFqdn (ne .Values.gateway.vpsT.proxyFqdn .Values.gateway.vpsT.fqdn) }}
         "{{ .Values.gateway.vpsT.proxyFqdn }}" ws_tls;
+        {{- end }}
+        {{- if and $publicBaseHost (ne $publicBaseHost .Values.gateway.vpsT.fqdn) (or (not .Values.gateway.vpsT.proxyFqdn) (ne $publicBaseHost .Values.gateway.vpsT.proxyFqdn)) }}
+        "{{ $publicBaseHost }}" ws_tls;
         {{- end }}
         {{- range (.Values.gateway.vpsT.entryMux.wsSniHosts | default (list)) }}
         "{{ . }}" ws_tls;
@@ -75,6 +83,21 @@ data:
           proxy_read_timeout 1h;
           proxy_send_timeout 1h;
           proxy_pass http://127.0.0.1:10000;
+        }
+
+        location = /grafana {
+          return 302 /grafana/;
+        }
+
+        location ^~ /grafana/ {
+          proxy_http_version 1.1;
+          proxy_set_header Host $host;
+          proxy_set_header X-Real-IP $remote_addr;
+          proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+          proxy_set_header X-Forwarded-Proto https;
+          proxy_read_timeout 1h;
+          proxy_send_timeout 1h;
+          proxy_pass http://{{ include "tracegate.fullname" . }}-api:{{ .Values.controlPlane.service.port }};
         }
 
         location / {

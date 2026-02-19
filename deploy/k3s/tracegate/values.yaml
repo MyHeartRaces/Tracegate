@@ -437,7 +437,7 @@ gateway:
                 "vnext": [
                   {
                     "address": "{{ .Values.gateway.splitter.transit.upstreamHost }}",
-                    "port": {{ .Values.gateway.splitter.transit.upstreamPort }},
+                    "port": 443,
                     "users": [
                       {
                         "id": "{{ .Values.gateway.splitter.transit.uuid }}",

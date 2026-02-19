@@ -398,6 +398,25 @@ def reconcile_xray(settings: Settings) -> bool:
                         desired[email] = client_id
                 desired_by_tag[tag] = desired
 
+    # Transport invariant: VPS-E -> VPS-T chain leg must always use tcp/443.
+    outbounds = base.get("outbounds", [])
+    for outbound in outbounds:
+        if not isinstance(outbound, dict):
+            continue
+        if str(outbound.get("tag") or "").strip() != "to-transit":
+            continue
+        if str(outbound.get("protocol") or "").strip().lower() != "vless":
+            continue
+        settings_block = outbound.get("settings")
+        if not isinstance(settings_block, dict):
+            continue
+        vnext = settings_block.get("vnext")
+        if not isinstance(vnext, list):
+            continue
+        for hop in vnext:
+            if isinstance(hop, dict):
+                hop["port"] = 443
+
     # Only write when there is a real change; otherwise we trigger unnecessary reloads.
     current = _load_json(runtime_path) if runtime_path.exists() else None
     should_write = current != base

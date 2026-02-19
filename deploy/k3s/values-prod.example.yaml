@@ -167,7 +167,7 @@ gateway:
 	          "outbounds": [
 	            {"tag":"api","protocol":"freedom"},
 	            {"tag":"direct","protocol":"freedom"},
-	            {"tag":"to-transit","protocol":"vless","settings":{"vnext":[{"address":"{{ .Values.gateway.splitter.transit.upstreamHost }}","port":{{ .Values.gateway.splitter.transit.upstreamPort }},"users":[{"id":"{{ .Values.gateway.splitter.transit.uuid }}","encryption":"none"}]}]},"streamSettings":{"network":"xhttp","security":"reality","realitySettings":{"fingerprint":"chrome","serverName":"{{ .Values.gateway.splitter.transit.serverName }}","publicKey":"{{ .Values.gateway.splitter.transit.publicKey | default .Values.controlPlane.env.realityPublicKey }}","shortId":"{{ .Values.gateway.splitter.transit.shortId }}"},"xhttpSettings":{"mode":"packet-up","path":"/api/v1/update"}}},
+	            {"tag":"to-transit","protocol":"vless","settings":{"vnext":[{"address":"{{ .Values.gateway.splitter.transit.upstreamHost }}","port":443,"users":[{"id":"{{ .Values.gateway.splitter.transit.uuid }}","encryption":"none"}]}]},"streamSettings":{"network":"xhttp","security":"reality","realitySettings":{"fingerprint":"chrome","serverName":"{{ .Values.gateway.splitter.transit.serverName }}","publicKey":"{{ .Values.gateway.splitter.transit.publicKey | default .Values.controlPlane.env.realityPublicKey }}","shortId":"{{ .Values.gateway.splitter.transit.shortId }}"},"xhttpSettings":{"mode":"packet-up","path":"/api/v1/update"}}},
 	            {"tag":"block","protocol":"blackhole"}
 	          ],
 	          "routing": {
