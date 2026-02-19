@@ -114,6 +114,29 @@ def _event_type_for_protocol(protocol: ConnectionProtocol) -> OutboxEventType:
     return OutboxEventType.UPSERT_USER
 
 
+def _select_wireguard_peer_candidate(
+    peers: list[WireguardPeer],
+    *,
+    device_id: UUID,
+    lease_id: UUID,
+) -> tuple[WireguardPeer | None, list[WireguardPeer]]:
+    """
+    Pick a canonical peer row and identify stale conflicting rows.
+
+    Prefer the row bound to the current device_id for continuity, otherwise
+    fallback to the row bound to the current lease_id.
+    """
+    device_peer = next((row for row in peers if row.device_id == device_id), None)
+    lease_peer = next((row for row in peers if row.lease_id == lease_id), None)
+
+    primary = device_peer or lease_peer
+    if primary is None:
+        return None, []
+
+    stale = [row for row in peers if row.id != primary.id]
+    return primary, stale
+
+
 def _wg_peer_fields_from_revision(revision: ConnectionRevision) -> tuple[str, str, list[str]]:
     cfg = revision.effective_config_json or {}
     peer_pub = (cfg.get("device_public_key") or "").strip()
@@ -169,9 +192,18 @@ async def _sync_wireguard_peer_state(
             )
         )
     ).scalars().all()
-    peer = next((row for row in peers if row.device_id == connection.device_id), None)
-    if peer is None:
-        peer = next((row for row in peers if row.lease_id == lease.id), None)
+
+    peer, stale_rows = _select_wireguard_peer_candidate(
+        peers,
+        device_id=connection.device_id,
+        lease_id=lease.id,
+    )
+    for row in stale_rows:
+        # Old revoked rows can conflict by unique(device_id)/unique(lease_id)
+        # when lease ownership is recycled between devices.
+        session.delete(row)
+    if stale_rows:
+        await session.flush()
 
     if peer is None:
         peer = WireguardPeer(

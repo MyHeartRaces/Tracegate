@@ -135,11 +135,20 @@ class TracegateApiClient:
                 "custom_overrides_json": custom_overrides_json or {},
             },
         )
-        revision = await self._request(
-            "POST",
-            f"/revisions/by-connection/{connection['id']}",
-            json={"camouflage_sni_id": sni_id, "force": False},
-        )
+        try:
+            revision = await self._request(
+                "POST",
+                f"/revisions/by-connection/{connection['id']}",
+                json={"camouflage_sni_id": sni_id, "force": False},
+            )
+        except Exception:
+            # Keep user flow recoverable: if revision creation fails, do not leave
+            # a dangling active connection that blocks retry (e.g. WG one-per-device).
+            try:
+                await self._request("DELETE", f"/connections/{connection['id']}")
+            except Exception:
+                pass
+            raise
         return connection, revision
 
     async def delete_connection(self, connection_id: UUID | str) -> None:
