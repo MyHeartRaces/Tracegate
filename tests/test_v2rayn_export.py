@@ -76,7 +76,7 @@ def test_export_wireguard_conf() -> None:
     assert "Endpoint = t.example.com:51820" in out.content
 
 
-def test_export_vless_reality_uri_defaults_to_tcp_without_xhttp_block() -> None:
+def test_export_vless_reality_uri_defaults_to_xhttp_without_xhttp_block() -> None:
     effective = {
         "protocol": "vless",
         "server": "t.example.com",
@@ -89,4 +89,6 @@ def test_export_vless_reality_uri_defaults_to_tcp_without_xhttp_block() -> None:
     out = export_v2rayn(effective)
     assert out.kind == "uri"
     assert "security=reality" in out.content
-    assert "type=tcp" in out.content
+    assert "type=xhttp" in out.content
+    assert "mode=packet-up" in out.content
+    assert "path=/api/v1/update" in out.content

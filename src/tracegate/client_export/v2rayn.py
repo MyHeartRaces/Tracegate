@@ -87,15 +87,11 @@ def _export_vless_reality(effective: dict[str, Any]) -> ExportResult:
         "sid": sid,
         # Many clients default to spiderX="/". Export explicitly to reduce interop issues.
         "spx": "/",
+        # Tracegate VLESS/REALITY is xhttp-only.
+        "type": "xhttp",
+        "mode": xhttp_mode or "packet-up",
     }
-    if xhttp_mode or xhttp_path:
-        params["type"] = "xhttp"
-        params["mode"] = xhttp_mode or "packet-up"
-        if xhttp_path:
-            params["path"] = xhttp_path
-    else:
-        # Backward compatibility for already-issued revisions that do not carry xhttp metadata.
-        params["type"] = "tcp"
+    params["path"] = xhttp_path or "/api/v1/update"
 
     name = effective.get("profile") or "tracegate-vless"
     uri = f"vless://{uuid}@{server}:{port}?{_encode_query(params, safe='/,')}#{_q(str(name))}"

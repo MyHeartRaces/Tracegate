@@ -116,6 +116,18 @@ data:
           proxy_send_timeout 1h;
           proxy_pass http://127.0.0.1:10000;
         }
+
+        location = / {
+          default_type text/html;
+          add_header Cache-Control "no-store" always;
+          return 200 '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Site Under Maintenance</title><style>body{font-family:Arial,sans-serif;background:#f4f6f8;color:#1f2937;margin:0;padding:24px;display:flex;min-height:100vh;align-items:center;justify-content:center}main{max-width:420px;width:100%;background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:24px;box-shadow:0 8px 24px rgba(0,0,0,.08)}h1{font-size:22px;line-height:1.2;margin:0 0 10px}p{margin:0 0 18px;color:#4b5563}label{display:block;font-size:13px;margin:10px 0 6px}input{width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid #d1d5db;border-radius:8px}button{width:100%;margin-top:14px;padding:10px 12px;border:0;border-radius:8px;background:#111827;color:#fff;cursor:not-allowed;opacity:.92}</style></head><body><main><h1>SITE UNDER MAINTENANCE</h1><p>Temporary login page placeholder.</p><form onsubmit="return false;"><label for="tg-login">Login</label><input id="tg-login" type="text" autocomplete="off" placeholder="Username"><label for="tg-password">Password</label><input id="tg-password" type="password" autocomplete="off" placeholder="Password"><button type="submit">Sign in</button></form></main></body></html>';
+        }
+
+        location / {
+          default_type text/html;
+          add_header Cache-Control "no-store" always;
+          return 200 '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Site Under Maintenance</title><style>body{font-family:Arial,sans-serif;background:#f4f6f8;color:#1f2937;margin:0;padding:24px;display:flex;min-height:100vh;align-items:center;justify-content:center}main{max-width:420px;width:100%;background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:24px;box-shadow:0 8px 24px rgba(0,0,0,.08)}h1{font-size:22px;line-height:1.2;margin:0 0 10px}p{margin:0 0 18px;color:#4b5563}label{display:block;font-size:13px;margin:10px 0 6px}input{width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid #d1d5db;border-radius:8px}button{width:100%;margin-top:14px;padding:10px 12px;border:0;border-radius:8px;background:#111827;color:#fff;cursor:not-allowed;opacity:.92}</style></head><body><main><h1>SITE UNDER MAINTENANCE</h1><p>Temporary login page placeholder.</p><form onsubmit="return false;"><label for="tg-login">Login</label><input id="tg-login" type="text" autocomplete="off" placeholder="Username"><label for="tg-password">Password</label><input id="tg-password" type="password" autocomplete="off" placeholder="Password"><button type="submit">Sign in</button></form></main></body></html>';
+        }
       }
     }
 {{- end }}
