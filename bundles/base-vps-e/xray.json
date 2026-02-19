@@ -44,7 +44,7 @@
         "decryption": "none"
       },
       "streamSettings": {
-        "network": "tcp",
+        "network": "xhttp",
         "security": "reality",
         "realitySettings": {
           "show": false,
@@ -57,6 +57,10 @@
           "shortIds": [
             "fedcba9876543210"
           ]
+        },
+        "xhttpSettings": {
+          "mode": "packet-up",
+          "path": "/api/v1/update"
         }
       },
       "sniffing": {
@@ -122,8 +126,18 @@
         ]
       },
       "streamSettings": {
-        "network": "tcp",
-        "security": "none"
+        "network": "xhttp",
+        "security": "reality",
+        "realitySettings": {
+          "fingerprint": "chrome",
+          "serverName": "splitter.wb.ru",
+          "publicKey": "REPLACE_TRANSIT_PUBLIC_KEY",
+          "shortId": "0123456789abcdef"
+        },
+        "xhttpSettings": {
+          "mode": "packet-up",
+          "path": "/api/v1/update"
+        }
       }
     },
     {
@@ -149,6 +163,7 @@
         ],
         "domain": [
           "geosite:category-ru",
+          "full:cp.cloudflare.com",
           "regexp:(?i)\\.ru$",
           "regexp:(?i)\\.su$",
           "regexp:(?i)\\.xn--p1ai$"

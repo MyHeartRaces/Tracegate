@@ -49,7 +49,7 @@
         "decryption": "none"
       },
       "streamSettings": {
-        "network": "tcp",
+        "network": "xhttp",
         "security": "reality",
         "realitySettings": {
           "show": false,
@@ -62,6 +62,10 @@
           "shortIds": [
             "0123456789abcdef"
           ]
+        },
+        "xhttpSettings": {
+          "mode": "packet-up",
+          "path": "/api/v1/update"
         }
       },
       "sniffing": {
@@ -88,8 +92,24 @@
         "decryption": "none"
       },
       "streamSettings": {
-        "network": "tcp",
-        "security": "none"
+        "network": "xhttp",
+        "security": "reality",
+        "realitySettings": {
+          "show": false,
+          "dest": "splitter.wb.ru:443",
+          "xver": 0,
+          "serverNames": [
+            "splitter.wb.ru"
+          ],
+          "privateKey": "REPLACE_PRIVATE_KEY",
+          "shortIds": [
+            "0123456789abcdef"
+          ]
+        },
+        "xhttpSettings": {
+          "mode": "packet-up",
+          "path": "/api/v1/update"
+        }
       }
     }
   ],

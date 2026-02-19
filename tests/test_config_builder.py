@@ -57,6 +57,8 @@ def test_chain_reality_enters_via_vps_e_and_points_to_vps_t_transit() -> None:
     assert cfg["server"] == "vps-e.example.com"
     assert cfg["reality"]["public_key"] == "pub-e"
     assert cfg["reality"]["short_id"] == "sid-e"
+    assert cfg["xhttp"]["mode"] == "packet-up"
+    assert cfg["xhttp"]["path"] == "/api/v1/update"
     assert cfg["chain"]["type"] == "tcp_forward"
     assert cfg["chain"]["upstream"] == "vps-t.example.com"
     assert cfg["chain"]["port"] == 50000
@@ -96,6 +98,8 @@ def test_direct_reality_uses_vps_t_reality_keys() -> None:
     assert cfg["server"] == "vps-t.example.com"
     assert cfg["reality"]["public_key"] == "pub-t"
     assert cfg["reality"]["short_id"] == "sid-t"
+    assert cfg["xhttp"]["mode"] == "packet-up"
+    assert cfg["xhttp"]["path"] == "/api/v1/update"
 
 
 def test_wireguard_uses_fixed_port_51820() -> None:

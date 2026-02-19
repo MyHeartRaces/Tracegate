@@ -61,8 +61,8 @@ gateway:
 	          "policy": {"levels": {"0": {"statsUserUplink": true, "statsUserDownlink": true}}, "system": {"statsInboundUplink": true, "statsInboundDownlink": true, "statsOutboundUplink": true, "statsOutboundDownlink": true}},
 	          "inbounds": [
 	            {"tag":"api","listen":"127.0.0.1","port":8080,"protocol":"dokodemo-door","settings":{"address":"127.0.0.1"}},
-	            {"tag":"vless-reality-in","listen":"0.0.0.0","port":443,"protocol":"vless","settings":{"clients":[{"id":"{{ .Values.gateway.splitter.transit.uuid }}","email":"vps-e-transit"}],"decryption":"none"},"streamSettings":{"network":"tcp","security":"reality","realitySettings":{"show":false,"dest":"splitter.wb.ru:443","xver":0,"serverNames":["splitter.wb.ru"],"privateKey":"REPLACE_PRIVATE_KEY","shortIds":["0123456789abcdef"]}}},
-	            {"tag":"vless-transit-in","listen":"0.0.0.0","port":50000,"protocol":"vless","settings":{"clients":[{"id":"{{ .Values.gateway.splitter.transit.uuid }}","email":"vps-e-transit"}],"decryption":"none"},"streamSettings":{"network":"tcp","security":"none"}}
+	            {"tag":"vless-reality-in","listen":"0.0.0.0","port":443,"protocol":"vless","settings":{"clients":[{"id":"{{ .Values.gateway.splitter.transit.uuid }}","email":"vps-e-transit"}],"decryption":"none"},"streamSettings":{"network":"xhttp","security":"reality","realitySettings":{"show":false,"dest":"splitter.wb.ru:443","xver":0,"serverNames":["splitter.wb.ru"],"privateKey":"REPLACE_PRIVATE_KEY","shortIds":["0123456789abcdef"]},"xhttpSettings":{"mode":"packet-up","path":"/api/v1/update"}}},
+	            {"tag":"vless-transit-in","listen":"0.0.0.0","port":50000,"protocol":"vless","settings":{"clients":[{"id":"{{ .Values.gateway.splitter.transit.uuid }}","email":"vps-e-transit"}],"decryption":"none"},"streamSettings":{"network":"xhttp","security":"reality","realitySettings":{"show":false,"dest":"{{ .Values.gateway.splitter.transit.serverName }}:443","xver":0,"serverNames":["{{ .Values.gateway.splitter.transit.serverName }}"],"privateKey":"REPLACE_PRIVATE_KEY","shortIds":["{{ .Values.gateway.splitter.transit.shortId }}"]},"xhttpSettings":{"mode":"packet-up","path":"/api/v1/update"}}}
 	          ],
 	          "outbounds": [{"protocol": "freedom", "tag": "api"}, {"protocol": "freedom", "tag": "direct"}],
 	          "routing": {"rules": [{"type":"field","inboundTag":["api"],"outboundTag":"api"}]}
@@ -144,7 +144,7 @@ gateway:
               "port":2443,
               "protocol":"vless",
               "settings":{"clients":[],"decryption":"none"},
-              "streamSettings":{"network":"tcp","security":"reality","realitySettings":{"show":false,"dest":"splitter.wb.ru:443","xver":0,"serverNames":["splitter.wb.ru"],"privateKey":"REPLACE_PRIVATE_KEY","shortIds":["fedcba9876543210"]}},
+              "streamSettings":{"network":"xhttp","security":"reality","realitySettings":{"show":false,"dest":"splitter.wb.ru:443","xver":0,"serverNames":["splitter.wb.ru"],"privateKey":"REPLACE_PRIVATE_KEY","shortIds":["fedcba9876543210"]},"xhttpSettings":{"mode":"packet-up","path":"/api/v1/update"}},
               "sniffing":{"enabled":true,"destOverride":["http","tls","quic"]}
             },
             {
@@ -160,7 +160,7 @@ gateway:
 	          "outbounds": [
 	            {"tag":"api","protocol":"freedom"},
 	            {"tag":"direct","protocol":"freedom"},
-	            {"tag":"to-transit","protocol":"vless","settings":{"vnext":[{"address":"{{ .Values.gateway.splitter.transit.upstreamHost }}","port":{{ .Values.gateway.splitter.transit.upstreamPort }},"users":[{"id":"{{ .Values.gateway.splitter.transit.uuid }}","encryption":"none"}]}]},"streamSettings":{"network":"tcp","security":"none"}},
+	            {"tag":"to-transit","protocol":"vless","settings":{"vnext":[{"address":"{{ .Values.gateway.splitter.transit.upstreamHost }}","port":{{ .Values.gateway.splitter.transit.upstreamPort }},"users":[{"id":"{{ .Values.gateway.splitter.transit.uuid }}","encryption":"none"}]}]},"streamSettings":{"network":"xhttp","security":"reality","realitySettings":{"fingerprint":"chrome","serverName":"{{ .Values.gateway.splitter.transit.serverName }}","publicKey":"{{ .Values.gateway.splitter.transit.publicKey | default .Values.controlPlane.env.realityPublicKey }}","shortId":"{{ .Values.gateway.splitter.transit.shortId }}"},"xhttpSettings":{"mode":"packet-up","path":"/api/v1/update"}}},
 	            {"tag":"block","protocol":"blackhole"}
 	          ],
 	          "routing": {
@@ -168,7 +168,7 @@ gateway:
 	            "rules":[
 	              {"type":"field","inboundTag":["api"],"outboundTag":"api"},
 	              {"type":"field","ip":["geoip:private"],"outboundTag":"block"},
-	              {"type":"field","inboundTag":["entry-in","vless-ws-in"],"domain":["geosite:category-ru","regexp:(?i)\\.ru$","regexp:(?i)\\.su$","regexp:(?i)\\.xn--p1ai$"],"outboundTag":"direct"},
+	              {"type":"field","inboundTag":["entry-in","vless-ws-in"],"domain":["geosite:category-ru","full:cp.cloudflare.com","regexp:(?i)\\.ru$","regexp:(?i)\\.su$","regexp:(?i)\\.xn--p1ai$"],"outboundTag":"direct"},
 	              {"type":"field","inboundTag":["entry-in","vless-ws-in"],"ip":["geoip:ru"],"outboundTag":"direct"},
               {"type":"field","inboundTag":["entry-in","vless-ws-in"],"outboundTag":"to-transit"}
             ]

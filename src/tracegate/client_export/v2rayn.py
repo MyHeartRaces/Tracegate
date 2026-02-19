@@ -70,15 +70,17 @@ def _export_vless_reality(effective: dict[str, Any]) -> ExportResult:
     reality = effective.get("reality") or {}
     pbk = reality.get("public_key")
     sid = reality.get("short_id")
+    xhttp = effective.get("xhttp") or {}
+    xhttp_mode = str((xhttp.get("mode") or "")).strip()
+    xhttp_path = str((xhttp.get("path") or "")).strip()
 
     if not server or not uuid or not sni or not pbk or not sid:
         raise V2RayNExportError("Missing fields for VLESS/REALITY export")
 
     # Xray share-link parameters.
-    params = {
+    params: dict[str, str] = {
         "encryption": "none",
         "security": "reality",
-        "type": "tcp",
         "sni": sni,
         "fp": "chrome",
         "pbk": pbk,
@@ -86,9 +88,17 @@ def _export_vless_reality(effective: dict[str, Any]) -> ExportResult:
         # Many clients default to spiderX="/". Export explicitly to reduce interop issues.
         "spx": "/",
     }
+    if xhttp_mode or xhttp_path:
+        params["type"] = "xhttp"
+        params["mode"] = xhttp_mode or "packet-up"
+        if xhttp_path:
+            params["path"] = xhttp_path
+    else:
+        # Backward compatibility for already-issued revisions that do not carry xhttp metadata.
+        params["type"] = "tcp"
 
     name = effective.get("profile") or "tracegate-vless"
-    uri = f"vless://{uuid}@{server}:{port}?{_encode_query(params)}#{_q(str(name))}"
+    uri = f"vless://{uuid}@{server}:{port}?{_encode_query(params, safe='/,')}#{_q(str(name))}"
     return ExportResult(kind="uri", title="VLESS REALITY link", content=uri)
 
 

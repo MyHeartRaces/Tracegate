@@ -9,12 +9,16 @@ def test_export_vless_reality_uri() -> None:
         "uuid": "11111111-2222-3333-4444-555555555555",
         "sni": "google.com",
         "reality": {"public_key": "PUBKEY", "short_id": "abcd"},
+        "xhttp": {"mode": "packet-up", "path": "/api/v1/update"},
         "profile": "B1-stealth-direct",
     }
     out = export_v2rayn(effective)
     assert out.kind == "uri"
     assert out.content.startswith("vless://11111111-2222-3333-4444-555555555555@t.example.com:443?")
     assert "security=reality" in out.content
+    assert "type=xhttp" in out.content
+    assert "mode=packet-up" in out.content
+    assert "path=/api/v1/update" in out.content
     assert "sni=google.com" in out.content
     assert "pbk=PUBKEY" in out.content
     assert "sid=abcd" in out.content
@@ -70,3 +74,19 @@ def test_export_wireguard_conf() -> None:
     assert out.kind == "wg_conf"
     assert "[Interface]" in out.content
     assert "Endpoint = t.example.com:51820" in out.content
+
+
+def test_export_vless_reality_uri_defaults_to_tcp_without_xhttp_block() -> None:
+    effective = {
+        "protocol": "vless",
+        "server": "t.example.com",
+        "port": 443,
+        "uuid": "11111111-2222-3333-4444-555555555555",
+        "sni": "google.com",
+        "reality": {"public_key": "PUBKEY", "short_id": "abcd"},
+        "profile": "legacy-vless",
+    }
+    out = export_v2rayn(effective)
+    assert out.kind == "uri"
+    assert "security=reality" in out.content
+    assert "type=tcp" in out.content

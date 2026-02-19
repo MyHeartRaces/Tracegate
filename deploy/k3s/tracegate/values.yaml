@@ -180,7 +180,7 @@ gateway:
                 "decryption": "none"
               },
               "streamSettings": {
-                "network": "tcp",
+                "network": "xhttp",
                 "security": "reality",
                 "realitySettings": {
                   "show": false,
@@ -189,6 +189,10 @@ gateway:
                   "serverNames": ["splitter.wb.ru"],
                   "privateKey": "REPLACE_PRIVATE_KEY",
                   "shortIds": ["0123456789abcdef"]
+                },
+                "xhttpSettings": {
+                  "mode": "packet-up",
+                  "path": "/api/v1/update"
                 }
               }
             },
@@ -207,8 +211,20 @@ gateway:
                 "decryption": "none"
               },
               "streamSettings": {
-                "network": "tcp",
-                "security": "none"
+                "network": "xhttp",
+                "security": "reality",
+                "realitySettings": {
+                  "show": false,
+                  "dest": "{{ .Values.gateway.splitter.transit.serverName }}:443",
+                  "xver": 0,
+                  "serverNames": ["{{ .Values.gateway.splitter.transit.serverName }}"],
+                  "privateKey": "REPLACE_PRIVATE_KEY",
+                  "shortIds": ["{{ .Values.gateway.splitter.transit.shortId }}"]
+                },
+                "xhttpSettings": {
+                  "mode": "packet-up",
+                  "path": "/api/v1/update"
+                }
               }
             }
           ],
@@ -363,7 +379,7 @@ gateway:
               "protocol": "vless",
               "settings": {"clients": [], "decryption": "none"},
               "streamSettings": {
-                "network": "tcp",
+                "network": "xhttp",
                 "security": "reality",
                 "realitySettings": {
                   "show": false,
@@ -372,6 +388,10 @@ gateway:
                   "serverNames": ["splitter.wb.ru"],
                   "privateKey": "REPLACE_PRIVATE_KEY",
                   "shortIds": ["fedcba9876543210"]
+                },
+                "xhttpSettings": {
+                  "mode": "packet-up",
+                  "path": "/api/v1/update"
                 }
               },
               "sniffing": {
@@ -425,8 +445,18 @@ gateway:
                 ]
               },
               "streamSettings": {
-                "network": "tcp",
-                "security": "none"
+                "network": "xhttp",
+                "security": "reality",
+                "realitySettings": {
+                  "fingerprint": "chrome",
+                  "serverName": "{{ .Values.gateway.splitter.transit.serverName }}",
+                  "publicKey": "{{ .Values.gateway.splitter.transit.publicKey | default .Values.controlPlane.env.realityPublicKey }}",
+                  "shortId": "{{ .Values.gateway.splitter.transit.shortId }}"
+                },
+                "xhttpSettings": {
+                  "mode": "packet-up",
+                  "path": "/api/v1/update"
+                }
               }
             },
             {
@@ -452,6 +482,7 @@ gateway:
                 "inboundTag": ["entry-in", "vless-ws-in"],
                 "domain": [
                   "geosite:category-ru",
+                  "full:cp.cloudflare.com",
                   "regexp:(?i)\\.ru$",
                   "regexp:(?i)\\.su$",
                   "regexp:(?i)\\.xn--p1ai$"
