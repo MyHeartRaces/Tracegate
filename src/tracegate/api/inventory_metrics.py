@@ -72,16 +72,32 @@ def _user_handle(user: User) -> str:
     return full_name or "unknown"
 
 
-def _connection_label(*, protocol: str, mode: str, variant: str, profile_name: str, device_name: str) -> str:
-    # Keep it readable in tables/legends (avoid raw UUIDs).
-    parts = []
-    if profile_name:
-        parts.append(profile_name)
-    if device_name:
-        parts.append(device_name)
-    proto = protocol.replace("_", " ").upper()
-    parts.append(f"{proto}/{mode.upper()}/{variant}")
-    return " | ".join(parts)
+def _protocol_kind(protocol: str) -> str:
+    normalized = protocol.strip().lower()
+    mapping = {
+        "wireguard": "WG",
+        "hysteria2": "HY2",
+        "vless_reality_vision": "VLESS REALITY",
+        "vless_ws_tls": "VLESS WS",
+    }
+    return mapping.get(normalized, protocol.replace("_", " ").upper())
+
+
+def _connection_label(
+    *,
+    protocol: str,
+    mode: str,
+    variant: str,
+    user_handle: str,
+    tg_id: str,
+    device_name: str,
+) -> str:
+    kind = _protocol_kind(protocol)
+    mode_suffix = mode.strip().upper()
+    owner = user_handle.strip() or "unknown"
+    owner_with_id = f"{owner}({tg_id})"
+    device = device_name.strip() or "device-unknown"
+    return f"{variant}({kind}/{mode_suffix}) - {owner_with_id} - {device}"
 
 
 class InventoryStore:
@@ -230,7 +246,8 @@ async def _build_snapshot(settings: Settings) -> InventorySnapshot:
                 protocol=protocol,
                 mode=mode,
                 variant=variant,
-                profile_name=profile_name,
+                user_handle=uhandle,
+                tg_id=str(user.telegram_id),
                 device_name=device_name,
             )
 
