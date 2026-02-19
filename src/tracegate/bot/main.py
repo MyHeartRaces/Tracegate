@@ -863,8 +863,21 @@ async def vless_new(callback: CallbackQuery) -> None:
         await callback.answer()
         return
 
+    if spec == "b2":
+        # Chain profile supports only Reality transport in current architecture.
+        await callback.message.edit_text(
+            "B2 - VLESS Chain: Reality выбран автоматически.\nВыбери провайдера (для фильтра SNI):",
+            reply_markup=provider_keyboard_with_cancel(
+                "new",
+                f"{spec}:{device_id}",
+                cancel_callback_data=f"device:{device_id}",
+            ),
+        )
+        await callback.answer()
+        return
+
     await callback.message.edit_text(
-        f"{'B1' if spec == 'b1' else 'B2'} - VLESS: выбери транспорт подключения:",
+        "B1 - VLESS: выбери транспорт подключения:",
         reply_markup=vless_transport_keyboard(spec=spec, device_id=device_id),
     )
     await callback.answer()
@@ -881,6 +894,10 @@ async def vless_transport(callback: CallbackQuery) -> None:
         return
 
     try:
+        # Chain profile supports only Reality transport.
+        if spec == "b2":
+            transport = "reality"
+
         if transport == "reality":
             await callback.message.edit_text(
                 "Выбери провайдера (для фильтра SNI):",

@@ -200,3 +200,74 @@ def test_reconcile_keeps_static_base_reality_clients(tmp_path: Path) -> None:
     ids = {row.get("id") for row in rendered["inbounds"][0]["settings"]["clients"]}
     assert "00000000-0000-4000-8000-000000000123" in ids
     assert "11111111-1111-4111-8111-111111111111" in ids
+
+
+def test_reconcile_vps_e_ignores_ws_direct_artifacts_not_targeted_to_role(tmp_path: Path) -> None:
+    settings = Settings(
+        agent_data_root=str(tmp_path),
+        agent_runtime_mode="kubernetes",
+        agent_role="VPS_E",
+    )
+
+    _write(
+        tmp_path / "base/xray/config.json",
+        json.dumps(
+            {
+                "inbounds": [
+                    {
+                        "tag": "entry-in",
+                        "protocol": "vless",
+                        "settings": {"clients": []},
+                        "streamSettings": {"security": "reality", "realitySettings": {"serverNames": []}},
+                    },
+                    {
+                        "tag": "vless-ws-in",
+                        "protocol": "vless",
+                        "settings": {"clients": []},
+                        "streamSettings": {"network": "ws", "security": "none"},
+                    },
+                ],
+                "outbounds": [{"protocol": "freedom"}],
+            }
+        ),
+    )
+
+    # B1 WS+TLS is direct and should be reconciled only on VPS-T.
+    _write(
+        tmp_path / "users/u1/connection-ws-b1.json",
+        json.dumps(
+            {
+                "user_id": "u1",
+                "device_id": "d1",
+                "connection_id": "ws-b1",
+                "revision_id": "r-ws",
+                "protocol": "vless_ws_tls",
+                "variant": "B1",
+                "config": {"uuid": "ws-b1"},
+            }
+        ),
+    )
+    # B2 chain reality should still be present on VPS-E.
+    _write(
+        tmp_path / "users/u1/connection-chain-b2.json",
+        json.dumps(
+            {
+                "user_id": "u1",
+                "device_id": "d1",
+                "connection_id": "chain-b2",
+                "revision_id": "r-chain",
+                "protocol": "vless_reality",
+                "variant": "B2",
+                "config": {"uuid": "chain-b2", "sni": "splitter.wb.ru"},
+            }
+        ),
+    )
+
+    changed = reconcile_all(settings)
+    assert "xray" in changed
+
+    rendered = json.loads((tmp_path / "runtime/xray/config.json").read_text(encoding="utf-8"))
+    entry_clients = rendered["inbounds"][0]["settings"]["clients"]
+    ws_clients = rendered["inbounds"][1]["settings"]["clients"]
+    assert [row.get("id") for row in entry_clients] == ["chain-b2"]
+    assert ws_clients == []

@@ -7,6 +7,8 @@ import threading
 
 import yaml
 
+from tracegate.enums import ConnectionProtocol, ConnectionVariant, NodeRole
+from tracegate.services.role_targeting import target_roles_for_connection
 from tracegate.settings import Settings
 from tracegate.services.sni_catalog import load_catalog
 
@@ -183,6 +185,30 @@ def load_all_wg_peer_artifacts(paths: AgentPaths) -> list[dict]:
         return [index["wg_peers"][key] for key in sorted(index["wg_peers"], key=str)]
 
 
+def _artifact_applies_to_role(settings: Settings, row: dict) -> bool:
+    role_raw = str(settings.agent_role or "").strip()
+    if not role_raw:
+        return True
+
+    try:
+        role = NodeRole(role_raw)
+    except Exception:
+        return True
+
+    proto_raw = str(row.get("protocol") or "").strip().lower()
+    variant_raw = str(row.get("variant") or "").strip()
+    try:
+        protocol = ConnectionProtocol(proto_raw)
+        variant = ConnectionVariant(variant_raw)
+    except Exception:
+        role_target_raw = str(row.get("role_target") or "").strip()
+        if role_target_raw:
+            return role_target_raw == role.value
+        return True
+
+    return role in target_roles_for_connection(protocol, variant)
+
+
 def upsert_user_artifact_index(settings: Settings, payload: dict) -> None:
     connection_id = str(payload.get("connection_id") or "").strip()
     if not connection_id:
@@ -274,6 +300,8 @@ def reconcile_xray(settings: Settings) -> bool:
         if row.enabled and row.fqdn:
             server_names.add(row.fqdn)
     for row in artifacts:
+        if not _artifact_applies_to_role(settings, row):
+            continue
         proto = (row.get("protocol") or "").strip().lower()
         if proto not in {"vless_reality", "vless_ws_tls"}:
             continue
