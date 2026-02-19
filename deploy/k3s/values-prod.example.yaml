@@ -52,6 +52,14 @@ gateway:
     fqdn: vps-t.example.com
     # Optional: proxied hostname for WS+TLS (e.g. ws-t.example.com with Cloudflare orange cloud).
     proxyFqdn: ""
+    entryMux:
+      image: nginx:1.24-alpine
+      pullPolicy: IfNotPresent
+      wsSniHosts: []
+    # TLS certificate used to terminate VLESS+WS+TLS on VPS-T. PEM.
+    wsTls:
+      crt: ""
+      key: ""
 	    xray:
 	      config: |
 	        {

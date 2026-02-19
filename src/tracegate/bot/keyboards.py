@@ -108,11 +108,10 @@ def device_actions_keyboard(device_id: str, connections: list[dict] | None = Non
 
 def vless_transport_keyboard(*, spec: str, device_id: str) -> InlineKeyboardMarkup:
     # spec: "b1" | "b2" (direct/chain profile)
-    rows = [
-        [InlineKeyboardButton(text="Reality (выбор SNI)", callback_data=f"vlesstrans:{spec}:{device_id}:reality")],
-        [InlineKeyboardButton(text="TLS (WS, SNI=сертификат)", callback_data=f"vlesstrans:{spec}:{device_id}:tls")],
-        [InlineKeyboardButton(text="Отмена", callback_data=f"device:{device_id}")],
-    ]
+    rows = [[InlineKeyboardButton(text="Reality (выбор SNI)", callback_data=f"vlesstrans:{spec}:{device_id}:reality")]]
+    if spec == "b1":
+        rows.append([InlineKeyboardButton(text="TLS (WS, SNI=сертификат)", callback_data=f"vlesstrans:{spec}:{device_id}:tls")])
+    rows.append([InlineKeyboardButton(text="Отмена", callback_data=f"device:{device_id}")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 

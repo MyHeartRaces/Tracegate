@@ -113,40 +113,17 @@ def build_effective_config(
         raise ValueError("Inconsistent VLESS/REALITY mode and variant")
 
     if connection.protocol == ConnectionProtocol.VLESS_WS_TLS:
-        if connection.variant not in {ConnectionVariant.B1, ConnectionVariant.B2}:
-            raise ValueError("VLESS+WS+TLS supports only B1/B2 variants")
+        if connection.variant != ConnectionVariant.B1 or connection.mode != ConnectionMode.DIRECT:
+            raise ValueError("VLESS+WS+TLS supports only B1 direct")
 
-        # For WS+TLS the TLS SNI must match where TLS is terminated.
-        # In direct mode prefer a dedicated VPS-T proxy host when configured; otherwise
-        # use VPS-E entry-mux which always provides WS+TLS termination on 443 in splitter mode.
-        # In chain mode it depends on the VPS-E implementation.
-        # Operators can override via custom_overrides_json.
+        # For WS+TLS in Tracegate architecture, direct mode is always terminated on VPS-T.
+        # Operators can override SNI/Host via custom_overrides_json.
         tls_server_name = str(overrides.get("tls_server_name") or "").strip()
         if not tls_server_name and selected_sni is not None:
             tls_server_name = selected_sni.fqdn
 
-        if connection.mode == ConnectionMode.DIRECT:
-            t_host = str(endpoints.vps_t_host or "").strip()
-            t_proxy = str(endpoints.vps_t_proxy_host or "").strip()
-            # Dedicated VPS-T WS terminator is considered present only when proxy host differs.
-            if t_proxy and t_proxy.lower() != t_host.lower():
-                entry_host = t_proxy
-                tls_termination_host = t_proxy
-            else:
-                entry_host = (
-                    str(endpoints.vps_e_proxy_host or "").strip()
-                    or str(endpoints.vps_e_host or "").strip()
-                    or t_host
-                )
-                tls_termination_host = entry_host
-        else:
-            # Chain mode enters through VPS-E node, while TLS can still terminate on a proxy host.
-            entry_host = endpoints.vps_e_host
-            tls_termination_host = (
-                endpoints.vps_e_proxy_host
-                if endpoints.vps_e_proxy_host
-                else (endpoints.vps_t_proxy_host or endpoints.vps_t_host)
-            )
+        entry_host = str(endpoints.vps_t_proxy_host or "").strip() or str(endpoints.vps_t_host or "").strip()
+        tls_termination_host = entry_host
         if not tls_server_name:
             tls_server_name = tls_termination_host
 
@@ -179,29 +156,15 @@ def build_effective_config(
             },
         }
 
-        if connection.mode == ConnectionMode.DIRECT and connection.variant == ConnectionVariant.B1:
-            return {
-                **common,
-                "profile": "B1-https-ws-direct",
-                "server": entry_host,
-                "chain": None,
-                "design_constraints": {
-                    "fixed_port_tcp": int(endpoints.vless_ws_tls_port or 443),
-                },
-            }
-
-        if connection.mode == ConnectionMode.CHAIN and connection.variant == ConnectionVariant.B2:
-            return {
-                **common,
-                "profile": "B2-https-ws-chain",
-                "server": entry_host,
-                "chain": {"type": "tcp_forward", "upstream": endpoints.vps_t_host, "port": int(endpoints.vless_ws_tls_port or 443)},
-                "design_constraints": {
-                    "fixed_port_tcp": int(endpoints.vless_ws_tls_port or 443),
-                },
-            }
-
-        raise ValueError("Inconsistent VLESS+WS+TLS mode and variant")
+        return {
+            **common,
+            "profile": "B1-https-ws-direct",
+            "server": entry_host,
+            "chain": None,
+            "design_constraints": {
+                "fixed_port_tcp": int(endpoints.vless_ws_tls_port or 443),
+            },
+        }
 
     if connection.protocol == ConnectionProtocol.HYSTERIA2:
         if connection.variant != ConnectionVariant.B3 or connection.mode != ConnectionMode.DIRECT:

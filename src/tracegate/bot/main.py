@@ -806,8 +806,6 @@ def _profile(spec: str) -> tuple[ConnectionProtocol, ConnectionMode, ConnectionV
         return ConnectionProtocol.VLESS_WS_TLS, ConnectionMode.DIRECT, ConnectionVariant.B1
     if spec == "b2":
         return ConnectionProtocol.VLESS_REALITY, ConnectionMode.CHAIN, ConnectionVariant.B2
-    if spec == "b2ws":
-        return ConnectionProtocol.VLESS_WS_TLS, ConnectionMode.CHAIN, ConnectionVariant.B2
     if spec == "b3":
         return ConnectionProtocol.HYSTERIA2, ConnectionMode.DIRECT, ConnectionVariant.B3
     if spec == "b5":
@@ -898,8 +896,11 @@ async def vless_transport(callback: CallbackQuery) -> None:
         if transport != "tls":
             raise ValueError("unknown transport")
 
+        if spec != "b1":
+            raise ValueError("WS+TLS доступен только для B1 Direct")
+
         user = await ensure_user(callback.from_user.id)
-        protocol, mode, variant = _profile(f"{spec}ws")
+        protocol, mode, variant = _profile("b1ws")
         connection, revision = await api.create_connection_and_revision(
             user["telegram_id"],
             device_id,

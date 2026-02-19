@@ -36,8 +36,8 @@
     },
     {
       "tag": "vless-reality-in",
-      "listen": "0.0.0.0",
-      "port": 443,
+      "listen": "127.0.0.1",
+      "port": 2443,
       "protocol": "vless",
       "settings": {
         "clients": [
@@ -73,6 +73,31 @@
         "destOverride": [
           "http",
           "tls"
+        ]
+      }
+    },
+    {
+      "tag": "vless-ws-in",
+      "listen": "127.0.0.1",
+      "port": 10000,
+      "protocol": "vless",
+      "settings": {
+        "clients": [],
+        "decryption": "none"
+      },
+      "streamSettings": {
+        "network": "ws",
+        "security": "none",
+        "wsSettings": {
+          "path": "/ws"
+        }
+      },
+      "sniffing": {
+        "enabled": true,
+        "destOverride": [
+          "http",
+          "tls",
+          "quic"
         ]
       }
     }

@@ -67,10 +67,13 @@ def _to_connection_read(connection: Connection, *, user: User | None, device: De
 
 
 def validate_variant(protocol: ConnectionProtocol, mode: ConnectionMode, variant: ConnectionVariant) -> None:
-    if protocol in {ConnectionProtocol.VLESS_REALITY, ConnectionProtocol.VLESS_WS_TLS} and (mode, variant) in {
+    if protocol == ConnectionProtocol.VLESS_REALITY and (mode, variant) in {
         (ConnectionMode.DIRECT, ConnectionVariant.B1),
         (ConnectionMode.CHAIN, ConnectionVariant.B2),
     }:
+        return
+
+    if protocol == ConnectionProtocol.VLESS_WS_TLS and (mode, variant) == (ConnectionMode.DIRECT, ConnectionVariant.B1):
         return
 
     if protocol == ConnectionProtocol.HYSTERIA2 and mode == ConnectionMode.DIRECT and variant == ConnectionVariant.B3:

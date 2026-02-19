@@ -57,6 +57,12 @@ spec:
       affinity:
         {{- toYaml .Values.gateway.vpsT.affinity | nindent 8 }}
       volumes:
+        - name: entry-mux-config
+          configMap:
+            name: {{ include "tracegate.fullname" . }}-vps-t-entry-mux
+        - name: entry-ws-tls
+          secret:
+            secretName: {{ include "tracegate.fullname" . }}-vps-t-ws-tls
         - name: xray-config
           secret:
             secretName: {{ include "tracegate.fullname" . }}-vps-t-xray-config
@@ -107,20 +113,45 @@ spec:
             - name: wg-config
               mountPath: /base/wireguard
       containers:
+        - name: entry-mux
+          image: {{ .Values.gateway.vpsT.entryMux.image | default "nginx:1.24-alpine" }}
+          imagePullPolicy: {{ .Values.gateway.vpsT.entryMux.pullPolicy | default "IfNotPresent" }}
+          ports:
+            - containerPort: 443
+              protocol: TCP
+              name: entry-tcp
+          volumeMounts:
+            - name: entry-mux-config
+              mountPath: /etc/nginx/nginx.conf
+              subPath: nginx.conf
+              readOnly: true
+            - name: entry-ws-tls
+              mountPath: /etc/nginx/tls
+              readOnly: true
+          securityContext:
+            runAsUser: 0
+            runAsGroup: 0
+          readinessProbe:
+            tcpSocket:
+              port: entry-tcp
+            initialDelaySeconds: 2
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: entry-tcp
+            initialDelaySeconds: 10
+            periodSeconds: 20
         - name: xray
           image: {{ .Values.gateway.vpsT.xray.image }}
           imagePullPolicy: {{ .Values.gateway.vpsT.xray.pullPolicy }}
           command: ["xray", "run", "-c", "/etc/xray/config.json"]
           ports:
-            - containerPort: 443
+            - containerPort: 2443
               protocol: TCP
-              name: vless-tcp
-            {{- $wsPort := int (.Values.controlPlane.env.vlessWsTlsPort | default 443) -}}
-            {{- if ne $wsPort 443 }}
-            - containerPort: {{ $wsPort }}
+              name: vless-reality
+            - containerPort: 10000
               protocol: TCP
-              name: vless-ws-tls
-            {{- end }}
+              name: vless-ws
           volumeMounts:
             - name: agent-data
               mountPath: /etc/xray

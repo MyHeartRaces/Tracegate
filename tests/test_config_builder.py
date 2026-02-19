@@ -1,6 +1,8 @@
 from datetime import datetime, timezone
 from uuid import uuid4
 
+import pytest
+
 from tracegate.enums import ConnectionMode, ConnectionProtocol, ConnectionVariant, EntitlementStatus, RecordStatus
 from tracegate.models import Connection, Device, User
 from tracegate.services.config_builder import EndpointSet, build_effective_config
@@ -126,7 +128,7 @@ def test_wireguard_uses_fixed_port_51820() -> None:
     assert cfg["endpoint"].endswith(":51820")
 
 
-def test_ws_tls_chain_uses_vps_t_sni_when_vps_e_is_l4_forwarder() -> None:
+def test_ws_tls_chain_is_rejected() -> None:
     user = _user()
     device = _device(user.telegram_id)
     conn = Connection(
@@ -141,52 +143,17 @@ def test_ws_tls_chain_uses_vps_t_sni_when_vps_e_is_l4_forwarder() -> None:
         status=RecordStatus.ACTIVE,
     )
 
-    cfg = build_effective_config(
-        user=user,
-        device=device,
-        connection=conn,
-        selected_sni=None,
-        endpoints=EndpointSet(
-            vps_t_host="vps-t.example.com",
-            vps_e_host="vps-e.example.com",
-        ),
-    )
-
-    assert cfg["server"] == "vps-e.example.com"
-    assert cfg["sni"] == "vps-t.example.com"
-    assert cfg["ws"]["host"] == "vps-t.example.com"
-
-
-def test_ws_tls_chain_uses_vps_e_proxy_sni_when_proxy_enabled() -> None:
-    user = _user()
-    device = _device(user.telegram_id)
-    conn = Connection(
-        id=uuid4(),
-        user_id=user.telegram_id,
-        device_id=device.id,
-        protocol=ConnectionProtocol.VLESS_WS_TLS,
-        mode=ConnectionMode.CHAIN,
-        variant=ConnectionVariant.B2,
-        profile_name="B2",
-        custom_overrides_json={},
-        status=RecordStatus.ACTIVE,
-    )
-
-    cfg = build_effective_config(
-        user=user,
-        device=device,
-        connection=conn,
-        selected_sni=None,
-        endpoints=EndpointSet(
-            vps_t_host="vps-t.example.com",
-            vps_e_host="vps-e.example.com",
-            vps_e_proxy_host="proxy-vps-e.example.com",
-        ),
-    )
-
-    assert cfg["server"] == "vps-e.example.com"
-    assert cfg["sni"] == "proxy-vps-e.example.com"
-    assert cfg["ws"]["host"] == "proxy-vps-e.example.com"
+    with pytest.raises(ValueError, match="VLESS\\+WS\\+TLS supports only B1 direct"):
+        build_effective_config(
+            user=user,
+            device=device,
+            connection=conn,
+            selected_sni=None,
+            endpoints=EndpointSet(
+                vps_t_host="vps-t.example.com",
+                vps_e_host="vps-e.example.com",
+            ),
+        )
 
 
 def test_ws_tls_direct_uses_vps_t_proxy_host_when_dedicated_proxy_is_set() -> None:
@@ -221,7 +188,7 @@ def test_ws_tls_direct_uses_vps_t_proxy_host_when_dedicated_proxy_is_set() -> No
     assert cfg["ws"]["host"] == "proxy-vps-t.example.com"
 
 
-def test_ws_tls_direct_falls_back_to_vps_e_entry_mux_when_vps_t_proxy_not_dedicated() -> None:
+def test_ws_tls_direct_uses_vps_t_host_without_proxy() -> None:
     user = _user()
     device = _device(user.telegram_id)
     conn = Connection(
@@ -244,11 +211,9 @@ def test_ws_tls_direct_falls_back_to_vps_e_entry_mux_when_vps_t_proxy_not_dedica
         endpoints=EndpointSet(
             vps_t_host="myheartraces.space",
             vps_e_host="entry.myheartraces.space",
-            # Equal host/proxy means there is no dedicated VPS-T WS terminator.
-            vps_t_proxy_host="myheartraces.space",
         ),
     )
 
-    assert cfg["server"] == "entry.myheartraces.space"
-    assert cfg["sni"] == "entry.myheartraces.space"
-    assert cfg["ws"]["host"] == "entry.myheartraces.space"
+    assert cfg["server"] == "myheartraces.space"
+    assert cfg["sni"] == "myheartraces.space"
+    assert cfg["ws"]["host"] == "myheartraces.space"

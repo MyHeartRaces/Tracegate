@@ -17,6 +17,6 @@ def test_direct_targets_only_vps_t() -> None:
     assert roles == [NodeRole.VPS_T]
 
 
-def test_ws_tls_targets_vps_e_and_vps_t_even_for_b1() -> None:
+def test_ws_tls_targets_only_vps_t_for_b1() -> None:
     roles = target_roles_for_connection(ConnectionProtocol.VLESS_WS_TLS, ConnectionVariant.B1)
-    assert roles == [NodeRole.VPS_E, NodeRole.VPS_T]
+    assert roles == [NodeRole.VPS_T]

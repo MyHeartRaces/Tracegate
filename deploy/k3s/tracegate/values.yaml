@@ -135,6 +135,18 @@ gateway:
     hostNetwork: true
     shareProcessNamespace: true
 
+    entryMux:
+      image: nginx:1.24-alpine
+      pullPolicy: IfNotPresent
+      # Optional extra SNI hostnames that should be treated as VLESS+WS+TLS.
+      wsSniHosts: []
+
+    # TLS certificate used to terminate VLESS+WS+TLS on VPS-T.
+    # Leave empty to generate and persist a self-signed cert in a k8s Secret.
+    wsTls:
+      crt: ""
+      key: ""
+
     xray:
       image: ghcr.io/xtls/xray-core:latest
       pullPolicy: IfNotPresent
@@ -167,8 +179,8 @@ gateway:
             },
             {
               "tag": "vless-reality-in",
-              "listen": "0.0.0.0",
-              "port": 443,
+              "listen": "127.0.0.1",
+              "port": 2443,
               "protocol": "vless",
               "settings": {
                 "clients": [
@@ -194,6 +206,27 @@ gateway:
                   "mode": "packet-up",
                   "path": "/api/v1/update"
                 }
+              }
+            },
+            {
+              "tag": "vless-ws-in",
+              "listen": "127.0.0.1",
+              "port": 10000,
+              "protocol": "vless",
+              "settings": {
+                "clients": [],
+                "decryption": "none"
+              },
+              "streamSettings": {
+                "network": "ws",
+                "security": "none",
+                "wsSettings": {
+                  "path": "{{ .Values.controlPlane.env.vlessWsPath | default "/ws" }}"
+                }
+              },
+              "sniffing": {
+                "enabled": true,
+                "destOverride": ["http", "tls", "quic"]
               }
             }
           ],
