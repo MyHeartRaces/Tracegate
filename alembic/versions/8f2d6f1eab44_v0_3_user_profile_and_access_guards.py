@@ -1,4 +1,4 @@
-"""v0.3 user profile, timed bot blocks and integrity guards
+"""User profile, timed bot blocks and integrity guards
 
 Revision ID: 8f2d6f1eab44
 Revises: b7e6a1f4c2d9
@@ -30,7 +30,7 @@ def upgrade() -> None:
     op.add_column("tg_user", sa.Column("bot_block_reason", sa.String(length=255), nullable=True))
     op.create_index(op.f("ix_tg_user_bot_blocked_until"), "tg_user", ["bot_blocked_until"], unique=False)
 
-    # Clean up pre-v0.3 duplicates before enabling stricter unique guards.
+    # Clean up legacy duplicates before enabling stricter unique guards.
     op.execute(
         """
         WITH ranked AS (

@@ -1,4 +1,4 @@
-# Tracegate v0.3.5
+# Tracegate v0.4
 
 Tracegate implements a control-plane + node-agent architecture for:
 - B1 `VLESS + REALITY` direct (443/tcp)
@@ -44,7 +44,7 @@ Monetization objects are intentionally removed in this state: there is no `walle
 SNI is a static catalog bundled with the app: `src/tracegate/staticdata/sni_catalog.yaml` (no Postgres SNI table).
 Bot users are keyed by Telegram `telegram_id` (primary key).
 
-## v0.3.5 highlights
+## v0.4 highlights
 
 - Alembic migrations (v0.1 baseline stamping + upgrade to head).
 - WireGuard peer lifecycle fix: single peer per device, consistent slot0 state, IPAM reuse/release.
@@ -56,6 +56,15 @@ Bot users are keyed by Telegram `telegram_id` (primary key).
 - Scoped API tokens with route-level RBAC.
 - Agent host-load/memory/network metrics + per-connection throughput table in admin dashboard.
 - Bot QoL: `/guide` and `/clean`.
+- VLESS Reality path moved to `xhttp` in `packet-up` mode for B1/B2; chain transit on VPS-E -> VPS-T uses Reality end-to-end.
+- Legacy chain-only `chain_port=50000` path removed; enforced topology rule is inbound `443` and transit destination `443`.
+- Client export updates: VLESS Reality export is `type=xhttp` (`mode=packet-up`), and profile generation aligned with current direct/chain entrypoints.
+- Bot UX updates: chain transport choice removed (Reality is now the default flow), `/guide` stale values text cleaned.
+- Grafana updates:
+  - compact table for `Active connections (all protocols)`;
+  - human-readable connection labels in graphs: `B*(TYPE/MODE) - actual_tg_name(tg_id) - device`;
+  - new admin dashboard `Tracegate (Admin Metadata)` with `connection_pid`, `user_pid`, `peer_pid`, `connection_marker`, extracted `tg_id` and `connection_id`.
+- Helm post-upgrade Grafana bootstrap now runs `python3 -m tracegate.cli.grafana_bootstrap`, so dashboard logic stays in sync with app code.
 
 ## Quick start
 
@@ -161,6 +170,7 @@ Users request a one-time login link (OTP) in Telegram bot: `Статистика
 
 Regular users are scoped in dashboards by `${__user.login}` (pseudo-ID derived from Telegram ID); Explore is disabled.
 Admins/superadmins have access to the Admin dashboard folder.
+Admins/superadmins also have `Tracegate (Admin Metadata)` for per-connection and per-peer identifiers.
 
 ## Node replacement flow (VPS-E or VPS-T)
 
