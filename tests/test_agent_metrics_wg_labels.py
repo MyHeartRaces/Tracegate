@@ -57,3 +57,49 @@ def test_wg_metrics_export_peer_pid_only(monkeypatch: pytest.MonkeyPatch, tmp_pa
     assert rx.samples == [([peer_id], 10.0)]
     assert tx.samples == [([peer_id], 20.0)]
     assert hs.samples == [([peer_id], 1700000000.0)]
+
+
+def test_hysteria_metrics_normalize_connection_marker(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+    # Keep this unit test independent from prometheus_client availability.
+    fake_prometheus = types.ModuleType("prometheus_client")
+    fake_prometheus.REGISTRY = types.SimpleNamespace(register=lambda _: None)
+    fake_prometheus_core = types.ModuleType("prometheus_client.core")
+    fake_prometheus_core.GaugeMetricFamily = _FakeGaugeMetricFamily
+    sys.modules.setdefault("prometheus_client", fake_prometheus)
+    sys.modules.setdefault("prometheus_client.core", fake_prometheus_core)
+
+    from tracegate.agent import metrics as m
+    from tracegate.settings import Settings
+
+    monkeypatch.setattr(m, "_query_xray_user_traffic_bytes", lambda _settings: {})
+    monkeypatch.setattr(
+        m,
+        "_fetch_hysteria_traffic_bytes",
+        lambda _url, _secret: {
+            "b3 - 123456 - conn-lower": {"rx": 11, "tx": 22},
+            "B5 - 654321 - conn-upper": {"rx": 33, "tx": 44},
+        },
+    )
+    monkeypatch.setattr(
+        m,
+        "_wg_dump",
+        lambda _iface: [
+            ["wg0", "priv", "pub", "51820"],  # interface header row (ignored by collector)
+        ],
+    )
+
+    settings = Settings(agent_role="VPS_T", agent_data_root=str(tmp_path), pseudonym_secret="test-secret")
+    collector = m.AgentMetricsCollector(settings)
+    out = list(collector.collect())
+
+    hyst_rx = next(row for row in out if getattr(row, "name", "") == "tracegate_hysteria_connection_rx_bytes")
+    hyst_tx = next(row for row in out if getattr(row, "name", "") == "tracegate_hysteria_connection_tx_bytes")
+
+    assert hyst_rx.samples == [
+        (["B3 - 123456 - conn-lower"], 11.0),
+        (["B5 - 654321 - conn-upper"], 33.0),
+    ]
+    assert hyst_tx.samples == [
+        (["B3 - 123456 - conn-lower"], 22.0),
+        (["B5 - 654321 - conn-upper"], 44.0),
+    ]

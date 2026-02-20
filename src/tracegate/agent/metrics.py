@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import re
 import subprocess
 from pathlib import Path
 
@@ -12,6 +13,26 @@ from tracegate.services.pseudonym import wg_peer_pid
 from tracegate.settings import Settings
 
 _REGISTERED = False
+_CONNECTION_MARKER_RE = re.compile(r"^([A-Za-z][0-9]+)\s*-\s*([0-9]+)\s*-\s*(.+)$")
+
+
+def _normalize_connection_marker(marker: str) -> str:
+    """
+    Canonicalize connection marker formatting used by joins in Grafana dashboards.
+
+    Hysteria Traffic Stats API may lower-case the variant prefix (`b3`), while
+    control-plane inventory exports `B3`. Keep one canonical form.
+    """
+    marker_s = str(marker or "").strip()
+    match = _CONNECTION_MARKER_RE.match(marker_s)
+    if match is None:
+        return marker_s
+    variant = str(match.group(1) or "").strip().upper()
+    tg_id = str(match.group(2) or "").strip()
+    conn_id = str(match.group(3) or "").strip()
+    if not variant or not tg_id or not conn_id:
+        return marker_s
+    return f"{variant} - {tg_id} - {conn_id}"
 
 
 def _query_xray_user_traffic_bytes(settings: Settings) -> dict[str, dict[str, int]]:
@@ -268,7 +289,7 @@ class AgentMetricsCollector:
             traffic = {}
 
         for marker, row in (traffic or {}).items():
-            marker_s = str(marker or "").strip()
+            marker_s = _normalize_connection_marker(marker)
             if not marker_s or not isinstance(row, dict):
                 continue
             try:

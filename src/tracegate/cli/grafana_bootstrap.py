@@ -210,7 +210,7 @@ def _dashboard_user(ds_uid: str) -> dict[str, Any]:
                 "targets": [
                     {
                         "refId": "A",
-                        "expr": 'sum by (connection_label) (rate(tracegate_hysteria_connection_rx_bytes[5m]) * on(connection_marker) group_left(connection_label) max by (connection_marker, connection_label) (tracegate_connection_active{user_pid="${__user.login}", protocol="hysteria2"}))',
+                        "expr": 'sum by (connection_label) (label_replace(rate(tracegate_hysteria_connection_rx_bytes[5m]), "cm_norm", "B$1 - $2 - $3", "connection_marker", "^[Bb]([0-9]+) - ([0-9]+) - (.+)$") * on(cm_norm) group_left(connection_label) max by (cm_norm, connection_label) (label_replace(tracegate_connection_active{user_pid="${__user.login}", protocol="hysteria2"}, "cm_norm", "B$1 - $2 - $3", "connection_marker", "^[Bb]([0-9]+) - ([0-9]+) - (.+)$")))',
                         "legendFormat": "{{connection_label}}",
                     }
                 ],
@@ -224,7 +224,7 @@ def _dashboard_user(ds_uid: str) -> dict[str, Any]:
                 "targets": [
                     {
                         "refId": "A",
-                        "expr": 'sum by (connection_label) (rate(tracegate_hysteria_connection_tx_bytes[5m]) * on(connection_marker) group_left(connection_label) max by (connection_marker, connection_label) (tracegate_connection_active{user_pid="${__user.login}", protocol="hysteria2"}))',
+                        "expr": 'sum by (connection_label) (label_replace(rate(tracegate_hysteria_connection_tx_bytes[5m]), "cm_norm", "B$1 - $2 - $3", "connection_marker", "^[Bb]([0-9]+) - ([0-9]+) - (.+)$") * on(cm_norm) group_left(connection_label) max by (cm_norm, connection_label) (label_replace(tracegate_connection_active{user_pid="${__user.login}", protocol="hysteria2"}, "cm_norm", "B$1 - $2 - $3", "connection_marker", "^[Bb]([0-9]+) - ([0-9]+) - (.+)$")))',
                         "legendFormat": "{{connection_label}}",
                     }
                 ],
@@ -384,7 +384,7 @@ def _dashboard_admin(ds_uid: str) -> dict[str, Any]:
                 "targets": [
                     {
                         "refId": "A",
-                        "expr": 'sum by (connection_label) (rate(tracegate_hysteria_connection_rx_bytes[5m]) * on(connection_marker) group_left(connection_label) max by (connection_marker, connection_label) (tracegate_connection_active{protocol="hysteria2"}))',
+                        "expr": 'sum by (connection_label) (label_replace(rate(tracegate_hysteria_connection_rx_bytes[5m]), "cm_norm", "B$1 - $2 - $3", "connection_marker", "^[Bb]([0-9]+) - ([0-9]+) - (.+)$") * on(cm_norm) group_left(connection_label) max by (cm_norm, connection_label) (label_replace(tracegate_connection_active{protocol="hysteria2"}, "cm_norm", "B$1 - $2 - $3", "connection_marker", "^[Bb]([0-9]+) - ([0-9]+) - (.+)$")))',
                         "legendFormat": "{{connection_label}}",
                     },
                 ],
@@ -398,7 +398,7 @@ def _dashboard_admin(ds_uid: str) -> dict[str, Any]:
                 "targets": [
                     {
                         "refId": "A",
-                        "expr": 'sum by (connection_label) (rate(tracegate_hysteria_connection_tx_bytes[5m]) * on(connection_marker) group_left(connection_label) max by (connection_marker, connection_label) (tracegate_connection_active{protocol="hysteria2"}))',
+                        "expr": 'sum by (connection_label) (label_replace(rate(tracegate_hysteria_connection_tx_bytes[5m]), "cm_norm", "B$1 - $2 - $3", "connection_marker", "^[Bb]([0-9]+) - ([0-9]+) - (.+)$") * on(cm_norm) group_left(connection_label) max by (cm_norm, connection_label) (label_replace(tracegate_connection_active{protocol="hysteria2"}, "cm_norm", "B$1 - $2 - $3", "connection_marker", "^[Bb]([0-9]+) - ([0-9]+) - (.+)$")))',
                         "legendFormat": "{{connection_label}}",
                     },
                 ],

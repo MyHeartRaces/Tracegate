@@ -45,6 +45,26 @@ def test_admin_connection_panels_use_human_readable_labels() -> None:
         assert "sum by (user_handle, connection_marker)" not in expr
 
 
+def test_hysteria_panels_normalize_marker_case_for_join() -> None:
+    user_dashboard = _dashboard_user("prom")
+    for panel_id in [13, 14]:
+        panel = _panel_by_id(user_dashboard, panel_id)
+        expr = panel["targets"][0]["expr"]
+        assert "on(cm_norm)" in expr
+        assert 'label_replace(rate(tracegate_hysteria_connection_' in expr
+        assert 'label_replace(tracegate_connection_active{user_pid="${__user.login}", protocol="hysteria2"}' in expr
+        assert '^[Bb]([0-9]+) - ([0-9]+) - (.+)$' in expr
+
+    admin_dashboard = _dashboard_admin("prom")
+    for panel_id in [13, 14]:
+        panel = _panel_by_id(admin_dashboard, panel_id)
+        expr = panel["targets"][0]["expr"]
+        assert "on(cm_norm)" in expr
+        assert 'label_replace(rate(tracegate_hysteria_connection_' in expr
+        assert 'label_replace(tracegate_connection_active{protocol="hysteria2"}' in expr
+        assert '^[Bb]([0-9]+) - ([0-9]+) - (.+)$' in expr
+
+
 def test_user_panels_scope_queries_by_logged_in_user_pid() -> None:
     dashboard = _dashboard_user("prom")
     for panel_id in [1, 2, 3, 4, 11, 12, 13, 14]:
