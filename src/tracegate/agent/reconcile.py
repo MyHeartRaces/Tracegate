@@ -80,6 +80,42 @@ def _merge_clients(existing: list[dict] | None, dynamic: list[dict]) -> list[dic
     return [out[key] for key in sorted(out, key=str)]
 
 
+def _split_host_port(value: str) -> tuple[str, str]:
+    raw = str(value or "").strip()
+    if not raw:
+        return "", ""
+    if raw.startswith("["):
+        end = raw.find("]")
+        if end != -1:
+            host = raw[1:end].strip()
+            rest = raw[end + 1 :]
+            if rest.startswith(":"):
+                return host, rest[1:].strip()
+            return host, ""
+    if ":" in raw and raw.count(":") == 1:
+        host, port = raw.rsplit(":", 1)
+        return host.strip(), port.strip()
+    return raw, ""
+
+
+def _reality_dest_host_for_inbound(
+    *,
+    selected_sni: str | None,
+    inbound_reality_settings: dict | None,
+    fallback_dest: str,
+) -> str:
+    if selected_sni:
+        return selected_sni.strip()
+    inbound_dest = ""
+    if isinstance(inbound_reality_settings, dict):
+        inbound_dest = str(inbound_reality_settings.get("dest") or "").strip()
+    host, _ = _split_host_port(inbound_dest)
+    if host:
+        return host
+    fallback_host, _ = _split_host_port(fallback_dest)
+    return fallback_host
+
+
 def _empty_index() -> dict[str, dict[str, dict]]:
     return {"users": {}, "wg_peers": {}}
 
@@ -284,6 +320,8 @@ def reconcile_xray(settings: Settings) -> bool:
     artifacts = load_all_user_artifacts(paths)
     clients_reality: list[dict] = []
     clients_ws: list[dict] = []
+    selected_reality_sni: str | None = None
+    selected_reality_sni_ts = ""
 
     def _connection_marker(row: dict) -> str:
         # Keep marker stable across bot, node configs, and metrics.
@@ -313,6 +351,13 @@ def reconcile_xray(settings: Settings) -> bool:
             sni = (cfg.get("sni") or "").strip()
             if sni:
                 server_names.add(sni)
+                op_ts = str(row.get("op_ts") or "").strip()
+                if selected_reality_sni is None:
+                    selected_reality_sni = sni
+                    selected_reality_sni_ts = op_ts
+                elif op_ts and (not selected_reality_sni_ts or op_ts > selected_reality_sni_ts):
+                    selected_reality_sni = sni
+                    selected_reality_sni_ts = op_ts
             clients_reality.append(
                 {
                     "id": uuid,
@@ -361,6 +406,15 @@ def reconcile_xray(settings: Settings) -> bool:
                     existing = []
                 merged = sorted(set([*existing, *server_names]), key=lambda s: str(s).lower())
                 reality["serverNames"] = merged
+            stream = inbound.setdefault("streamSettings", {})
+            reality = stream.setdefault("realitySettings", {})
+            dest_host = _reality_dest_host_for_inbound(
+                selected_sni=selected_reality_sni,
+                inbound_reality_settings=reality,
+                fallback_dest=settings.reality_dest,
+            )
+            if dest_host:
+                reality["dest"] = f"{dest_host}:443"
 
             if tag:
                 desired: dict[str, str] = {}

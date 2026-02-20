@@ -145,7 +145,8 @@ def test_reconcile_vps_e_updates_only_xray(tmp_path: Path) -> None:
 
     changed = reconcile_all(settings)
     assert changed == ["xray"]
-    assert (tmp_path / "runtime/xray/config.json").exists()
+    rendered = json.loads((tmp_path / "runtime/xray/config.json").read_text(encoding="utf-8"))
+    assert rendered["inbounds"][0]["streamSettings"]["realitySettings"]["dest"] == "vk.com:443"
     assert not (tmp_path / "runtime/hysteria/config.yaml").exists()
     assert not (tmp_path / "runtime/wireguard/wg0.conf").exists()
 
@@ -185,6 +186,74 @@ def test_reconcile_vps_e_forces_transit_port_443(tmp_path: Path) -> None:
 
     rendered = json.loads((tmp_path / "runtime/xray/config.json").read_text(encoding="utf-8"))
     assert rendered["outbounds"][0]["settings"]["vnext"][0]["port"] == 443
+
+
+def test_reconcile_vps_e_reality_dest_follows_latest_selected_sni(tmp_path: Path) -> None:
+    settings = Settings(
+        agent_data_root=str(tmp_path),
+        agent_runtime_mode="kubernetes",
+        agent_role="VPS_E",
+    )
+
+    _write(
+        tmp_path / "base/xray/config.json",
+        json.dumps(
+            {
+                "inbounds": [
+                    {
+                        "tag": "entry-in",
+                        "protocol": "vless",
+                        "settings": {"clients": []},
+                        "streamSettings": {
+                            "security": "reality",
+                            "realitySettings": {
+                                "dest": "splitter.wb.ru:8443",
+                                "serverNames": [],
+                            },
+                        },
+                    }
+                ],
+                "outbounds": [{"protocol": "freedom"}],
+            }
+        ),
+    )
+    _write(
+        tmp_path / "users/u2/connection-old.json",
+        json.dumps(
+            {
+                "user_id": "u2",
+                "device_id": "d2",
+                "connection_id": "old",
+                "revision_id": "r1",
+                "op_ts": "2026-02-20T22:00:00+00:00",
+                "protocol": "vless_reality",
+                "config": {"uuid": "old", "sni": "www.wildberries.ru"},
+            }
+        ),
+    )
+    _write(
+        tmp_path / "users/u2/connection-new.json",
+        json.dumps(
+            {
+                "user_id": "u2",
+                "device_id": "d2",
+                "connection_id": "new",
+                "revision_id": "r2",
+                "op_ts": "2026-02-20T22:05:00+00:00",
+                "protocol": "vless_reality",
+                "config": {"uuid": "new", "sni": "st.ozone.ru"},
+            }
+        ),
+    )
+
+    changed = reconcile_all(settings)
+    assert changed == ["xray"]
+
+    rendered = json.loads((tmp_path / "runtime/xray/config.json").read_text(encoding="utf-8"))
+    reality = rendered["inbounds"][0]["streamSettings"]["realitySettings"]
+    assert reality["dest"] == "st.ozone.ru:443"
+    assert "www.wildberries.ru" in reality["serverNames"]
+    assert "st.ozone.ru" in reality["serverNames"]
 
 
 def test_reconcile_keeps_static_base_reality_clients(tmp_path: Path) -> None:
