@@ -342,7 +342,7 @@
   note: null
   providers: []
 - id: 52
-  fqdn: ozone.ru
+  fqdn: ozon.ru
   enabled: true
   is_test: false
   note: работает на МТС, Мегафон, Т2, Тмобайл, РТК, Yota.
@@ -518,7 +518,7 @@
   note: null
   providers: []
 - id: 75
-  fqdn: strm-spbmiran-08.strm.yandex.net
+  fqdn: strm.yandex.net
   enabled: true
   is_test: false
   note: null
