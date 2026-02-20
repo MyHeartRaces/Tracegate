@@ -45,6 +45,24 @@ def test_admin_connection_panels_use_human_readable_labels() -> None:
         assert "sum by (user_handle, connection_marker)" not in expr
 
 
+def test_user_panels_scope_queries_by_logged_in_user_pid() -> None:
+    dashboard = _dashboard_user("prom")
+    for panel_id in [1, 2, 3, 4, 11, 12, 13, 14]:
+        panel = _panel_by_id(dashboard, panel_id)
+        expr = panel["targets"][0]["expr"]
+        assert 'user_pid="${__user.login}"' in expr
+
+
+def test_host_memory_used_panels_ignore_kind_label_in_ratio() -> None:
+    user_dashboard = _dashboard_user("prom")
+    user_panel = _panel_by_id(user_dashboard, 10)
+    assert "/ ignoring(kind) tracegate_host_memory_bytes{kind=\"total\"}" in user_panel["targets"][0]["expr"]
+
+    admin_dashboard = _dashboard_admin("prom")
+    admin_panel = _panel_by_id(admin_dashboard, 8)
+    assert "/ ignoring(kind) tracegate_host_memory_bytes{kind=\"total\"}" in admin_panel["targets"][0]["expr"]
+
+
 def test_admin_metadata_dashboard_exposes_ids() -> None:
     dashboard = _dashboard_admin_metadata("prom")
     assert dashboard["uid"] == "tracegate-admin-metadata"

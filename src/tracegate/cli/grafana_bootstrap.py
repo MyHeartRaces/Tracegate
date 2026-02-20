@@ -108,7 +108,7 @@ def _dashboard_user(ds_uid: str) -> dict[str, Any]:
                 "targets": [
                     {
                         "refId": "A",
-                        "expr": 'max by (tg_id, connection_label, protocol, mode, variant) (label_replace(tracegate_connection_active{user_pid="$__user.login"}, "tg_id", "$1", "connection_marker", "^[^-]+ - ([0-9]+) - .+$"))',
+                        "expr": 'max by (tg_id, connection_label, protocol, mode, variant) (label_replace(tracegate_connection_active{user_pid="${__user.login}"}, "tg_id", "$1", "connection_marker", "^[^-]+ - ([0-9]+) - .+$"))',
                         "instant": True,
                         "format": "table",
                     }
@@ -140,7 +140,7 @@ def _dashboard_user(ds_uid: str) -> dict[str, Any]:
                 "targets": [
                     {
                         "refId": "A",
-                        "expr": 'sum by (connection_label) (rate(tracegate_wg_peer_rx_bytes[5m]) * on(peer_pid) group_left(connection_label) max by (peer_pid, connection_label) (tracegate_wg_peer_info{user_pid="$__user.login"}))',
+                        "expr": 'sum by (connection_label) (rate(tracegate_wg_peer_rx_bytes[5m]) * on(peer_pid) group_left(connection_label) max by (peer_pid, connection_label) (tracegate_wg_peer_info{user_pid="${__user.login}"}))',
                         "legendFormat": "{{connection_label}}",
                     }
                 ],
@@ -154,7 +154,7 @@ def _dashboard_user(ds_uid: str) -> dict[str, Any]:
                 "targets": [
                     {
                         "refId": "A",
-                        "expr": 'sum by (connection_label) (rate(tracegate_wg_peer_tx_bytes[5m]) * on(peer_pid) group_left(connection_label) max by (peer_pid, connection_label) (tracegate_wg_peer_info{user_pid="$__user.login"}))',
+                        "expr": 'sum by (connection_label) (rate(tracegate_wg_peer_tx_bytes[5m]) * on(peer_pid) group_left(connection_label) max by (peer_pid, connection_label) (tracegate_wg_peer_info{user_pid="${__user.login}"}))',
                         "legendFormat": "{{connection_label}}",
                     }
                 ],
@@ -168,7 +168,7 @@ def _dashboard_user(ds_uid: str) -> dict[str, Any]:
                 "targets": [
                     {
                         "refId": "A",
-                        "expr": 'time() - max by (connection_label) (tracegate_wg_peer_latest_handshake_seconds * on(peer_pid) group_left(connection_label) max by (peer_pid, connection_label) (tracegate_wg_peer_info{user_pid="$__user.login"}))',
+                        "expr": 'time() - max by (connection_label) (tracegate_wg_peer_latest_handshake_seconds * on(peer_pid) group_left(connection_label) max by (peer_pid, connection_label) (tracegate_wg_peer_info{user_pid="${__user.login}"}))',
                         "legendFormat": "{{connection_label}}",
                     }
                 ],
@@ -182,7 +182,7 @@ def _dashboard_user(ds_uid: str) -> dict[str, Any]:
                 "targets": [
                     {
                         "refId": "A",
-                        "expr": 'sum by (connection_label) (rate(tracegate_xray_connection_rx_bytes[5m]) * on(connection_marker) group_left(connection_label) max by (connection_marker, connection_label) (tracegate_connection_active{user_pid="$__user.login", protocol=~"vless_.*"}))',
+                        "expr": 'sum by (connection_label) (rate(tracegate_xray_connection_rx_bytes[5m]) * on(connection_marker) group_left(connection_label) max by (connection_marker, connection_label) (tracegate_connection_active{user_pid="${__user.login}", protocol=~"vless_.*"}))',
                         "legendFormat": "{{connection_label}}",
                     }
                 ],
@@ -196,7 +196,7 @@ def _dashboard_user(ds_uid: str) -> dict[str, Any]:
                 "targets": [
                     {
                         "refId": "A",
-                        "expr": 'sum by (connection_label) (rate(tracegate_xray_connection_tx_bytes[5m]) * on(connection_marker) group_left(connection_label) max by (connection_marker, connection_label) (tracegate_connection_active{user_pid="$__user.login", protocol=~"vless_.*"}))',
+                        "expr": 'sum by (connection_label) (rate(tracegate_xray_connection_tx_bytes[5m]) * on(connection_marker) group_left(connection_label) max by (connection_marker, connection_label) (tracegate_connection_active{user_pid="${__user.login}", protocol=~"vless_.*"}))',
                         "legendFormat": "{{connection_label}}",
                     }
                 ],
@@ -210,7 +210,7 @@ def _dashboard_user(ds_uid: str) -> dict[str, Any]:
                 "targets": [
                     {
                         "refId": "A",
-                        "expr": 'sum by (connection_label) (rate(tracegate_hysteria_connection_rx_bytes[5m]) * on(connection_marker) group_left(connection_label) max by (connection_marker, connection_label) (tracegate_connection_active{user_pid="$__user.login", protocol="hysteria2"}))',
+                        "expr": 'sum by (connection_label) (rate(tracegate_hysteria_connection_rx_bytes[5m]) * on(connection_marker) group_left(connection_label) max by (connection_marker, connection_label) (tracegate_connection_active{user_pid="${__user.login}", protocol="hysteria2"}))',
                         "legendFormat": "{{connection_label}}",
                     }
                 ],
@@ -224,7 +224,7 @@ def _dashboard_user(ds_uid: str) -> dict[str, Any]:
                 "targets": [
                     {
                         "refId": "A",
-                        "expr": 'sum by (connection_label) (rate(tracegate_hysteria_connection_tx_bytes[5m]) * on(connection_marker) group_left(connection_label) max by (connection_marker, connection_label) (tracegate_connection_active{user_pid="$__user.login", protocol="hysteria2"}))',
+                        "expr": 'sum by (connection_label) (rate(tracegate_hysteria_connection_tx_bytes[5m]) * on(connection_marker) group_left(connection_label) max by (connection_marker, connection_label) (tracegate_connection_active{user_pid="${__user.login}", protocol="hysteria2"}))',
                         "legendFormat": "{{connection_label}}",
                     }
                 ],
@@ -303,7 +303,7 @@ def _dashboard_user(ds_uid: str) -> dict[str, Any]:
                 "targets": [
                     {
                         "refId": "A",
-                        "expr": '(1 - (tracegate_host_memory_bytes{kind="available"} / tracegate_host_memory_bytes{kind="total"})) * 100',
+                        "expr": '(1 - (tracegate_host_memory_bytes{kind="available"} / ignoring(kind) tracegate_host_memory_bytes{kind="total"})) * 100',
                     },
                 ],
                 "gridPos": {"h": 8, "w": 12, "x": 12, "y": 56},
@@ -528,7 +528,7 @@ def _dashboard_admin(ds_uid: str) -> dict[str, Any]:
                 "targets": [
                     {
                         "refId": "A",
-                        "expr": 'avg by (instance) ((1 - (tracegate_host_memory_bytes{kind="available"} / tracegate_host_memory_bytes{kind="total"})) * 100)',
+                        "expr": 'avg by (instance) ((1 - (tracegate_host_memory_bytes{kind="available"} / ignoring(kind) tracegate_host_memory_bytes{kind="total"})) * 100)',
                     },
                 ],
                 "gridPos": {"h": 8, "w": 12, "x": 12, "y": 40},
