@@ -484,11 +484,19 @@ async def activate_revision(session: AsyncSession, revision_id: UUID) -> Connect
         raise RevisionError("Revision not found")
 
     connection = await _load_connection(session, revision.connection_id)
+    others = [r for r in connection.revisions if r.id != revision.id and r.status == RecordStatus.ACTIVE]
+    others.sort(key=lambda r: (r.slot, r.created_at))
+
+    # Two-phase shift avoids transient unique collisions on (connection_id, slot)
+    # for active revisions during activation.
+    for rev in others:
+        rev.slot = rev.slot + 10
+    await session.flush()
+
     revision.status = RecordStatus.ACTIVE
     revision.slot = 0
 
-    others = [r for r in connection.revisions if r.id != revision.id and r.status == RecordStatus.ACTIVE]
-    others.sort(key=lambda r: r.slot)
+    others.sort(key=lambda r: (r.slot, r.created_at))
     for idx, rev in enumerate(others, start=1):
         if idx > 2:
             rev.status = RecordStatus.REVOKED
