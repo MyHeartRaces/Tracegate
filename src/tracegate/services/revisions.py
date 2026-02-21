@@ -236,8 +236,10 @@ async def _emit_apply_for_revision(
     connection: Connection,
     revision: ConnectionRevision,
     idempotency_prefix: str,
+    op_ts: datetime | None = None,
 ) -> None:
     event_type = _event_type_for_protocol(connection.protocol)
+    event_ts = op_ts or revision.created_at
     if connection.protocol == ConnectionProtocol.WIREGUARD:
         # Privacy: nodes only need peer public key + assigned IP for server config sync.
         peer_pub, peer_ip, _allowed_ips = _wg_peer_fields_from_revision(revision)
@@ -245,7 +247,7 @@ async def _emit_apply_for_revision(
             "device_id": str(connection.device_id),
             # Revision timestamp is used by nodes to make applying state robust against
             # out-of-order delivery (dispatcher concurrency).
-            "op_ts": revision.created_at.isoformat(),
+            "op_ts": event_ts.isoformat(),
             "peer_public_key": peer_pub,
             "preshared_key": None,
             "peer_ip": peer_ip,
@@ -279,7 +281,7 @@ async def _emit_apply_for_revision(
             "revision_id": str(revision.id),
             # Revision timestamp is used by nodes to make applying state robust against
             # out-of-order delivery (dispatcher concurrency).
-            "op_ts": revision.created_at.isoformat(),
+            "op_ts": event_ts.isoformat(),
             "protocol": connection.protocol.value,
             "variant": connection.variant.value,
         }
@@ -522,6 +524,7 @@ async def activate_revision(session: AsyncSession, revision_id: UUID) -> Connect
         connection=connection,
         revision=revision,
         idempotency_prefix="activate",
+        op_ts=datetime.now(timezone.utc),
     )
     return revision
 
@@ -540,6 +543,7 @@ async def revoke_revision(session: AsyncSession, revision_id: UUID) -> Connectio
     active_now = [r for r in connection.revisions if r.status == RecordStatus.ACTIVE]
     active_slot0 = next((r for r in active_now if r.slot == 0), None)
     if active_slot0 is not None:
+        op_ts = datetime.now(timezone.utc)
         if connection.protocol == ConnectionProtocol.WIREGUARD:
             peer_pub, peer_ip, allowed_ips = _wg_peer_fields_from_revision(active_slot0)
             await _sync_wireguard_peer_state(
@@ -556,6 +560,7 @@ async def revoke_revision(session: AsyncSession, revision_id: UUID) -> Connectio
             connection=connection,
             revision=active_slot0,
             idempotency_prefix=f"revoke-promote:{revision.id}",
+            op_ts=op_ts,
         )
     else:
         op_ts = datetime.now(timezone.utc).isoformat()

@@ -56,7 +56,10 @@ async def test_activate_revision_uses_two_phase_shift_and_compacts_slots(monkeyp
     async def _load_connection(_session, _connection_id):
         return connection
 
+    captured: dict = {}
+
     async def _emit_apply(*_args, **_kwargs) -> None:
+        captured.update(_kwargs)
         return None
 
     monkeypatch.setattr(revisions_service, "_load_connection", _load_connection)
@@ -75,6 +78,8 @@ async def test_activate_revision_uses_two_phase_shift_and_compacts_slots(monkeyp
 
     revoked_rows = [row for row in connection.revisions if row.status == RecordStatus.REVOKED]
     assert len(revoked_rows) == 1
+    assert isinstance(captured.get("op_ts"), datetime)
+    assert captured["op_ts"] >= target.created_at
 
 
 @pytest.mark.asyncio
@@ -82,3 +87,41 @@ async def test_activate_revision_not_found() -> None:
     session = _FakeSession(None)
     with pytest.raises(RevisionError, match="Revision not found"):
         await revisions_service.activate_revision(session, uuid4())
+
+
+@pytest.mark.asyncio
+async def test_revoke_revision_promote_emits_fresh_op_ts(monkeypatch: pytest.MonkeyPatch) -> None:
+    connection_id = uuid4()
+    revoked = _rev(connection_id=connection_id, slot=0, status=RecordStatus.ACTIVE)
+    promoted = _rev(connection_id=connection_id, slot=1, status=RecordStatus.ACTIVE)
+    connection = SimpleNamespace(
+        id=connection_id,
+        protocol=ConnectionProtocol.VLESS_REALITY,
+        user_id=1,
+        revisions=[revoked, promoted],
+    )
+    session = _FakeSession(revoked)
+    captured: dict = {}
+
+    async def _load_connection(_session, _connection_id):
+        return connection
+
+    async def _compact_slots(_connection) -> None:
+        # Mimic compaction result: promoted becomes slot0 active.
+        promoted.slot = 0
+        promoted.status = RecordStatus.ACTIVE
+
+    async def _emit_apply(*_args, **_kwargs) -> None:
+        captured.update(_kwargs)
+        return None
+
+    monkeypatch.setattr(revisions_service, "_load_connection", _load_connection)
+    monkeypatch.setattr(revisions_service, "_compact_slots", _compact_slots)
+    monkeypatch.setattr(revisions_service, "_emit_apply_for_revision", _emit_apply)
+
+    out = await revisions_service.revoke_revision(session, revoked.id)
+    assert out is revoked
+    assert revoked.status == RecordStatus.REVOKED
+    assert captured.get("revision") is promoted
+    assert isinstance(captured.get("op_ts"), datetime)
+    assert captured["op_ts"] >= promoted.created_at
