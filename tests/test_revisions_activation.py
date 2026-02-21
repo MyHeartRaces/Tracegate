@@ -27,6 +27,18 @@ class _FakeSession:
         self.flush_calls += 1
 
 
+class _CheckingSession(_FakeSession):
+    def __init__(self, revision: SimpleNamespace | None, *, connection: SimpleNamespace) -> None:
+        super().__init__(revision)
+        self._connection = connection
+
+    async def flush(self) -> None:
+        await super().flush()
+        if self.flush_calls == 1:
+            active_rows = [row for row in self._connection.revisions if row.status == RecordStatus.ACTIVE]
+            assert all(row.slot >= 10 for row in active_rows)
+
+
 def _rev(*, connection_id, slot: int, status: RecordStatus) -> SimpleNamespace:
     return SimpleNamespace(
         id=uuid4(),
@@ -80,6 +92,37 @@ async def test_activate_revision_uses_two_phase_shift_and_compacts_slots(monkeyp
     assert len(revoked_rows) == 1
     assert isinstance(captured.get("op_ts"), datetime)
     assert captured["op_ts"] >= target.created_at
+
+
+@pytest.mark.asyncio
+async def test_activate_revision_shifts_active_target_before_compaction(monkeypatch: pytest.MonkeyPatch) -> None:
+    connection_id = uuid4()
+    active0 = _rev(connection_id=connection_id, slot=0, status=RecordStatus.ACTIVE)
+    active1 = _rev(connection_id=connection_id, slot=1, status=RecordStatus.ACTIVE)
+    target = _rev(connection_id=connection_id, slot=2, status=RecordStatus.ACTIVE)
+    connection = SimpleNamespace(
+        id=connection_id,
+        protocol=ConnectionProtocol.VLESS_REALITY,
+        user_id=1,
+        revisions=[active0, active1, target],
+    )
+    session = _CheckingSession(target, connection=connection)
+
+    async def _load_connection(_session, _connection_id):
+        return connection
+
+    async def _emit_apply(*_args, **_kwargs) -> None:
+        return None
+
+    monkeypatch.setattr(revisions_service, "_load_connection", _load_connection)
+    monkeypatch.setattr(revisions_service, "_emit_apply_for_revision", _emit_apply)
+
+    out = await revisions_service.activate_revision(session, target.id)
+    assert out is target
+    assert session.flush_calls == 2
+    assert target.slot == 0
+    active_rows = [row for row in connection.revisions if row.status == RecordStatus.ACTIVE]
+    assert sorted([row.slot for row in active_rows]) == [0, 1, 2]
 
 
 @pytest.mark.asyncio

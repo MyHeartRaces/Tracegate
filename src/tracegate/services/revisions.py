@@ -490,7 +490,11 @@ async def activate_revision(session: AsyncSession, revision_id: UUID) -> Connect
     others.sort(key=lambda r: (r.slot, r.created_at))
 
     # Two-phase shift avoids transient unique collisions on (connection_id, slot)
-    # for active revisions during activation.
+    # for active revisions during activation. Include the target revision when it
+    # is already ACTIVE (e.g. slot2 -> slot0), otherwise a concurrent slot reuse
+    # in the same flush can violate uq_connection_revision_active_slot.
+    if revision.status == RecordStatus.ACTIVE:
+        revision.slot = revision.slot + 10
     for rev in others:
         rev.slot = rev.slot + 10
     await session.flush()
