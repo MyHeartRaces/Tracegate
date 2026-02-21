@@ -1,3 +1,4 @@
+{{- $realityGroups := (.Values.gateway.realityMultiInbound.groups | default (list)) -}}
 {{- if and .Values.gateway.enabled .Values.gateway.vpsT.enabled }}
 {{- $publicBaseUrl := (.Values.controlPlane.env.publicBaseUrl | default "" | trim) -}}
 {{- $publicBaseHost := "" -}}
@@ -32,7 +33,16 @@ data:
 
     stream {
       map $ssl_preread_server_name $tg_upstream {
-        default reality;
+        default reality_fallback;
+        {{- range $group := $realityGroups }}
+        {{- $gid := (toString ($group.id | default "")) -}}
+        {{- if and $gid $group.port }}
+        {{- $upstream := printf "reality_%s" (regexReplaceAll "[^a-zA-Z0-9_]" (replace "-" "_" (lower $gid)) "_") -}}
+        {{- range ($group.snis | default (list)) }}
+        "{{ . }}" {{ $upstream }};
+        {{- end }}
+        {{- end }}
+        {{- end }}
         {{- if .Values.gateway.vpsT.fqdn }}
         "{{ .Values.gateway.vpsT.fqdn }}" ws_tls;
         {{- end }}
@@ -47,9 +57,18 @@ data:
         {{- end }}
       }
 
-      upstream reality {
+      upstream reality_fallback {
         server 127.0.0.1:2443;
       }
+      {{ range $group := $realityGroups }}
+      {{ $gid := (toString ($group.id | default "")) }}
+      {{ if and $gid $group.port }}
+      {{ $upstream := printf "reality_%s" (regexReplaceAll "[^a-zA-Z0-9_]" (replace "-" "_" (lower $gid)) "_") }}
+      upstream {{ $upstream }} {
+        server 127.0.0.1:{{ int $group.port }};
+      }
+      {{ end }}
+      {{ end }}
 
       upstream ws_tls {
         server 127.0.0.1:4443;
@@ -166,7 +185,16 @@ data:
 
     stream {
       map $ssl_preread_server_name $tg_upstream {
-        default reality;
+        default reality_fallback;
+        {{- range $group := $realityGroups }}
+        {{- $gid := (toString ($group.id | default "")) -}}
+        {{- if and $gid $group.port }}
+        {{- $upstream := printf "reality_%s" (regexReplaceAll "[^a-zA-Z0-9_]" (replace "-" "_" (lower $gid)) "_") -}}
+        {{- range ($group.snis | default (list)) }}
+        "{{ . }}" {{ $upstream }};
+        {{- end }}
+        {{- end }}
+        {{- end }}
         {{- if .Values.gateway.vpsE.proxyFqdn }}
         "{{ .Values.gateway.vpsE.proxyFqdn }}" ws_tls;
         {{- end }}
@@ -175,9 +203,18 @@ data:
         {{- end }}
       }
 
-      upstream reality {
+      upstream reality_fallback {
         server 127.0.0.1:2443;
       }
+      {{ range $group := $realityGroups }}
+      {{ $gid := (toString ($group.id | default "")) }}
+      {{ if and $gid $group.port }}
+      {{ $upstream := printf "reality_%s" (regexReplaceAll "[^a-zA-Z0-9_]" (replace "-" "_" (lower $gid)) "_") }}
+      upstream {{ $upstream }} {
+        server 127.0.0.1:{{ int $group.port }};
+      }
+      {{ end }}
+      {{ end }}
 
       upstream ws_tls {
         server 127.0.0.1:4443;

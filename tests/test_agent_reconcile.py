@@ -377,3 +377,120 @@ def test_reconcile_vps_e_ignores_ws_direct_artifacts_not_targeted_to_role(tmp_pa
     ws_clients = rendered["inbounds"][1]["settings"]["clients"]
     assert [row.get("id") for row in entry_clients] == ["chain-b2"]
     assert ws_clients == []
+
+
+def test_reconcile_reality_multi_inbound_groups_assign_by_sni_and_keep_fallback(tmp_path: Path) -> None:
+    settings = Settings(
+        agent_data_root=str(tmp_path),
+        agent_runtime_mode="kubernetes",
+        agent_role="VPS_E",
+        reality_multi_inbound_groups=[
+            {
+                "id": "shared-a",
+                "port": 2501,
+                "dest": "splitter.wb.ru",
+                "snis": ["splitter.wb.ru"],
+            },
+            {
+                "id": "shared-b",
+                "port": 2502,
+                "dest": "st.ozone.ru",
+                "snis": ["st.ozone.ru"],
+            },
+        ],
+    )
+
+    _write(
+        tmp_path / "base/xray/config.json",
+        json.dumps(
+            {
+                "inbounds": [
+                    {
+                        "tag": "entry-in",
+                        "protocol": "vless",
+                        "port": 2443,
+                        "settings": {"clients": []},
+                        "streamSettings": {
+                            "security": "reality",
+                            "realitySettings": {"dest": "splitter.wb.ru:443", "serverNames": ["splitter.wb.ru"]},
+                        },
+                    }
+                ],
+                "outbounds": [{"protocol": "freedom"}],
+                "routing": {
+                    "rules": [
+                        {"type": "field", "inboundTag": ["entry-in"], "outboundTag": "direct"},
+                    ]
+                },
+            }
+        ),
+    )
+    _write(
+        tmp_path / "users/u1/connection-a.json",
+        json.dumps(
+            {
+                "user_id": "u1",
+                "device_id": "d1",
+                "connection_id": "a",
+                "revision_id": "r1",
+                "protocol": "vless_reality",
+                "config": {"uuid": "a", "sni": "splitter.wb.ru"},
+            }
+        ),
+    )
+    _write(
+        tmp_path / "users/u1/connection-b.json",
+        json.dumps(
+            {
+                "user_id": "u1",
+                "device_id": "d1",
+                "connection_id": "b",
+                "revision_id": "r2",
+                "protocol": "vless_reality",
+                "config": {"uuid": "b", "sni": "st.ozone.ru"},
+            }
+        ),
+    )
+    _write(
+        tmp_path / "users/u1/connection-legacy.json",
+        json.dumps(
+            {
+                "user_id": "u1",
+                "device_id": "d1",
+                "connection_id": "legacy",
+                "revision_id": "r3",
+                "protocol": "vless_reality",
+                "config": {"uuid": "legacy", "sni": "legacy.example.com"},
+            }
+        ),
+    )
+
+    changed = reconcile_all(settings)
+    assert changed == ["xray"]
+
+    rendered = json.loads((tmp_path / "runtime/xray/config.json").read_text(encoding="utf-8"))
+    inbounds = {str(row.get("tag")): row for row in rendered["inbounds"]}
+    assert "entry-in" in inbounds
+    assert "entry-in-shared-a" in inbounds
+    assert "entry-in-shared-b" in inbounds
+    assert inbounds["entry-in-shared-a"]["port"] == 2501
+    assert inbounds["entry-in-shared-b"]["port"] == 2502
+
+    fallback_ids = {row.get("id") for row in inbounds["entry-in"]["settings"]["clients"]}
+    shared_a_ids = {row.get("id") for row in inbounds["entry-in-shared-a"]["settings"]["clients"]}
+    shared_b_ids = {row.get("id") for row in inbounds["entry-in-shared-b"]["settings"]["clients"]}
+    assert fallback_ids == {"legacy"}
+    assert shared_a_ids == {"a"}
+    assert shared_b_ids == {"b"}
+
+    reality_a = inbounds["entry-in-shared-a"]["streamSettings"]["realitySettings"]
+    reality_b = inbounds["entry-in-shared-b"]["streamSettings"]["realitySettings"]
+    reality_fallback = inbounds["entry-in"]["streamSettings"]["realitySettings"]
+    assert reality_a["dest"] == "splitter.wb.ru:443"
+    assert reality_b["dest"] == "st.ozone.ru:443"
+    assert "legacy.example.com" in reality_fallback["serverNames"]
+
+    route_tags = rendered["routing"]["rules"][0]["inboundTag"]
+    assert "entry-in" in route_tags
+    assert "entry-in-shared-a" in route_tags
+    assert "entry-in-shared-b" in route_tags

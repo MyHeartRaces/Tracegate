@@ -129,6 +129,17 @@ class Settings(BaseSettings):
     # Pre-seeded SNI allow-list for REALITY inbounds. Keep it minimal to avoid
     # advertising unrelated camouflage targets by default.
     sni_seed: list[str] = Field(default_factory=lambda: ["splitter.wb.ru"])
+    # Optional REALITY multi-inbound mapping.
+    # Each row is an object with:
+    # - id: stable slug (used in generated inbound tag)
+    # - port: local Xray listen port (entry-mux upstream target)
+    # - dest: REALITY dest host (port is forced to 443 by reconciler)
+    # - snis: list of client SNI values routed to this inbound
+    # Example:
+    # [
+    #   {"id": "shared-a", "port": 2501, "dest": "splitter.wb.ru", "snis": ["splitter.wb.ru"]}
+    # ]
+    reality_multi_inbound_groups: list[dict] = Field(default_factory=list)
 
     # Optional VLESS over WebSocket+TLS settings (operator-controlled; must match Xray inbound settings).
     vless_ws_path: str = "/ws"

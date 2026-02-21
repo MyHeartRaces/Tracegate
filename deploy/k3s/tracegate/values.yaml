@@ -118,6 +118,72 @@ gateway:
       upstreamHost: "vps-t.example.com"
       upstreamPort: 443
 
+  # REALITY multi-inbound groups.
+  # One external port remains fixed (:443), entry-mux routes by SNI to local Xray ports.
+  # Keep this list aligned with static SNI catalog used by the bot/API.
+  realityMultiInbound:
+    groups:
+      - id: shared-a
+        port: 2501
+        dest: splitter.wb.ru
+        snis: ["splitter.wb.ru"]
+      - id: shared-b
+        port: 2502
+        dest: st.ozone.ru
+        snis: ["st.ozone.ru"]
+      - id: shared-c
+        port: 2503
+        dest: speller.yandex.net
+        snis: ["speller.yandex.net"]
+      - id: mts-a
+        port: 2504
+        dest: a.wb.ru
+        snis: ["a.wb.ru"]
+      - id: mts-b
+        port: 2505
+        dest: alfabank.ru
+        snis: ["alfabank.ru"]
+      - id: megafon-a
+        port: 2506
+        dest: dzen.ru
+        snis: ["dzen.ru"]
+      - id: megafon-b
+        port: 2507
+        dest: ok.ru
+        snis: ["ok.ru"]
+      - id: t2-a
+        port: 2508
+        dest: yandex.ru
+        snis: ["yandex.ru"]
+      - id: t2-b
+        port: 2509
+        dest: sba.yandex.net
+        snis: ["sba.yandex.net"]
+      - id: tmobile-a
+        port: 2510
+        dest: login.vk.com
+        snis: ["login.vk.com"]
+      - id: tmobile-b
+        port: 2511
+        dest: goya.rutube.ru
+        snis: ["goya.rutube.ru"]
+      - id: rtk-a
+        port: 2512
+        dest: vk.com
+        snis: ["vk.com"]
+      - id: rtk-b
+        port: 2513
+        dest: www.wildberries.ru
+        snis: ["www.wildberries.ru"]
+      - id: yota-a
+        port: 2514
+        dest: queuev4.vk.com
+        snis: ["queuev4.vk.com"]
+      - id: yota-b
+        port: 2515
+        dest: www.kinopoisk.ru
+        snis: ["www.kinopoisk.ru"]
+
   vpsT:
     enabled: true
     nodeSelector:

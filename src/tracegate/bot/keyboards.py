@@ -10,8 +10,6 @@ PROVIDER_CHOICES: list[tuple[str, str]] = [
     ("Тмобайл", "tmobile"),
     ("РТК", "rtk"),
     ("Yota", "yota"),
-    ("Beeline", "beeline"),
-    ("Без тега", "other"),
 ]
 
 SNI_PAGE_SIZE = 20

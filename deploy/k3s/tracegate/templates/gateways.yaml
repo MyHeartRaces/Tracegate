@@ -253,6 +253,8 @@ spec:
               value: {{ .Values.gateway.vpsT.agent.wgInterface | quote }}
             - name: AGENT_WG_EXPECTED_PORT
               value: {{ .Values.gateway.vpsT.agent.wgExpectedPort | quote }}
+            - name: REALITY_MULTI_INBOUND_GROUPS
+              value: {{ toJson (.Values.gateway.realityMultiInbound.groups | default (list)) | quote }}
             - name: AGENT_RELOAD_XRAY_CMD
               value: {{ .Values.gateway.vpsT.agent.reloadXrayCmd | quote }}
             - name: AGENT_RELOAD_HYSTERIA_CMD
@@ -504,6 +506,8 @@ spec:
               value: {{ .Values.gateway.vpsE.agent.wgInterface | quote }}
             - name: AGENT_WG_EXPECTED_PORT
               value: {{ .Values.gateway.vpsE.agent.wgExpectedPort | quote }}
+            - name: REALITY_MULTI_INBOUND_GROUPS
+              value: {{ toJson (.Values.gateway.realityMultiInbound.groups | default (list)) | quote }}
             - name: AGENT_RELOAD_XRAY_CMD
               value: {{ .Values.gateway.vpsE.agent.reloadXrayCmd | quote }}
             - name: AGENT_RELOAD_HYSTERIA_CMD

@@ -42,7 +42,9 @@ def _startup_reconcile() -> None:
         return
 
     commands: list[str] = []
-    if "xray" in changed and not settings.agent_xray_api_enabled:
+    # Startup may materialize structural Xray changes (e.g. new inbounds/tags).
+    # Apply them immediately even in API mode so gRPC sync has matching inbounds.
+    if "xray" in changed:
         commands.append(settings.agent_reload_xray_cmd)
     if "hysteria" in changed:
         commands.append(settings.agent_reload_hysteria_cmd)

@@ -1,4 +1,4 @@
-from tracegate.bot.keyboards import vless_transport_keyboard
+from tracegate.bot.keyboards import PROVIDER_CHOICES, vless_transport_keyboard
 
 
 def _button_texts(keyboard) -> list[str]:
@@ -22,3 +22,9 @@ def test_vless_transport_keyboard_b2_has_no_transport_choices() -> None:
     assert "Reality (выбор SNI)" not in texts
     assert "TLS (WS, SNI=сертификат)" not in texts
     assert "Отмена" in texts
+
+
+def test_provider_choices_exclude_beeline_and_other() -> None:
+    provider_codes = {code for _, code in PROVIDER_CHOICES}
+    assert "beeline" not in provider_codes
+    assert "other" not in provider_codes
