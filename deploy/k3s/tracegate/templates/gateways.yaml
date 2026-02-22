@@ -131,7 +131,7 @@ spec:
             - name: entry-ws-tls
               mountPath: /etc/nginx/tls
               readOnly: true
-            - name: entry-decoy
+            - name: decoy
               mountPath: /usr/share/nginx/html
               readOnly: true
           securityContext:
