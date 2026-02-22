@@ -2,10 +2,85 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Tracegate Decoy</title>
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Secure Portal</title>
+    <style>
+      :root { color-scheme: light; }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        background: #f3f5f7;
+        font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+        color: #111827;
+      }
+      main {
+        width: min(440px, 92vw);
+        background: #fff;
+        border: 1px solid #d8dee6;
+        border-radius: 14px;
+        padding: 28px;
+        box-shadow: 0 18px 40px rgba(15, 23, 42, 0.08);
+      }
+      h1 {
+        margin: 0 0 8px;
+        font-size: 24px;
+        line-height: 1.2;
+        letter-spacing: 0.2px;
+      }
+      p {
+        margin: 0 0 18px;
+        color: #4b5563;
+      }
+      label {
+        display: block;
+        font-size: 13px;
+        margin: 12px 0 6px;
+      }
+      input {
+        width: 100%;
+        height: 42px;
+        padding: 0 12px;
+        border: 1px solid #c7d2de;
+        border-radius: 10px;
+        font-size: 14px;
+      }
+      button {
+        margin-top: 16px;
+        width: 100%;
+        height: 42px;
+        border: 0;
+        border-radius: 10px;
+        background: #111827;
+        color: #fff;
+        font-weight: 600;
+        cursor: pointer;
+      }
+    </style>
   </head>
   <body>
-    <h1>It works.</h1>
+    <main>
+      <h1>Member Access</h1>
+      <p>Please sign in to continue.</p>
+      <form id="portal-login" autocomplete="off">
+        <label for="login-user">Username</label>
+        <input id="login-user" type="text" placeholder="Username" />
+        <label for="login-pass">Password</label>
+        <input id="login-pass" type="password" placeholder="Password" />
+        <button type="submit">Sign in</button>
+      </form>
+    </main>
+    <script>
+      document.addEventListener("DOMContentLoaded", function () {
+        var form = document.getElementById("portal-login");
+        if (!form) return;
+        form.addEventListener("submit", function (event) {
+          event.preventDefault();
+          window.location.href = "/dashboard";
+        });
+      });
+    </script>
   </body>
 </html>

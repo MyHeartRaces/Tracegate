@@ -60,6 +60,9 @@ spec:
         - name: entry-mux-config
           configMap:
             name: {{ include "tracegate.fullname" . }}-vps-t-entry-mux
+        - name: entry-decoy
+          configMap:
+            name: {{ include "tracegate.fullname" . }}-entry-decoy
         - name: entry-ws-tls
           secret:
             secretName: {{ include "tracegate.fullname" . }}-vps-t-ws-tls
@@ -127,6 +130,9 @@ spec:
               readOnly: true
             - name: entry-ws-tls
               mountPath: /etc/nginx/tls
+              readOnly: true
+            - name: entry-decoy
+              mountPath: /usr/share/nginx/html
               readOnly: true
           securityContext:
             runAsUser: 0
@@ -354,6 +360,9 @@ spec:
         - name: entry-mux-config
           configMap:
             name: {{ include "tracegate.fullname" . }}-vps-e-entry-mux
+        - name: entry-decoy
+          configMap:
+            name: {{ include "tracegate.fullname" . }}-entry-decoy
         - name: entry-ws-tls
           secret:
             secretName: {{ include "tracegate.fullname" . }}-vps-e-ws-tls
@@ -404,6 +413,9 @@ spec:
               readOnly: true
             - name: entry-ws-tls
               mountPath: /etc/nginx/tls
+              readOnly: true
+            - name: entry-decoy
+              mountPath: /usr/share/nginx/html
               readOnly: true
           securityContext:
             runAsUser: 0
