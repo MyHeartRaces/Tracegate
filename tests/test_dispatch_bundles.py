@@ -8,7 +8,7 @@ import pytest
 _prom_stub = types.ModuleType("prometheus_client")
 _prom_stub.CONTENT_TYPE_LATEST = "text/plain"
 _prom_stub.generate_latest = lambda: b""
-sys.modules.setdefault("prometheus_client", _prom_stub)
+sys.modules["prometheus_client"] = _prom_stub
 
 from tracegate.api.routers import dispatch  # noqa: E402
 from tracegate.settings import Settings  # noqa: E402
