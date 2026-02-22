@@ -26,6 +26,35 @@ class RevisionError(RuntimeError):
     pass
 
 
+def _normalize_optional_host(value: str | None) -> str | None:
+    host = str(value or "").strip()
+    return host or None
+
+
+def _is_placeholder_host(value: str | None) -> bool:
+    host = (_normalize_optional_host(value) or "").lower().rstrip(".")
+    if not host:
+        return False
+    return host == "example.com" or host.endswith(".example.com")
+
+
+def _resolve_node_public_host(*, fqdn: str | None, public_ipv4: str | None, default_host: str | None) -> str:
+    candidates = [
+        _normalize_optional_host(fqdn),
+        _normalize_optional_host(default_host),
+        _normalize_optional_host(public_ipv4),
+    ]
+    for host in candidates:
+        if host and not _is_placeholder_host(host):
+            return host
+
+    # Last-resort fallback preserves previous behavior in dev/test if only placeholders are present.
+    for host in candidates:
+        if host:
+            return host
+    return ""
+
+
 async def _load_connection(session: AsyncSession, connection_id: UUID) -> Connection:
     connection = await session.scalar(
         select(Connection)
@@ -76,10 +105,34 @@ async def _resolve_endpoints(session: AsyncSession) -> EndpointSet:
     )
 
     return EndpointSet(
-        vps_t_host=(vps_t.fqdn or vps_t.public_ipv4) if vps_t else settings.default_vps_t_host,
-        vps_e_host=(vps_e.fqdn or vps_e.public_ipv4) if vps_e else settings.default_vps_e_host,
-        vps_t_proxy_host=vps_t.proxy_fqdn if vps_t else None,
-        vps_e_proxy_host=vps_e.proxy_fqdn if vps_e else None,
+        vps_t_host=(
+            _resolve_node_public_host(
+                fqdn=vps_t.fqdn,
+                public_ipv4=vps_t.public_ipv4,
+                default_host=settings.default_vps_t_host,
+            )
+            if vps_t
+            else settings.default_vps_t_host
+        ),
+        vps_e_host=(
+            _resolve_node_public_host(
+                fqdn=vps_e.fqdn,
+                public_ipv4=vps_e.public_ipv4,
+                default_host=settings.default_vps_e_host,
+            )
+            if vps_e
+            else settings.default_vps_e_host
+        ),
+        vps_t_proxy_host=(
+            None if _is_placeholder_host(vps_t.proxy_fqdn) else _normalize_optional_host(vps_t.proxy_fqdn)
+        )
+        if vps_t
+        else None,
+        vps_e_proxy_host=(
+            None if _is_placeholder_host(vps_e.proxy_fqdn) else _normalize_optional_host(vps_e.proxy_fqdn)
+        )
+        if vps_e
+        else None,
         reality_public_key=settings.reality_public_key,
         reality_short_id=settings.reality_short_id,
         reality_public_key_vps_t=settings.reality_public_key_vps_t,
