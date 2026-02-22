@@ -30,14 +30,32 @@ def _bundle_path(name: str) -> Path:
     return root / name
 
 
+def _materialized_bundle_path(name: str) -> Path | None:
+    settings = get_settings()
+    materialized_root = str(settings.bundle_materialized_root or "").strip()
+    if not materialized_root:
+        return None
+    root = Path(materialized_root)
+    if not root.is_absolute():
+        root = Path.cwd() / root
+    return root / name
+
+
 def _load_bundle_files(name: str) -> dict[str, str]:
-    root = _bundle_path(name)
-    files: dict[str, str] = {}
-    if not root.exists():
-        return files
-    for path in root.rglob("*"):
-        if path.is_file():
-            files[str(path.relative_to(root))] = path.read_text(encoding="utf-8")
+    def _read_tree(root: Path) -> dict[str, str]:
+        loaded: dict[str, str] = {}
+        if not root.exists():
+            return loaded
+        for path in root.rglob("*"):
+            if path.is_file():
+                loaded[str(path.relative_to(root))] = path.read_text(encoding="utf-8")
+        return loaded
+
+    files = _read_tree(_bundle_path(name))
+    materialized_path = _materialized_bundle_path(name)
+    if materialized_path is not None:
+        # Materialized files (Helm-rendered secrets) override repo bundle templates.
+        files.update(_read_tree(materialized_path))
     return files
 
 

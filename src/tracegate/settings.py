@@ -19,6 +19,9 @@ class Settings(BaseSettings):
 
     # Runtime filesystem roots (container image includes ./bundles).
     bundle_root: str = "bundles"
+    # Optional root with materialized bundle files (e.g. mounted from k8s Secrets).
+    # When set, /dispatch/reapply-base overlays files from this root on top of repo bundles.
+    bundle_materialized_root: str = ""
 
     api_host: str = "0.0.0.0"
     api_port: int = 8080

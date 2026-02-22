@@ -125,10 +125,16 @@ spec:
                 secretKeyRef:
                   name: {{ include "tracegate.fullname" . }}-grafana-auth
                   key: pseudonym-secret
+            - name: BUNDLE_MATERIALIZED_ROOT
+              value: "/etc/tracegate/materialized-bundles"
             - name: GRAFANA_OTP_TTL_SECONDS
               value: {{ printf "%d" (int (.Values.controlPlane.env.grafana.otpTtlSeconds | default 300)) | quote }}
             - name: GRAFANA_SESSION_TTL_SECONDS
               value: {{ printf "%d" (int (.Values.controlPlane.env.grafana.sessionTtlSeconds | default 3600)) | quote }}
+          volumeMounts:
+            - name: materialized-bundles
+              mountPath: /etc/tracegate/materialized-bundles
+              readOnly: true
           readinessProbe:
             httpGet:
               path: /health
@@ -143,6 +149,41 @@ spec:
             periodSeconds: 15
           resources:
             {{- toYaml .Values.controlPlane.resources.api | nindent 12 }}
+      volumes:
+        - name: materialized-bundles
+          projected:
+            defaultMode: 0444
+            sources:
+              - secret:
+                  name: {{ include "tracegate.fullname" . }}-vps-t-xray-config
+                  optional: true
+                  items:
+                    - key: config.json
+                      path: base-vps-t/xray.json
+              - secret:
+                  name: {{ include "tracegate.fullname" . }}-vps-t-hysteria-config
+                  optional: true
+                  items:
+                    - key: config.yaml
+                      path: base-vps-t/hysteria.yaml
+              - secret:
+                  name: {{ include "tracegate.fullname" . }}-vps-t-wireguard-config
+                  optional: true
+                  items:
+                    - key: wg0.conf
+                      path: base-vps-t/wg0.conf
+              - secret:
+                  name: {{ include "tracegate.fullname" . }}-vps-e-xray-config
+                  optional: true
+                  items:
+                    - key: config.json
+                      path: base-vps-e/xray.json
+              - secret:
+                  name: {{ include "tracegate.fullname" . }}-vps-e-hysteria-config
+                  optional: true
+                  items:
+                    - key: config.yaml
+                      path: base-vps-e/hysteria.yaml
 ---
 {{- if .Values.controlPlane.dispatcherMetrics.enabled }}
 apiVersion: v1
