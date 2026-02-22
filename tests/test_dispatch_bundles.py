@@ -5,10 +5,10 @@ from pathlib import Path
 import pytest
 
 # Importing tracegate.api.routers.dispatch executes routers package __init__, which imports metrics router.
-sys.modules.setdefault(
-    "prometheus_client",
-    types.SimpleNamespace(CONTENT_TYPE_LATEST="text/plain", generate_latest=lambda: b""),
-)
+_prom_stub = types.ModuleType("prometheus_client")
+_prom_stub.CONTENT_TYPE_LATEST = "text/plain"
+_prom_stub.generate_latest = lambda: b""
+sys.modules.setdefault("prometheus_client", _prom_stub)
 
 from tracegate.api.routers import dispatch  # noqa: E402
 from tracegate.settings import Settings  # noqa: E402
