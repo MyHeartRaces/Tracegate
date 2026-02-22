@@ -20,11 +20,13 @@ COPY bundles /app/bundles
 # - procps: pgrep/pkill
 # - iproute2: ss
 # - wireguard-tools: wg
+# - nftables: nft (host firewall apply)
 RUN apt-get update \
     && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
         procps \
         iproute2 \
         wireguard-tools \
+        nftables \
         ca-certificates \
     && rm -rf /var/lib/apt/lists/* \
     && pip install --no-cache-dir --upgrade pip \

@@ -74,7 +74,7 @@ async def reapply_base(payload: ReapplyBaseRequest, session: AsyncSession = Depe
             payload={
                 "bundle_name": bundle_name,
                 "files": files,
-                "commands": ["systemctl daemon-reload"],
+                "commands": [],
             },
             role_target=role,
         )

@@ -1,4 +1,5 @@
 import json
+import shlex
 
 import pytest
 
@@ -34,6 +35,81 @@ def test_run_reload_commands_failure_raises(monkeypatch: pytest.MonkeyPatch) -> 
 
     with pytest.raises(handlers.HandlerError, match="bad-cmd"):
         handlers._run_reload_commands(settings, ["good-cmd", "bad-cmd"])
+
+
+def test_handle_apply_bundle_applies_firewall_when_nftables_conf_present(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    calls: list[str] = []
+
+    def _run(cmd: str, dry_run: bool) -> tuple[bool, str]:
+        calls.append(cmd)
+        assert dry_run is False
+        return True, "ok"
+
+    monkeypatch.setattr(handlers, "run_command", _run)
+    settings = Settings(agent_data_root=str(tmp_path), agent_dry_run=False)
+
+    handlers.handle_apply_bundle(
+        settings,
+        {
+            "bundle_name": "base-vps-t",
+            "files": {
+                "nftables.conf": "flush ruleset\n",
+            },
+            "commands": [],
+        },
+    )
+
+    bundle_conf = tmp_path / "bundles" / "base-vps-t" / "nftables.conf"
+    conf_arg = shlex.quote(str(bundle_conf))
+    assert calls == [f"nft -c -f {conf_arg}", f"nft -f {conf_arg}"]
+
+
+def test_handle_apply_bundle_skips_firewall_when_nftables_conf_missing(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    calls: list[str] = []
+
+    def _run(cmd: str, dry_run: bool) -> tuple[bool, str]:
+        calls.append(cmd)
+        return True, "ok"
+
+    monkeypatch.setattr(handlers, "run_command", _run)
+    settings = Settings(agent_data_root=str(tmp_path), agent_dry_run=False)
+
+    handlers.handle_apply_bundle(
+        settings,
+        {
+            "bundle_name": "base-vps-t",
+            "files": {"xray/config.json": "{}"},
+            "commands": ["echo done"],
+        },
+    )
+
+    assert calls == ["echo done"]
+
+
+def test_handle_apply_bundle_raises_on_firewall_validation_error(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    def _run(cmd: str, dry_run: bool) -> tuple[bool, str]:
+        if cmd.startswith("nft -c -f "):
+            return False, "syntax error"
+        return True, "ok"
+
+    monkeypatch.setattr(handlers, "run_command", _run)
+    settings = Settings(agent_data_root=str(tmp_path), agent_dry_run=False)
+
+    with pytest.raises(handlers.HandlerError, match="firewall validation failed"):
+        handlers.handle_apply_bundle(
+            settings,
+            {
+                "bundle_name": "base-vps-e",
+                "files": {"nftables.conf": "broken"},
+                "commands": [],
+            },
+        )
 
 
 def test_out_of_order_revoke_then_upsert_is_ignored(

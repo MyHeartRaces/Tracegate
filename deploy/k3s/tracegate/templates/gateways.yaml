@@ -517,6 +517,11 @@ spec:
           volumeMounts:
             - name: agent-data
               mountPath: {{ .Values.gateway.vpsE.agent.dataRoot }}
+          securityContext:
+            capabilities:
+              add: ["NET_ADMIN"]
+            runAsUser: 0
+            runAsGroup: 0
           readinessProbe:
             httpGet:
               path: /v1/health

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import shlex
 import shutil
 import threading
 from datetime import datetime, timezone
@@ -26,6 +27,7 @@ class HandlerError(RuntimeError):
 
 
 _RELOAD_LOCK = threading.Lock()
+_FIREWALL_LOCK = threading.Lock()
 
 
 def _parse_ts(value: Any) -> datetime | None:
@@ -112,6 +114,27 @@ def _proxy_reload_commands(settings: Settings) -> list[str]:
     return [settings.agent_reload_xray_cmd, settings.agent_reload_hysteria_cmd]
 
 
+def _apply_firewall_bundle(settings: Settings, *, bundle_root: Path) -> None:
+    """
+    Apply bundle firewall rules in an idempotent way.
+
+    The same nftables config can be replayed safely to converge host firewall state.
+    """
+    nft_conf = bundle_root / "nftables.conf"
+    if not nft_conf.exists():
+        return
+
+    conf_arg = shlex.quote(str(nft_conf))
+    with _FIREWALL_LOCK:
+        ok, out = run_command(f"nft -c -f {conf_arg}", settings.agent_dry_run)
+        if not ok:
+            raise HandlerError(f"firewall validation failed: {out}")
+
+        ok, out = run_command(f"nft -f {conf_arg}", settings.agent_dry_run)
+        if not ok:
+            raise HandlerError(f"firewall apply failed: {out}")
+
+
 def handle_apply_bundle(settings: Settings, payload: dict[str, Any]) -> str:
     bundle_name = payload.get("bundle_name")
     if not bundle_name:
@@ -124,6 +147,7 @@ def handle_apply_bundle(settings: Settings, payload: dict[str, Any]) -> str:
     root = Path(settings.agent_data_root) / "bundles" / bundle_name
     root.mkdir(parents=True, exist_ok=True)
     apply_files(root, files)
+    _apply_firewall_bundle(settings, bundle_root=root)
 
     command_results: list[str] = []
     for cmd in payload.get("commands", []):
