@@ -8,10 +8,16 @@ import pytest
 _prom_stub = types.ModuleType("prometheus_client")
 _prom_stub.CONTENT_TYPE_LATEST = "text/plain"
 _prom_stub.generate_latest = lambda: b""
+_orig_prometheus_client = sys.modules.get("prometheus_client")
 sys.modules["prometheus_client"] = _prom_stub
-
-from tracegate.api.routers import dispatch  # noqa: E402
-from tracegate.settings import Settings  # noqa: E402
+try:
+    from tracegate.api.routers import dispatch  # noqa: E402
+    from tracegate.settings import Settings  # noqa: E402
+finally:
+    if _orig_prometheus_client is None:
+        sys.modules.pop("prometheus_client", None)
+    else:
+        sys.modules["prometheus_client"] = _orig_prometheus_client
 
 
 def _write(path: Path, text: str) -> None:
