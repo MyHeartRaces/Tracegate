@@ -10,8 +10,8 @@ sys.modules.setdefault(
     types.SimpleNamespace(CONTENT_TYPE_LATEST="text/plain", generate_latest=lambda: b""),
 )
 
-from tracegate.api.routers import dispatch
-from tracegate.settings import Settings
+from tracegate.api.routers import dispatch  # noqa: E402
+from tracegate.settings import Settings  # noqa: E402
 
 
 def _write(path: Path, text: str) -> None:
