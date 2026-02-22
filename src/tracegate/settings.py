@@ -99,9 +99,9 @@ class Settings(BaseSettings):
     agent_reload_xray_cmd: str = (
         "sh -lc '(flock 9; sleep 1; pkill -HUP xray || true) 9>/tmp/xray-reload.lock'"
     )
-    # Hysteria supports graceful SIGHUP reload in current production build.
-    # It avoids full container restart and minimizes active session interruption.
-    agent_reload_hysteria_cmd: str = "pkill -HUP hysteria || true"
+    # Leave disabled by default: some Hysteria v2 builds exit on SIGHUP, which causes pod restarts.
+    # Operators can override with a verified safe reload command for their exact image/version.
+    agent_reload_hysteria_cmd: str = ""
     agent_reload_wg_cmd: str = "wg syncconf wg0 /etc/wireguard/wg0.conf"
     agent_server_cert: str | None = None
     agent_server_key: str | None = None

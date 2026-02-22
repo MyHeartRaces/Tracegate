@@ -721,8 +721,8 @@ gateway:
       wgExpectedPort: 51820
       # Coalesce burst events into a single xray reload and avoid CrashLoopBackOff.
       reloadXrayCmd: sh -lc '(flock 9; sleep 1; pkill -HUP xray || true) 9>/tmp/xray-reload.lock'
-      # Prefer graceful config reload to reduce client interruption.
-      reloadHysteriaCmd: pkill -HUP hysteria || true
+      # Keep empty by default: some Hysteria v2 builds exit on SIGHUP and trigger container restarts.
+      reloadHysteriaCmd: ""
       # Apply wg-quick config by stripping it to wg format and syncing live interface.
       reloadWgCmd: wg-quick strip /etc/wireguard/wg0.conf | wg syncconf wg0 /dev/fd/0 || true
 
@@ -985,7 +985,7 @@ gateway:
       wgInterface: wg0
       wgExpectedPort: 51820
       reloadXrayCmd: sh -lc '(flock 9; sleep 1; pkill -HUP xray || true) 9>/tmp/xray-reload.lock'
-      reloadHysteriaCmd: pkill -HUP hysteria || true
+      reloadHysteriaCmd: ""
       reloadWgCmd: ""
 
     agentDataHostPath: /var/lib/tracegate-agent

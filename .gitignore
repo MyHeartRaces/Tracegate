@@ -9,3 +9,4 @@ __pycache__/
 deploy/k3s/values-*.yaml
 !deploy/k3s/values-prod.example.yaml
 .tmp-tracegate-values.yaml
+.tmp/

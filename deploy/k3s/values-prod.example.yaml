@@ -114,7 +114,8 @@ gateway:
       xrayApiServer: 127.0.0.1:8080
       xrayApiTimeoutSeconds: 3
       reloadXrayCmd: sh -lc '(flock -n 9 || exit 0; sleep 1; pkill -HUP xray || true) 9>/tmp/xray-reload.lock'
-      reloadHysteriaCmd: pkill -HUP hysteria || true
+      # Leave empty unless you verified a non-disruptive reload command for your Hysteria build.
+      reloadHysteriaCmd: ""
       reloadWgCmd: wg-quick strip /etc/wireguard/wg0.conf | wg syncconf wg0 /dev/fd/0 || true
 
   vpsE:

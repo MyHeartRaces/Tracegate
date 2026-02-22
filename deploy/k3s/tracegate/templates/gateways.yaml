@@ -254,7 +254,10 @@ spec:
             - name: AGENT_STATS_URL
               value: {{ .Values.gateway.vpsT.agent.statsUrl | quote }}
             - name: AGENT_STATS_SECRET
-              value: {{ required "gateway.vpsT.agent.statsSecret is required" .Values.gateway.vpsT.agent.statsSecret | quote }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "tracegate.fullname" . }}-vps-t-agent-auth
+                  key: agent-stats-secret
             - name: AGENT_WG_INTERFACE
               value: {{ .Values.gateway.vpsT.agent.wgInterface | quote }}
             - name: AGENT_WG_EXPECTED_PORT
@@ -552,7 +555,10 @@ spec:
             - name: AGENT_STATS_URL
               value: {{ .Values.gateway.vpsE.agent.statsUrl | quote }}
             - name: AGENT_STATS_SECRET
-              value: {{ .Values.gateway.vpsE.agent.statsSecret | quote }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "tracegate.fullname" . }}-vps-e-agent-auth
+                  key: agent-stats-secret
             - name: AGENT_WG_INTERFACE
               value: {{ .Values.gateway.vpsE.agent.wgInterface | quote }}
             - name: AGENT_WG_EXPECTED_PORT

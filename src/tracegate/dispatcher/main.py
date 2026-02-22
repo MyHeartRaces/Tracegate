@@ -181,7 +181,9 @@ async def _process_delivery(
                 result_label = "sent"
             except Exception as exc:  # noqa: BLE001
                 row.attempts += 1
-                last_error = str(exc)
+                msg = str(exc).strip()
+                exc_name = type(exc).__name__
+                last_error = f"{exc_name}: {msg}" if msg else exc_name
                 row.last_error = last_error
                 if row.attempts >= max_attempts:
                     row.status = DeliveryStatus.DEAD
