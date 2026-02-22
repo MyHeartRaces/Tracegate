@@ -77,7 +77,7 @@ def test_hysteria_metrics_normalize_connection_marker(monkeypatch: pytest.Monkey
         "_fetch_hysteria_traffic_bytes",
         lambda _url, _secret: {
             "b3 - 123456 - conn-lower": {"rx": 11, "tx": 22},
-            "b4_255761416_3a709a5f0efd469da1e6c74271451dba": {"rx": 55, "tx": 66},
+            "b4_123456789_aaaaaaaabbbb4ccc8dddeeeeeeeeeeee": {"rx": 55, "tx": 66},
             "B5 - 654321 - conn-upper": {"rx": 33, "tx": 44},
         },
     )
@@ -98,11 +98,11 @@ def test_hysteria_metrics_normalize_connection_marker(monkeypatch: pytest.Monkey
 
     assert hyst_rx.samples == [
         (["B3 - 123456 - conn-lower"], 11.0),
-        (["B4 - 255761416 - 3a709a5f-0efd-469d-a1e6-c74271451dba"], 55.0),
+        (["B4 - 123456789 - aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"], 55.0),
         (["B5 - 654321 - conn-upper"], 33.0),
     ]
     assert hyst_tx.samples == [
         (["B3 - 123456 - conn-lower"], 22.0),
-        (["B4 - 255761416 - 3a709a5f-0efd-469d-a1e6-c74271451dba"], 66.0),
+        (["B4 - 123456789 - aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"], 66.0),
         (["B5 - 654321 - conn-upper"], 44.0),
     ]

@@ -163,17 +163,17 @@ def test_reconcile_hysteria_adds_legacy_and_ios_safe_userpass_aliases(tmp_path: 
         "listen: :443\nauth:\n  type: userpass\n  userpass:\n    bootstrap: bootstrap\n",
     )
     _write(
-        tmp_path / "users/255761416/connection-b3.json",
+        tmp_path / "users/123456789/connection-b3.json",
         json.dumps(
             {
-                "user_id": "255761416",
-                "connection_id": "531ce66a-9265-477b-bfab-1dccf53bac6f",
+                "user_id": "123456789",
+                "connection_id": "11111111-2222-4333-8444-555555555555",
                 "variant": "B3",
                 "protocol": "hysteria2",
                 "config": {
                     "auth": {
                         "type": "userpass",
-                        "username": "b3_255761416_531ce66a9265477bbfab1dccf53bac6f",
+                        "username": "b3_123456789_11111111222243338444555555555555",
                         "password": "dev-pass",
                     }
                 },
@@ -186,8 +186,8 @@ def test_reconcile_hysteria_adds_legacy_and_ios_safe_userpass_aliases(tmp_path: 
 
     rendered_hy = (tmp_path / "runtime/hysteria/config.yaml").read_text(encoding="utf-8")
     assert "bootstrap: bootstrap" in rendered_hy
-    assert "b3_255761416_531ce66a9265477bbfab1dccf53bac6f: dev-pass" in rendered_hy
-    assert "B3 - 255761416 - 531ce66a-9265-477b-bfab-1dccf53bac6f: dev-pass" in rendered_hy
+    assert "b3_123456789_11111111222243338444555555555555: dev-pass" in rendered_hy
+    assert "B3 - 123456789 - 11111111-2222-4333-8444-555555555555: dev-pass" in rendered_hy
 
 
 def test_reconcile_vps_e_forces_transit_port_443(tmp_path: Path) -> None:
