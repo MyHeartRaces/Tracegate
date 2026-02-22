@@ -339,17 +339,6 @@ gateway:
                 "destOverride": ["http", "tls", "quic"]
               }
             },
-            {
-              "tag": "hy2-backhaul-socks",
-              "listen": "127.0.0.1",
-              "port": 1081,
-              "protocol": "socks",
-              "settings": {"auth": "noauth", "udp": true},
-              "sniffing": {
-                "enabled": true,
-                "destOverride": ["http", "tls", "quic"]
-              }
-            }
           ],
           "outbounds": [
             {"protocol": "freedom", "tag": "api"},
@@ -560,6 +549,17 @@ gateway:
                   "path": "{{ .Values.controlPlane.env.vlessWsPath | default "/ws" }}"
                 }
               },
+              "sniffing": {
+                "enabled": true,
+                "destOverride": ["http", "tls", "quic"]
+              }
+            },
+            {
+              "tag": "hy2-backhaul-socks",
+              "listen": "127.0.0.1",
+              "port": 1081,
+              "protocol": "socks",
+              "settings": {"auth": "noauth", "udp": true},
               "sniffing": {
                 "enabled": true,
                 "destOverride": ["http", "tls", "quic"]
