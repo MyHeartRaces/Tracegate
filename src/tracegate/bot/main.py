@@ -200,6 +200,25 @@ async def render_revisions_page(connection_id: str) -> tuple[str, object]:
     return text, revisions_keyboard(connection_id, revisions, is_vless, connection["device_id"])
 
 
+def _current_revision_from_list(revisions: list[dict]) -> dict | None:
+    active = [row for row in revisions if str(row.get("status") or "").upper() == "ACTIVE"]
+    for row in active:
+        try:
+            if int(row.get("slot")) == 0:
+                return row
+        except Exception:
+            continue
+    if active:
+        return sorted(
+            active,
+            key=lambda row: (
+                int(row.get("slot", 999)) if str(row.get("slot", "")).strip().isdigit() else 999,
+                str(row.get("created_at") or ""),
+            ),
+        )[0]
+    return None
+
+
 @router.callback_query(F.data == "noop")
 async def noop(callback: CallbackQuery) -> None:
     # Used for non-clickable pagination labels.
@@ -1474,6 +1493,26 @@ async def list_revisions(callback: CallbackQuery) -> None:
         text, keyboard = await render_revisions_page(connection_id)
         edited = await _safe_edit_text(callback.message, text, reply_markup=keyboard)
         await callback.answer("Обновлено" if edited else "Без изменений")
+    except ApiClientError as exc:
+        await callback.message.answer(f"Ошибка: {exc}")
+        await callback.answer()
+    except Exception as exc:  # noqa: BLE001
+        await callback.message.answer(f"Ошибка: {exc}")
+        await callback.answer()
+
+
+@router.callback_query(F.data.startswith("showcur:"))
+async def show_current_revision_config(callback: CallbackQuery) -> None:
+    _, connection_id = callback.data.split(":", 1)
+    try:
+        revisions = await api.list_revisions(connection_id)
+        current = _current_revision_from_list(revisions)
+        if current is None:
+            await callback.answer("Нет активной ревизии", show_alert=True)
+            return
+        await _cleanup_related_messages(callback, revision_id=str(current.get("id") or ""))
+        await _send_client_config(callback, current)
+        await callback.answer("Отправлено")
     except ApiClientError as exc:
         await callback.message.answer(f"Ошибка: {exc}")
         await callback.answer()

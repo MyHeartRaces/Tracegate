@@ -163,6 +163,8 @@ def revisions_keyboard(connection_id: str, revisions: list[dict], is_vless: bool
         rows.append([InlineKeyboardButton(text="Новая ревизия (SNI)", callback_data=f"issuepick:{connection_id}")])
     else:
         rows.append([InlineKeyboardButton(text="Новая ревизия", callback_data=f"issueplain:{connection_id}")])
+    if revisions:
+        rows.append([InlineKeyboardButton(text="Текущий URL/конфиг", callback_data=f"showcur:{connection_id}")])
     for rev in revisions:
         rows.append(
             [

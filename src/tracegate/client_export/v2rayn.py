@@ -141,18 +141,19 @@ def _export_hysteria2(effective: dict[str, Any]) -> ExportResult:
     auth = effective.get("auth") or {}
     username = (auth.get("username") or "").strip()
     password = (auth.get("password") or "").strip()
+    sni = str(effective.get("sni") or server or "").strip()
 
     if not server or not username or not password:
         raise V2RayNExportError("Missing fields for Hysteria2 export")
 
-    # Export with insecure=1 for compatibility with self-signed/non-public cert deployments.
+    # Keep the URI close to `hysteria share` output for iOS client compatibility.
     params = {
-        "alpn": "h3",
         "insecure": "1",
     }
+    if sni:
+        params["sni"] = sni
 
-    name = effective.get("profile") or "tracegate-hysteria2"
-    uri = f"hysteria2://{_q(username)}:{_q(password)}@{server}:{port}/?{_encode_query(params)}#{_q(str(name))}"
+    uri = f"hysteria2://{_q(username)}:{_q(password)}@{server}:{port}/?{_encode_query(params)}"
     return ExportResult(kind="uri", title="Hysteria2 link", content=uri)
 
 

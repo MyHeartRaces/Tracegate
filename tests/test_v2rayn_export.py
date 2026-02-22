@@ -36,6 +36,9 @@ def test_export_hysteria2_uri() -> None:
     assert out.kind == "uri"
     assert out.content.startswith("hysteria2://u:p@t.example.com:443/")
     assert "insecure=1" in out.content
+    assert "sni=t.example.com" in out.content
+    assert "alpn=" not in out.content
+    assert "#" not in out.content
 
 
 def test_export_vless_ws_tls_uri() -> None:
