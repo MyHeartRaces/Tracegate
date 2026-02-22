@@ -20,6 +20,36 @@ controlPlane:
     host: 0.0.0.0
     port: 9091
 
+  dispatcherOps:
+    alerts:
+      enabled: false
+      pollSeconds: 60
+      repeatSeconds: 1800
+      sendResolved: true
+      suppressInitial: true
+      httpTimeoutSeconds: 5
+      prometheusUrl: http://tracegate-prometheus:9090
+      gatewayRestarts: true
+      disk:
+        enabled: true
+        thresholdPercent: 80
+      outboxDead:
+        enabled: true
+        threshold: 0
+      metricsServer:
+        enabled: true
+        maxAgeSeconds: 180
+      nodeDown: true
+      componentHealth: true
+
+    outboxRetention:
+      enabled: true
+      intervalSeconds: 3600
+      sentDays: 14
+      failedDays: 30
+      batchSize: 500
+      maxBatchesPerRun: 20
+
   service:
     type: ClusterIP
     port: 8080
@@ -1023,3 +1053,20 @@ observability:
     enabled: true
     image: gcr.io/cadvisor/cadvisor:v0.49.1
     pullPolicy: IfNotPresent
+
+opsMaintenance:
+  hostCleanup:
+    enabled: false
+    image: alpine:3.20
+    imagePullPolicy: IfNotPresent
+    schedule: "23 4 * * *"
+    concurrencyPolicy: Forbid
+    successfulJobsHistoryLimit: 1
+    failedJobsHistoryLimit: 2
+    ttlSecondsAfterFinished: 86400
+    valuesBackupRetentionDays: 7
+    imageOverlayRetentionDays: 14
+    imageTarRetentionDays: 14
+    tracegateBackupRetentionDays: 14
+    xrayLogRetentionDays: 3
+    tempRetentionDays: 2

@@ -13,6 +13,7 @@ from prometheus_client import Counter, Gauge, Histogram, start_http_server
 from sqlalchemy import and_, func, or_, select
 
 from tracegate.db import get_sessionmaker
+from tracegate.dispatcher.ops import ops_alert_loop, outbox_purge_loop
 from tracegate.enums import DeliveryStatus, OutboxStatus
 from tracegate.models import NodeEndpoint, OutboxDelivery, OutboxEvent
 from tracegate.observability import configure_logging
@@ -231,31 +232,41 @@ async def dispatcher_loop() -> None:
             settings.dispatcher_metrics_port,
         )
 
-    async with httpx.AsyncClient(cert=cert, verify=verify) as client:
-        while True:
-            now = datetime.now(timezone.utc)
-            delivery_ids = await _claim_deliveries(
-                now=now,
-                dispatcher_id=dispatcher_id,
-                batch_size=settings.dispatcher_batch_size,
-                lock_ttl_seconds=settings.dispatcher_lock_ttl_seconds,
-            )
+    background_tasks: list[asyncio.Task[None]] = []
+    background_tasks.append(asyncio.create_task(ops_alert_loop(settings), name="dispatcher-ops-alerts"))
+    background_tasks.append(asyncio.create_task(outbox_purge_loop(settings), name="dispatcher-outbox-retention"))
 
-            async def _run(delivery_id: uuid.UUID) -> None:
-                async with sem:
-                    await _process_delivery(
-                        client=client,
-                        delivery_id=delivery_id,
-                        dispatcher_id=dispatcher_id,
-                        token=settings.agent_auth_token,
-                        max_attempts=int(settings.dispatcher_max_attempts),
-                    )
+    try:
+        async with httpx.AsyncClient(cert=cert, verify=verify) as client:
+            while True:
+                now = datetime.now(timezone.utc)
+                delivery_ids = await _claim_deliveries(
+                    now=now,
+                    dispatcher_id=dispatcher_id,
+                    batch_size=settings.dispatcher_batch_size,
+                    lock_ttl_seconds=settings.dispatcher_lock_ttl_seconds,
+                )
 
-            if delivery_ids:
-                await asyncio.gather(*[_run(did) for did in delivery_ids])
-                logger.info("deliveries_processed count=%s dispatcher_id=%s", len(delivery_ids), dispatcher_id)
+                async def _run(delivery_id: uuid.UUID) -> None:
+                    async with sem:
+                        await _process_delivery(
+                            client=client,
+                            delivery_id=delivery_id,
+                            dispatcher_id=dispatcher_id,
+                            token=settings.agent_auth_token,
+                            max_attempts=int(settings.dispatcher_max_attempts),
+                        )
 
-            await asyncio.sleep(settings.dispatcher_poll_seconds)
+                if delivery_ids:
+                    await asyncio.gather(*[_run(did) for did in delivery_ids])
+                    logger.info("deliveries_processed count=%s dispatcher_id=%s", len(delivery_ids), dispatcher_id)
+
+                await asyncio.sleep(settings.dispatcher_poll_seconds)
+    finally:
+        for task in background_tasks:
+            task.cancel()
+        if background_tasks:
+            await asyncio.gather(*background_tasks, return_exceptions=True)
 
 
 def run() -> None:

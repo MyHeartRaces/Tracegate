@@ -12,6 +12,18 @@ controlPlane:
     publicPort: 8443
   postgres:
     password: REPLACE_DB_PASSWORD
+  dispatcherOps:
+    alerts:
+      enabled: true
+      # In-cluster Prometheus service (used for disk alerts from node-exporter metrics).
+      prometheusUrl: http://tracegate-prometheus:9090
+      disk:
+        enabled: true
+        thresholdPercent: 80
+    outboxRetention:
+      enabled: true
+      sentDays: 14
+      failedDays: 30
   env:
     publicBaseUrl: https://cp.example.com
     superadminTelegramIds: [123456789]
@@ -194,3 +206,9 @@ observability:
   grafana:
     # Optional; if empty, the chart will generate and persist a random password in a Secret.
     adminPassword: ""
+
+opsMaintenance:
+  hostCleanup:
+    # Privileged host cleanup via k8s CronJob (tracegate backups / stale xray logs / temp artifacts).
+    enabled: true
+    schedule: "23 4 * * *"

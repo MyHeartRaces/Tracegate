@@ -43,6 +43,29 @@ class Settings(BaseSettings):
     dispatcher_client_cert: str | None = None
     dispatcher_client_key: str | None = None
     dispatcher_ca_cert: str | None = None
+    # Dispatcher periodic ops checks (Telegram alerts + retention purge).
+    dispatcher_ops_alerts_enabled: bool = False
+    dispatcher_ops_alerts_poll_seconds: int = 60
+    dispatcher_ops_alerts_repeat_seconds: int = 1800
+    dispatcher_ops_alerts_send_resolved: bool = True
+    dispatcher_ops_alerts_suppress_initial: bool = True
+    dispatcher_ops_alerts_http_timeout_seconds: int = 5
+    dispatcher_ops_alerts_prometheus_url: str = "http://tracegate-prometheus:9090"
+    dispatcher_ops_alerts_gateway_restarts_enabled: bool = True
+    dispatcher_ops_alerts_disk_enabled: bool = True
+    dispatcher_ops_alerts_disk_threshold_percent: float = 80.0
+    dispatcher_ops_alerts_outbox_dead_enabled: bool = True
+    dispatcher_ops_alerts_outbox_dead_threshold: int = 0
+    dispatcher_ops_alerts_metrics_server_enabled: bool = True
+    dispatcher_ops_alerts_metrics_server_max_age_seconds: int = 180
+    dispatcher_ops_alerts_node_down_enabled: bool = True
+    dispatcher_ops_alerts_component_health_enabled: bool = True
+    dispatcher_outbox_retention_enabled: bool = True
+    dispatcher_outbox_retention_interval_seconds: int = 3600
+    dispatcher_outbox_retention_sent_days: int = 14
+    dispatcher_outbox_retention_failed_days: int = 30
+    dispatcher_outbox_retention_batch_size: int = 500
+    dispatcher_outbox_retention_max_batches_per_run: int = 20
 
     bot_token: str = ""
     bot_api_base_url: str = "http://localhost:8080"

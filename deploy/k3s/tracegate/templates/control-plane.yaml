@@ -225,6 +225,9 @@ spec:
         {{- include "tracegate.labels" . | nindent 8 }}
         app.kubernetes.io/component: dispatcher
     spec:
+      {{- if .Values.controlPlane.dispatcherOps.alerts.enabled }}
+      serviceAccountName: {{ include "tracegate.fullname" . }}-dispatcher-ops
+      {{- end }}
       terminationGracePeriodSeconds: {{ int (.Values.controlPlane.terminationGracePeriodSeconds | default 30) }}
       {{- if .Values.imagePullSecrets }}
       imagePullSecrets:
@@ -270,12 +273,65 @@ spec:
                 secretKeyRef:
                   name: {{ include "tracegate.fullname" . }}-control-plane-auth
                   key: agent-auth-token
+            - name: BOT_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "tracegate.fullname" . }}-control-plane-auth
+                  key: bot-token
             - name: DISPATCHER_METRICS_ENABLED
               value: {{ ternary "true" "false" (.Values.controlPlane.dispatcherMetrics.enabled | default true) | quote }}
             - name: DISPATCHER_METRICS_HOST
               value: {{ (.Values.controlPlane.dispatcherMetrics.host | default "0.0.0.0") | quote }}
             - name: DISPATCHER_METRICS_PORT
               value: {{ printf "%d" (int (.Values.controlPlane.dispatcherMetrics.port | default 9091)) | quote }}
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: DISPATCHER_OPS_ALERTS_ENABLED
+              value: {{ ternary "true" "false" (.Values.controlPlane.dispatcherOps.alerts.enabled | default false) | quote }}
+            - name: DISPATCHER_OPS_ALERTS_POLL_SECONDS
+              value: {{ printf "%d" (int (.Values.controlPlane.dispatcherOps.alerts.pollSeconds | default 60)) | quote }}
+            - name: DISPATCHER_OPS_ALERTS_REPEAT_SECONDS
+              value: {{ printf "%d" (int (.Values.controlPlane.dispatcherOps.alerts.repeatSeconds | default 1800)) | quote }}
+            - name: DISPATCHER_OPS_ALERTS_SEND_RESOLVED
+              value: {{ ternary "true" "false" (.Values.controlPlane.dispatcherOps.alerts.sendResolved | default true) | quote }}
+            - name: DISPATCHER_OPS_ALERTS_SUPPRESS_INITIAL
+              value: {{ ternary "true" "false" (.Values.controlPlane.dispatcherOps.alerts.suppressInitial | default true) | quote }}
+            - name: DISPATCHER_OPS_ALERTS_HTTP_TIMEOUT_SECONDS
+              value: {{ printf "%d" (int (.Values.controlPlane.dispatcherOps.alerts.httpTimeoutSeconds | default 5)) | quote }}
+            - name: DISPATCHER_OPS_ALERTS_PROMETHEUS_URL
+              value: {{ (.Values.controlPlane.dispatcherOps.alerts.prometheusUrl | default "http://tracegate-prometheus:9090") | quote }}
+            - name: DISPATCHER_OPS_ALERTS_GATEWAY_RESTARTS_ENABLED
+              value: {{ ternary "true" "false" (.Values.controlPlane.dispatcherOps.alerts.gatewayRestarts | default true) | quote }}
+            - name: DISPATCHER_OPS_ALERTS_DISK_ENABLED
+              value: {{ ternary "true" "false" (.Values.controlPlane.dispatcherOps.alerts.disk.enabled | default true) | quote }}
+            - name: DISPATCHER_OPS_ALERTS_DISK_THRESHOLD_PERCENT
+              value: {{ printf "%v" (.Values.controlPlane.dispatcherOps.alerts.disk.thresholdPercent | default 80) | quote }}
+            - name: DISPATCHER_OPS_ALERTS_OUTBOX_DEAD_ENABLED
+              value: {{ ternary "true" "false" (.Values.controlPlane.dispatcherOps.alerts.outboxDead.enabled | default true) | quote }}
+            - name: DISPATCHER_OPS_ALERTS_OUTBOX_DEAD_THRESHOLD
+              value: {{ printf "%d" (int (.Values.controlPlane.dispatcherOps.alerts.outboxDead.threshold | default 0)) | quote }}
+            - name: DISPATCHER_OPS_ALERTS_METRICS_SERVER_ENABLED
+              value: {{ ternary "true" "false" (.Values.controlPlane.dispatcherOps.alerts.metricsServer.enabled | default true) | quote }}
+            - name: DISPATCHER_OPS_ALERTS_METRICS_SERVER_MAX_AGE_SECONDS
+              value: {{ printf "%d" (int (.Values.controlPlane.dispatcherOps.alerts.metricsServer.maxAgeSeconds | default 180)) | quote }}
+            - name: DISPATCHER_OPS_ALERTS_NODE_DOWN_ENABLED
+              value: {{ ternary "true" "false" (.Values.controlPlane.dispatcherOps.alerts.nodeDown | default true) | quote }}
+            - name: DISPATCHER_OPS_ALERTS_COMPONENT_HEALTH_ENABLED
+              value: {{ ternary "true" "false" (.Values.controlPlane.dispatcherOps.alerts.componentHealth | default true) | quote }}
+            - name: DISPATCHER_OUTBOX_RETENTION_ENABLED
+              value: {{ ternary "true" "false" (.Values.controlPlane.dispatcherOps.outboxRetention.enabled | default true) | quote }}
+            - name: DISPATCHER_OUTBOX_RETENTION_INTERVAL_SECONDS
+              value: {{ printf "%d" (int (.Values.controlPlane.dispatcherOps.outboxRetention.intervalSeconds | default 3600)) | quote }}
+            - name: DISPATCHER_OUTBOX_RETENTION_SENT_DAYS
+              value: {{ printf "%d" (int (.Values.controlPlane.dispatcherOps.outboxRetention.sentDays | default 14)) | quote }}
+            - name: DISPATCHER_OUTBOX_RETENTION_FAILED_DAYS
+              value: {{ printf "%d" (int (.Values.controlPlane.dispatcherOps.outboxRetention.failedDays | default 30)) | quote }}
+            - name: DISPATCHER_OUTBOX_RETENTION_BATCH_SIZE
+              value: {{ printf "%d" (int (.Values.controlPlane.dispatcherOps.outboxRetention.batchSize | default 500)) | quote }}
+            - name: DISPATCHER_OUTBOX_RETENTION_MAX_BATCHES_PER_RUN
+              value: {{ printf "%d" (int (.Values.controlPlane.dispatcherOps.outboxRetention.maxBatchesPerRun | default 20)) | quote }}
           resources:
             {{- toYaml .Values.controlPlane.resources.dispatcher | nindent 12 }}
 {{- if gt (int .Values.controlPlane.replicas.bot) 0 }}

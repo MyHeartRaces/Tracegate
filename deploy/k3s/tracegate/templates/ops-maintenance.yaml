@@ -1,0 +1,214 @@
+{{- define "tracegate.hostCleanupScript" -}}
+set -eu
+
+log() {
+  echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] $*"
+}
+
+prune_files() {
+  dir="$1"
+  name="$2"
+  days="$3"
+  if [ ! -d "$dir" ]; then
+    return 0
+  fi
+  find "$dir" -maxdepth 1 -type f -name "$name" -mtime +"$days" -print -delete 2>/dev/null || true
+}
+
+prune_tree() {
+  dir="$1"
+  pattern="$2"
+  days="$3"
+  if [ ! -d "$dir" ]; then
+    return 0
+  fi
+  find "$dir" -mindepth 1 -maxdepth 2 -name "$pattern" -mtime +"$days" -print -exec rm -rf {} \; 2>/dev/null || true
+}
+
+log "host cleanup started node_target=${NODE_TARGET}"
+
+# Backup/value overlays and image archives from manual releases/debugging.
+prune_files /host/root 'tracegate-values-live.yaml.bak.*' "$VALUES_BACKUP_RETENTION_DAYS"
+prune_files /host/root 'tracegate-values-*.yaml.bak.*' "$VALUES_BACKUP_RETENTION_DAYS"
+prune_files /host/root 'tracegate-values-image-sha-*.yaml' "$IMAGE_OVERLAY_RETENTION_DAYS"
+prune_tree /host/root/tracegate-images '*' "$IMAGE_TAR_RETENTION_DAYS"
+prune_tree /host/root/tracegate-backups '*' "$TRACEGATE_BACKUP_RETENTION_DAYS"
+
+# Stale legacy xray logs (if host-level xray is no longer in use).
+if [ -d /host/var/log/xray ]; then
+  find /host/var/log/xray -type f -name '*.log' -mtime +"$XRAY_LOG_RETENTION_DAYS" -print -delete 2>/dev/null || true
+  find /host/var/log/xray -type f -name '*.log.*' -mtime +"$XRAY_LOG_RETENTION_DAYS" -print -delete 2>/dev/null || true
+  find /host/var/log/xray -mindepth 1 -type d -empty -print -delete 2>/dev/null || true
+  rmdir /host/var/log/xray 2>/dev/null || true
+fi
+
+# Install logrotate policy for legacy host xray logs (safe no-op if unused).
+if [ -d /host/etc/logrotate.d ]; then
+  cat >/host/etc/logrotate.d/xray <<'EOF'
+/var/log/xray/*.log {
+    daily
+    rotate 7
+    missingok
+    notifempty
+    compress
+    delaycompress
+    copytruncate
+    create 0640 root adm
+}
+EOF
+fi
+
+# Temp/debug artifacts.
+for d in /host/tmp /host/var/tmp; do
+  if [ -d "$d" ]; then
+    find "$d" -maxdepth 1 \( -name 'tracegate-*' -o -name 'hy2-ios-auth-test-*' \) -mtime +"$TEMP_RETENTION_DAYS" -print -exec rm -rf {} \; 2>/dev/null || true
+  fi
+done
+find /host/root -maxdepth 1 -type d -name '.tmp*' -mtime +"$TEMP_RETENTION_DAYS" -print -exec rm -rf {} \; 2>/dev/null || true
+find /host/root -maxdepth 1 -type f -name '.tmp-*' -mtime +"$TEMP_RETENTION_DAYS" -print -delete 2>/dev/null || true
+
+log "host cleanup finished node_target=${NODE_TARGET}"
+{{- end }}
+
+{{- if and (.Values.opsMaintenance.hostCleanup.enabled | default false) .Values.gateway.enabled }}
+{{- $hc := .Values.opsMaintenance.hostCleanup -}}
+{{- if .Values.gateway.vpsT.enabled }}
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "tracegate.fullname" . }}-host-cleanup-vps-t
+  namespace: {{ include "tracegate.namespace" . }}
+  labels:
+    {{- include "tracegate.labels" . | nindent 4 }}
+    app.kubernetes.io/component: ops-maintenance
+spec:
+  schedule: {{ $hc.schedule | quote }}
+  concurrencyPolicy: {{ ($hc.concurrencyPolicy | default "Forbid") | quote }}
+  successfulJobsHistoryLimit: {{ int ($hc.successfulJobsHistoryLimit | default 1) }}
+  failedJobsHistoryLimit: {{ int ($hc.failedJobsHistoryLimit | default 2) }}
+  jobTemplate:
+    spec:
+      {{- if $hc.ttlSecondsAfterFinished }}
+      ttlSecondsAfterFinished: {{ int $hc.ttlSecondsAfterFinished }}
+      {{- end }}
+      template:
+        metadata:
+          labels:
+            {{- include "tracegate.labels" . | nindent 12 }}
+            app.kubernetes.io/component: ops-maintenance
+            tracegate-maintenance-target: vps-t
+        spec:
+          restartPolicy: OnFailure
+          nodeSelector:
+            {{- toYaml .Values.gateway.vpsT.nodeSelector | nindent 12 }}
+          tolerations:
+            {{- toYaml .Values.gateway.vpsT.tolerations | nindent 12 }}
+          affinity:
+            {{- toYaml .Values.gateway.vpsT.affinity | nindent 12 }}
+          containers:
+            - name: cleanup
+              image: {{ $hc.image | quote }}
+              imagePullPolicy: {{ ($hc.imagePullPolicy | default "IfNotPresent") | quote }}
+              command: ["sh", "-ec"]
+              args:
+                - |
+{{ include "tracegate.hostCleanupScript" . | nindent 18 }}
+              env:
+                - name: NODE_TARGET
+                  value: "vps-t"
+                - name: VALUES_BACKUP_RETENTION_DAYS
+                  value: {{ printf "%d" (int ($hc.valuesBackupRetentionDays | default 7)) | quote }}
+                - name: IMAGE_OVERLAY_RETENTION_DAYS
+                  value: {{ printf "%d" (int ($hc.imageOverlayRetentionDays | default 14)) | quote }}
+                - name: IMAGE_TAR_RETENTION_DAYS
+                  value: {{ printf "%d" (int ($hc.imageTarRetentionDays | default 14)) | quote }}
+                - name: TRACEGATE_BACKUP_RETENTION_DAYS
+                  value: {{ printf "%d" (int ($hc.tracegateBackupRetentionDays | default 14)) | quote }}
+                - name: XRAY_LOG_RETENTION_DAYS
+                  value: {{ printf "%d" (int ($hc.xrayLogRetentionDays | default 3)) | quote }}
+                - name: TEMP_RETENTION_DAYS
+                  value: {{ printf "%d" (int ($hc.tempRetentionDays | default 2)) | quote }}
+              securityContext:
+                runAsUser: 0
+                runAsGroup: 0
+              volumeMounts:
+                - name: host-root
+                  mountPath: /host
+          volumes:
+            - name: host-root
+              hostPath:
+                path: /
+                type: Directory
+{{- end }}
+
+{{- if .Values.gateway.vpsE.enabled }}
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "tracegate.fullname" . }}-host-cleanup-vps-e
+  namespace: {{ include "tracegate.namespace" . }}
+  labels:
+    {{- include "tracegate.labels" . | nindent 4 }}
+    app.kubernetes.io/component: ops-maintenance
+spec:
+  schedule: {{ $hc.schedule | quote }}
+  concurrencyPolicy: {{ ($hc.concurrencyPolicy | default "Forbid") | quote }}
+  successfulJobsHistoryLimit: {{ int ($hc.successfulJobsHistoryLimit | default 1) }}
+  failedJobsHistoryLimit: {{ int ($hc.failedJobsHistoryLimit | default 2) }}
+  jobTemplate:
+    spec:
+      {{- if $hc.ttlSecondsAfterFinished }}
+      ttlSecondsAfterFinished: {{ int $hc.ttlSecondsAfterFinished }}
+      {{- end }}
+      template:
+        metadata:
+          labels:
+            {{- include "tracegate.labels" . | nindent 12 }}
+            app.kubernetes.io/component: ops-maintenance
+            tracegate-maintenance-target: vps-e
+        spec:
+          restartPolicy: OnFailure
+          nodeSelector:
+            {{- toYaml .Values.gateway.vpsE.nodeSelector | nindent 12 }}
+          tolerations:
+            {{- toYaml .Values.gateway.vpsE.tolerations | nindent 12 }}
+          affinity:
+            {{- toYaml .Values.gateway.vpsE.affinity | nindent 12 }}
+          containers:
+            - name: cleanup
+              image: {{ $hc.image | quote }}
+              imagePullPolicy: {{ ($hc.imagePullPolicy | default "IfNotPresent") | quote }}
+              command: ["sh", "-ec"]
+              args:
+                - |
+{{ include "tracegate.hostCleanupScript" . | nindent 18 }}
+              env:
+                - name: NODE_TARGET
+                  value: "vps-e"
+                - name: VALUES_BACKUP_RETENTION_DAYS
+                  value: {{ printf "%d" (int ($hc.valuesBackupRetentionDays | default 7)) | quote }}
+                - name: IMAGE_OVERLAY_RETENTION_DAYS
+                  value: {{ printf "%d" (int ($hc.imageOverlayRetentionDays | default 14)) | quote }}
+                - name: IMAGE_TAR_RETENTION_DAYS
+                  value: {{ printf "%d" (int ($hc.imageTarRetentionDays | default 14)) | quote }}
+                - name: TRACEGATE_BACKUP_RETENTION_DAYS
+                  value: {{ printf "%d" (int ($hc.tracegateBackupRetentionDays | default 14)) | quote }}
+                - name: XRAY_LOG_RETENTION_DAYS
+                  value: {{ printf "%d" (int ($hc.xrayLogRetentionDays | default 3)) | quote }}
+                - name: TEMP_RETENTION_DAYS
+                  value: {{ printf "%d" (int ($hc.tempRetentionDays | default 2)) | quote }}
+              securityContext:
+                runAsUser: 0
+                runAsGroup: 0
+              volumeMounts:
+                - name: host-root
+                  mountPath: /host
+          volumes:
+            - name: host-root
+              hostPath:
+                path: /
+                type: Directory
+{{- end }}
+{{- end }}
