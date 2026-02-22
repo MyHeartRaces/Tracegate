@@ -1,7 +1,7 @@
 controlPlane:
   image:
     repository: ghcr.io/your-org/tracegate
-    tag: "0.4"
+    tag: "0.5"
   auth:
     apiInternalToken: REPLACE_API_INTERNAL_TOKEN
     agentAuthToken: REPLACE_AGENT_AUTH_TOKEN
@@ -34,7 +34,7 @@ controlPlane:
 gateway:
   agentImage:
     repository: ghcr.io/your-org/tracegate
-    tag: "0.4"
+    tag: "0.5"
 
   splitter:
     transit:
@@ -99,7 +99,7 @@ gateway:
       crt: ""
       key: ""
     wireguard:
-      image: ghcr.io/your-org/tracegate-wireguard:0.4
+      image: ghcr.io/your-org/tracegate-wireguard:0.5
       config: |
         [Interface]
         Address = 10.70.0.1/24
