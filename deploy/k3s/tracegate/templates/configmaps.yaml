@@ -1,5 +1,6 @@
 {{- $realityGroups := (.Values.gateway.realityMultiInbound.groups | default (list)) -}}
-{{- $entryDecoyHtml := (.Values.gateway.entryDecoyHtml | default .Values.gateway.vpsT.decoyHtml | default "<!doctype html><html><head><meta charset=\"utf-8\"><title>Tracegate</title></head><body><h1>It works.</h1></body></html>") -}}
+{{- $transitDecoyHtml := (.Values.gateway.vpsT.decoyHtml | default "<!doctype html><html><head><meta charset=\"utf-8\"><title>Tracegate</title></head><body><h1>It works.</h1></body></html>") -}}
+{{- $entryDecoyHtml := (.Values.gateway.entryDecoyHtml | default $transitDecoyHtml) -}}
 {{- if and .Values.gateway.enabled (or .Values.gateway.vpsT.enabled .Values.gateway.vpsE.enabled) }}
 apiVersion: v1
 kind: ConfigMap
@@ -28,7 +29,7 @@ metadata:
     {{- include "tracegate.labels" . | nindent 4 }}
 data:
   index.html: |
-{{ $entryDecoyHtml | nindent 4 }}
+{{ $transitDecoyHtml | nindent 4 }}
 ---
 apiVersion: v1
 kind: ConfigMap
