@@ -827,6 +827,8 @@ def _profile(spec: str) -> tuple[ConnectionProtocol, ConnectionMode, ConnectionV
         return ConnectionProtocol.VLESS_REALITY, ConnectionMode.CHAIN, ConnectionVariant.B2
     if spec == "b3":
         return ConnectionProtocol.HYSTERIA2, ConnectionMode.DIRECT, ConnectionVariant.B3
+    if spec == "b4":
+        return ConnectionProtocol.HYSTERIA2, ConnectionMode.CHAIN, ConnectionVariant.B4
     if spec == "b5":
         return ConnectionProtocol.WIREGUARD, ConnectionMode.DIRECT, ConnectionVariant.B5
     raise ValueError("unknown profile")

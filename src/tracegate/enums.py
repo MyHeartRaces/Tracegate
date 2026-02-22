@@ -28,6 +28,7 @@ class ConnectionVariant(str, Enum):
     B1 = "B1"
     B2 = "B2"
     B3 = "B3"
+    B4 = "B4"
     B5 = "B5"
 
 

@@ -96,6 +96,24 @@
           "quic"
         ]
       }
+    },
+    {
+      "tag": "hy2-backhaul-socks",
+      "listen": "127.0.0.1",
+      "port": 1081,
+      "protocol": "socks",
+      "settings": {
+        "auth": "noauth",
+        "udp": true
+      },
+      "sniffing": {
+        "enabled": true,
+        "destOverride": [
+          "http",
+          "tls",
+          "quic"
+        ]
+      }
     }
   ],
   "outbounds": [
@@ -187,6 +205,13 @@
           "geoip:private"
         ],
         "outboundTag": "block"
+      },
+      {
+        "type": "field",
+        "inboundTag": [
+          "hy2-backhaul-socks"
+        ],
+        "outboundTag": "to-transit"
       },
       {
         "type": "field",

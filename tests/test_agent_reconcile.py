@@ -104,7 +104,7 @@ def test_reconcile_xray_and_hysteria(tmp_path: Path) -> None:
     assert changed2 == []
 
 
-def test_reconcile_vps_e_updates_only_xray(tmp_path: Path) -> None:
+def test_reconcile_vps_e_updates_xray_and_hysteria_only(tmp_path: Path) -> None:
     settings = Settings(
         agent_data_root=str(tmp_path),
         agent_runtime_mode="kubernetes",
@@ -144,10 +144,10 @@ def test_reconcile_vps_e_updates_only_xray(tmp_path: Path) -> None:
     )
 
     changed = reconcile_all(settings)
-    assert changed == ["xray"]
+    assert changed == ["xray", "hysteria"]
     rendered = json.loads((tmp_path / "runtime/xray/config.json").read_text(encoding="utf-8"))
     assert rendered["inbounds"][0]["streamSettings"]["realitySettings"]["dest"] == "vk.com:443"
-    assert not (tmp_path / "runtime/hysteria/config.yaml").exists()
+    assert (tmp_path / "runtime/hysteria/config.yaml").exists()
     assert not (tmp_path / "runtime/wireguard/wg0.conf").exists()
 
 

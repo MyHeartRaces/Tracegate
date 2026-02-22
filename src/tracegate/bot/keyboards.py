@@ -69,7 +69,7 @@ def device_actions_keyboard(device_id: str, connections: list[dict] | None = Non
         if protocol == ConnectionProtocol.VLESS_WS_TLS.value:
             return "VLESS TLS Chain" if mode == ConnectionMode.CHAIN.value else "VLESS TLS Direct"
         if protocol == ConnectionProtocol.HYSTERIA2.value:
-            return "Hysteria2"
+            return "Hysteria2 Chain" if mode == ConnectionMode.CHAIN.value else "Hysteria2"
         if protocol == ConnectionProtocol.WIREGUARD.value:
             return "WireGuard"
         return f"{conn.get('variant')} ({conn.get('protocol')})"
@@ -78,6 +78,7 @@ def device_actions_keyboard(device_id: str, connections: list[dict] | None = Non
         [InlineKeyboardButton(text="B1 - VLESS Direct", callback_data=f"vlessnew:b1:{device_id}")],
         [InlineKeyboardButton(text="B2 - VLESS Chain (через VPS-E)", callback_data=f"vlessnew:b2:{device_id}")],
         [InlineKeyboardButton(text="B3 - Hysteria2 (UDP/QUIC)", callback_data=f"new:b3:{device_id}")],
+        [InlineKeyboardButton(text="B4 - Hysteria2 Chain (backup)", callback_data=f"new:b4:{device_id}")],
         [InlineKeyboardButton(text="B5 - WireGuard", callback_data=f"new:b5:{device_id}")],
     ]
     for connection in connections or []:

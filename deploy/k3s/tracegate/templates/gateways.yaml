@@ -357,6 +357,11 @@ spec:
         - name: xray-config
           secret:
             secretName: {{ include "tracegate.fullname" . }}-vps-e-xray-config
+        {{- if .Values.gateway.vpsE.hysteria.enabled }}
+        - name: hysteria-config
+          secret:
+            secretName: {{ include "tracegate.fullname" . }}-vps-e-hysteria-config
+        {{- end }}
         - name: entry-mux-config
           configMap:
             name: {{ include "tracegate.fullname" . }}-vps-e-entry-mux
@@ -388,14 +393,26 @@ spec:
 
               mkdir -p /agent-data/base/xray
               cp /base/xray/config.json /agent-data/base/xray/config.json
+              {{- if .Values.gateway.vpsE.hysteria.enabled }}
+              mkdir -p /agent-data/base/hysteria
+              cp /base/hysteria/config.yaml /agent-data/base/hysteria/config.yaml
+              {{- end }}
 
               mkdir -p /agent-data/runtime/xray
               [ -f /agent-data/runtime/xray/config.json ] || cp /agent-data/base/xray/config.json /agent-data/runtime/xray/config.json
+              {{- if .Values.gateway.vpsE.hysteria.enabled }}
+              mkdir -p /agent-data/runtime/hysteria
+              [ -f /agent-data/runtime/hysteria/config.yaml ] || cp /agent-data/base/hysteria/config.yaml /agent-data/runtime/hysteria/config.yaml
+              {{- end }}
           volumeMounts:
             - name: agent-data
               mountPath: /agent-data
             - name: xray-config
               mountPath: /base/xray
+            {{- if .Values.gateway.vpsE.hysteria.enabled }}
+            - name: hysteria-config
+              mountPath: /base/hysteria
+            {{- end }}
       {{- end }}
       containers:
         {{- if eq .Values.gateway.vpsE.mode "xray" }}
@@ -448,6 +465,28 @@ spec:
           securityContext:
             runAsUser: 0
             runAsGroup: 0
+        {{- if .Values.gateway.vpsE.hysteria.enabled }}
+        - name: hysteria
+          image: {{ .Values.gateway.vpsE.hysteria.image }}
+          imagePullPolicy: {{ .Values.gateway.vpsE.hysteria.pullPolicy }}
+          command: ["hysteria", "server", "-c", "/etc/hysteria/config.yaml"]
+          ports:
+            - containerPort: 443
+              protocol: UDP
+              name: hysteria-udp
+          volumeMounts:
+            - name: entry-decoy
+              mountPath: /var/www/decoy
+            - name: agent-data
+              mountPath: /etc/hysteria
+              subPath: runtime/hysteria
+            - name: entry-ws-tls
+              mountPath: /etc/hysteria/tls
+              readOnly: true
+          securityContext:
+            runAsUser: 0
+            runAsGroup: 0
+        {{- end }}
         {{- else }}
         - name: haproxy
           image: {{ .Values.gateway.vpsE.tcpForward.image }}

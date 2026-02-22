@@ -153,7 +153,8 @@ def _export_hysteria2(effective: dict[str, Any]) -> ExportResult:
     if sni:
         params["sni"] = sni
 
-    uri = f"hysteria2://{_q(username)}:{_q(password)}@{server}:{port}/?{_encode_query(params)}"
+    name = effective.get("profile") or "tracegate-hysteria2"
+    uri = f"hysteria2://{_q(username)}:{_q(password)}@{server}:{port}/?{_encode_query(params)}#{_q(str(name))}"
     return ExportResult(kind="uri", title="Hysteria2 link", content=uri)
 
 

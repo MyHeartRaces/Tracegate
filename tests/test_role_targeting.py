@@ -20,3 +20,8 @@ def test_direct_targets_only_vps_t() -> None:
 def test_ws_tls_targets_only_vps_t_for_b1() -> None:
     roles = target_roles_for_connection(ConnectionProtocol.VLESS_WS_TLS, ConnectionVariant.B1)
     assert roles == [NodeRole.VPS_T]
+
+
+def test_hysteria_chain_b4_targets_only_vps_e() -> None:
+    roles = target_roles_for_connection(ConnectionProtocol.HYSTERIA2, ConnectionVariant.B4)
+    assert roles == [NodeRole.VPS_E]

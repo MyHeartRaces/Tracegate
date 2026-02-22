@@ -168,8 +168,11 @@ def build_effective_config(
         }
 
     if connection.protocol == ConnectionProtocol.HYSTERIA2:
-        if connection.variant != ConnectionVariant.B3 or connection.mode != ConnectionMode.DIRECT:
-            raise ValueError("Hysteria2 supports B3 direct in v0.1")
+        if (connection.mode, connection.variant) not in {
+            (ConnectionMode.DIRECT, ConnectionVariant.B3),
+            (ConnectionMode.CHAIN, ConnectionVariant.B4),
+        }:
+            raise ValueError("Hysteria2 supports B3 direct or B4 chain")
 
         mode = overrides.get("client_mode", "socks")
         if mode not in {"socks", "http", "tun"}:
@@ -179,11 +182,16 @@ def build_effective_config(
         # Format: "B* - TG_ID - CONNECTION_ID"
         marker = f"{connection.variant.value} - {user.telegram_id} - {connection.id}"
 
+        is_chain = connection.mode == ConnectionMode.CHAIN
+        entry_host = endpoints.vps_e_host if is_chain else endpoints.vps_t_host
+        profile_name = "B4-h3-mimic-chain-backup" if is_chain else "B3-h3-mimic-direct"
+
         return {
             "protocol": "hysteria2",
-            "profile": "B3-h3-mimic-direct",
-            "server": endpoints.vps_t_host,
+            "profile": profile_name,
+            "server": entry_host,
             "port": 443,
+            "sni": entry_host,
             "transport": "udp-quic",
             "auth": {
                 "type": "userpass",
@@ -201,7 +209,19 @@ def build_effective_config(
                 "fixed_port_udp": 443,
                 "masquerade_mode": "file",
                 "stats_api_secret_required": True,
+                "entry_via_vps_e": is_chain,
+                "backhaul_via_vps_t_reality": is_chain,
             },
+            "chain": (
+                {
+                    "type": "hysteria_entry_xray_backhaul",
+                    "entry": endpoints.vps_e_host,
+                    "transit": endpoints.vps_t_host,
+                    "backhaul_transport": "vless_reality_xhttp",
+                }
+                if is_chain
+                else None
+            ),
         }
 
     if connection.protocol == ConnectionProtocol.WIREGUARD:

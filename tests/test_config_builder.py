@@ -128,6 +128,37 @@ def test_wireguard_uses_fixed_port_51820() -> None:
     assert cfg["endpoint"].endswith(":51820")
 
 
+def test_hysteria_chain_b4_enters_via_vps_e_and_marks_backhaul() -> None:
+    user = _user()
+    device = _device(user.telegram_id)
+    conn = Connection(
+        id=uuid4(),
+        user_id=user.telegram_id,
+        device_id=device.id,
+        protocol=ConnectionProtocol.HYSTERIA2,
+        mode=ConnectionMode.CHAIN,
+        variant=ConnectionVariant.B4,
+        profile_name="B4",
+        custom_overrides_json={},
+        status=RecordStatus.ACTIVE,
+    )
+
+    cfg = build_effective_config(
+        user=user,
+        device=device,
+        connection=conn,
+        selected_sni=None,
+        endpoints=EndpointSet(vps_t_host="myheartraces.space", vps_e_host="entry.myheartraces.space"),
+    )
+
+    assert cfg["protocol"] == "hysteria2"
+    assert cfg["server"] == "entry.myheartraces.space"
+    assert cfg["sni"] == "entry.myheartraces.space"
+    assert cfg["chain"]["type"] == "hysteria_entry_xray_backhaul"
+    assert cfg["chain"]["transit"] == "myheartraces.space"
+    assert cfg["design_constraints"]["entry_via_vps_e"] is True
+
+
 def test_ws_tls_chain_is_rejected() -> None:
     user = _user()
     device = _device(user.telegram_id)

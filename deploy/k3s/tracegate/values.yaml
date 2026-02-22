@@ -338,6 +338,17 @@ gateway:
                 "enabled": true,
                 "destOverride": ["http", "tls", "quic"]
               }
+            },
+            {
+              "tag": "hy2-backhaul-socks",
+              "listen": "127.0.0.1",
+              "port": 1081,
+              "protocol": "socks",
+              "settings": {"auth": "noauth", "udp": true},
+              "sniffing": {
+                "enabled": true,
+                "destOverride": ["http", "tls", "quic"]
+              }
             }
           ],
           "outbounds": [
@@ -444,6 +455,30 @@ gateway:
     wsTls:
       crt: ""
       key: ""
+
+    # Optional Hysteria2 entry on VPS-E (UDP/443) with backhaul via local Xray -> VPS-T REALITY transit.
+    hysteria:
+      enabled: true
+      image: tobyxdd/hysteria:v2
+      pullPolicy: IfNotPresent
+      config: |
+        listen: :443
+        tls:
+          cert: /etc/hysteria/tls/tls.crt
+          key: /etc/hysteria/tls/tls.key
+        auth:
+          type: userpass
+          userpass:
+            bootstrap: bootstrap-password
+        masquerade:
+          type: file
+          file:
+            dir: /var/www/decoy
+        outbounds:
+          - name: xray_transit
+            type: socks5
+            socks5:
+              addr: 127.0.0.1:1081
 
     # "tcpForward" is the legacy v0.1 chain implementation: L4 forward :443 -> VPS-T:443.
     # "xray" enables VPS-E user mapping and split-routing (RU/domestic via VPS-E, rest via VPS-T transit).
@@ -592,6 +627,11 @@ gateway:
               },
               {
                 "type": "field",
+                "inboundTag": ["hy2-backhaul-socks"],
+                "outboundTag": "to-transit"
+              },
+              {
+                "type": "field",
                 "inboundTag": ["entry-in", "vless-ws-in"],
                 "domain": [
                   "geosite:category-ru",
@@ -635,7 +675,7 @@ gateway:
       wgInterface: wg0
       wgExpectedPort: 51820
       reloadXrayCmd: sh -lc '(flock 9; sleep 1; pkill -HUP xray || true) 9>/tmp/xray-reload.lock'
-      reloadHysteriaCmd: ""
+      reloadHysteriaCmd: pkill -HUP hysteria || true
       reloadWgCmd: ""
 
     agentDataHostPath: /var/lib/tracegate-agent

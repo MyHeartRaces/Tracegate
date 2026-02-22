@@ -76,7 +76,10 @@ def validate_variant(protocol: ConnectionProtocol, mode: ConnectionMode, variant
     if protocol == ConnectionProtocol.VLESS_WS_TLS and (mode, variant) == (ConnectionMode.DIRECT, ConnectionVariant.B1):
         return
 
-    if protocol == ConnectionProtocol.HYSTERIA2 and mode == ConnectionMode.DIRECT and variant == ConnectionVariant.B3:
+    if protocol == ConnectionProtocol.HYSTERIA2 and (mode, variant) in {
+        (ConnectionMode.DIRECT, ConnectionVariant.B3),
+        (ConnectionMode.CHAIN, ConnectionVariant.B4),
+    }:
         return
 
     if protocol == ConnectionProtocol.WIREGUARD and mode == ConnectionMode.DIRECT and variant == ConnectionVariant.B5:

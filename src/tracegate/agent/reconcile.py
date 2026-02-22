@@ -800,9 +800,10 @@ def reconcile_all(settings: Settings) -> list[str]:
     changed: list[str] = []
     if reconcile_xray(settings):
         changed.append("xray")
-    if settings.agent_role == "VPS_T":
+    if settings.agent_role in {"VPS_T", "VPS_E"}:
         if reconcile_hysteria(settings):
             changed.append("hysteria")
+    if settings.agent_role == "VPS_T":
         if reconcile_wireguard(settings):
             changed.append("wireguard")
 

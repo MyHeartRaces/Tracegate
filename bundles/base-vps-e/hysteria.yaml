@@ -1,0 +1,17 @@
+listen: :443
+tls:
+  cert: /etc/hysteria/tls/tls.crt
+  key: /etc/hysteria/tls/tls.key
+auth:
+  type: userpass
+  userpass:
+    bootstrap: bootstrap-password
+masquerade:
+  type: file
+  file:
+    dir: /var/www/decoy
+outbounds:
+  - name: xray_transit
+    type: socks5
+    socks5:
+      addr: 127.0.0.1:1081
