@@ -120,6 +120,7 @@ def test_handle_apply_bundle_syncs_base_configs_and_reconciles(
     reconciler_calls: list[str] = []
 
     def _reconcile(_settings: Settings) -> list[str]:
+        assert _settings.agent_xray_api_enabled is False
         reconciler_calls.append("called")
         return ["xray", "hysteria", "wireguard"]
 
@@ -156,6 +157,7 @@ def test_handle_apply_bundle_syncs_base_configs_and_reconciles(
 
     assert reconciler_calls == ["called"]
     assert reload_calls == [["reload-xray", "reload-hysteria", "reload-wg"]]
+    assert settings.agent_xray_api_enabled is True
     assert (tmp_path / "base/xray/config.json").read_text(encoding="utf-8") == "{\"inbounds\":[]}"
     assert (tmp_path / "base/hysteria/config.yaml").read_text(encoding="utf-8") == "listen: :443\n"
     assert (tmp_path / "base/wireguard/wg0.conf").read_text(encoding="utf-8") == "[Interface]\nListenPort = 51820\n"
@@ -182,6 +184,34 @@ def test_handle_apply_bundle_ignores_non_base_bundle_for_reconcile(
     )
 
     assert not (tmp_path / "base/xray/config.json").exists()
+
+
+def test_handle_apply_bundle_skips_placeholder_service_configs(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    monkeypatch.setattr(handlers, "_apply_firewall_bundle", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(handlers, "reconcile_all", lambda _settings: pytest.fail("reconcile_all should not run"))
+    monkeypatch.setattr(handlers, "_run_reload_commands", lambda _settings, _cmds: pytest.fail("reloads should not run"))
+
+    settings = Settings(agent_data_root=str(tmp_path), agent_dry_run=False)
+
+    msg = handlers.handle_apply_bundle(
+        settings,
+        {
+            "bundle_name": "base-vps-t",
+            "files": {
+                "xray.json": '{"privateKey":"REPLACE_PRIVATE_KEY"}',
+                "hysteria.yaml": "acme:\n  domains:\n    - example.com\n",
+                "wg0.conf": "PrivateKey = REPLACE_WG_PRIVATE_KEY\n",
+            },
+            "commands": [],
+        },
+    )
+
+    assert "base_sync=" not in msg
+    assert not (tmp_path / "base/xray/config.json").exists()
+    assert not (tmp_path / "base/hysteria/config.yaml").exists()
+    assert not (tmp_path / "base/wireguard/wg0.conf").exists()
 
 
 def test_out_of_order_revoke_then_upsert_is_ignored(

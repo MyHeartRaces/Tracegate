@@ -166,11 +166,21 @@ def _sync_base_configs_from_bundle(settings: Settings, *, bundle_name: str, file
         "hysteria.yaml": ("base/hysteria/config.yaml", "hysteria"),
         "wg0.conf": ("base/wireguard/wg0.conf", "wireguard"),
     }
+    placeholder_markers = (
+        "REPLACE_",
+        "CHANGE_ME_",
+        "example.com",
+        "vps-t.example.com",
+        "vps-e.example.com",
+        "bootstrap-password",
+    )
     to_write: dict[str, str] = {}
     changed_components: set[str] = set()
     for source_name, (dest_rel, component) in mapping.items():
         raw = files.get(source_name)
         if not isinstance(raw, str):
+            continue
+        if any(marker in raw for marker in placeholder_markers):
             continue
         to_write[dest_rel] = raw
         changed_components.add(component)
@@ -178,6 +188,19 @@ def _sync_base_configs_from_bundle(settings: Settings, *, bundle_name: str, file
     if to_write:
         apply_files(Path(settings.agent_data_root), to_write)
     return changed_components
+
+
+def _reconcile_after_bundle_sync(settings: Settings) -> set[str]:
+    # Bundle apply updates base topology/runtime templates. We don't need (and don't want)
+    # best-effort live gRPC user sync here, because xray may still be starting up.
+    orig_xray_api_enabled = bool(settings.agent_xray_api_enabled)
+    if orig_xray_api_enabled:
+        settings.agent_xray_api_enabled = False
+    try:
+        return set(reconcile_all(settings))
+    finally:
+        if orig_xray_api_enabled:
+            settings.agent_xray_api_enabled = True
 
 
 def handle_apply_bundle(settings: Settings, payload: dict[str, Any]) -> str:
@@ -200,7 +223,7 @@ def handle_apply_bundle(settings: Settings, payload: dict[str, Any]) -> str:
         ok, out = run_command(cmd, settings.agent_dry_run)
         command_results.append(f"{cmd}: {'ok' if ok else 'failed'}: {out}")
 
-    reconciled = set(reconcile_all(settings)) if synced_components else set()
+    reconciled = _reconcile_after_bundle_sync(settings) if synced_components else set()
     if reconciled:
         # Bundle apply changes the base topology/config, so xray must reload even in API mode.
         _run_reload_commands(settings, _reload_commands_for_changed(settings, reconciled, force_xray_reload=True))
