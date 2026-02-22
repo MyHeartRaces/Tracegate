@@ -1,10 +1,11 @@
-# Tracegate v0.4
+# Tracegate v0.5
 
 Tracegate implements a control-plane + node-agent architecture for:
 - B1 `VLESS + REALITY` direct (443/tcp)
 - B2 `VLESS + REALITY` chain via VPS-E -> VPS-T (443/tcp), with splitter-capable transit routing
 - Optional: `VLESS + WebSocket + TLS` (requires a domain + certificate you control)
 - B3 `Hysteria2` direct (443/udp), masquerade file mode
+- B4 `Hysteria2` chain backup: entry on VPS-E (443/udp) with Xray/REALITY backhaul to VPS-T (443/tcp)
 - B5 `WireGuard` direct (51820/udp)
 
 SOCKS5 is intentionally local on the client (`127.0.0.1:1080`) and not exposed as a server port.
@@ -44,27 +45,21 @@ Monetization objects are intentionally removed in this state: there is no `walle
 SNI is a static catalog bundled with the app: `src/tracegate/staticdata/sni_catalog.yaml` (no Postgres SNI table).
 Bot users are keyed by Telegram `telegram_id` (primary key).
 
-## v0.4 highlights
+## v0.5 highlights
 
-- Alembic migrations (v0.1 baseline stamping + upgrade to head).
-- WireGuard peer lifecycle fix: single peer per device, consistent slot0 state, IPAM reuse/release.
-- Outbox dispatcher hardening: locking, concurrency, max-attempt dead-letter.
-- k3s-only deployment pipeline (legacy non-k3s assets removed).
-- Optional observability stack (Prometheus + Grafana) with Telegram OTP login via bot.
-- Xray "API mode" (gRPC HandlerService) for true zero-downtime VLESS user sync (no restart on new connection issuance).
-- Timed bot blocks with immediate user access revoke and alias propagation into metrics/Grafana.
-- Scoped API tokens with route-level RBAC.
-- Agent host-load/memory/network metrics + per-connection throughput table in admin dashboard.
-- Bot QoL: `/guide` and `/clean`.
-- VLESS Reality path moved to `xhttp` in `packet-up` mode for B1/B2; chain transit on VPS-E -> VPS-T uses Reality end-to-end.
-- Legacy chain-only `chain_port=50000` path removed; enforced topology rule is inbound `443` and transit destination `443`.
-- Client export updates: VLESS Reality export is `type=xhttp` (`mode=packet-up`), and profile generation aligned with current direct/chain entrypoints.
-- Bot UX updates: chain transport choice removed (Reality is now the default flow), `/guide` stale values text cleaned.
-- Grafana updates:
-  - compact table for `Active connections (all protocols)`;
-  - human-readable connection labels in graphs: `B*(TYPE/MODE) - actual_tg_name(tg_id) - device`;
-  - new admin dashboard `Tracegate (Admin Metadata)` with `connection_pid`, `user_pid`, `peer_pid`, `connection_marker`, extracted `tg_id` and `connection_id`.
-- Helm post-upgrade Grafana bootstrap now runs `python3 -m tracegate.cli.grafana_bootstrap`, so dashboard logic stays in sync with app code.
+- Idempotent `Firewall Apply` now converges host `nftables` and also syncs base service configs (`xray`, `hysteria`, `wireguard`) into agent `base/*`, runs `reconcile_all()`, and applies reload hooks. `reapply-base` no longer needs manual reconcile on k3s for these configs.
+- Hardened host firewall policy on both nodes:
+  - `VPS-T`: public `22/tcp`, `443/tcp`, `443/udp`, `51820/udp` only (plus inter-node/k3s allowlist)
+  - `VPS-E`: public `22/tcp`, `443/tcp`, `443/udp` only (plus inter-node/k3s allowlist)
+- WireGuard NAT on `VPS-T` is interface-agnostic (`oifname != "wg0"`), fixing uplink-name mismatches (`eth0` vs `ens3`).
+- Added `B4` provisioning path in API/bot/config builder:
+  - `Hysteria2` terminates on `VPS-E:443/udp`
+  - local `Xray` SOCKS inbound (`127.0.0.1:1081`, UDP enabled)
+  - backhaul from `VPS-E` to `VPS-T` via `VLESS+REALITY` transit on `443/tcp`
+- `VPS-E` gateway now supports local `hysteria` sidecar in `mode=xray` and the required `xray` routing/backhaul config.
+- Hysteria2 export links were made more client-compatible (`sni=` in URI, no forced `alpn`) and profile names in URLs were restored (`#profile` fragment).
+- Bot revisions UI now includes resending the current revision URL/config (`slot 0`) for all connection types.
+- Decoy login page was restored as a reachable page (fake auth flow) instead of a plain status response on main/entry domains.
 
 ## Quick start
 
@@ -157,9 +152,10 @@ Detailed guide: `deploy/k3s/README.md`
 - `bundles/base-vps-t`
   - `xray.json`, `hysteria.yaml`, `wg0.conf`, `nftables.conf`, `decoy/index.html`
 - `bundles/base-vps-e`
-  - `xray.json`, `nftables.conf`
+  - `xray.json`, `hysteria.yaml`, `nftables.conf`
 
 `/dispatch/reapply-base` loads these files and sends them to node agents via outbox events.
+On k3s, node agents now also mirror known service configs into `base/*`, run reconcile, and apply reload hooks (in addition to idempotent firewall apply).
 
 ## Observability (Prometheus + Grafana)
 
@@ -202,7 +198,7 @@ To redeploy everything on brand new VPS-T/VPS-E:
 - IPv4-only assumptions.
 - VLESS/Hysteria fixed on 443; WireGuard fixed on 51820.
 - Hysteria Traffic Stats API must remain secret-protected.
-- Legacy chain mode (`tcpForward`) preserves client SNI end-to-end; splitter mode may use a dedicated transit SNI on the E->T leg.
+- Legacy chain mode (`tcpForward`) preserves client SNI end-to-end; splitter mode may use a dedicated transit SNI on the E->T path.
 - Split-routing on VPS-E is available in `gateway.vpsE.mode=xray`: `geosite:category-ru` + `.ru/.su/.xn--p1ai` + `geoip:ru` routes direct via VPS-E, default routes via VPS-T transit.
 - Splitter transit credentials are configured once via `gateway.splitter.transit.*` and reused on both VPS-E and VPS-T Xray configs.
 - User device limit defaults to `5`.

@@ -112,6 +112,78 @@ def test_handle_apply_bundle_raises_on_firewall_validation_error(
         )
 
 
+def test_handle_apply_bundle_syncs_base_configs_and_reconciles(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    monkeypatch.setattr(handlers, "_apply_firewall_bundle", lambda *_args, **_kwargs: None)
+
+    reconciler_calls: list[str] = []
+
+    def _reconcile(_settings: Settings) -> list[str]:
+        reconciler_calls.append("called")
+        return ["xray", "hysteria", "wireguard"]
+
+    monkeypatch.setattr(handlers, "reconcile_all", _reconcile)
+
+    reload_calls: list[list[str]] = []
+    monkeypatch.setattr(
+        handlers,
+        "_run_reload_commands",
+        lambda _settings, cmds: reload_calls.append(list(cmds)),
+    )
+
+    settings = Settings(
+        agent_data_root=str(tmp_path),
+        agent_dry_run=False,
+        agent_xray_api_enabled=True,
+        agent_reload_xray_cmd="reload-xray",
+        agent_reload_hysteria_cmd="reload-hysteria",
+        agent_reload_wg_cmd="reload-wg",
+    )
+
+    msg = handlers.handle_apply_bundle(
+        settings,
+        {
+            "bundle_name": "base-vps-t",
+            "files": {
+                "xray.json": "{\"inbounds\":[]}",
+                "hysteria.yaml": "listen: :443\n",
+                "wg0.conf": "[Interface]\nListenPort = 51820\n",
+            },
+            "commands": [],
+        },
+    )
+
+    assert reconciler_calls == ["called"]
+    assert reload_calls == [["reload-xray", "reload-hysteria", "reload-wg"]]
+    assert (tmp_path / "base/xray/config.json").read_text(encoding="utf-8") == "{\"inbounds\":[]}"
+    assert (tmp_path / "base/hysteria/config.yaml").read_text(encoding="utf-8") == "listen: :443\n"
+    assert (tmp_path / "base/wireguard/wg0.conf").read_text(encoding="utf-8") == "[Interface]\nListenPort = 51820\n"
+    assert "base_sync=hysteria,wireguard,xray" in msg
+    assert "reconciled=hysteria,wireguard,xray" in msg
+
+
+def test_handle_apply_bundle_ignores_non_base_bundle_for_reconcile(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    monkeypatch.setattr(handlers, "_apply_firewall_bundle", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(handlers, "reconcile_all", lambda _settings: pytest.fail("reconcile_all should not run"))
+    monkeypatch.setattr(handlers, "_run_reload_commands", lambda _settings, _cmds: pytest.fail("reloads should not run"))
+
+    settings = Settings(agent_data_root=str(tmp_path), agent_dry_run=False)
+
+    handlers.handle_apply_bundle(
+        settings,
+        {
+            "bundle_name": "custom-operator-bundle",
+            "files": {"xray.json": "{}"},
+            "commands": [],
+        },
+    )
+
+    assert not (tmp_path / "base/xray/config.json").exists()
+
+
 def test_out_of_order_revoke_then_upsert_is_ignored(
     monkeypatch: pytest.MonkeyPatch, tmp_path
 ) -> None:

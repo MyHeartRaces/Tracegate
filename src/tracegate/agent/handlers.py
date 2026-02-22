@@ -114,6 +114,22 @@ def _proxy_reload_commands(settings: Settings) -> list[str]:
     return [settings.agent_reload_xray_cmd, settings.agent_reload_hysteria_cmd]
 
 
+def _reload_commands_for_changed(
+    settings: Settings,
+    changed: set[str],
+    *,
+    force_xray_reload: bool = False,
+) -> list[str]:
+    cmds: list[str] = []
+    if "xray" in changed and (force_xray_reload or not settings.agent_xray_api_enabled):
+        cmds.append(settings.agent_reload_xray_cmd)
+    if "hysteria" in changed:
+        cmds.append(settings.agent_reload_hysteria_cmd)
+    if "wireguard" in changed:
+        cmds.append(settings.agent_reload_wg_cmd)
+    return cmds
+
+
 def _apply_firewall_bundle(settings: Settings, *, bundle_root: Path) -> None:
     """
     Apply bundle firewall rules in an idempotent way.
@@ -135,6 +151,35 @@ def _apply_firewall_bundle(settings: Settings, *, bundle_root: Path) -> None:
             raise HandlerError(f"firewall apply failed: {out}")
 
 
+def _sync_base_configs_from_bundle(settings: Settings, *, bundle_name: str, files: dict[str, Any]) -> set[str]:
+    """
+    Mirror known base service configs into agent `base/*` and return affected components.
+
+    This makes `/dispatch/reapply-base` converge not only the host firewall, but also
+    reconciled runtime configs (xray/hysteria/wireguard) on k3s nodes.
+    """
+    if not str(bundle_name).startswith("base-vps-"):
+        return set()
+
+    mapping = {
+        "xray.json": ("base/xray/config.json", "xray"),
+        "hysteria.yaml": ("base/hysteria/config.yaml", "hysteria"),
+        "wg0.conf": ("base/wireguard/wg0.conf", "wireguard"),
+    }
+    to_write: dict[str, str] = {}
+    changed_components: set[str] = set()
+    for source_name, (dest_rel, component) in mapping.items():
+        raw = files.get(source_name)
+        if not isinstance(raw, str):
+            continue
+        to_write[dest_rel] = raw
+        changed_components.add(component)
+
+    if to_write:
+        apply_files(Path(settings.agent_data_root), to_write)
+    return changed_components
+
+
 def handle_apply_bundle(settings: Settings, payload: dict[str, Any]) -> str:
     bundle_name = payload.get("bundle_name")
     if not bundle_name:
@@ -148,13 +193,25 @@ def handle_apply_bundle(settings: Settings, payload: dict[str, Any]) -> str:
     root.mkdir(parents=True, exist_ok=True)
     apply_files(root, files)
     _apply_firewall_bundle(settings, bundle_root=root)
+    synced_components = _sync_base_configs_from_bundle(settings, bundle_name=str(bundle_name), files=files)
 
     command_results: list[str] = []
     for cmd in payload.get("commands", []):
         ok, out = run_command(cmd, settings.agent_dry_run)
         command_results.append(f"{cmd}: {'ok' if ok else 'failed'}: {out}")
 
-    return f"bundle applied: {bundle_name}; files={len(files)}; commands={len(command_results)}"
+    reconciled = set(reconcile_all(settings)) if synced_components else set()
+    if reconciled:
+        # Bundle apply changes the base topology/config, so xray must reload even in API mode.
+        _run_reload_commands(settings, _reload_commands_for_changed(settings, reconciled, force_xray_reload=True))
+
+    extras: list[str] = []
+    if synced_components:
+        extras.append("base_sync=" + ",".join(sorted(synced_components)))
+    if reconciled:
+        extras.append("reconciled=" + ",".join(sorted(reconciled)))
+    extra_suffix = ("; " + "; ".join(extras)) if extras else ""
+    return f"bundle applied: {bundle_name}; files={len(files)}; commands={len(command_results)}{extra_suffix}"
 
 
 def handle_upsert_user(settings: Settings, payload: dict[str, Any]) -> str:
@@ -198,12 +255,7 @@ def handle_upsert_user(settings: Settings, payload: dict[str, Any]) -> str:
 
     changed = set(reconcile_all(settings))
     if changed:
-        cmds: list[str] = []
-        if "xray" in changed and not settings.agent_xray_api_enabled:
-            cmds.append(settings.agent_reload_xray_cmd)
-        if "hysteria" in changed:
-            cmds.append(settings.agent_reload_hysteria_cmd)
-        _run_reload_commands(settings, cmds)
+        _run_reload_commands(settings, _reload_commands_for_changed(settings, changed))
 
     return f"upserted user payload for user={user_id} connection={connection_id}"
 
@@ -220,12 +272,7 @@ def handle_revoke_user(settings: Settings, payload: dict[str, Any]) -> str:
 
     changed = set(reconcile_all(settings))
     if changed:
-        cmds: list[str] = []
-        if "xray" in changed and not settings.agent_xray_api_enabled:
-            cmds.append(settings.agent_reload_xray_cmd)
-        if "hysteria" in changed:
-            cmds.append(settings.agent_reload_hysteria_cmd)
-        _run_reload_commands(settings, cmds)
+        _run_reload_commands(settings, _reload_commands_for_changed(settings, changed))
 
     return f"revoked user artifacts for {user_id}"
 
