@@ -154,6 +154,8 @@ def test_hysteria_chain_b4_enters_via_vps_e_and_marks_backhaul() -> None:
     assert cfg["protocol"] == "hysteria2"
     assert cfg["server"] == "entry.myheartraces.space"
     assert cfg["sni"] == "entry.myheartraces.space"
+    assert cfg["auth"]["username"].startswith("b4_1_")
+    assert " " not in cfg["auth"]["username"]
     assert cfg["chain"]["type"] == "hysteria_entry_xray_backhaul"
     assert cfg["chain"]["transit"] == "myheartraces.space"
     assert cfg["design_constraints"]["entry_via_vps_e"] is True

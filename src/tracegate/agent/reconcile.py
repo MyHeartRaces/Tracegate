@@ -9,9 +9,10 @@ import threading
 import yaml
 
 from tracegate.enums import ConnectionProtocol, ConnectionVariant, NodeRole
+from tracegate.services.hysteria_markers import hysteria_auth_username_aliases_for_artifact_row
 from tracegate.services.role_targeting import target_roles_for_connection
-from tracegate.settings import Settings
 from tracegate.services.sni_catalog import load_catalog
+from tracegate.settings import Settings
 
 _INDEX_FILE_NAME = "artifact-index.json"
 _INDEX_LOCK = threading.Lock()
@@ -741,7 +742,12 @@ def reconcile_hysteria(settings: Settings) -> bool:
         password = (auth_cfg.get("password") or "").strip()
         if not username or not password:
             continue
-        userpass[username] = password
+        aliases = hysteria_auth_username_aliases_for_artifact_row(row, username)
+        if not aliases:
+            aliases = {username}
+        for alias in aliases:
+            if alias:
+                userpass[alias] = password
 
     base["auth"] = {"type": "userpass", "userpass": userpass}
     current = _load_yaml(runtime_path) if runtime_path.exists() else None

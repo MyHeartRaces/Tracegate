@@ -5,6 +5,7 @@ from typing import Any
 
 from tracegate.enums import ConnectionMode, ConnectionProtocol, ConnectionVariant
 from tracegate.models import Connection, Device, User
+from tracegate.services.hysteria_markers import hysteria_ios_safe_username
 from tracegate.services.sni_catalog import SniCatalogEntry
 
 
@@ -178,9 +179,13 @@ def build_effective_config(
         if mode not in {"socks", "http", "tun"}:
             raise ValueError("Unsupported Hysteria client_mode")
 
-        # Keep it stable across bot, node configs, and metrics.
-        # Format: "B* - TG_ID - CONNECTION_ID"
-        marker = f"{connection.variant.value} - {user.telegram_id} - {connection.id}"
+        # iOS clients are more reliable with a compact userpass username token.
+        # Agent/runtime keeps a legacy alias for backward compatibility.
+        marker = hysteria_ios_safe_username(
+            variant=connection.variant.value,
+            tg_id=user.telegram_id,
+            connection_id=str(connection.id),
+        )
 
         is_chain = connection.mode == ConnectionMode.CHAIN
         entry_host = endpoints.vps_e_host if is_chain else endpoints.vps_t_host

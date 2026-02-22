@@ -151,6 +151,45 @@ def test_reconcile_vps_e_updates_xray_and_hysteria_only(tmp_path: Path) -> None:
     assert not (tmp_path / "runtime/wireguard/wg0.conf").exists()
 
 
+def test_reconcile_hysteria_adds_legacy_and_ios_safe_userpass_aliases(tmp_path: Path) -> None:
+    settings = Settings(
+        agent_data_root=str(tmp_path),
+        agent_runtime_mode="kubernetes",
+        agent_role="VPS_T",
+    )
+
+    _write(
+        tmp_path / "base/hysteria/config.yaml",
+        "listen: :443\nauth:\n  type: userpass\n  userpass:\n    bootstrap: bootstrap\n",
+    )
+    _write(
+        tmp_path / "users/255761416/connection-b3.json",
+        json.dumps(
+            {
+                "user_id": "255761416",
+                "connection_id": "531ce66a-9265-477b-bfab-1dccf53bac6f",
+                "variant": "B3",
+                "protocol": "hysteria2",
+                "config": {
+                    "auth": {
+                        "type": "userpass",
+                        "username": "b3_255761416_531ce66a9265477bbfab1dccf53bac6f",
+                        "password": "dev-pass",
+                    }
+                },
+            }
+        ),
+    )
+
+    changed = reconcile_all(settings)
+    assert "hysteria" in changed
+
+    rendered_hy = (tmp_path / "runtime/hysteria/config.yaml").read_text(encoding="utf-8")
+    assert "bootstrap: bootstrap" in rendered_hy
+    assert "b3_255761416_531ce66a9265477bbfab1dccf53bac6f: dev-pass" in rendered_hy
+    assert "B3 - 255761416 - 531ce66a-9265-477b-bfab-1dccf53bac6f: dev-pass" in rendered_hy
+
+
 def test_reconcile_vps_e_forces_transit_port_443(tmp_path: Path) -> None:
     settings = Settings(
         agent_data_root=str(tmp_path),
