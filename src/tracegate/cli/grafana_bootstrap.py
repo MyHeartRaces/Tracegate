@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import os
 from typing import Any
+from urllib.parse import quote
 
 import httpx
 
@@ -74,6 +75,257 @@ async def _ensure_folder(client: httpx.AsyncClient, *, uid: str, title: str) -> 
 
 def _ds(uid: str) -> dict[str, str]:
     return {"type": "prometheus", "uid": uid}
+
+
+def _alert_query_prometheus(ref_id: str, ds_uid: str, expr: str, *, from_seconds: int = 600) -> dict[str, Any]:
+    return {
+        "refId": ref_id,
+        "queryType": "",
+        "relativeTimeRange": {"from": from_seconds, "to": 0},
+        "datasourceUid": ds_uid,
+        "model": {
+            "datasource": {"type": "prometheus", "uid": ds_uid},
+            "editorMode": "code",
+            "expr": expr,
+            "instant": True,
+            "intervalMs": 1000,
+            "maxDataPoints": 43200,
+            "range": False,
+            "refId": ref_id,
+        },
+    }
+
+
+def _alert_query_classic_condition(
+    ref_id: str,
+    input_ref_id: str,
+    *,
+    evaluator: str,
+    threshold: float,
+) -> dict[str, Any]:
+    return {
+        "refId": ref_id,
+        "queryType": "",
+        "relativeTimeRange": {"from": 0, "to": 0},
+        "datasourceUid": "-100",
+        "model": {
+            "conditions": [
+                {
+                    "evaluator": {"params": [threshold], "type": evaluator},
+                    "operator": {"type": "and"},
+                    "query": {"params": [input_ref_id]},
+                    "reducer": {"params": [], "type": "last"},
+                    "type": "query",
+                }
+            ],
+            "datasource": {"name": "Expression", "type": "__expr__", "uid": "-100"},
+            "intervalMs": 1000,
+            "maxDataPoints": 43200,
+            "refId": ref_id,
+            "type": "classic_conditions",
+        },
+    }
+
+
+def _slo_alert_rule(
+    *,
+    uid: str,
+    title: str,
+    folder_uid: str,
+    group: str,
+    ds_uid: str,
+    expr: str,
+    evaluator: str,
+    threshold: float,
+    annotations: dict[str, str],
+    labels: dict[str, str],
+    for_duration: str = "2m",
+    no_data_state: str = "OK",
+) -> dict[str, Any]:
+    return {
+        "uid": uid,
+        "title": title,
+        "folderUID": folder_uid,
+        "ruleGroup": group,
+        "orgID": 1,
+        "condition": "B",
+        "data": [
+            _alert_query_prometheus("A", ds_uid, expr),
+            _alert_query_classic_condition("B", "A", evaluator=evaluator, threshold=threshold),
+        ],
+        "noDataState": no_data_state,
+        "execErrState": "Alerting",
+        "for": for_duration,
+        "annotations": annotations,
+        "labels": labels,
+        "isPaused": False,
+    }
+
+
+def _slo_alert_rules(ds_uid: str, *, folder_uid: str) -> list[dict[str, Any]]:
+    group = "tracegate-slo"
+    base_labels = {"service": "tracegate", "kind": "slo"}
+
+    return [
+        _slo_alert_rule(
+            uid="tg-slo-api-availability-low",
+            title="SLO: API availability ratio low (5m)",
+            folder_uid=folder_uid,
+            group=group,
+            ds_uid=ds_uid,
+            expr='min(tracegate_slo_component_up_ratio_5m{job="tracegate-api"})',
+            evaluator="lt",
+            threshold=0.99,
+            annotations={
+                "summary": "API scrape availability ratio is below 99% (5m)",
+                "description": "tracegate_slo_component_up_ratio_5m for job=tracegate-api is below 0.99",
+            },
+            labels={**base_labels, "component": "api", "slo_type": "availability", "severity": "critical"},
+            no_data_state="Alerting",
+        ),
+        _slo_alert_rule(
+            uid="tg-slo-bot-availability-low",
+            title="SLO: Bot availability ratio low (5m)",
+            folder_uid=folder_uid,
+            group=group,
+            ds_uid=ds_uid,
+            expr='min(tracegate_slo_component_up_ratio_5m{job="tracegate-bot"})',
+            evaluator="lt",
+            threshold=0.99,
+            annotations={
+                "summary": "Bot scrape availability ratio is below 99% (5m)",
+                "description": "tracegate_slo_component_up_ratio_5m for job=tracegate-bot is below 0.99",
+            },
+            labels={**base_labels, "component": "bot", "slo_type": "availability", "severity": "critical"},
+            no_data_state="Alerting",
+        ),
+        _slo_alert_rule(
+            uid="tg-slo-agent-availability-low",
+            title="SLO: Agent availability ratio low (5m)",
+            folder_uid=folder_uid,
+            group=group,
+            ds_uid=ds_uid,
+            expr='min(tracegate_slo_component_up_ratio_5m{job="tracegate-agent"})',
+            evaluator="lt",
+            threshold=0.95,
+            annotations={
+                "summary": "At least one agent scrape availability ratio is below 95% (5m)",
+                "description": "min(tracegate_slo_component_up_ratio_5m{job=tracegate-agent}) is below 0.95",
+            },
+            labels={**base_labels, "component": "agent", "slo_type": "availability", "severity": "critical"},
+            no_data_state="Alerting",
+        ),
+        _slo_alert_rule(
+            uid="tg-slo-api-http-success-low",
+            title="SLO: API HTTP success ratio low (5m)",
+            folder_uid=folder_uid,
+            group=group,
+            ds_uid=ds_uid,
+            expr='tracegate_slo_http_request_success_ratio_5m{component="api"}',
+            evaluator="lt",
+            threshold=0.99,
+            annotations={
+                "summary": "API HTTP success ratio is below 99% (5m)",
+                "description": "tracegate_slo_http_request_success_ratio_5m{component=api} is below 0.99",
+            },
+            labels={**base_labels, "component": "api", "slo_type": "success_ratio", "severity": "warning"},
+        ),
+        _slo_alert_rule(
+            uid="tg-slo-agent-http-success-low",
+            title="SLO: Agent HTTP success ratio low (5m)",
+            folder_uid=folder_uid,
+            group=group,
+            ds_uid=ds_uid,
+            expr='tracegate_slo_http_request_success_ratio_5m{component="agent"}',
+            evaluator="lt",
+            threshold=0.98,
+            annotations={
+                "summary": "Agent HTTP success ratio is below 98% (5m)",
+                "description": "tracegate_slo_http_request_success_ratio_5m{component=agent} is below 0.98",
+            },
+            labels={**base_labels, "component": "agent", "slo_type": "success_ratio", "severity": "warning"},
+        ),
+        _slo_alert_rule(
+            uid="tg-slo-api-http-latency-high",
+            title="SLO: API HTTP latency p95 high (5m)",
+            folder_uid=folder_uid,
+            group=group,
+            ds_uid=ds_uid,
+            expr='tracegate_slo_http_request_latency_p95_seconds_5m{component="api"}',
+            evaluator="gt",
+            threshold=0.5,
+            annotations={
+                "summary": "API HTTP latency p95 is above 500ms (5m)",
+                "description": "tracegate_slo_http_request_latency_p95_seconds_5m{component=api} is above 0.5s",
+            },
+            labels={**base_labels, "component": "api", "slo_type": "latency_p95", "severity": "warning"},
+        ),
+        _slo_alert_rule(
+            uid="tg-slo-agent-http-latency-high",
+            title="SLO: Agent HTTP latency p95 high (5m)",
+            folder_uid=folder_uid,
+            group=group,
+            ds_uid=ds_uid,
+            expr='tracegate_slo_http_request_latency_p95_seconds_5m{component="agent"}',
+            evaluator="gt",
+            threshold=1.0,
+            annotations={
+                "summary": "Agent HTTP latency p95 is above 1s (5m)",
+                "description": "tracegate_slo_http_request_latency_p95_seconds_5m{component=agent} is above 1s",
+            },
+            labels={**base_labels, "component": "agent", "slo_type": "latency_p95", "severity": "warning"},
+        ),
+        _slo_alert_rule(
+            uid="tg-slo-bot-update-success-low",
+            title="SLO: Bot update success ratio low (5m)",
+            folder_uid=folder_uid,
+            group=group,
+            ds_uid=ds_uid,
+            expr="tracegate_slo_bot_update_success_ratio_5m",
+            evaluator="lt",
+            threshold=0.99,
+            annotations={
+                "summary": "Bot update success ratio is below 99% (5m)",
+                "description": "tracegate_slo_bot_update_success_ratio_5m is below 0.99",
+            },
+            labels={**base_labels, "component": "bot", "slo_type": "success_ratio", "severity": "warning"},
+            no_data_state="OK",
+        ),
+        _slo_alert_rule(
+            uid="tg-slo-bot-update-latency-high",
+            title="SLO: Bot update latency p95 high (5m)",
+            folder_uid=folder_uid,
+            group=group,
+            ds_uid=ds_uid,
+            expr="tracegate_slo_bot_update_latency_p95_seconds_5m",
+            evaluator="gt",
+            threshold=3.0,
+            annotations={
+                "summary": "Bot update latency p95 is above 3s (5m)",
+                "description": "tracegate_slo_bot_update_latency_p95_seconds_5m is above 3s",
+            },
+            labels={**base_labels, "component": "bot", "slo_type": "latency_p95", "severity": "warning"},
+            no_data_state="OK",
+        ),
+    ]
+
+
+async def _upsert_slo_alert_rule_group(
+    client: httpx.AsyncClient,
+    *,
+    ds_uid: str,
+    folder_uid: str,
+    interval_seconds: int = 60,
+) -> None:
+    rules = _slo_alert_rules(ds_uid, folder_uid=folder_uid)
+    group_name = "tracegate-slo"
+    group_path = quote(group_name, safe="")
+    r = await client.put(
+        f"/api/v1/provisioning/folder/{folder_uid}/rule-groups/{group_path}",
+        json={"interval": interval_seconds, "rules": rules},
+        headers={"X-Disable-Provenance": "true"},
+    )
+    r.raise_for_status()
 
 
 _TG_ID_FROM_MARKER_RE = "^[^-]+ - ([0-9]+) - .+$"
@@ -865,6 +1117,7 @@ async def bootstrap() -> None:
         await _upsert_dashboard(client, _dashboard_admin(ds_uid), folder_uid=admin_folder_uid)
         await _upsert_dashboard(client, _dashboard_admin_metadata(ds_uid), folder_uid=admin_folder_uid)
         await _upsert_dashboard(client, _dashboard_operator(ds_uid), folder_uid=admin_folder_uid)
+        await _upsert_slo_alert_rule_group(client, ds_uid=ds_uid, folder_uid=admin_folder_uid)
         await _restrict_folder_to_admins(client, folder_uid=admin_folder_uid)
 
 

@@ -3,6 +3,7 @@ from tracegate.cli.grafana_bootstrap import (
     _dashboard_admin_metadata,
     _dashboard_operator,
     _dashboard_user,
+    _slo_alert_rules,
 )
 
 
@@ -129,3 +130,43 @@ def test_operator_dashboard_includes_slo_and_ops_panels() -> None:
 
     metrics_age = _panel_by_id(dashboard, 13)
     assert "tracegate_ops_metrics_server_node_metric_age_seconds" in metrics_age["targets"][0]["expr"]
+
+
+def test_slo_alert_rules_cover_api_bot_and_agent() -> None:
+    rules = _slo_alert_rules("prom", folder_uid="tracegate-admin")
+    assert len(rules) == 9
+
+    by_uid = {rule["uid"]: rule for rule in rules}
+    assert set(by_uid) == {
+        "tg-slo-api-availability-low",
+        "tg-slo-bot-availability-low",
+        "tg-slo-agent-availability-low",
+        "tg-slo-api-http-success-low",
+        "tg-slo-agent-http-success-low",
+        "tg-slo-api-http-latency-high",
+        "tg-slo-agent-http-latency-high",
+        "tg-slo-bot-update-success-low",
+        "tg-slo-bot-update-latency-high",
+    }
+
+    api_avail = by_uid["tg-slo-api-availability-low"]
+    assert api_avail["folderUID"] == "tracegate-admin"
+    assert api_avail["ruleGroup"] == "tracegate-slo"
+    assert api_avail["condition"] == "B"
+    assert api_avail["labels"]["component"] == "api"
+    assert api_avail["labels"]["slo_type"] == "availability"
+    assert api_avail["noDataState"] == "Alerting"
+    assert 'tracegate_slo_component_up_ratio_5m{job="tracegate-api"}' in api_avail["data"][0]["model"]["expr"]
+    assert api_avail["data"][1]["model"]["conditions"][0]["evaluator"]["type"] == "lt"
+    assert api_avail["data"][1]["model"]["conditions"][0]["evaluator"]["params"] == [0.99]
+
+    agent_latency = by_uid["tg-slo-agent-http-latency-high"]
+    assert 'tracegate_slo_http_request_latency_p95_seconds_5m{component="agent"}' in agent_latency["data"][0]["model"]["expr"]
+    assert agent_latency["data"][1]["model"]["conditions"][0]["evaluator"]["type"] == "gt"
+    assert agent_latency["data"][1]["model"]["conditions"][0]["evaluator"]["params"] == [1.0]
+
+    bot_success = by_uid["tg-slo-bot-update-success-low"]
+    assert bot_success["noDataState"] == "OK"
+    assert bot_success["labels"]["component"] == "bot"
+    assert bot_success["labels"]["severity"] == "warning"
+    assert bot_success["data"][0]["model"]["expr"] == "tracegate_slo_bot_update_success_ratio_5m"
