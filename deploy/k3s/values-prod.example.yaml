@@ -6,6 +6,8 @@ controlPlane:
     apiInternalToken: REPLACE_API_INTERNAL_TOKEN
     agentAuthToken: REPLACE_AGENT_AUTH_TOKEN
     botToken: ""
+    # Optional; if empty chart generates/persists a stable token for Grafana Alerting -> Tracegate webhook relay.
+    grafanaAlertsWebhookToken: ""
   botWebhook:
     enabled: true
     publicHost: t.example.com

@@ -82,6 +82,11 @@ spec:
                 secretKeyRef:
                   name: {{ include "tracegate.fullname" . }}-control-plane-auth
                   key: api-internal-token
+            - name: BOT_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "tracegate.fullname" . }}-control-plane-auth
+                  key: bot-token
             - name: DEFAULT_VPS_T_HOST
               value: {{ .Values.controlPlane.env.defaultVpsTHost | quote }}
             - name: DEFAULT_VPS_E_HOST
@@ -131,6 +136,13 @@ spec:
               value: {{ printf "%d" (int (.Values.controlPlane.env.grafana.otpTtlSeconds | default 300)) | quote }}
             - name: GRAFANA_SESSION_TTL_SECONDS
               value: {{ printf "%d" (int (.Values.controlPlane.env.grafana.sessionTtlSeconds | default 3600)) | quote }}
+            - name: GRAFANA_ALERTS_WEBHOOK_URL
+              value: {{ printf "http://%s-api:%d/grafana/alerting/webhook" (include "tracegate.fullname" .) (int .Values.controlPlane.service.port) | quote }}
+            - name: GRAFANA_ALERTS_WEBHOOK_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "tracegate.fullname" . }}-control-plane-auth
+                  key: grafana-alerts-webhook-token
           volumeMounts:
             - name: materialized-bundles
               mountPath: /etc/tracegate/materialized-bundles

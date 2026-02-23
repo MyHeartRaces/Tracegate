@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import asyncio
 import base64
 import hashlib
 import hmac
 import json
+import logging
 import secrets
 from datetime import datetime, timedelta, timezone
 from enum import Enum
@@ -17,13 +19,17 @@ from sqlalchemy import delete, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracegate.api.deps import db_session
+from tracegate.cli.grafana_bootstrap import bootstrap_with_config
 from tracegate.enums import ApiScope, UserRole
 from tracegate.models import GrafanaOtp, User
-from tracegate.security import require_api_scope
+from tracegate.security import require_api_scope, require_bootstrap_token
 from tracegate.settings import get_settings
 from tracegate.services.pseudonym import user_pid
 
 router = APIRouter(prefix="/grafana", tags=["grafana"])
+logger = logging.getLogger(__name__)
+
+_TELEGRAM_API_BASE = "https://api.telegram.org"
 
 
 class GrafanaOtpCreate(BaseModel):
@@ -41,6 +47,20 @@ class GrafanaOtpCreated(BaseModel):
 class GrafanaSessionScope(str, Enum):
     USER = "user"
     ADMIN = "admin"
+
+
+class GrafanaBootstrapResult(BaseModel):
+    ok: bool
+    operator_dashboard_uid: str
+    slo_rule_count: int
+    contact_point_uid: str | None = None
+
+
+class GrafanaAlertWebhookAccepted(BaseModel):
+    ok: bool
+    recipients: int
+    alerts: int
+    status: str
 
 
 def _b64url(data: bytes) -> str:
@@ -154,6 +174,79 @@ async def _ensure_grafana_user_role(telegram_id: int, role: UserRole) -> None:
         await client.patch(f"/api/org/users/{user_id}", json={"role": target_role})
 
 
+async def _load_admin_chat_ids(session: AsyncSession) -> list[int]:
+    settings = get_settings()
+    ids: set[int] = set(int(x) for x in (settings.superadmin_telegram_ids or []) if int(x) > 0)
+    rows = (
+        await session.execute(select(User.telegram_id).where(User.role.in_([UserRole.ADMIN, UserRole.SUPERADMIN])))
+    ).scalars().all()
+    ids.update(int(row) for row in rows if int(row) > 0)
+    return sorted(ids)
+
+
+async def _send_telegram_message(
+    *,
+    http_client: httpx.AsyncClient,
+    bot_token: str,
+    chat_id: int,
+    text: str,
+) -> bool:
+    url = f"{_TELEGRAM_API_BASE}/bot{bot_token}/sendMessage"
+    payload = {
+        "chat_id": int(chat_id),
+        "text": (text or "").strip()[:4000],
+        "disable_web_page_preview": True,
+    }
+    for attempt in range(2):
+        try:
+            r = await http_client.post(url, json=payload)
+            if r.status_code == 429 and attempt == 0:
+                retry_after = 1
+                try:
+                    retry_after = int((r.json().get("parameters") or {}).get("retry_after") or 1)
+                except Exception:
+                    retry_after = 1
+                await asyncio.sleep(max(1, min(5, retry_after)))
+                continue
+            r.raise_for_status()
+            return bool((r.json() or {}).get("ok"))
+        except Exception:
+            logger.exception("grafana_alert_webhook_telegram_send_failed chat_id=%s", chat_id)
+            return False
+    return False
+
+
+def _format_grafana_alert_webhook_message(payload: dict[str, Any]) -> tuple[str, int, str]:
+    status_raw = str(payload.get("status") or "unknown").strip().lower()
+    status_label = "ALERT" if status_raw == "firing" else ("RESOLVED" if status_raw == "resolved" else status_raw.upper())
+    alerts = payload.get("alerts")
+    alert_list = alerts if isinstance(alerts, list) else []
+    common_labels = payload.get("commonLabels") if isinstance(payload.get("commonLabels"), dict) else {}
+    common_annotations = payload.get("commonAnnotations") if isinstance(payload.get("commonAnnotations"), dict) else {}
+
+    title = (
+        str(common_annotations.get("summary") or "").strip()
+        or str(common_labels.get("alertname") or "").strip()
+        or "Grafana SLO alert"
+    )
+    lines = [f"[GRAFANA][{status_label}] {title}", f"alerts={len(alert_list)} status={status_raw or 'unknown'}"]
+
+    for alert in alert_list[:4]:
+        if not isinstance(alert, dict):
+            continue
+        labels = alert.get("labels") if isinstance(alert.get("labels"), dict) else {}
+        annotations = alert.get("annotations") if isinstance(alert.get("annotations"), dict) else {}
+        component = str(labels.get("component") or "-")
+        severity = str(labels.get("severity") or "-")
+        slo_type = str(labels.get("slo_type") or "-")
+        summary = str(annotations.get("summary") or labels.get("alertname") or "alert").strip()
+        lines.append(f"- {component}/{slo_type} sev={severity}: {summary}")
+    if len(alert_list) > 4:
+        lines.append(f"... +{len(alert_list) - 4} more")
+
+    return ("\n".join(lines)).strip(), len(alert_list), status_raw
+
+
 @router.post("/otp", response_model=GrafanaOtpCreated, dependencies=[Depends(require_api_scope(ApiScope.GRAFANA_OTP))])
 async def create_grafana_otp(payload: GrafanaOtpCreate, session: AsyncSession = Depends(db_session)) -> GrafanaOtpCreated:
     settings = get_settings()
@@ -255,6 +348,72 @@ async def grafana_logout(request: Request) -> Response:
     resp = RedirectResponse(url="/grafana/", status_code=status.HTTP_302_FOUND)
     resp.delete_cookie("tg_grafana_session", path="/grafana")
     return resp
+
+
+@router.post(
+    "/bootstrap/internal",
+    response_model=GrafanaBootstrapResult,
+    dependencies=[Depends(require_bootstrap_token)],
+)
+async def grafana_bootstrap_internal() -> GrafanaBootstrapResult:
+    settings = get_settings()
+    if not settings.grafana_enabled:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Grafana is disabled")
+    if not settings.grafana_admin_password:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="GRAFANA_ADMIN_PASSWORD is not set")
+
+    report = await bootstrap_with_config(
+        base_url=settings.grafana_internal_url,
+        admin_user=settings.grafana_admin_user or "admin",
+        admin_password=settings.grafana_admin_password,
+        prometheus_url=settings.dispatcher_ops_alerts_prometheus_url,
+        slo_webhook_url=(settings.grafana_alerts_webhook_url or None),
+        slo_webhook_token=(settings.grafana_alerts_webhook_token or None),
+    )
+    return GrafanaBootstrapResult(
+        ok=True,
+        operator_dashboard_uid=str(report.get("operator_dashboard_uid") or "tracegate-admin-ops"),
+        slo_rule_count=int(report.get("slo_rule_count") or 0),
+        contact_point_uid=(str(report["contact_point_uid"]) if report.get("contact_point_uid") else None),
+    )
+
+
+@router.post("/alerting/webhook", response_model=GrafanaAlertWebhookAccepted)
+async def grafana_alerting_webhook(
+    request: Request,
+    session: AsyncSession = Depends(db_session),
+    token: str = Query(default=""),
+) -> GrafanaAlertWebhookAccepted:
+    settings = get_settings()
+    expected = (settings.grafana_alerts_webhook_token or "").strip()
+    if not expected:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Grafana alert webhook is disabled")
+    if token != expected:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid webhook token")
+    if not settings.bot_token:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="BOT_TOKEN is not configured")
+
+    try:
+        raw = await request.json()
+    except Exception:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid JSON payload") from None
+    payload = raw if isinstance(raw, dict) else {"payload": raw}
+
+    text, alert_count, status_raw = _format_grafana_alert_webhook_message(payload)
+    recipients = await _load_admin_chat_ids(session)
+    if not recipients:
+        logger.warning("grafana_alert_webhook_no_recipients")
+        return GrafanaAlertWebhookAccepted(ok=True, recipients=0, alerts=alert_count, status=status_raw or "unknown")
+
+    sent_ok = True
+    timeout = httpx.Timeout(connect=5, read=10, write=10, pool=10)
+    async with httpx.AsyncClient(timeout=timeout) as http_client:
+        for chat_id in recipients:
+            ok = await _send_telegram_message(http_client=http_client, bot_token=settings.bot_token, chat_id=chat_id, text=text)
+            sent_ok = sent_ok and ok
+    if not sent_ok:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Failed to deliver alert to one or more recipients")
+    return GrafanaAlertWebhookAccepted(ok=True, recipients=len(recipients), alerts=alert_count, status=status_raw or "unknown")
 
 
 @router.api_route("/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"])

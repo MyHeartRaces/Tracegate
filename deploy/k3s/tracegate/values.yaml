@@ -76,6 +76,7 @@ controlPlane:
     apiInternalToken: ""
     agentAuthToken: ""
     botToken: ""
+    grafanaAlertsWebhookToken: ""
 
   # Telegram bot webhook mode avoids polling conflicts. It uses HTTPS on port 8443
   # (Telegram allows 8443) so it does not conflict with Xray/Hysteria on 443.

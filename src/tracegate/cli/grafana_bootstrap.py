@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import os
 from typing import Any
-from urllib.parse import quote
+from urllib.parse import parse_qsl, quote, urlencode, urlsplit, urlunsplit
 
 import httpx
 
@@ -15,6 +15,14 @@ def _env(name: str, default: str | None = None) -> str:
             raise RuntimeError(f"{name} is required")
         return default
     return v
+
+
+def _env_optional(name: str) -> str | None:
+    v = os.getenv(name)
+    if v is None:
+        return None
+    s = v.strip()
+    return s or None
 
 
 async def _wait_grafana(client: httpx.AsyncClient, seconds: int = 120) -> None:
@@ -75,6 +83,14 @@ async def _ensure_folder(client: httpx.AsyncClient, *, uid: str, title: str) -> 
 
 def _ds(uid: str) -> dict[str, str]:
     return {"type": "prometheus", "uid": uid}
+
+
+def _append_query_param(url: str, key: str, value: str) -> str:
+    split = urlsplit(url)
+    query = list(parse_qsl(split.query, keep_blank_values=True))
+    query = [(k, v) for (k, v) in query if k != key]
+    query.append((key, value))
+    return urlunsplit((split.scheme, split.netloc, split.path, urlencode(query), split.fragment))
 
 
 def _alert_query_prometheus(ref_id: str, ds_uid: str, expr: str, *, from_seconds: int = 600) -> dict[str, Any]:
@@ -359,6 +375,93 @@ async def _upsert_slo_alert_rule_group(
         )
         if del_r.status_code not in {200, 202, 204}:
             del_r.raise_for_status()
+
+
+async def _upsert_contact_point(
+    client: httpx.AsyncClient,
+    *,
+    uid: str,
+    name: str,
+    kind: str,
+    settings: dict[str, Any],
+    disable_resolve_message: bool = False,
+) -> None:
+    payload = {
+        "uid": uid,
+        "name": name,
+        "type": kind,
+        "settings": settings,
+        "disableResolveMessage": disable_resolve_message,
+    }
+    get_r = await client.get("/api/v1/provisioning/contact-points")
+    get_r.raise_for_status()
+    existing = next((row for row in get_r.json() if str(row.get("uid") or "") == uid), None)
+    headers = {"X-Disable-Provenance": "true"}
+    if existing is None:
+        r = await client.post("/api/v1/provisioning/contact-points", json=payload, headers=headers)
+    else:
+        r = await client.put(f"/api/v1/provisioning/contact-points/{quote(uid, safe='')}", json=payload, headers=headers)
+    r.raise_for_status()
+
+
+async def _upsert_notification_policies_for_slo(
+    client: httpx.AsyncClient,
+    *,
+    receiver_name: str,
+) -> None:
+    get_r = await client.get("/api/v1/provisioning/policies")
+    get_r.raise_for_status()
+    root = get_r.json()
+    routes = list(root.get("routes") or [])
+    managed_matchers = [["service", "=", "tracegate"], ["kind", "=", "slo"]]
+    managed_route = {
+        "receiver": receiver_name,
+        "group_by": ["alertname", "grafana_folder"],
+        "group_wait": "30s",
+        "group_interval": "5m",
+        "repeat_interval": "30m",
+        "object_matchers": managed_matchers,
+        "continue": False,
+    }
+
+    replaced = False
+    new_routes: list[dict[str, Any]] = []
+    for route in routes:
+        if route.get("object_matchers") == managed_matchers:
+            if not replaced:
+                new_routes.append(managed_route)
+                replaced = True
+            continue
+        new_routes.append(route)
+    if not replaced:
+        new_routes.append(managed_route)
+    root["routes"] = new_routes
+
+    put_r = await client.put(
+        "/api/v1/provisioning/policies",
+        json=root,
+        headers={"X-Disable-Provenance": "true"},
+    )
+    put_r.raise_for_status()
+
+
+async def _get_dashboard(client: httpx.AsyncClient, uid: str) -> dict[str, Any] | None:
+    r = await client.get(f"/api/dashboards/uid/{quote(uid, safe='')}")
+    if r.status_code == 404:
+        return None
+    r.raise_for_status()
+    body = r.json()
+    db = body.get("dashboard")
+    if isinstance(db, dict):
+        return db
+    return None
+
+
+async def _count_slo_provisioned_rules(client: httpx.AsyncClient) -> int:
+    r = await client.get("/api/v1/provisioning/alert-rules")
+    r.raise_for_status()
+    rows = r.json()
+    return sum(1 for row in rows if row.get("ruleGroup") == "tracegate-slo")
 
 
 _TG_ID_FROM_MARKER_RE = "^[^-]+ - ([0-9]+) - .+$"
@@ -1133,11 +1236,16 @@ async def _restrict_folder_to_admins(client: httpx.AsyncClient, *, folder_uid: s
         r.raise_for_status()
 
 
-async def bootstrap() -> None:
-    base_url = _env("GRAFANA_BASE_URL")
-    admin_user = _env("GRAFANA_ADMIN_USER", "admin")
-    admin_password = _env("GRAFANA_ADMIN_PASSWORD")
-    prometheus_url = _env("PROMETHEUS_URL")
+async def bootstrap_with_config(
+    *,
+    base_url: str,
+    admin_user: str,
+    admin_password: str,
+    prometheus_url: str,
+    slo_webhook_url: str | None = None,
+    slo_webhook_token: str | None = None,
+) -> dict[str, Any]:
+    report: dict[str, Any] = {}
 
     async with httpx.AsyncClient(base_url=base_url.rstrip("/"), auth=(admin_user, admin_password), timeout=10) as client:
         await _wait_grafana(client)
@@ -1151,8 +1259,59 @@ async def bootstrap() -> None:
         await _upsert_dashboard(client, _dashboard_admin_metadata(ds_uid), folder_uid=admin_folder_uid)
         await _upsert_dashboard(client, _dashboard_operator(ds_uid), folder_uid=admin_folder_uid)
         await _upsert_slo_alert_rule_group(client, ds_uid=ds_uid, folder_uid=admin_folder_uid)
+        if slo_webhook_url and slo_webhook_token:
+            webhook_url = _append_query_param(slo_webhook_url, "token", slo_webhook_token)
+            cp_uid = "tracegate-slo-ops-webhook"
+            cp_name = "tracegate-slo-ops-webhook"
+            await _upsert_contact_point(
+                client,
+                uid=cp_uid,
+                name=cp_name,
+                kind="webhook",
+                settings={"url": webhook_url},
+                disable_resolve_message=False,
+            )
+            await _upsert_notification_policies_for_slo(client, receiver_name=cp_name)
+            report["contact_point_uid"] = cp_uid
+            report["notification_policy_route"] = "tracegate-slo"
         await _restrict_folder_to_admins(client, folder_uid=admin_folder_uid)
+
+        # Postconditions: fail bootstrap visibly instead of "successful no-op".
+        if await _get_dashboard(client, "tracegate-admin-ops") is None:
+            raise RuntimeError("operator dashboard was not persisted in Grafana")
+        report["operator_dashboard_uid"] = "tracegate-admin-ops"
+        report["slo_rule_count"] = await _count_slo_provisioned_rules(client)
+        if int(report["slo_rule_count"]) < 9:
+            raise RuntimeError(f"expected at least 9 SLO rules, got {report['slo_rule_count']}")
+        report["datasource_uid"] = ds_uid
+        report["admin_folder_uid"] = admin_folder_uid
+    return report
+
+
+async def bootstrap() -> dict[str, Any]:
+    base_url = _env("GRAFANA_BASE_URL")
+    admin_user = _env("GRAFANA_ADMIN_USER", "admin")
+    admin_password = _env("GRAFANA_ADMIN_PASSWORD")
+    prometheus_url = _env("PROMETHEUS_URL")
+    slo_webhook_url = _env_optional("TRACEGATE_SLO_WEBHOOK_URL")
+    slo_webhook_token = _env_optional("TRACEGATE_SLO_WEBHOOK_TOKEN")
+    return await bootstrap_with_config(
+        base_url=base_url,
+        admin_user=admin_user,
+        admin_password=admin_password,
+        prometheus_url=prometheus_url,
+        slo_webhook_url=slo_webhook_url,
+        slo_webhook_token=slo_webhook_token,
+    )
 
 
 def main() -> None:
-    asyncio.run(bootstrap())
+    report = asyncio.run(bootstrap())
+    print(
+        "grafana_bootstrap_ok",
+        {
+            "operator_dashboard_uid": report.get("operator_dashboard_uid"),
+            "slo_rule_count": report.get("slo_rule_count"),
+            "contact_point_uid": report.get("contact_point_uid"),
+        },
+    )

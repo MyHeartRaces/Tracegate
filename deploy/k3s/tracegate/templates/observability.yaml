@@ -457,8 +457,9 @@ metadata:
     app.kubernetes.io/component: observability
   annotations:
     helm.sh/hook: post-install,post-upgrade
-    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+    helm.sh/hook-delete-policy: before-hook-creation
 spec:
+  ttlSecondsAfterFinished: 86400
   template:
     metadata:
       labels:
@@ -468,23 +469,30 @@ spec:
       restartPolicy: OnFailure
       containers:
         - name: bootstrap
-          image: {{ include "tracegate.image" .Values.controlPlane.image }}
-          imagePullPolicy: {{ .Values.controlPlane.image.pullPolicy }}
+          image: curlimages/curl:8.8.0
+          imagePullPolicy: IfNotPresent
           command:
             - sh
             - -ec
             - |
-              python3 -m tracegate.cli.grafana_bootstrap
+              API="http://{{ include "tracegate.fullname" . }}-api:{{ int .Values.controlPlane.service.port }}"
+              n=0
+              until curl -fsS "$API/health" >/dev/null 2>&1; do
+                n=$((n+1))
+                if [ "$n" -ge 120 ]; then
+                  echo "api is not ready for grafana bootstrap" >&2
+                  exit 1
+                fi
+                sleep 1
+              done
+              curl -fsS -X POST "$API/grafana/bootstrap/internal" \
+                -H "x-api-token: $TOKEN" \
+                -H "Content-Type: application/json" \
+                -d '{}' 
           env:
-            - name: GRAFANA_BASE_URL
-              value: {{ printf "http://%s-grafana:3000" (include "tracegate.fullname" .) | quote }}
-            - name: GRAFANA_ADMIN_USER
-              value: "admin"
-            - name: GRAFANA_ADMIN_PASSWORD
+            - name: TOKEN
               valueFrom:
                 secretKeyRef:
-                  name: {{ include "tracegate.fullname" . }}-grafana-auth
-                  key: admin-password
-            - name: PROMETHEUS_URL
-              value: {{ printf "http://%s-prometheus:9090" (include "tracegate.fullname" .) | quote }}
+                  name: {{ include "tracegate.fullname" . }}-control-plane-auth
+                  key: api-internal-token
 {{- end }}

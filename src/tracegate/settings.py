@@ -99,6 +99,9 @@ class Settings(BaseSettings):
     grafana_cookie_secret: str = ""
     grafana_otp_ttl_seconds: int = 300
     grafana_session_ttl_seconds: int = 3600
+    # Internal webhook (Grafana Alerting -> Tracegate API -> Telegram admins/superadmins).
+    grafana_alerts_webhook_url: str = ""
+    grafana_alerts_webhook_token: str = ""
     # Secret used to derive stable pseudo-IDs (e.g. for Grafana auth-proxy login and metrics labels).
     # If empty, falls back to grafana_cookie_secret, then api_internal_token.
     pseudonym_secret: str = ""
