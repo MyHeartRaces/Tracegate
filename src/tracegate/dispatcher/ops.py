@@ -34,6 +34,45 @@ _OPS_ACTIVE_ALERTS = Gauge(
     "tracegate_dispatcher_ops_active_alerts",
     "Current number of active ops alerts tracked by dispatcher",
 )
+_OPS_OUTBOX_DELIVERIES = Gauge(
+    "tracegate_ops_outbox_deliveries",
+    "Current outbox delivery counts by status",
+    labelnames=["status"],
+)
+_OPS_OUTBOX_PENDING_OLDER_THAN_5M = Gauge(
+    "tracegate_ops_outbox_pending_older_than_5m_deliveries",
+    "Current number of outbox deliveries pending/failed older than five minutes",
+)
+_OPS_GATEWAY_CONTAINER_RESTARTS = Gauge(
+    "tracegate_ops_gateway_container_restart_count",
+    "Current gateway container restartCount observed from Kubernetes",
+    labelnames=["component", "container"],
+)
+_OPS_COMPONENT_PODS = Gauge(
+    "tracegate_ops_component_pods",
+    "Observed and ready pod counts for key components",
+    labelnames=["component", "state"],
+)
+_OPS_NODE_READY = Gauge(
+    "tracegate_ops_node_ready",
+    "Kubernetes node readiness (1=Ready, 0=NotReady)",
+    labelnames=["node"],
+)
+_OPS_METRICS_SERVER_NODE_AGE_SECONDS = Gauge(
+    "tracegate_ops_metrics_server_node_metric_age_seconds",
+    "Age of latest metrics-server node metrics sample in seconds",
+    labelnames=["node"],
+)
+_OPS_DISK_USED_PERCENT = Gauge(
+    "tracegate_ops_disk_used_percent",
+    "Disk usage percent for root filesystem (from node-exporter via Prometheus query)",
+    labelnames=["instance"],
+)
+_OPS_COMPONENT_IMAGE_INFO = Gauge(
+    "tracegate_ops_component_image_info",
+    "Observed container image for key components (constant 1)",
+    labelnames=["component", "image"],
+)
 _OUTBOX_PURGE_RUNS_TOTAL = Counter(
     "tracegate_dispatcher_outbox_purge_runs_total",
     "Number of outbox retention purge runs",
@@ -111,6 +150,10 @@ class _OpsState:
     restart_counts: dict[tuple[str, str], int] = field(default_factory=dict)
     active_alerts: dict[str, _ActiveAlert] = field(default_factory=dict)
     expected_components: set[str] = field(default_factory=set)
+    component_image_keys: set[tuple[str, str]] = field(default_factory=set)
+    node_ready_keys: set[str] = field(default_factory=set)
+    metrics_age_node_keys: set[str] = field(default_factory=set)
+    disk_instance_keys: set[str] = field(default_factory=set)
     initialized: bool = False
 
 
@@ -290,7 +333,9 @@ async def _collect_alerts(
 
     if settings.dispatcher_ops_alerts_outbox_dead_enabled:
         try:
-            dead_count = await _count_dead_deliveries()
+            delivery_counts, pending_old = await _outbox_delivery_health_snapshot()
+            _update_outbox_delivery_gauges(delivery_counts, pending_old)
+            dead_count = int(delivery_counts.get("DEAD", 0))
             _OPS_CHECKS_TOTAL.labels("outbox_dead", "ok").inc()
             if dead_count > max(0, int(settings.dispatcher_ops_alerts_outbox_dead_threshold)):
                 active["outbox_dead"] = (
@@ -307,22 +352,41 @@ async def _collect_alerts(
         instant_events.extend(k8s_events)
 
     if settings.dispatcher_ops_alerts_disk_enabled:
-        disk_active = await _collect_disk_alerts(settings=settings, http_client=http_client)
+        disk_active = await _collect_disk_alerts(settings=settings, state=state, http_client=http_client)
         active.update(disk_active)
 
     return active, instant_events
 
 
-async def _count_dead_deliveries() -> int:
+async def _outbox_delivery_health_snapshot() -> tuple[dict[str, int], int]:
+    now = _utcnow()
+    cutoff = now - timedelta(minutes=5)
     async with get_sessionmaker()() as session:
-        return int(
+        rows = (
+            await session.execute(
+                select(OutboxDelivery.status, func.count())
+                .group_by(OutboxDelivery.status)
+            )
+        ).all()
+        pending_old = int(
             (
                 await session.execute(
-                    select(func.count(OutboxDelivery.id)).where(OutboxDelivery.status == DeliveryStatus.DEAD)
+                    select(func.count(OutboxDelivery.id)).where(
+                        OutboxDelivery.status.in_([DeliveryStatus.PENDING, DeliveryStatus.FAILED]),
+                        OutboxDelivery.created_at < cutoff,
+                    )
                 )
             ).scalar_one()
             or 0
         )
+    counts = {str(status.name if hasattr(status, "name") else status): int(count) for (status, count) in rows}
+    return counts, pending_old
+
+
+def _update_outbox_delivery_gauges(counts: dict[str, int], pending_old: int) -> None:
+    for status_name in ["PENDING", "SENT", "FAILED", "DEAD"]:
+        _OPS_OUTBOX_DELIVERIES.labels(status_name).set(float(int(counts.get(status_name, 0))))
+    _OPS_OUTBOX_PENDING_OLDER_THAN_5M.set(float(max(0, int(pending_old))))
 
 
 async def _collect_k8s_alerts(
@@ -363,6 +427,7 @@ async def _collect_k8s_alerts(
             active["k8s_nodes_api"] = "Kubernetes API nodes list check failed"
 
     if pods_payload is not None:
+        _update_component_image_info(state=state, pods_payload=pods_payload)
         _collect_gateway_restart_alerts(
             settings=settings,
             state=state,
@@ -374,10 +439,10 @@ async def _collect_k8s_alerts(
 
     node_names: set[str] = set()
     if nodes_payload is not None:
-        node_names = _collect_node_down_alerts(settings=settings, nodes_payload=nodes_payload, active=active)
+        node_names = _collect_node_down_alerts(settings=settings, state=state, nodes_payload=nodes_payload, active=active)
 
     if settings.dispatcher_ops_alerts_metrics_server_enabled:
-        metrics_alerts = await _collect_metrics_server_alerts(settings=settings, ctx=ctx, node_names=node_names)
+        metrics_alerts = await _collect_metrics_server_alerts(settings=settings, state=state, ctx=ctx, node_names=node_names)
         active.update(metrics_alerts)
 
     return active, instant_events
@@ -403,6 +468,7 @@ def _collect_gateway_restart_alerts(
         return
 
     seen_keys: set[tuple[str, str]] = set()
+    current_restart_counts: dict[tuple[str, str], int] = {}
     for item in pods_payload.get("items", []):
         if not isinstance(item, dict):
             continue
@@ -424,6 +490,7 @@ def _collect_gateway_restart_alerts(
             seen_keys.add(key)
             prev = state.restart_counts.get(key)
             state.restart_counts[key] = restart_count
+            current_restart_counts[(component, container_name)] = restart_count
             if prev is None or restart_count <= prev:
                 continue
             delta = restart_count - prev
@@ -435,6 +502,47 @@ def _collect_gateway_restart_alerts(
     stale = [key for key in state.restart_counts if key not in seen_keys]
     for key in stale:
         state.restart_counts.pop(key, None)
+    for component in ("gateway-vps-t", "gateway-vps-e"):
+        for container_name in ("entry-mux", "xray", "hysteria", "wireguard", "agent"):
+            restart_count = int(current_restart_counts.get((component, container_name), 0))
+            _OPS_GATEWAY_CONTAINER_RESTARTS.labels(component, container_name).set(float(restart_count))
+
+
+def _update_component_image_info(*, state: _OpsState, pods_payload: dict[str, Any]) -> None:
+    image_keys: set[tuple[str, str]] = set()
+    target_names = {
+        "api": {"api"},
+        "bot": {"bot"},
+        "dispatcher": {"dispatcher"},
+        "gateway-vps-t": {"agent"},
+        "gateway-vps-e": {"agent"},
+    }
+
+    for item in pods_payload.get("items", []):
+        if not isinstance(item, dict):
+            continue
+        labels = ((item.get("metadata") or {}).get("labels") or {})
+        component = str(labels.get("app.kubernetes.io/component") or "")
+        if component not in target_names:
+            continue
+        spec = item.get("spec") or {}
+        for container in spec.get("containers") or []:
+            if not isinstance(container, dict):
+                continue
+            cname = str(container.get("name") or "")
+            if cname not in target_names[component]:
+                continue
+            image = str(container.get("image") or "").strip()
+            if not image:
+                continue
+            image_keys.add((component, image))
+
+    for component, image in image_keys:
+        _OPS_COMPONENT_IMAGE_INFO.labels(component, image).set(1.0)
+    stale = set(state.component_image_keys) - image_keys
+    for component, image in stale:
+        _OPS_COMPONENT_IMAGE_INFO.remove(component, image)
+    state.component_image_keys = image_keys
 
 
 def _collect_component_health_alerts(*, state: _OpsState, pods_payload: dict[str, Any]) -> dict[str, str]:
@@ -469,6 +577,8 @@ def _collect_component_health_alerts(*, state: _OpsState, pods_payload: dict[str
     for component in sorted(state.expected_components):
         total = int(pod_counts.get(component, 0))
         ready = int(ready_counts.get(component, 0))
+        _OPS_COMPONENT_PODS.labels(component, "observed").set(float(total))
+        _OPS_COMPONENT_PODS.labels(component, "ready").set(float(ready))
         if total <= 0 or ready <= 0:
             active[f"component_unready:{component}"] = (
                 f"Component unhealthy: {component} (ready_pods={ready}, observed_pods={total})"
@@ -487,7 +597,13 @@ def _pod_ready(pod_item: dict[str, Any]) -> bool:
     return False
 
 
-def _collect_node_down_alerts(*, settings: Settings, nodes_payload: dict[str, Any], active: dict[str, str]) -> set[str]:
+def _collect_node_down_alerts(
+    *,
+    settings: Settings,
+    state: _OpsState,
+    nodes_payload: dict[str, Any],
+    active: dict[str, str],
+) -> set[str]:
     node_names: set[str] = set()
 
     for item in nodes_payload.get("items", []):
@@ -513,16 +629,22 @@ def _collect_node_down_alerts(*, settings: Settings, nodes_payload: dict[str, An
             ready_message = " - ".join(parts)
             break
 
+        _OPS_NODE_READY.labels(node_name).set(1.0 if ready_status == "True" else 0.0)
         if settings.dispatcher_ops_alerts_node_down_enabled and ready_status != "True":
             suffix = f" ({ready_message})" if ready_message else ""
             active[f"node_not_ready:{node_name}"] = f"Node not Ready: {node_name}{suffix}"
 
+    stale_nodes = set(state.node_ready_keys) - node_names
+    for node in stale_nodes:
+        _OPS_NODE_READY.remove(node)
+    state.node_ready_keys = set(node_names)
     return node_names
 
 
 async def _collect_metrics_server_alerts(
     *,
     settings: Settings,
+    state: _OpsState,
     ctx: _K8sContext,
     node_names: set[str],
 ) -> dict[str, str]:
@@ -554,10 +676,16 @@ async def _collect_metrics_server_alerts(
         ts = _parse_rfc3339(item.get("timestamp"))
         if ts is None:
             stale_nodes.append(f"{name}(no-timestamp)")
+            _OPS_METRICS_SERVER_NODE_AGE_SECONDS.labels(name).set(float(max_age + 1))
             continue
         age = (now - ts).total_seconds()
+        _OPS_METRICS_SERVER_NODE_AGE_SECONDS.labels(name).set(float(max(0.0, age)))
         if age > max_age:
             stale_nodes.append(f"{name}({int(age)}s)")
+    stale_age_nodes = set(state.metrics_age_node_keys) - seen_metrics_nodes
+    for node in stale_age_nodes:
+        _OPS_METRICS_SERVER_NODE_AGE_SECONDS.remove(node)
+    state.metrics_age_node_keys = set(seen_metrics_nodes)
 
     if node_names:
         missing = sorted(node_names - seen_metrics_nodes)
@@ -570,7 +698,7 @@ async def _collect_metrics_server_alerts(
     return active
 
 
-async def _collect_disk_alerts(*, settings: Settings, http_client: httpx.AsyncClient) -> dict[str, str]:
+async def _collect_disk_alerts(*, settings: Settings, state: _OpsState, http_client: httpx.AsyncClient) -> dict[str, str]:
     threshold = float(settings.dispatcher_ops_alerts_disk_threshold_percent)
     prom_url = str(settings.dispatcher_ops_alerts_prometheus_url or "").strip()
     if not prom_url:
@@ -597,11 +725,13 @@ async def _collect_disk_alerts(*, settings: Settings, http_client: httpx.AsyncCl
         return {"disk_check_prometheus_payload": "Prometheus disk query returned unexpected payload"}
 
     active: dict[str, str] = {}
+    seen_instances: set[str] = set()
     for row in data.get("result") or []:
         if not isinstance(row, dict):
             continue
         metric = row.get("metric") or {}
         instance = str(metric.get("instance") or "unknown")
+        seen_instances.add(instance)
         value = row.get("value") or []
         if len(value) < 2:
             continue
@@ -609,10 +739,15 @@ async def _collect_disk_alerts(*, settings: Settings, http_client: httpx.AsyncCl
             pct = float(value[1])
         except (TypeError, ValueError):
             continue
+        _OPS_DISK_USED_PERCENT.labels(instance).set(float(pct))
         if pct >= threshold:
             active[f"disk_high:{instance}"] = (
                 f"Disk usage high on {instance}: {_safe_pct(pct)} (threshold={_safe_pct(threshold)})"
             )
+    stale_instances = set(state.disk_instance_keys) - seen_instances
+    for instance in stale_instances:
+        _OPS_DISK_USED_PERCENT.remove(instance)
+    state.disk_instance_keys = set(seen_instances)
     return active
 
 

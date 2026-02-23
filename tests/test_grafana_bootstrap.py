@@ -1,4 +1,9 @@
-from tracegate.cli.grafana_bootstrap import _dashboard_admin, _dashboard_admin_metadata, _dashboard_user
+from tracegate.cli.grafana_bootstrap import (
+    _dashboard_admin,
+    _dashboard_admin_metadata,
+    _dashboard_operator,
+    _dashboard_user,
+)
 
 
 def _panel_by_id(dashboard: dict, panel_id: int) -> dict:
@@ -101,3 +106,26 @@ def test_admin_metadata_dashboard_exposes_ids() -> None:
     wg_expr = wg_panel["targets"][0]["expr"]
     assert "peer_pid" in wg_expr
     assert "connection_pid" in wg_expr
+
+
+def test_operator_dashboard_includes_slo_and_ops_panels() -> None:
+    dashboard = _dashboard_operator("prom")
+    assert dashboard["uid"] == "tracegate-admin-ops"
+    assert dashboard["title"] == "Tracegate (Operator)"
+
+    slo_up = _panel_by_id(dashboard, 1)
+    assert "tracegate_slo_component_up_ratio_5m" in slo_up["targets"][0]["expr"]
+
+    images = _panel_by_id(dashboard, 6)
+    assert "tracegate_ops_component_image_info" in images["targets"][0]["expr"]
+    assert images["targets"][0]["instant"] is True
+    assert images["targets"][0]["format"] == "table"
+
+    restarts = _panel_by_id(dashboard, 8)
+    assert "tracegate_ops_gateway_container_restart_count" in restarts["targets"][0]["expr"]
+
+    outbox = _panel_by_id(dashboard, 9)
+    assert "tracegate_ops_outbox_deliveries" in outbox["targets"][0]["expr"]
+
+    metrics_age = _panel_by_id(dashboard, 13)
+    assert "tracegate_ops_metrics_server_node_metric_age_seconds" in metrics_age["targets"][0]["expr"]

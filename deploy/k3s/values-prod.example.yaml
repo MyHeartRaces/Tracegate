@@ -24,6 +24,9 @@ controlPlane:
       enabled: true
       sentDays: 14
       failedDays: 30
+  botMetrics:
+    enabled: true
+    port: 9092
   env:
     publicBaseUrl: https://cp.example.com
     superadminTelegramIds: [123456789]

@@ -29,6 +29,7 @@ from tracegate.bot.access import (
     user_label,
 )
 from tracegate.bot.client import ApiClientError, TracegateApiClient
+from tracegate.bot.metrics import BotMetricsMiddleware, maybe_start_bot_metrics_server
 from tracegate.bot.keyboards import (
     SNI_PAGE_SIZE,
     admin_menu_keyboard,
@@ -1612,6 +1613,11 @@ def run() -> None:
         raise RuntimeError("BOT_API_TOKEN is required")
     if not settings.bot_api_base_url:
         raise RuntimeError("BOT_API_BASE_URL is required")
+    maybe_start_bot_metrics_server(
+        enabled=bool(settings.bot_metrics_enabled),
+        host=str(settings.bot_metrics_host),
+        port=int(settings.bot_metrics_port),
+    )
 
     mode = (settings.bot_mode or "polling").strip().lower()
     if mode == "webhook":
@@ -1625,7 +1631,10 @@ def run() -> None:
 async def _run_polling() -> None:
     bot = Bot(token=settings.bot_token)
     dp = Dispatcher()
+    metrics_mw = BotMetricsMiddleware()
     access_mw = BotAccessMiddleware()
+    dp.message.middleware(metrics_mw)
+    dp.callback_query.middleware(metrics_mw)
     dp.message.middleware(access_mw)
     dp.callback_query.middleware(access_mw)
     dp.include_router(router)
@@ -1642,7 +1651,10 @@ async def _run_polling() -> None:
 def _run_webhook() -> None:
     bot = Bot(token=settings.bot_token)
     dp = Dispatcher()
+    metrics_mw = BotMetricsMiddleware()
     access_mw = BotAccessMiddleware()
+    dp.message.middleware(metrics_mw)
+    dp.callback_query.middleware(metrics_mw)
     dp.message.middleware(access_mw)
     dp.callback_query.middleware(access_mw)
     dp.include_router(router)

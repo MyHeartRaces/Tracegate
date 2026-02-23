@@ -82,6 +82,9 @@ class Settings(BaseSettings):
     bot_webhook_tls_cert: str = "/etc/tracegate/bot-webhook/tls.crt"
     bot_webhook_tls_key: str = "/etc/tracegate/bot-webhook/tls.key"
     bot_webhook_upload_cert: bool = True  # upload cert to Telegram (required for self-signed)
+    bot_metrics_enabled: bool = True
+    bot_metrics_host: str = "0.0.0.0"
+    bot_metrics_port: int = 9092
     # Optional: path to a text/markdown file served by /guide.
     # If empty, defaults to "{bundle_root}/bot/guide.md".
     bot_guide_path: str = ""

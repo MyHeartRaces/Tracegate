@@ -680,6 +680,159 @@ def _dashboard_admin_metadata(ds_uid: str) -> dict[str, Any]:
     }
 
 
+def _dashboard_operator(ds_uid: str) -> dict[str, Any]:
+    return {
+        "uid": "tracegate-admin-ops",
+        "title": "Tracegate (Operator)",
+        "schemaVersion": 39,
+        "version": 1,
+        "editable": False,
+        "panels": [
+            {
+                "id": 1,
+                "type": "table",
+                "title": "Component uptime ratio (5m)",
+                "datasource": _ds(ds_uid),
+                "targets": [{"refId": "A", "expr": "tracegate_slo_component_up_ratio_5m", "instant": True, "format": "table"}],
+                "transformations": [{"id": "organize", "options": {"excludeByName": {"Time": True}, "renameByName": {"Value": "up_ratio_5m"}}}],
+                "options": {"showHeader": True, "cellHeight": "sm", "footer": {"show": False}},
+                "gridPos": {"h": 8, "w": 8, "x": 0, "y": 0},
+            },
+            {
+                "id": 2,
+                "type": "table",
+                "title": "HTTP success ratio (5m): API/Agent",
+                "datasource": _ds(ds_uid),
+                "targets": [
+                    {"refId": "A", "expr": "tracegate_slo_http_request_success_ratio_5m", "instant": True, "format": "table"}
+                ],
+                "transformations": [{"id": "organize", "options": {"excludeByName": {"Time": True}, "renameByName": {"Value": "success_ratio_5m"}}}],
+                "options": {"showHeader": True, "cellHeight": "sm", "footer": {"show": False}},
+                "gridPos": {"h": 8, "w": 8, "x": 8, "y": 0},
+            },
+            {
+                "id": 3,
+                "type": "stat",
+                "title": "Bot update success ratio (5m)",
+                "datasource": _ds(ds_uid),
+                "targets": [{"refId": "A", "expr": "tracegate_slo_bot_update_success_ratio_5m"}],
+                "options": {"reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": False}, "orientation": "auto"},
+                "fieldConfig": {"defaults": {"unit": "percentunit", "min": 0, "max": 1}, "overrides": []},
+                "gridPos": {"h": 8, "w": 8, "x": 16, "y": 0},
+            },
+            {
+                "id": 4,
+                "type": "timeseries",
+                "title": "HTTP request latency p95 (5m): API/Agent",
+                "datasource": _ds(ds_uid),
+                "targets": [{"refId": "A", "expr": "tracegate_slo_http_request_latency_p95_seconds_5m", "legendFormat": "{{component}}"}],
+                "fieldConfig": {"defaults": {"unit": "s"}, "overrides": []},
+                "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8},
+            },
+            {
+                "id": 5,
+                "type": "timeseries",
+                "title": "Bot update latency p95 (5m)",
+                "datasource": _ds(ds_uid),
+                "targets": [{"refId": "A", "expr": "tracegate_slo_bot_update_latency_p95_seconds_5m"}],
+                "fieldConfig": {"defaults": {"unit": "s"}, "overrides": []},
+                "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8},
+            },
+            {
+                "id": 6,
+                "type": "table",
+                "title": "Observed images (deploy revision)",
+                "datasource": _ds(ds_uid),
+                "targets": [
+                    {
+                        "refId": "A",
+                        "expr": "max by (component, image) (tracegate_ops_component_image_info)",
+                        "instant": True,
+                        "format": "table",
+                    }
+                ],
+                "transformations": [{"id": "organize", "options": {"excludeByName": {"Time": True, "Value": True}}}],
+                "options": {"showHeader": True, "cellHeight": "sm", "footer": {"show": False}},
+                "gridPos": {"h": 8, "w": 12, "x": 0, "y": 16},
+            },
+            {
+                "id": 7,
+                "type": "table",
+                "title": "Component pod health (observed/ready)",
+                "datasource": _ds(ds_uid),
+                "targets": [{"refId": "A", "expr": "tracegate_ops_component_pods", "instant": True, "format": "table"}],
+                "transformations": [{"id": "organize", "options": {"excludeByName": {"Time": True}}}],
+                "options": {"showHeader": True, "cellHeight": "sm", "footer": {"show": False}},
+                "gridPos": {"h": 8, "w": 12, "x": 12, "y": 16},
+            },
+            {
+                "id": 8,
+                "type": "timeseries",
+                "title": "Gateway container restart counts",
+                "datasource": _ds(ds_uid),
+                "targets": [
+                    {
+                        "refId": "A",
+                        "expr": "max by (component, container) (tracegate_ops_gateway_container_restart_count)",
+                        "legendFormat": "{{component}} / {{container}}",
+                    }
+                ],
+                "gridPos": {"h": 8, "w": 12, "x": 0, "y": 24},
+            },
+            {
+                "id": 9,
+                "type": "timeseries",
+                "title": "Outbox deliveries by status",
+                "datasource": _ds(ds_uid),
+                "targets": [{"refId": "A", "expr": "tracegate_ops_outbox_deliveries", "legendFormat": "{{status}}"}],
+                "gridPos": {"h": 8, "w": 12, "x": 12, "y": 24},
+            },
+            {
+                "id": 10,
+                "type": "stat",
+                "title": "Outbox pending/failed older than 5m",
+                "datasource": _ds(ds_uid),
+                "targets": [{"refId": "A", "expr": "tracegate_ops_outbox_pending_older_than_5m_deliveries"}],
+                "options": {"reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": False}, "orientation": "auto"},
+                "gridPos": {"h": 8, "w": 8, "x": 0, "y": 32},
+            },
+            {
+                "id": 11,
+                "type": "timeseries",
+                "title": "Disk used % (root)",
+                "datasource": _ds(ds_uid),
+                "targets": [{"refId": "A", "expr": "tracegate_ops_disk_used_percent", "legendFormat": "{{instance}}"}],
+                "fieldConfig": {"defaults": {"unit": "percent"}, "overrides": []},
+                "gridPos": {"h": 8, "w": 8, "x": 8, "y": 32},
+            },
+            {
+                "id": 12,
+                "type": "timeseries",
+                "title": "Node readiness",
+                "datasource": _ds(ds_uid),
+                "targets": [{"refId": "A", "expr": "tracegate_ops_node_ready", "legendFormat": "{{node}}"}],
+                "fieldConfig": {"defaults": {"min": 0, "max": 1}, "overrides": []},
+                "gridPos": {"h": 8, "w": 8, "x": 16, "y": 32},
+            },
+            {
+                "id": 13,
+                "type": "timeseries",
+                "title": "Metrics-server node sample age (s)",
+                "datasource": _ds(ds_uid),
+                "targets": [
+                    {
+                        "refId": "A",
+                        "expr": "tracegate_ops_metrics_server_node_metric_age_seconds",
+                        "legendFormat": "{{node}}",
+                    }
+                ],
+                "fieldConfig": {"defaults": {"unit": "s"}, "overrides": []},
+                "gridPos": {"h": 8, "w": 24, "x": 0, "y": 40},
+            },
+        ],
+    }
+
+
 async def _upsert_dashboard(client: httpx.AsyncClient, dashboard: dict[str, Any], *, folder_uid: str) -> None:
     r = await client.post(
         "/api/dashboards/db",
@@ -711,6 +864,7 @@ async def bootstrap() -> None:
         await _upsert_dashboard(client, _dashboard_user(ds_uid), folder_uid=user_folder_uid)
         await _upsert_dashboard(client, _dashboard_admin(ds_uid), folder_uid=admin_folder_uid)
         await _upsert_dashboard(client, _dashboard_admin_metadata(ds_uid), folder_uid=admin_folder_uid)
+        await _upsert_dashboard(client, _dashboard_operator(ds_uid), folder_uid=admin_folder_uid)
         await _restrict_folder_to_admins(client, folder_uid=admin_folder_uid)
 
 

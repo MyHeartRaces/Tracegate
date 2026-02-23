@@ -47,6 +47,8 @@ data:
     global:
       scrape_interval: {{ .Values.observability.prometheus.scrapeInterval | default "15s" }}
       evaluation_interval: {{ .Values.observability.prometheus.scrapeInterval | default "15s" }}
+    rule_files:
+      - /etc/prometheus/tracegate-rules.yml
 
     scrape_configs:
       - job_name: tracegate-api
@@ -64,6 +66,15 @@ data:
         static_configs:
           - targets:
               - {{ printf "%s-dispatcher:%d" (include "tracegate.fullname" .) (int (.Values.controlPlane.dispatcherMetrics.port | default 9091)) }}
+      {{- end }}
+
+      {{- if and (gt (int .Values.controlPlane.replicas.bot) 0) (.Values.controlPlane.botMetrics.enabled | default true) }}
+      - job_name: tracegate-bot
+        metrics_path: /metrics
+        scheme: http
+        static_configs:
+          - targets:
+              - {{ printf "%s-bot-metrics:%d" (include "tracegate.fullname" .) (int (.Values.controlPlane.botMetrics.port | default 9092)) }}
       {{- end }}
 
       - job_name: tracegate-agent
@@ -102,6 +113,39 @@ data:
             regex: (.+)
             target_label: __address__
             replacement: ${1}:8080
+  tracegate-rules.yml: |
+    groups:
+      - name: tracegate-slo
+        interval: {{ .Values.observability.prometheus.scrapeInterval | default "15s" }}
+        rules:
+          - record: tracegate_slo_component_up_ratio_5m
+            expr: avg_over_time(up{job=~"tracegate-api|tracegate-dispatcher|tracegate-bot|tracegate-agent"}[5m])
+
+          - record: tracegate_slo_http_request_success_ratio_5m
+            expr: |
+              sum by (component) (rate(tracegate_http_requests_total{component=~"api|agent", status!~"5.."}[5m]))
+              /
+              sum by (component) (rate(tracegate_http_requests_total{component=~"api|agent"}[5m]))
+
+          - record: tracegate_slo_http_request_latency_p95_seconds_5m
+            expr: |
+              histogram_quantile(
+                0.95,
+                sum by (component, le) (rate(tracegate_http_request_duration_seconds_bucket{component=~"api|agent"}[5m]))
+              )
+
+          - record: tracegate_slo_bot_update_success_ratio_5m
+            expr: |
+              sum(rate(tracegate_bot_updates_total{result="ok"}[5m]))
+              /
+              sum(rate(tracegate_bot_updates_total[5m]))
+
+          - record: tracegate_slo_bot_update_latency_p95_seconds_5m
+            expr: |
+              histogram_quantile(
+                0.95,
+                sum by (le) (rate(tracegate_bot_update_duration_seconds_bucket{result="ok"}[5m]))
+              )
 ---
 {{- if .Values.observability.prometheus.storage.enabled }}
 apiVersion: v1

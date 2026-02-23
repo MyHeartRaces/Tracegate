@@ -335,6 +335,26 @@ spec:
           resources:
             {{- toYaml .Values.controlPlane.resources.dispatcher | nindent 12 }}
 {{- if gt (int .Values.controlPlane.replicas.bot) 0 }}
+{{- if .Values.controlPlane.botMetrics.enabled }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "tracegate.fullname" . }}-bot-metrics
+  namespace: {{ include "tracegate.namespace" . }}
+  labels:
+    {{- include "tracegate.labels" . | nindent 4 }}
+    app.kubernetes.io/component: bot
+spec:
+  type: ClusterIP
+  ports:
+    - name: bmetrics
+      port: {{ int (.Values.controlPlane.botMetrics.port | default 9092) }}
+      targetPort: bmetrics
+  selector:
+    app.kubernetes.io/component: bot
+    app.kubernetes.io/instance: {{ .Release.Name }}
+{{- end }}
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -387,11 +407,18 @@ spec:
           image: {{ include "tracegate.image" .Values.controlPlane.image }}
           imagePullPolicy: {{ .Values.controlPlane.image.pullPolicy }}
           command: ["tracegate-bot"]
-{{ if .Values.controlPlane.botWebhook.enabled }}
+{{ if or .Values.controlPlane.botWebhook.enabled .Values.controlPlane.botMetrics.enabled }}
           ports:
+{{- if .Values.controlPlane.botWebhook.enabled }}
             - name: webhook
               containerPort: {{ default 8443 .Values.controlPlane.botWebhook.listenPort }}
               protocol: TCP
+{{- end }}
+{{- if .Values.controlPlane.botMetrics.enabled }}
+            - name: bmetrics
+              containerPort: {{ int (.Values.controlPlane.botMetrics.port | default 9092) }}
+              protocol: TCP
+{{- end }}
 {{ end }}
 {{- if $needBotVolumes }}
           volumeMounts:
@@ -426,6 +453,12 @@ spec:
                 secretKeyRef:
                   name: {{ include "tracegate.fullname" . }}-control-plane-auth
                   key: api-internal-token
+            - name: BOT_METRICS_ENABLED
+              value: {{ ternary "true" "false" (.Values.controlPlane.botMetrics.enabled | default true) | quote }}
+            - name: BOT_METRICS_HOST
+              value: {{ (.Values.controlPlane.botMetrics.host | default "0.0.0.0") | quote }}
+            - name: BOT_METRICS_PORT
+              value: {{ printf "%d" (int (.Values.controlPlane.botMetrics.port | default 9092)) | quote }}
 {{- if $botGuideEnabled }}
             - name: BOT_GUIDE_PATH
               value: "/etc/tracegate/bot-guide.md"

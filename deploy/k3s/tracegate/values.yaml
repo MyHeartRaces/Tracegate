@@ -20,6 +20,11 @@ controlPlane:
     host: 0.0.0.0
     port: 9091
 
+  botMetrics:
+    enabled: true
+    host: 0.0.0.0
+    port: 9092
+
   dispatcherOps:
     alerts:
       enabled: false
