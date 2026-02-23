@@ -317,15 +317,48 @@ async def _upsert_slo_alert_rule_group(
     folder_uid: str,
     interval_seconds: int = 60,
 ) -> None:
-    rules = _slo_alert_rules(ds_uid, folder_uid=folder_uid)
-    group_name = "tracegate-slo"
-    group_path = quote(group_name, safe="")
-    r = await client.put(
-        f"/api/v1/provisioning/folder/{folder_uid}/rule-groups/{group_path}",
-        json={"interval": interval_seconds, "rules": rules},
-        headers={"X-Disable-Provenance": "true"},
-    )
-    r.raise_for_status()
+    del interval_seconds  # Group interval is inherited on create/update via per-rule provisioning.
+
+    desired_rules = _slo_alert_rules(ds_uid, folder_uid=folder_uid)
+    desired_uids = {str(rule["uid"]) for rule in desired_rules}
+
+    # Upsert each rule because Grafana's group PUT API only updates existing rule UIDs.
+    for rule in desired_rules:
+        uid = str(rule["uid"])
+        get_r = await client.get(f"/api/v1/provisioning/alert-rules/{quote(uid, safe='')}")
+        if get_r.status_code == 404:
+            r = await client.post(
+                "/api/v1/provisioning/alert-rules",
+                json=rule,
+                headers={"X-Disable-Provenance": "true"},
+            )
+            r.raise_for_status()
+            continue
+        get_r.raise_for_status()
+        r = await client.put(
+            f"/api/v1/provisioning/alert-rules/{quote(uid, safe='')}",
+            json=rule,
+            headers={"X-Disable-Provenance": "true"},
+        )
+        r.raise_for_status()
+
+    # Remove stale rules in our managed group to keep provisioning idempotent.
+    list_r = await client.get("/api/v1/provisioning/alert-rules")
+    list_r.raise_for_status()
+    for row in list_r.json():
+        if row.get("folderUID") != folder_uid:
+            continue
+        if row.get("ruleGroup") != "tracegate-slo":
+            continue
+        uid = str(row.get("uid") or "")
+        if not uid or uid in desired_uids:
+            continue
+        del_r = await client.delete(
+            f"/api/v1/provisioning/alert-rules/{quote(uid, safe='')}",
+            headers={"X-Disable-Provenance": "true"},
+        )
+        if del_r.status_code not in {200, 202, 204}:
+            del_r.raise_for_status()
 
 
 _TG_ID_FROM_MARKER_RE = "^[^-]+ - ([0-9]+) - .+$"
