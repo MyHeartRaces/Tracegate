@@ -116,6 +116,17 @@ def _safe_pct(value: float) -> str:
     return f"{value:.1f}%"
 
 
+def _ops_alert_text(kind: str, text: str) -> str:
+    body = str(text or "").strip() or "No details"
+    headers = {
+        "alert": "❗ OPS Alert",
+        "repeat": "⏰ OPS Reminder",
+        "resolved": "✅ OPS Resolved",
+    }
+    header = headers.get(kind, "ℹ️ OPS")
+    return f"{header}\n\n{body}"
+
+
 def _bool_env_file(path: Path) -> str | None:
     try:
         return path.read_text(encoding="utf-8").strip() or None
@@ -763,7 +774,7 @@ async def _process_alerts(
     messages: list[tuple[str, str, list[str]]] = []  # (kind, text, active_keys_to_touch)
 
     for text in instant_events:
-        messages.append(("alert", f"[OPS][ALERT] {text}", []))
+        messages.append(("alert", _ops_alert_text("alert", text), []))
 
     if not state.initialized and settings.dispatcher_ops_alerts_suppress_initial:
         state.active_alerts = {k: _ActiveAlert(text=v, since=now) for (k, v) in active_alerts.items()}
@@ -777,7 +788,7 @@ async def _process_alerts(
         existing = state.active_alerts.get(key)
         if existing is None:
             state.active_alerts[key] = _ActiveAlert(text=text, since=now)
-            messages.append(("alert", f"[OPS][ALERT] {text}", [key]))
+            messages.append(("alert", _ops_alert_text("alert", text), [key]))
             continue
 
         existing.text = text
@@ -787,7 +798,7 @@ async def _process_alerts(
         if existing.last_sent_at is None:
             continue
         if (now - existing.last_sent_at).total_seconds() >= repeat_seconds:
-            messages.append(("repeat", f"[OPS][REMINDER] {text}", [key]))
+            messages.append(("repeat", _ops_alert_text("repeat", text), [key]))
 
     resolved_keys = sorted(set(state.active_alerts) - set(active_alerts))
     for key in resolved_keys:
@@ -796,7 +807,7 @@ async def _process_alerts(
             continue
         if settings.dispatcher_ops_alerts_send_resolved:
             duration = int(max(0.0, (now - prev.since).total_seconds()))
-            messages.append(("resolved", f"[OPS][RESOLVED] {prev.text} (for {duration}s)", []))
+            messages.append(("resolved", _ops_alert_text("resolved", f"{prev.text} (for {duration}s)"), []))
 
     state.initialized = True
     _OPS_ACTIVE_ALERTS.set(len(state.active_alerts))

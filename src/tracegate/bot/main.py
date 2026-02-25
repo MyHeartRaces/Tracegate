@@ -64,8 +64,68 @@ def _app_version() -> str:
         return "unknown"
 
 
+def _emoji_text(emoji: str, text: str) -> str:
+    raw = str(text or "").strip()
+    if not raw:
+        return emoji
+    lines = raw.splitlines()
+    return "\n".join([f"{emoji} {lines[0]}"] + lines[1:])
+
+
+def _msg_info(text: str) -> str:
+    return _emoji_text("ℹ️", text)
+
+
+def _msg_ok(text: str) -> str:
+    return _emoji_text("✅", text)
+
+
+def _msg_warn(text: str) -> str:
+    return _emoji_text("⚠️", text)
+
+
+def _msg_prompt(text: str) -> str:
+    return _emoji_text("✍️", text)
+
+
+def _msg_error(error: object) -> str:
+    text = str(error or "").strip() or "Неизвестная ошибка"
+    lower = text.lower()
+    if lower.startswith("ошибка:"):
+        text = text.split(":", 1)[1].strip() or "Неизвестная ошибка"
+    return _emoji_text("🔴", f"Ошибка: {text}")
+
+
+def _format_devices_text(devices: list[dict]) -> str:
+    header = "📱 Устройства"
+    if not devices:
+        return f"{header}\n\nПока нет устройств."
+    rows = [f"• {d['name']} (id={d['id']})" for d in devices]
+    return f"{header}\n\n" + "\n".join(rows)
+
+
+def _format_created_connection_message(marker: str, revision: dict) -> str:
+    return _msg_ok(
+        "Подключение создано\n"
+        f"{marker}\n"
+        f"revision={revision['id']} slot={revision['slot']}"
+    )
+
+
+def _format_grafana_otp_message(*, scope: str, otp: dict) -> str:
+    return _msg_ok(
+        f"Grafana OTP ({scope})\n"
+        f"expires_at: {otp.get('expires_at')}\n"
+        f"link: {otp.get('login_url')}"
+    )
+
+
 def _main_menu_text() -> str:
-    return f"Tracegate v{_app_version()}\nВыберите действие:\n\nГайдлайн доступен по команде /guide"
+    return (
+        f"🏠 Tracegate v{_app_version()}\n\n"
+        "Выберите действие в меню ниже.\n"
+        "📘 Гайд: /guide"
+    )
 
 
 def _load_guide_text() -> str:
@@ -73,11 +133,11 @@ def _load_guide_text() -> str:
     if not guide_path:
         guide_path = str(Path(settings.bundle_root) / "bot" / "guide.md")
     try:
-        return Path(guide_path).read_text(encoding="utf-8").strip() or "Гайд пока пуст."
+        return Path(guide_path).read_text(encoding="utf-8").strip() or _msg_warn("Гайд пока пуст.")
     except FileNotFoundError:
-        return "Гайд пока не настроен."
+        return _msg_warn("Гайд пока не настроен.")
     except Exception:
-        return "Не смог прочитать гайд."
+        return _msg_error("Не смог прочитать гайд.")
 
 
 async def _cleanup_chat_history(bot: Bot, chat_id: int, from_message_id: int, *, limit: int) -> None:
@@ -139,14 +199,14 @@ class BotAccessMiddleware(BaseMiddleware):
             text = blocked_message(user)
             if isinstance(event, CallbackQuery):
                 try:
-                    await event.answer("Доступ ограничен", show_alert=True)
+                    await event.answer(_msg_warn("Доступ ограничен"), show_alert=True)
                 except Exception:
                     pass
                 if event.message is not None:
-                    await event.message.answer(text)
+                    await event.message.answer(_msg_warn(text))
                 return None
             if isinstance(event, Message):
-                await event.answer(text)
+                await event.answer(_msg_warn(text))
                 return None
         return await handler(event, data)
 
@@ -171,15 +231,15 @@ def _connection_family_name(protocol: str, mode: str) -> str:
 
 async def render_device_page(device_id: str) -> tuple[str, object]:
     connections = await api.list_connections(device_id)
-    text = "Подключения:\n"
+    text = "🔌 Подключения устройства\n\n"
     if connections:
         lines = []
         for connection in connections:
             marker = _connection_marker(connection)
-            lines.append(f"- {marker}")
+            lines.append(f"• {marker}")
         text += "\n".join(lines)
     else:
-        text += "пока нет"
+        text += "Пока нет подключений."
     return text, device_actions_keyboard(device_id, connections)
 
 
@@ -190,12 +250,12 @@ async def render_revisions_page(connection_id: str) -> tuple[str, object]:
     alias = (connection.get("alias") or "").strip()
     marker = _connection_marker(connection)
     title = marker or alias or family
-    text = f"Ревизии: {title}\nconnection={connection_id}\n"
+    text = f"🧩 Ревизии\n\nПодключение: {title}\nID: {connection_id}\n\n"
     if revisions:
-        rows = [f"- id={r['id']} slot={r['slot']} status={r['status']}" for r in revisions]
+        rows = [f"• slot {r['slot']} | {r['status']} | id={r['id']}" for r in revisions]
         text += "\n".join(rows)
     else:
-        text += "пока нет"
+        text += "Пока нет ревизий."
 
     is_vless = connection["protocol"] in {ConnectionProtocol.VLESS_REALITY.value, ConnectionProtocol.VLESS_WS_TLS.value}
     return text, revisions_keyboard(connection_id, revisions, is_vless, connection["device_id"])
@@ -238,6 +298,7 @@ async def _safe_edit_text(message_obj, text: str, reply_markup: object | None = 
 
 def _format_uri_meta(marker: str, title: str) -> str:
     return (
+        f"🔗 Конфиг готов\n\n"
         f"{marker}\n"
         f"{title}\n\n"
         "Ссылка придет следующим сообщением отдельной строкой."
@@ -339,7 +400,7 @@ async def _send_client_config(callback: CallbackQuery, revision: dict) -> None:
     try:
         exported = export_client_config(effective)
     except V2RayNExportError as exc:
-        await callback.message.answer(f"Не смог собрать конфиг для клиента: {exc}")
+        await callback.message.answer(_msg_error(f"Не смог собрать конфиг для клиента: {exc}"))
         return
 
     if exported.kind == "uri":
@@ -362,7 +423,7 @@ async def _send_client_config(callback: CallbackQuery, revision: dict) -> None:
         qr_bytes = _build_qr_png(exported.content)
         qr_msg = await callback.message.answer_photo(
             BufferedInputFile(qr_bytes, filename="tracegate-config-qr.png"),
-            caption=f"{marker}\n{exported.title} (QR)",
+            caption=f"📷 QR-конфиг\n\n{marker}\n{exported.title} (QR)",
         )
         await _register_bot_message_ref(
             callback,
@@ -378,7 +439,7 @@ async def _send_client_config(callback: CallbackQuery, revision: dict) -> None:
         filename = exported.filename or "wg0.conf"
         sent = await callback.message.answer_document(
             BufferedInputFile(data, filename=filename),
-            caption=f"{marker}\n{exported.title}",
+            caption=f"📎 Файл конфига\n\n{marker}\n{exported.title}",
         )
         await _register_bot_message_ref(
             callback,
@@ -389,7 +450,7 @@ async def _send_client_config(callback: CallbackQuery, revision: dict) -> None:
         )
         return
 
-    await callback.message.answer(f"Неизвестный тип экспорта: {exported.kind}")
+    await callback.message.answer(_msg_error(f"Неизвестный тип экспорта: {exported.kind}"))
 
 
 @router.message(CommandStart())
@@ -399,14 +460,14 @@ async def start(message: Message) -> None:
 
 @router.message(Command("guide"))
 async def guide(message: Message) -> None:
-    await message.answer(_load_guide_text(), disable_web_page_preview=True)
+    await message.answer(_emoji_text("📘", _load_guide_text()), disable_web_page_preview=True)
 
 
 @router.message(Command("clean"))
 async def clean(message: Message, state: FSMContext) -> None:
     await state.clear()
     if message.chat.type != "private":
-        await message.answer("Команда /clean доступна только в личном чате с ботом.")
+        await message.answer(_msg_warn("Команда /clean доступна только в личном чате с ботом."))
         return
 
     from_mid = int(message.message_id)
@@ -425,9 +486,9 @@ async def clean(message: Message, state: FSMContext) -> None:
 async def cancel(message: Message, state: FSMContext) -> None:
     await state.clear()
     if message.chat.type != "private":
-        await message.answer("Команда /cancel доступна только в личном чате с ботом.")
+        await message.answer(_msg_warn("Команда /cancel доступна только в личном чате с ботом."))
         return
-    await message.answer("Отменено.")
+    await message.answer(_msg_warn("Отменено."))
     await _send_main_menu(message)
 
 
@@ -435,14 +496,14 @@ async def cancel(message: Message, state: FSMContext) -> None:
 async def announce(message: Message, state: FSMContext) -> None:
     await state.clear()
     if message.chat.type != "private":
-        await message.answer("Команда /announce доступна только в личном чате с ботом.")
+        await message.answer(_msg_warn("Команда /announce доступна только в личном чате с ботом."))
         return
     actor = await ensure_user(message.from_user.id)
     if not is_admin(actor):
-        await message.answer("Недостаточно прав")
+        await message.answer(_msg_warn("Недостаточно прав"))
         return
     await state.set_state(AdminFlow.waiting_for_announce_text)
-    await message.answer("Введи сообщение для рассылки всем пользователям.\n/cancel для отмены.")
+    await message.answer(_msg_prompt("Введи сообщение для рассылки всем пользователям.\n/cancel для отмены."))
 
 
 @router.message(AdminFlow.waiting_for_announce_text)
@@ -450,12 +511,12 @@ async def announce_text(message: Message, state: FSMContext) -> None:
     try:
         text = (message.text or "").strip()
         if not text:
-            await message.answer("Сообщение не может быть пустым.\n/cancel для отмены.")
+            await message.answer(_msg_warn("Сообщение не может быть пустым.\n/cancel для отмены."))
             return
 
         actor = await ensure_user(message.from_user.id)
         if not is_admin(actor):
-            await message.answer("Недостаточно прав")
+            await message.answer(_msg_warn("Недостаточно прав"))
             return
 
         users = await api.list_users(limit=1000)
@@ -481,9 +542,9 @@ async def announce_text(message: Message, state: FSMContext) -> None:
                 failed += 1
             await asyncio.sleep(0.04)
 
-        await message.answer(f"Готово: sent={sent}, failed={failed}")
+        await message.answer(_msg_ok(f"Рассылка завершена\nsent={sent}, failed={failed}"))
     except ApiClientError as exc:
-        await message.answer(f"Ошибка: {exc}")
+        await message.answer(_msg_error(exc))
     finally:
         await state.clear()
 
@@ -504,10 +565,10 @@ async def admin_menu(callback: CallbackQuery, state: FSMContext) -> None:
     await state.clear()
     user = await ensure_user(callback.from_user.id)
     if not is_admin(user):
-        await callback.answer("Недостаточно прав")
+        await callback.answer(_msg_warn("Недостаточно прав"))
         return
     await callback.message.edit_text(
-        "Админ меню:",
+        "🛠️ Админ меню",
         reply_markup=admin_menu_keyboard(is_superadmin=is_superadmin(user)),
     )
     await callback.answer()
@@ -518,7 +579,7 @@ async def admin_reset_connections(callback: CallbackQuery, state: FSMContext) ->
     await state.clear()
     actor = await ensure_user(callback.from_user.id)
     if not is_admin(actor):
-        await callback.answer("Недостаточно прав")
+        await callback.answer(_msg_warn("Недостаточно прав"))
         return
 
     kb = InlineKeyboardMarkup(
@@ -528,7 +589,7 @@ async def admin_reset_connections(callback: CallbackQuery, state: FSMContext) ->
         ]
     )
     await callback.message.answer(
-        "Reset connections: отзовет все активные подключения у всех пользователей.\nПодтвердить?",
+        _msg_warn("Reset connections отзовет все активные подключения у всех пользователей.\n\nПодтвердить действие?"),
         reply_markup=kb,
     )
     await callback.answer()
@@ -539,14 +600,14 @@ async def admin_reset_connections_confirm(callback: CallbackQuery, state: FSMCon
     await state.clear()
     actor = await ensure_user(callback.from_user.id)
     if not is_admin(actor):
-        await callback.answer("Недостаточно прав")
+        await callback.answer(_msg_warn("Недостаточно прав"))
         return
     try:
         result = await api.reset_all_connections(actor_telegram_id=callback.from_user.id)
         revoked = int(result.get("revoked_connections") or 0)
-        await callback.message.answer(f"Готово: revoked_connections={revoked}")
+        await callback.message.answer(_msg_ok(f"Готово: revoked_connections={revoked}"))
     except ApiClientError as exc:
-        await callback.message.answer(f"Ошибка: {exc}")
+        await callback.message.answer(_msg_error(exc))
     await callback.answer()
 
 
@@ -556,13 +617,11 @@ async def grafana_otp(callback: CallbackQuery) -> None:
         user = await ensure_user(callback.from_user.id)
         otp = await api.create_grafana_otp(user["telegram_id"], scope="user")
         await callback.message.answer(
-            "Grafana OTP (user scope):\n"
-            f"- expires_at: {otp.get('expires_at')}\n"
-            f"- link: {otp.get('login_url')}",
+            _format_grafana_otp_message(scope="user", otp=otp),
             disable_web_page_preview=True,
         )
     except ApiClientError as exc:
-        await callback.message.answer(f"Ошибка: {exc}")
+        await callback.message.answer(_msg_error(exc))
     await callback.answer()
 
 
@@ -571,17 +630,15 @@ async def grafana_otp_admin(callback: CallbackQuery) -> None:
     try:
         user = await ensure_user(callback.from_user.id)
         if not is_admin(user):
-            await callback.answer("Недостаточно прав")
+            await callback.answer(_msg_warn("Недостаточно прав"))
             return
         otp = await api.create_grafana_otp(user["telegram_id"], scope="admin")
         await callback.message.answer(
-            "Grafana OTP (admin scope):\n"
-            f"- expires_at: {otp.get('expires_at')}\n"
-            f"- link: {otp.get('login_url')}",
+            _format_grafana_otp_message(scope="admin", otp=otp),
             disable_web_page_preview=True,
         )
     except ApiClientError as exc:
-        await callback.message.answer(f"Ошибка: {exc}")
+        await callback.message.answer(_msg_error(exc))
     await callback.answer()
 
 
@@ -589,10 +646,10 @@ async def grafana_otp_admin(callback: CallbackQuery) -> None:
 async def admin_grant(callback: CallbackQuery, state: FSMContext) -> None:
     user = await ensure_user(callback.from_user.id)
     if not is_superadmin(user):
-        await callback.answer("Только superadmin")
+        await callback.answer(_msg_warn("Только superadmin"))
         return
     await state.set_state(AdminFlow.waiting_for_grant_id)
-    await callback.message.answer("Введи Telegram ID пользователя, которому выдать роль admin:")
+    await callback.message.answer(_msg_prompt("Введи Telegram ID пользователя, которому выдать роль admin:"))
     await callback.answer()
 
 
@@ -600,10 +657,10 @@ async def admin_grant(callback: CallbackQuery, state: FSMContext) -> None:
 async def admin_revoke(callback: CallbackQuery, state: FSMContext) -> None:
     user = await ensure_user(callback.from_user.id)
     if not is_superadmin(user):
-        await callback.answer("Только superadmin")
+        await callback.answer(_msg_warn("Только superadmin"))
         return
     await state.set_state(AdminFlow.waiting_for_revoke_id)
-    await callback.message.answer("Введи Telegram ID пользователя, у которого снять роль admin:")
+    await callback.message.answer(_msg_prompt("Введи Telegram ID пользователя, у которого снять роль admin:"))
     await callback.answer()
 
 
@@ -611,28 +668,28 @@ async def admin_revoke(callback: CallbackQuery, state: FSMContext) -> None:
 async def admin_list(callback: CallbackQuery) -> None:
     user = await ensure_user(callback.from_user.id)
     if not is_superadmin(user):
-        await callback.answer("Только superadmin")
+        await callback.answer(_msg_warn("Только superadmin"))
         return
     try:
         admins = await api.list_users(role="admin", limit=500)
         supers = await api.list_users(role="superadmin", limit=500)
-        lines = ["Superadmins:"] + [f"- {u['telegram_id']}" for u in supers]
-        lines += ["", "Admins:"] + [f"- {u['telegram_id']}" for u in admins]
-        await callback.message.answer("\n".join(lines) if (admins or supers) else "Нет админов.")
+        lines = ["👑 Superadmins"] + [f"• {u['telegram_id']}" for u in supers]
+        lines += ["", "🛡️ Admins"] + [f"• {u['telegram_id']}" for u in admins]
+        await callback.message.answer("\n".join(lines) if (admins or supers) else _msg_info("Нет админов."))
     except ApiClientError as exc:
-        await callback.message.answer(f"Ошибка: {exc}")
+        await callback.message.answer(_msg_error(exc))
     await callback.answer()
 
 @router.callback_query(F.data == "admin_users")
 async def admin_users(callback: CallbackQuery) -> None:
     actor = await ensure_user(callback.from_user.id)
     if not is_admin(actor):
-        await callback.answer("Недостаточно прав")
+        await callback.answer(_msg_warn("Недостаточно прав"))
         return
     try:
         users = await api.list_users(limit=300)
         users.sort(key=lambda row: (str(row.get("role") or ""), int(row.get("telegram_id") or 0)))
-        lines = ["Пользователи (до 300):"]
+        lines = ["👥 Пользователи (до 300):"]
         max_rows = 80
         for idx, user in enumerate(users[:max_rows], start=1):
             role = (user.get("role") or "").strip()
@@ -644,7 +701,7 @@ async def admin_users(callback: CallbackQuery) -> None:
             lines.append(f"Показано {max_rows} из {len(users)}.")
         await callback.message.answer("\n".join(lines))
     except ApiClientError as exc:
-        await callback.message.answer(f"Ошибка: {exc}")
+        await callback.message.answer(_msg_error(exc))
     await callback.answer()
 
 
@@ -652,12 +709,14 @@ async def admin_users(callback: CallbackQuery) -> None:
 async def admin_user_block(callback: CallbackQuery, state: FSMContext) -> None:
     actor = await ensure_user(callback.from_user.id)
     if not is_admin(actor):
-        await callback.answer("Недостаточно прав")
+        await callback.answer(_msg_warn("Недостаточно прав"))
         return
     await state.set_state(AdminFlow.waiting_for_user_block)
     await callback.message.answer(
-        "Введи: <telegram_id> <hours> [reason]\n"
-        "Пример: 123456789 72 abuse"
+        _msg_prompt(
+            "Введи: <telegram_id> <hours> [reason]\n"
+            "Пример: 123456789 72 abuse"
+        )
     )
     await callback.answer()
 
@@ -666,10 +725,10 @@ async def admin_user_block(callback: CallbackQuery, state: FSMContext) -> None:
 async def admin_user_unblock(callback: CallbackQuery, state: FSMContext) -> None:
     actor = await ensure_user(callback.from_user.id)
     if not is_admin(actor):
-        await callback.answer("Недостаточно прав")
+        await callback.answer(_msg_warn("Недостаточно прав"))
         return
     await state.set_state(AdminFlow.waiting_for_user_unblock)
-    await callback.message.answer("Введи Telegram ID пользователя для снятия блокировки:")
+    await callback.message.answer(_msg_prompt("Введи Telegram ID пользователя для снятия блокировки:"))
     await callback.answer()
 
 
@@ -680,9 +739,9 @@ async def receive_admin_grant_id(message: Message, state: FSMContext) -> None:
         telegram_id = int(text)
         await api.get_or_create_user(telegram_id)
         await api.set_user_role(telegram_id, "admin")
-        await message.answer(f"Готово: {telegram_id} теперь admin.")
+        await message.answer(_msg_ok(f"Готово: {telegram_id} теперь admin."))
     except Exception as exc:  # noqa: BLE001
-        await message.answer(f"Ошибка: {exc}")
+        await message.answer(_msg_error(exc))
     finally:
         await state.clear()
 
@@ -693,12 +752,12 @@ async def receive_admin_revoke_id(message: Message, state: FSMContext) -> None:
         text = (message.text or "").strip()
         telegram_id = int(text)
         if telegram_id in (settings.superadmin_telegram_ids or []):
-            await message.answer("Нельзя снять superadmin.")
+            await message.answer(_msg_warn("Нельзя снять superadmin."))
             return
         await api.set_user_role(telegram_id, "user")
-        await message.answer(f"Готово: {telegram_id} теперь user.")
+        await message.answer(_msg_ok(f"Готово: {telegram_id} теперь user."))
     except Exception as exc:  # noqa: BLE001
-        await message.answer(f"Ошибка: {exc}")
+        await message.answer(_msg_error(exc))
     finally:
         await state.clear()
 
@@ -708,12 +767,12 @@ async def receive_user_block(message: Message, state: FSMContext) -> None:
     try:
         actor = await ensure_user(message.from_user.id)
         if not is_admin(actor):
-            await message.answer("Недостаточно прав.")
+            await message.answer(_msg_warn("Недостаточно прав."))
             return
 
         parts = (message.text or "").strip().split(maxsplit=2)
         if len(parts) < 2:
-            await message.answer("Формат: <telegram_id> <hours> [reason]")
+            await message.answer(_msg_warn("Формат: <telegram_id> <hours> [reason]"))
             return
         target_id = int(parts[0])
         hours = int(parts[1])
@@ -721,15 +780,15 @@ async def receive_user_block(message: Message, state: FSMContext) -> None:
 
         target = await api.get_or_create_user(target_id)
         if not can_manage_block(actor, target):
-            await message.answer("Недостаточно прав для блокировки этой роли.")
+            await message.answer(_msg_warn("Недостаточно прав для блокировки этой роли."))
             return
 
         blocked = await api.block_user_bot(target_id, hours=hours, reason=reason, revoke_access=True)
         await message.answer(
-            f"Готово: {user_label(target)} заблокирован до {blocked.get('bot_blocked_until')}."
+            _msg_ok(f"Готово: {user_label(target)} заблокирован до {blocked.get('bot_blocked_until')}.")
         )
     except Exception as exc:  # noqa: BLE001
-        await message.answer(f"Ошибка: {exc}")
+        await message.answer(_msg_error(exc))
     finally:
         await state.clear()
 
@@ -739,19 +798,19 @@ async def receive_user_unblock(message: Message, state: FSMContext) -> None:
     try:
         actor = await ensure_user(message.from_user.id)
         if not is_admin(actor):
-            await message.answer("Недостаточно прав.")
+            await message.answer(_msg_warn("Недостаточно прав."))
             return
 
         target_id = int((message.text or "").strip())
         target = await api.get_user(target_id)
         if not can_manage_block(actor, target):
-            await message.answer("Недостаточно прав для снятия блокировки этой роли.")
+            await message.answer(_msg_warn("Недостаточно прав для снятия блокировки этой роли."))
             return
 
         await api.unblock_user_bot(target_id)
-        await message.answer(f"Готово: блокировка снята для {user_label(target)}.")
+        await message.answer(_msg_ok(f"Готово: блокировка снята для {user_label(target)}."))
     except Exception as exc:  # noqa: BLE001
-        await message.answer(f"Ошибка: {exc}")
+        await message.answer(_msg_error(exc))
     finally:
         await state.clear()
 
@@ -761,7 +820,7 @@ async def list_devices(callback: CallbackQuery, state: FSMContext) -> None:
     await state.clear()
     user = await ensure_user(callback.from_user.id)
     devices = await api.list_devices(user["telegram_id"])
-    text = "Устройства:\n" + ("\n".join([f"- {d['name']} id={d['id']}" for d in devices]) if devices else "пока нет")
+    text = _format_devices_text(devices)
     await callback.message.edit_text(text, reply_markup=devices_keyboard(devices))
     await callback.answer()
 
@@ -769,7 +828,7 @@ async def list_devices(callback: CallbackQuery, state: FSMContext) -> None:
 @router.callback_query(F.data == "add_device")
 async def add_device(callback: CallbackQuery, state: FSMContext) -> None:
     await state.set_state(DeviceFlow.waiting_for_name)
-    await callback.message.answer("Введите имя нового устройства")
+    await callback.message.answer(_msg_prompt("Введите имя нового устройства"))
     await callback.answer()
 
 
@@ -778,18 +837,18 @@ async def receive_device_name(message: Message, state: FSMContext) -> None:
     try:
         name = (message.text or "").strip()
         if name.lower() == "/cancel":
-            await message.answer("Отменено.")
+            await message.answer(_msg_warn("Отменено."))
             await _send_main_menu(message)
             return
         if not name:
-            await message.answer("Имя устройства не может быть пустым.")
+            await message.answer(_msg_warn("Имя устройства не может быть пустым."))
             return
         user = await ensure_user(message.from_user.id)
         await api.create_device(user["telegram_id"], name)
         devices = await api.list_devices(user["telegram_id"])
-        await message.answer("Устройство добавлено", reply_markup=devices_keyboard(devices))
+        await message.answer(_msg_ok("Устройство добавлено"), reply_markup=devices_keyboard(devices))
     except ApiClientError as exc:
-        await message.answer(f"Ошибка: {exc}")
+        await message.answer(_msg_error(exc))
     finally:
         await state.clear()
 
@@ -811,11 +870,11 @@ async def delete_device(callback: CallbackQuery) -> None:
         await _cleanup_related_messages(callback, device_id=device_id)
         user = await ensure_user(callback.from_user.id)
         devices = await api.list_devices(user["telegram_id"])
-        text = "Устройства:\n" + ("\n".join([f"- {d['name']} id={d['id']}" for d in devices]) if devices else "пока нет")
+        text = _format_devices_text(devices)
         await callback.message.edit_text(text, reply_markup=devices_keyboard(devices))
-        await callback.message.answer("Устройство удалено (все подключения отозваны).")
+        await callback.message.answer(_msg_ok("Устройство удалено (все подключения отозваны)."))
     except ApiClientError as exc:
-        await callback.message.answer(f"Ошибка: {exc}")
+        await callback.message.answer(_msg_error(exc))
     await callback.answer()
 
 
@@ -843,7 +902,7 @@ async def new_connection(callback: CallbackQuery) -> None:
         protocol, _, _ = _profile(spec)
         if protocol == ConnectionProtocol.VLESS_REALITY:
             await callback.message.edit_text(
-                "Выбери провайдера (для фильтра SNI):",
+                "🌐 Выбери провайдера (для фильтра SNI):",
                 reply_markup=provider_keyboard_with_cancel(
                     "new",
                     f"{spec}:{device_id}",
@@ -866,12 +925,10 @@ async def new_connection(callback: CallbackQuery) -> None:
         )
         text, keyboard = await render_device_page(device_id)
         await callback.message.edit_text(text, reply_markup=keyboard)
-        await callback.message.answer(
-            f"Создано: {_connection_marker(connection)}\nrevision={revision['id']} slot={revision['slot']}"
-        )
+        await callback.message.answer(_format_created_connection_message(_connection_marker(connection), revision))
         await _send_client_config(callback, revision)
     except Exception as exc:  # noqa: BLE001
-        await callback.message.answer(f"Ошибка: {exc}")
+        await callback.message.answer(_msg_error(exc))
 
     await callback.answer()
 
@@ -881,14 +938,14 @@ async def vless_new(callback: CallbackQuery) -> None:
     # vlessnew:<spec>:<device_id> where spec is "b1" (direct) or "b2" (chain)
     _, spec, device_id = callback.data.split(":", 2)
     if spec not in {"b1", "b2"}:
-        await callback.message.answer("Ошибка: неизвестный профиль VLESS")
+        await callback.message.answer(_msg_error("неизвестный профиль VLESS"))
         await callback.answer()
         return
 
     if spec == "b2":
         # Chain profile supports only Reality transport in current architecture.
         await callback.message.edit_text(
-            "B2 - VLESS Chain: Reality выбран автоматически.\nВыбери провайдера (для фильтра SNI):",
+            "🛡️ B2 - VLESS Chain\n\nReality выбран автоматически.\n\nВыбери провайдера (для фильтра SNI):",
             reply_markup=provider_keyboard_with_cancel(
                 "new",
                 f"{spec}:{device_id}",
@@ -899,7 +956,7 @@ async def vless_new(callback: CallbackQuery) -> None:
         return
 
     await callback.message.edit_text(
-        "B1 - VLESS: выбери транспорт подключения:",
+        "🔌 B1 - VLESS Direct\n\nВыбери транспорт подключения:",
         reply_markup=vless_transport_keyboard(spec=spec, device_id=device_id),
     )
     await callback.answer()
@@ -911,7 +968,7 @@ async def vless_transport(callback: CallbackQuery) -> None:
     _, spec, device_id, transport = callback.data.split(":", 3)
     transport = (transport or "").strip().lower()
     if spec not in {"b1", "b2"}:
-        await callback.message.answer("Ошибка: неизвестный профиль VLESS")
+        await callback.message.answer(_msg_error("неизвестный профиль VLESS"))
         await callback.answer()
         return
 
@@ -922,7 +979,7 @@ async def vless_transport(callback: CallbackQuery) -> None:
 
         if transport == "reality":
             await callback.message.edit_text(
-                "Выбери провайдера (для фильтра SNI):",
+                "🌐 Выбери провайдера (для фильтра SNI):",
                 reply_markup=provider_keyboard_with_cancel(
                     "new",
                     f"{spec}:{device_id}",
@@ -951,12 +1008,10 @@ async def vless_transport(callback: CallbackQuery) -> None:
         )
         text, keyboard = await render_device_page(device_id)
         await callback.message.edit_text(text, reply_markup=keyboard)
-        await callback.message.answer(
-            f"Создано: {_connection_marker(connection)}\nrevision={revision['id']} slot={revision['slot']}"
-        )
+        await callback.message.answer(_format_created_connection_message(_connection_marker(connection), revision))
         await _send_client_config(callback, revision)
     except Exception as exc:  # noqa: BLE001
-        await callback.message.answer(f"Ошибка: {exc}")
+        await callback.message.answer(_msg_error(exc))
     finally:
         await callback.answer()
 
@@ -978,12 +1033,10 @@ async def new_vless_with_sni(callback: CallbackQuery) -> None:
         )
         text, keyboard = await render_device_page(device_id)
         await callback.message.edit_text(text, reply_markup=keyboard)
-        await callback.message.answer(
-            f"Создано: {_connection_marker(connection)}\nrevision={revision['id']} slot={revision['slot']}"
-        )
+        await callback.message.answer(_format_created_connection_message(_connection_marker(connection), revision))
         await _send_client_config(callback, revision)
     except Exception as exc:  # noqa: BLE001
-        await callback.message.answer(f"Ошибка: {exc}")
+        await callback.message.answer(_msg_error(exc))
 
     await callback.answer()
 
@@ -1008,7 +1061,7 @@ async def _render_sni_picker_new(*, spec: str, device_id: str, provider: str, pa
     ]
     if not sni_rows:
         return (
-            "Нет доступных SNI в этой категории. Выберите другой провайдер:",
+            _msg_warn("Нет доступных SNI в этой категории.\nВыберите другой провайдер:"),
             provider_keyboard_with_cancel("new", f"{spec}:{device_id}", cancel_callback_data=f"device:{device_id}"),
         )
 
@@ -1019,7 +1072,11 @@ async def _render_sni_picker_new(*, spec: str, device_id: str, provider: str, pa
     end = start + SNI_PAGE_SIZE
     page_rows = sni_rows[start:end]
 
-    text = f"Выберите SNI для VLESS/REALITY (provider={provider}, {page+1}/{page_count}, total={total}):"
+    text = (
+        "🌐 Выбор SNI для VLESS/REALITY\n\n"
+        f"provider={provider} | page={page+1}/{page_count} | total={total}\n\n"
+        "Выбери домен из списка:"
+    )
     keyboard = sni_page_keyboard_new(
         spec=spec,
         device_id=device_id,
@@ -1042,7 +1099,7 @@ async def _render_sni_picker_issue(*, connection_id: str, provider: str, page: i
     ]
     if not sni_rows:
         return (
-            "Нет доступных SNI в этой категории. Выберите другой провайдер:",
+            _msg_warn("Нет доступных SNI в этой категории.\nВыберите другой провайдер:"),
             provider_keyboard_with_cancel("issue", connection_id, cancel_callback_data=f"revs:{connection_id}"),
         )
 
@@ -1053,7 +1110,11 @@ async def _render_sni_picker_issue(*, connection_id: str, provider: str, page: i
     end = start + SNI_PAGE_SIZE
     page_rows = sni_rows[start:end]
 
-    text = f"Выберите SNI для новой ревизии (provider={provider}, {page+1}/{page_count}, total={total}):"
+    text = (
+        "🧩 Выбор SNI для новой ревизии\n\n"
+        f"provider={provider} | page={page+1}/{page_count} | total={total}\n\n"
+        "Выбери домен из списка:"
+    )
     keyboard = sni_page_keyboard_issue(
         connection_id=connection_id,
         provider=provider,
@@ -1094,7 +1155,7 @@ async def _render_sni_catalog(
     end = start + page_size
     page_rows = rows[start:end]
 
-    header = f"Каталог SNI (provider={provider}, {page+1}/{page_count}, total={total})"
+    header = f"📚 Каталог SNI (provider={provider}, {page+1}/{page_count}, total={total})"
     if q:
         header += f"\nПоиск: {query.strip()}"
     lines: list[str] = [header]
@@ -1111,8 +1172,8 @@ async def _render_sni_catalog(
                 lines.append(f"{idx}. {fqdn}")
 
     lines.append("")
-    lines.append("Напиши номер из списка, чтобы выбрать SNI.")
-    lines.append("Или напиши часть домена для поиска (например: splitter, vk.com).")
+    lines.append("✍️ Напиши номер из списка, чтобы выбрать SNI.")
+    lines.append("🔎 Или напиши часть домена для поиска (например: splitter, vk.com).")
 
     text = "\n".join(lines)
     keyboard = sni_catalog_pick_keyboard(
@@ -1130,7 +1191,7 @@ async def pick_provider(callback: CallbackQuery, state: FSMContext) -> None:
     # target_id may itself contain ":" (e.g. "b1:<device_id>") so we can't use a fixed maxsplit.
     parts = callback.data.split(":")
     if len(parts) < 4:
-        await callback.message.answer("Ошибка: некорректные данные кнопки")
+        await callback.message.answer(_msg_error("некорректные данные кнопки"))
         await callback.answer()
         return
 
@@ -1166,9 +1227,9 @@ async def pick_provider(callback: CallbackQuery, state: FSMContext) -> None:
             )
             await callback.message.edit_text(text, reply_markup=keyboard)
         else:
-            await callback.message.answer("Неизвестный контекст выбора провайдера")
+            await callback.message.answer(_msg_error("неизвестный контекст выбора провайдера"))
     except Exception as exc:  # noqa: BLE001
-        await callback.message.answer(f"Ошибка: {exc}")
+        await callback.message.answer(_msg_error(exc))
 
     await callback.answer()
 
@@ -1204,7 +1265,7 @@ async def sni_page(callback: CallbackQuery) -> None:
         else:
             raise ValueError("unknown snipage context")
     except Exception as exc:  # noqa: BLE001
-        await callback.message.answer(f"Ошибка: {exc}")
+        await callback.message.answer(_msg_error(exc))
     finally:
         await callback.answer()
 
@@ -1213,7 +1274,7 @@ async def sni_page(callback: CallbackQuery) -> None:
 async def sni_catalog(callback: CallbackQuery, state: FSMContext) -> None:
     await state.clear()
     await callback.message.edit_text(
-        "Каталог SNI: выбери провайдера (для фильтра):",
+        "📚 Каталог SNI\n\nВыбери провайдера (для фильтра):",
         reply_markup=provider_keyboard_with_cancel("catalog", "catalog", cancel_callback_data="menu"),
     )
     await callback.answer()
@@ -1235,7 +1296,7 @@ async def sni_catalog_reset(callback: CallbackQuery, state: FSMContext) -> None:
         )
         await callback.message.edit_text(text, reply_markup=keyboard)
     except Exception as exc:  # noqa: BLE001
-        await callback.message.answer(f"Ошибка: {exc}")
+        await callback.message.answer(_msg_error(exc))
     await callback.answer()
 
 
@@ -1261,7 +1322,7 @@ async def sni_catalog_page(callback: CallbackQuery, state: FSMContext) -> None:
         )
         await callback.message.edit_text(text, reply_markup=keyboard)
     except Exception as exc:  # noqa: BLE001
-        await callback.message.answer(f"Ошибка: {exc}")
+        await callback.message.answer(_msg_error(exc))
     await callback.answer()
 
 
@@ -1296,14 +1357,14 @@ async def sni_catalog_input(message: Message, state: FSMContext) -> None:
     if text_in.isdigit():
         n = int(text_in)
         if n < 1 or n > len(page_rows):
-            await message.answer(f"Неверный номер. Введи число от 1 до {len(page_rows)}.")
+            await message.answer(_msg_warn(f"Неверный номер. Введи число от 1 до {len(page_rows)}."))
             return
 
         chosen = page_rows[n - 1]
         sni_id = int(chosen["id"])
         fqdn = (chosen.get("fqdn") or "").strip()
         note = _clip_note(chosen.get("note"))
-        out = f"Выбран SNI:\n{fqdn or f'id={sni_id}'}"
+        out = f"✅ Выбран SNI\n\n{fqdn or f'id={sni_id}'}"
         if note:
             out += f"\n\n{note}"
 
@@ -1327,7 +1388,7 @@ async def sni_catalog_input(message: Message, state: FSMContext) -> None:
         )
         await _edit_or_send(rendered, keyboard)
     except Exception as exc:  # noqa: BLE001
-        await message.answer(f"Ошибка: {exc}")
+        await message.answer(_msg_error(exc))
 
 
 async def _render_sni_catalog_actions(
@@ -1349,7 +1410,7 @@ async def _render_sni_catalog_actions(
 
     fqdn = (chosen.get("fqdn") if chosen else None) or f"id={sni_id}"
     note = _clip_note((chosen or {}).get("note"))
-    out = f"Выбран SNI:\n{fqdn}"
+    out = f"✅ Выбран SNI\n\n{fqdn}"
     if note:
         out += f"\n\n{note}"
     return out, sni_catalog_action_keyboard(sni_id=sni_id, provider=provider, page=page)
@@ -1367,7 +1428,7 @@ async def sni_catalog_select(callback: CallbackQuery, state: FSMContext) -> None
         text, keyboard = await _render_sni_catalog_actions(state=state, sni_id=sni_id, provider=provider, page=page)
         await callback.message.edit_text(text, reply_markup=keyboard)
     except Exception as exc:  # noqa: BLE001
-        await callback.message.answer(f"Ошибка: {exc}")
+        await callback.message.answer(_msg_error(exc))
     await callback.answer()
 
 
@@ -1376,7 +1437,7 @@ async def sni_catalog_new_pick_device(callback: CallbackQuery) -> None:
     # catnewpick:<b1|b2>:<sni_id>:<provider>:<page>
     parts = callback.data.split(":")
     if len(parts) != 5:
-        await callback.message.answer("Ошибка: некорректные данные кнопки")
+        await callback.message.answer(_msg_error("некорректные данные кнопки"))
         await callback.answer()
         return
     _, spec, sni_id_raw, provider, page_raw = parts
@@ -1386,11 +1447,11 @@ async def sni_catalog_new_pick_device(callback: CallbackQuery) -> None:
         user = await ensure_user(callback.from_user.id)
         devices = await api.list_devices(user["telegram_id"])
         if not devices:
-            await callback.message.edit_text("Нет устройств. Сначала добавь устройство.", reply_markup=main_menu_keyboard())
+            await callback.message.edit_text(_msg_info("Нет устройств. Сначала добавь устройство."), reply_markup=main_menu_keyboard())
             await callback.answer()
             return
         await callback.message.edit_text(
-            "Выбери устройство для нового VLESS подключения:",
+            "📱 Выбери устройство для нового VLESS подключения:",
             reply_markup=sni_catalog_device_pick_keyboard(
                 spec=spec,
                 sni_id=sni_id,
@@ -1400,7 +1461,7 @@ async def sni_catalog_new_pick_device(callback: CallbackQuery) -> None:
             ),
         )
     except Exception as exc:  # noqa: BLE001
-        await callback.message.answer(f"Ошибка: {exc}")
+        await callback.message.answer(_msg_error(exc))
     await callback.answer()
 
 
@@ -1423,11 +1484,15 @@ async def sni_catalog_new_connection(callback: CallbackQuery, state: FSMContext)
         text, keyboard = await render_device_page(device_id)
         await callback.message.edit_text(text, reply_markup=keyboard)
         await callback.message.answer(
-            f"Создано: connection={connection['id']} revision={revision['id']} slot={revision['slot']}"
+            _msg_ok(
+                "Подключение создано\n"
+                f"connection={connection['id']}\n"
+                f"revision={revision['id']} slot={revision['slot']}"
+            )
         )
         await _send_client_config(callback, revision)
     except Exception as exc:  # noqa: BLE001
-        await callback.message.answer(f"Ошибка: {exc}")
+        await callback.message.answer(_msg_error(exc))
     await callback.answer()
 
 
@@ -1454,14 +1519,14 @@ async def sni_catalog_issue_pick_connection(callback: CallbackQuery) -> None:
 
         if not vless_connections:
             await callback.message.edit_text(
-                "У тебя нет VLESS подключений, куда можно выпустить ревизию.",
+                _msg_info("У тебя нет VLESS подключений, куда можно выпустить ревизию."),
                 reply_markup=sni_catalog_action_keyboard(sni_id=sni_id, provider=provider, page=page),
             )
             await callback.answer()
             return
 
         await callback.message.edit_text(
-            "Выбери VLESS подключение для новой ревизии (SNI будет применён к новой ревизии):",
+            "🧩 Выбери VLESS подключение для новой ревизии\n\nSNI будет применен к новой ревизии.",
             reply_markup=sni_catalog_connection_pick_keyboard(
                 sni_id=sni_id,
                 vless_connections=vless_connections,
@@ -1470,7 +1535,7 @@ async def sni_catalog_issue_pick_connection(callback: CallbackQuery) -> None:
             ),
         )
     except Exception as exc:  # noqa: BLE001
-        await callback.message.answer(f"Ошибка: {exc}")
+        await callback.message.answer(_msg_error(exc))
     await callback.answer()
 
 
@@ -1485,7 +1550,7 @@ async def sni_catalog_issue_revision(callback: CallbackQuery, state: FSMContext)
         await callback.message.edit_text(text, reply_markup=keyboard)
         await _send_client_config(callback, revision)
     except Exception as exc:  # noqa: BLE001
-        await callback.message.answer(f"Ошибка: {exc}")
+        await callback.message.answer(_msg_error(exc))
     await callback.answer()
 
 
@@ -1495,12 +1560,12 @@ async def list_revisions(callback: CallbackQuery) -> None:
     try:
         text, keyboard = await render_revisions_page(connection_id)
         edited = await _safe_edit_text(callback.message, text, reply_markup=keyboard)
-        await callback.answer("Обновлено" if edited else "Без изменений")
+        await callback.answer(_msg_ok("Обновлено") if edited else _msg_info("Без изменений"))
     except ApiClientError as exc:
-        await callback.message.answer(f"Ошибка: {exc}")
+        await callback.message.answer(_msg_error(exc))
         await callback.answer()
     except Exception as exc:  # noqa: BLE001
-        await callback.message.answer(f"Ошибка: {exc}")
+        await callback.message.answer(_msg_error(exc))
         await callback.answer()
 
 
@@ -1511,16 +1576,16 @@ async def show_current_revision_config(callback: CallbackQuery) -> None:
         revisions = await api.list_revisions(connection_id)
         current = _current_revision_from_list(revisions)
         if current is None:
-            await callback.answer("Нет активной ревизии", show_alert=True)
+            await callback.answer(_msg_warn("Нет активной ревизии"), show_alert=True)
             return
         await _cleanup_related_messages(callback, revision_id=str(current.get("id") or ""))
         await _send_client_config(callback, current)
-        await callback.answer("Отправлено")
+        await callback.answer(_msg_ok("Отправлено"))
     except ApiClientError as exc:
-        await callback.message.answer(f"Ошибка: {exc}")
+        await callback.message.answer(_msg_error(exc))
         await callback.answer()
     except Exception as exc:  # noqa: BLE001
-        await callback.message.answer(f"Ошибка: {exc}")
+        await callback.message.answer(_msg_error(exc))
         await callback.answer()
 
 
@@ -1528,7 +1593,7 @@ async def show_current_revision_config(callback: CallbackQuery) -> None:
 async def issue_pick_sni(callback: CallbackQuery) -> None:
     _, connection_id = callback.data.split(":", 1)
     await callback.message.edit_text(
-        "Выбери провайдера (для фильтра SNI):",
+        "🌐 Выбери провайдера (для фильтра SNI):",
         reply_markup=provider_keyboard_with_cancel("issue", connection_id, cancel_callback_data=f"revs:{connection_id}"),
     )
     await callback.answer()
@@ -1543,7 +1608,7 @@ async def issue_revision(callback: CallbackQuery) -> None:
         await _safe_edit_text(callback.message, text, reply_markup=keyboard)
         await _send_client_config(callback, revision)
     except ApiClientError as exc:
-        await callback.message.answer(f"Ошибка: {exc}")
+        await callback.message.answer(_msg_error(exc))
     await callback.answer()
 
 
@@ -1554,9 +1619,9 @@ async def activate_revision(callback: CallbackQuery) -> None:
         revision = await api.activate_revision(revision_id)
         text, keyboard = await render_revisions_page(revision["connection_id"])
         await _safe_edit_text(callback.message, text, reply_markup=keyboard)
-        await callback.answer("Активировано")
+        await callback.answer(_msg_ok("Активировано"))
     except Exception as exc:  # noqa: BLE001
-        await callback.message.answer(f"Ошибка: {exc}")
+        await callback.message.answer(_msg_error(exc))
         await callback.answer()
 
 
@@ -1568,9 +1633,9 @@ async def revoke_revision(callback: CallbackQuery) -> None:
         await _cleanup_related_messages(callback, revision_id=revision_id)
         text, keyboard = await render_revisions_page(revision["connection_id"])
         await _safe_edit_text(callback.message, text, reply_markup=keyboard)
-        await callback.answer("Удалено")
+        await callback.answer(_msg_ok("Удалено"))
     except Exception as exc:  # noqa: BLE001
-        await callback.message.answer(f"Ошибка: {exc}")
+        await callback.message.answer(_msg_error(exc))
         await callback.answer()
 
 
@@ -1583,7 +1648,7 @@ async def issue_revision_with_sni(callback: CallbackQuery) -> None:
         await _safe_edit_text(callback.message, text, reply_markup=keyboard)
         await _send_client_config(callback, revision)
     except Exception as exc:  # noqa: BLE001
-        await callback.message.answer(f"Ошибка: {exc}")
+        await callback.message.answer(_msg_error(exc))
 
     await callback.answer()
 
@@ -1599,9 +1664,9 @@ async def delete_connection(callback: CallbackQuery) -> None:
         await _cleanup_related_messages(callback, connection_id=connection_id)
         text, keyboard = await render_device_page(device_id)
         await callback.message.edit_text(text, reply_markup=keyboard)
-        await callback.message.answer("Подключение удалено (доступ отозван).")
+        await callback.message.answer(_msg_ok("Подключение удалено (доступ отозван)."))
     except ApiClientError as exc:
-        await callback.message.answer(f"Ошибка: {exc}")
+        await callback.message.answer(_msg_error(exc))
     await callback.answer()
 
 
