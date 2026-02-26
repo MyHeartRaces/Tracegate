@@ -218,7 +218,6 @@ async def _send_telegram_message(
 
 def _format_grafana_alert_webhook_message(payload: dict[str, Any]) -> tuple[str, int, str]:
     status_raw = str(payload.get("status") or "unknown").strip().lower()
-    status_label = "ALERT" if status_raw == "firing" else ("RESOLVED" if status_raw == "resolved" else status_raw.upper())
     alerts = payload.get("alerts")
     alert_list = alerts if isinstance(alerts, list) else []
     common_labels = payload.get("commonLabels") if isinstance(payload.get("commonLabels"), dict) else {}
@@ -229,7 +228,19 @@ def _format_grafana_alert_webhook_message(payload: dict[str, Any]) -> tuple[str,
         or str(common_labels.get("alertname") or "").strip()
         or "Grafana SLO alert"
     )
-    lines = [f"[GRAFANA][{status_label}] {title}", f"alerts={len(alert_list)} status={status_raw or 'unknown'}"]
+    status_label = status_raw or "unknown"
+    status_header = {
+        "firing": "🚨 Grafana Alert",
+        "resolved": "✅ Grafana Resolved",
+    }.get(status_raw, "ℹ️ Grafana Alert")
+    lines = [
+        status_header,
+        "",
+        title,
+        "",
+        f"Status: {status_label}",
+        f"Alerts: {len(alert_list)}",
+    ]
 
     for alert in alert_list[:4]:
         if not isinstance(alert, dict):
@@ -240,9 +251,15 @@ def _format_grafana_alert_webhook_message(payload: dict[str, Any]) -> tuple[str,
         severity = str(labels.get("severity") or "-")
         slo_type = str(labels.get("slo_type") or "-")
         summary = str(annotations.get("summary") or labels.get("alertname") or "alert").strip()
-        lines.append(f"- {component}/{slo_type} sev={severity}: {summary}")
+        lines.extend(
+            [
+                "",
+                f"• {component} / {slo_type} ({severity})",
+                f"  {summary}",
+            ]
+        )
     if len(alert_list) > 4:
-        lines.append(f"... +{len(alert_list) - 4} more")
+        lines.extend(["", f"… and {len(alert_list) - 4} more"])
 
     return ("\n".join(lines)).strip(), len(alert_list), status_raw
 
