@@ -1,7 +1,7 @@
 .PHONY: install lint test run-api run-agent run-dispatcher run-bot init-db
 
 install:
-	pip install -e '.[dev]'
+	pip install -e '.[dev]' -c requirements.lock
 
 lint:
 	ruff check src tests
