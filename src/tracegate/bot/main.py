@@ -30,6 +30,7 @@ from tracegate.bot.access import (
 )
 from tracegate.bot.client import ApiClientError, TracegateApiClient
 from tracegate.bot.metrics import BotMetricsMiddleware, maybe_start_bot_metrics_server
+from tracegate.bot.startup import delete_webhook_with_retry
 from tracegate.bot.keyboards import (
     SNI_PAGE_SIZE,
     admin_menu_keyboard,
@@ -1705,7 +1706,7 @@ async def _run_polling() -> None:
     dp.include_router(router)
 
     # Ensure webhook is disabled; otherwise Telegram rejects getUpdates.
-    await bot.delete_webhook(drop_pending_updates=True)
+    await delete_webhook_with_retry(bot, drop_pending_updates=True)
     try:
         await dp.start_polling(bot)
     finally:

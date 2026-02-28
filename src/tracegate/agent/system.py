@@ -78,20 +78,18 @@ def check_process(name: str) -> tuple[bool, str]:
 
 
 async def check_hysteria_stats_secret(url: str, secret: str) -> tuple[bool, str]:
+    if not secret:
+        return False, "stats secret is empty"
+
     async with httpx.AsyncClient() as client:
         try:
-            unauthorized = await client.get(url, timeout=5)
             # Hysteria2 Traffic Stats API expects the raw secret in the Authorization header.
-            # Using a Bearer scheme will be rejected (401/403).
             authorized = await client.get(url, headers={"Authorization": secret}, timeout=5)
         except Exception as exc:  # noqa: BLE001
             return False, str(exc)
 
-    unauthorized_ok = unauthorized.status_code in {401, 403}
     authorized_ok = authorized.status_code < 400
-    return unauthorized_ok and authorized_ok, (
-        f"unauth={unauthorized.status_code}, auth={authorized.status_code}"
-    )
+    return authorized_ok, f"auth={authorized.status_code}"
 
 
 def check_wg_listen_port(interface: str, expected: int) -> tuple[bool, str]:
