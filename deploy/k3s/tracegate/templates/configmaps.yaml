@@ -1,6 +1,21 @@
 {{- $realityGroups := (.Values.gateway.realityMultiInbound.groups | default (list)) -}}
 {{- $transitDecoyHtml := (.Values.gateway.vpsT.decoyHtml | default "<!doctype html><html><head><meta charset=\"utf-8\"><title>Tracegate</title></head><body><h1>It works.</h1></body></html>") -}}
 {{- $entryDecoyHtml := (.Values.gateway.entryDecoyHtml | default $transitDecoyHtml) -}}
+{{- $failoverEnabled := and (.Values.gateway.failover.enabled | default false) .Values.gateway.vpsT.enabled .Values.gateway.vpsE.enabled -}}
+{{- $failoverConnectTimeout := int (.Values.gateway.failover.connectTimeoutSeconds | default 1) -}}
+{{- if lt $failoverConnectTimeout 1 }}{{- $failoverConnectTimeout = 1 -}}{{- end -}}
+{{- $failoverMaxFails := int (.Values.gateway.failover.maxFails | default 2) -}}
+{{- if lt $failoverMaxFails 1 }}{{- $failoverMaxFails = 1 -}}{{- end -}}
+{{- $failoverFailTimeout := int (.Values.gateway.failover.failTimeoutSeconds | default 5) -}}
+{{- if lt $failoverFailTimeout 1 }}{{- $failoverFailTimeout = 1 -}}{{- end -}}
+{{- $vpsTPassiveHost := (.Values.gateway.failover.vpsTPassiveUpstreamHost | default "" | trim) -}}
+{{- if and $failoverEnabled (eq $vpsTPassiveHost "") -}}
+{{- $vpsTPassiveHost = (default .Values.gateway.vpsE.publicIPv4 (default .Values.gateway.vpsE.fqdn .Values.gateway.vpsE.proxyFqdn)) -}}
+{{- end -}}
+{{- $vpsEPassiveHost := (.Values.gateway.failover.vpsEPassiveUpstreamHost | default "" | trim) -}}
+{{- if and $failoverEnabled (eq $vpsEPassiveHost "") -}}
+{{- $vpsEPassiveHost = (default .Values.gateway.vpsT.publicIPv4 (default .Values.gateway.vpsT.fqdn .Values.gateway.vpsT.proxyFqdn)) -}}
+{{- end -}}
 {{- if and .Values.gateway.enabled (or .Values.gateway.vpsT.enabled .Values.gateway.vpsE.enabled) }}
 apiVersion: v1
 kind: ConfigMap
@@ -73,26 +88,39 @@ data:
       }
 
       upstream reality_fallback {
-        server 127.0.0.1:2443;
+        server 127.0.0.1:2443 max_fails={{ $failoverMaxFails }} fail_timeout={{ $failoverFailTimeout }}s;
+        {{- if and $failoverEnabled $vpsTPassiveHost }}
+        server {{ $vpsTPassiveHost }}:443 backup max_fails={{ $failoverMaxFails }} fail_timeout={{ $failoverFailTimeout }}s;
+        {{- end }}
       }
       {{ range $group := $realityGroups }}
       {{ $gid := (toString ($group.id | default "")) }}
       {{ if and $gid $group.port }}
       {{ $upstream := printf "reality_%s" (regexReplaceAll "[^a-zA-Z0-9_]" (replace "-" "_" (lower $gid)) "_") }}
       upstream {{ $upstream }} {
-        server 127.0.0.1:{{ int $group.port }};
+        server 127.0.0.1:{{ int $group.port }} max_fails={{ $failoverMaxFails }} fail_timeout={{ $failoverFailTimeout }}s;
+        {{- if and $failoverEnabled $vpsTPassiveHost }}
+        server {{ $vpsTPassiveHost }}:443 backup max_fails={{ $failoverMaxFails }} fail_timeout={{ $failoverFailTimeout }}s;
+        {{- end }}
       }
       {{ end }}
       {{ end }}
 
       upstream ws_tls {
-        server 127.0.0.1:4443;
+        server 127.0.0.1:4443 max_fails={{ $failoverMaxFails }} fail_timeout={{ $failoverFailTimeout }}s;
+        {{- if and $failoverEnabled $vpsTPassiveHost }}
+        server {{ $vpsTPassiveHost }}:443 backup max_fails={{ $failoverMaxFails }} fail_timeout={{ $failoverFailTimeout }}s;
+        {{- end }}
       }
 
       server {
         listen 0.0.0.0:443;
         proxy_timeout 1h;
-        proxy_connect_timeout 1s;
+        proxy_connect_timeout {{ $failoverConnectTimeout }}s;
+        {{- if and $failoverEnabled $vpsTPassiveHost }}
+        proxy_next_upstream on;
+        proxy_next_upstream_tries 2;
+        {{- end }}
         proxy_pass $tg_upstream;
         ssl_preread on;
       }
@@ -169,7 +197,7 @@ data:
     defaults
       mode tcp
       option tcplog
-      timeout connect 5s
+      timeout connect {{ $failoverConnectTimeout }}s
       timeout client  2m
       timeout server  2m
 
@@ -178,7 +206,12 @@ data:
       default_backend be_transit
 
     backend be_transit
-      server transit {{ .Values.gateway.vpsE.tcpForward.upstreamHost }}:{{ .Values.gateway.vpsE.tcpForward.upstreamPort }}
+      option tcp-check
+      default-server inter 2s fall {{ $failoverMaxFails }} rise 1
+      server transit_primary {{ .Values.gateway.vpsE.tcpForward.upstreamHost }}:{{ .Values.gateway.vpsE.tcpForward.upstreamPort }} check
+      {{- if and $failoverEnabled $vpsEPassiveHost }}
+      server transit_backup {{ $vpsEPassiveHost }}:443 check backup
+      {{- end }}
 
     {{ $wsPort := int (.Values.controlPlane.env.vlessWsTlsPort | default 443) }}
     {{ if ne $wsPort 443 }}
@@ -188,7 +221,12 @@ data:
       default_backend be_ws_tls
 
     backend be_ws_tls
-      server transit_ws {{ .Values.gateway.vpsE.tcpForward.upstreamHost }}:{{ $wsPort }}
+      option tcp-check
+      default-server inter 2s fall {{ $failoverMaxFails }} rise 1
+      server transit_ws_primary {{ .Values.gateway.vpsE.tcpForward.upstreamHost }}:{{ $wsPort }} check
+      {{- if and $failoverEnabled $vpsEPassiveHost }}
+      server transit_ws_backup {{ $vpsEPassiveHost }}:{{ $wsPort }} check backup
+      {{- end }}
     {{ end }}
 {{- end }}
 {{- if eq .Values.gateway.vpsE.mode "xray" }}
@@ -229,26 +267,39 @@ data:
       }
 
       upstream reality_fallback {
-        server 127.0.0.1:2443;
+        server 127.0.0.1:2443 max_fails={{ $failoverMaxFails }} fail_timeout={{ $failoverFailTimeout }}s;
+        {{- if and $failoverEnabled $vpsEPassiveHost }}
+        server {{ $vpsEPassiveHost }}:443 backup max_fails={{ $failoverMaxFails }} fail_timeout={{ $failoverFailTimeout }}s;
+        {{- end }}
       }
       {{ range $group := $realityGroups }}
       {{ $gid := (toString ($group.id | default "")) }}
       {{ if and $gid $group.port }}
       {{ $upstream := printf "reality_%s" (regexReplaceAll "[^a-zA-Z0-9_]" (replace "-" "_" (lower $gid)) "_") }}
       upstream {{ $upstream }} {
-        server 127.0.0.1:{{ int $group.port }};
+        server 127.0.0.1:{{ int $group.port }} max_fails={{ $failoverMaxFails }} fail_timeout={{ $failoverFailTimeout }}s;
+        {{- if and $failoverEnabled $vpsEPassiveHost }}
+        server {{ $vpsEPassiveHost }}:443 backup max_fails={{ $failoverMaxFails }} fail_timeout={{ $failoverFailTimeout }}s;
+        {{- end }}
       }
       {{ end }}
       {{ end }}
 
       upstream ws_tls {
-        server 127.0.0.1:4443;
+        server 127.0.0.1:4443 max_fails={{ $failoverMaxFails }} fail_timeout={{ $failoverFailTimeout }}s;
+        {{- if and $failoverEnabled $vpsEPassiveHost }}
+        server {{ $vpsEPassiveHost }}:443 backup max_fails={{ $failoverMaxFails }} fail_timeout={{ $failoverFailTimeout }}s;
+        {{- end }}
       }
 
       server {
         listen 0.0.0.0:443;
         proxy_timeout 1h;
-        proxy_connect_timeout 1s;
+        proxy_connect_timeout {{ $failoverConnectTimeout }}s;
+        {{- if and $failoverEnabled $vpsEPassiveHost }}
+        proxy_next_upstream on;
+        proxy_next_upstream_tries 2;
+        {{- end }}
         proxy_pass $tg_upstream;
         ssl_preread on;
       }

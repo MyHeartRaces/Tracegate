@@ -53,6 +53,16 @@ gateway:
     repository: ghcr.io/your-org/tracegate
     tag: "0.5"
 
+  failover:
+    # Enable active-passive upstream failover between VPS-T and VPS-E entry points.
+    enabled: false
+    # Optional explicit passive upstream hosts. If empty, peer fqdn/publicIPv4 is used.
+    vpsTPassiveUpstreamHost: ""
+    vpsEPassiveUpstreamHost: ""
+    connectTimeoutSeconds: 1
+    maxFails: 2
+    failTimeoutSeconds: 5
+
   splitter:
     transit:
       # Must match VPS-E outbound user id below.

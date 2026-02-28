@@ -143,6 +143,18 @@ gateway:
     tag: "0.5"
     pullPolicy: IfNotPresent
 
+  # Active-passive failover between VPS-T and VPS-E entry points.
+  # When enabled, entry-mux/tcp-forward keeps local upstream as primary and
+  # automatically retries to the peer node (:443) on connect failures.
+  failover:
+    enabled: false
+    # Optional explicit passive upstream hosts. If empty, derived from peer fqdn/publicIPv4.
+    vpsTPassiveUpstreamHost: ""
+    vpsEPassiveUpstreamHost: ""
+    connectTimeoutSeconds: 1
+    maxFails: 2
+    failTimeoutSeconds: 5
+
   splitter:
     transit:
       # Must match VPS-T static transit client id in Xray.
