@@ -133,6 +133,17 @@ def test_admin_metadata_dashboard_has_total_traffic_panels() -> None:
     assert "increase(" in tx_panel["targets"][0]["expr"]
     assert tx_panel["fieldConfig"]["defaults"]["unit"] == "bytes"
 
+    total_panel = _panel_by_id(dashboard, 7)
+    assert total_panel["type"] == "stat"
+    total_expr = total_panel["targets"][0]["expr"]
+    assert "tracegate_wg_peer_rx_bytes" in total_expr
+    assert "tracegate_wg_peer_tx_bytes" in total_expr
+    assert "tracegate_xray_connection_rx_bytes" in total_expr
+    assert "tracegate_xray_connection_tx_bytes" in total_expr
+    assert "tracegate_hysteria_connection_rx_bytes" in total_expr
+    assert "tracegate_hysteria_connection_tx_bytes" in total_expr
+    assert total_panel["fieldConfig"]["defaults"]["unit"] == "bytes"
+
 
 def test_operator_dashboard_includes_slo_and_ops_panels() -> None:
     dashboard = _dashboard_operator("prom")

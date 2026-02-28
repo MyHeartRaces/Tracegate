@@ -1148,6 +1148,37 @@ def _dashboard_admin_metadata(ds_uid: str) -> dict[str, Any]:
                 },
                 "gridPos": {"h": 7, "w": 12, "x": 12, "y": 38},
             },
+            {
+                "id": 7,
+                "type": "stat",
+                "title": "Total traffic RX+TX (selected range, bytes)",
+                "datasource": _ds(ds_uid),
+                "targets": [
+                    {
+                        "refId": "A",
+                        "expr": (
+                            "(sum(increase(tracegate_wg_peer_rx_bytes[$__range])) or vector(0)) + "
+                            "(sum(increase(tracegate_xray_connection_rx_bytes[$__range])) or vector(0)) + "
+                            "(sum(increase(tracegate_hysteria_connection_rx_bytes[$__range])) or vector(0)) + "
+                            "(sum(increase(tracegate_wg_peer_tx_bytes[$__range])) or vector(0)) + "
+                            "(sum(increase(tracegate_xray_connection_tx_bytes[$__range])) or vector(0)) + "
+                            "(sum(increase(tracegate_hysteria_connection_tx_bytes[$__range])) or vector(0))"
+                        ),
+                    }
+                ],
+                "fieldConfig": {"defaults": {"unit": "bytes"}, "overrides": []},
+                "options": {
+                    "colorMode": "value",
+                    "graphMode": "none",
+                    "justifyMode": "center",
+                    "orientation": "auto",
+                    "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": False},
+                    "showPercentChange": False,
+                    "textMode": "value_and_name",
+                    "wideLayout": True,
+                },
+                "gridPos": {"h": 7, "w": 24, "x": 0, "y": 45},
+            },
         ],
     }
 
