@@ -90,6 +90,8 @@ class Settings(BaseSettings):
     bot_guide_path: str = ""
     # /clean command tries to delete last N messages in chat (best-effort).
     bot_clean_max_messages: int = 150
+    # Auto-prune regular users with no devices and no connections when listing users.
+    users_auto_prune_empty: bool = True
 
     # Observability (Grafana is optional; can be deployed via Helm).
     grafana_enabled: bool = False

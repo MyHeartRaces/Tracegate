@@ -203,12 +203,24 @@ class TracegateApiClient:
     async def get_user(self, telegram_id: int) -> dict:
         return await self._request("GET", f"/users/{telegram_id}")
 
-    async def list_users(self, role: str | None = None, limit: int = 200, *, blocked_only: bool = False) -> list[dict]:
+    async def list_users(
+        self,
+        role: str | None = None,
+        limit: int = 200,
+        *,
+        blocked_only: bool = False,
+        include_empty: bool = False,
+        prune_empty: bool | None = None,
+    ) -> list[dict]:
         params = {"limit": str(limit)}
         if role:
             params["role"] = role
         if blocked_only:
             params["blocked_only"] = "true"
+        if include_empty:
+            params["include_empty"] = "true"
+        if prune_empty is not None:
+            params["prune_empty"] = "true" if prune_empty else "false"
         return await self._request("GET", "/users", params=params)
 
     async def block_user_bot(
