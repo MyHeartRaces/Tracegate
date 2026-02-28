@@ -1064,6 +1064,90 @@ def _dashboard_admin_metadata(ds_uid: str) -> dict[str, Any]:
                 },
                 "gridPos": {"h": 8, "w": 24, "x": 0, "y": 22},
             },
+            {
+                "id": 4,
+                "type": "timeseries",
+                "title": "Total traffic rate RX/TX (bytes/s, all users/connections)",
+                "datasource": _ds(ds_uid),
+                "targets": [
+                    {
+                        "refId": "A",
+                        "expr": (
+                            "(sum(rate(tracegate_wg_peer_rx_bytes[5m])) or vector(0)) + "
+                            "(sum(rate(tracegate_xray_connection_rx_bytes[5m])) or vector(0)) + "
+                            "(sum(rate(tracegate_hysteria_connection_rx_bytes[5m])) or vector(0))"
+                        ),
+                        "legendFormat": "RX total",
+                    },
+                    {
+                        "refId": "B",
+                        "expr": (
+                            "(sum(rate(tracegate_wg_peer_tx_bytes[5m])) or vector(0)) + "
+                            "(sum(rate(tracegate_xray_connection_tx_bytes[5m])) or vector(0)) + "
+                            "(sum(rate(tracegate_hysteria_connection_tx_bytes[5m])) or vector(0))"
+                        ),
+                        "legendFormat": "TX total",
+                    },
+                ],
+                "fieldConfig": {"defaults": {"unit": "Bps"}, "overrides": []},
+                "gridPos": {"h": 8, "w": 24, "x": 0, "y": 30},
+            },
+            {
+                "id": 5,
+                "type": "stat",
+                "title": "Total RX traffic (selected range, bytes)",
+                "datasource": _ds(ds_uid),
+                "targets": [
+                    {
+                        "refId": "A",
+                        "expr": (
+                            "(sum(increase(tracegate_wg_peer_rx_bytes[$__range])) or vector(0)) + "
+                            "(sum(increase(tracegate_xray_connection_rx_bytes[$__range])) or vector(0)) + "
+                            "(sum(increase(tracegate_hysteria_connection_rx_bytes[$__range])) or vector(0))"
+                        ),
+                    }
+                ],
+                "fieldConfig": {"defaults": {"unit": "bytes"}, "overrides": []},
+                "options": {
+                    "colorMode": "value",
+                    "graphMode": "none",
+                    "justifyMode": "auto",
+                    "orientation": "auto",
+                    "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": False},
+                    "showPercentChange": False,
+                    "textMode": "auto",
+                    "wideLayout": True,
+                },
+                "gridPos": {"h": 7, "w": 12, "x": 0, "y": 38},
+            },
+            {
+                "id": 6,
+                "type": "stat",
+                "title": "Total TX traffic (selected range, bytes)",
+                "datasource": _ds(ds_uid),
+                "targets": [
+                    {
+                        "refId": "A",
+                        "expr": (
+                            "(sum(increase(tracegate_wg_peer_tx_bytes[$__range])) or vector(0)) + "
+                            "(sum(increase(tracegate_xray_connection_tx_bytes[$__range])) or vector(0)) + "
+                            "(sum(increase(tracegate_hysteria_connection_tx_bytes[$__range])) or vector(0))"
+                        ),
+                    }
+                ],
+                "fieldConfig": {"defaults": {"unit": "bytes"}, "overrides": []},
+                "options": {
+                    "colorMode": "value",
+                    "graphMode": "none",
+                    "justifyMode": "auto",
+                    "orientation": "auto",
+                    "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": False},
+                    "showPercentChange": False,
+                    "textMode": "auto",
+                    "wideLayout": True,
+                },
+                "gridPos": {"h": 7, "w": 12, "x": 12, "y": 38},
+            },
         ],
     }
 

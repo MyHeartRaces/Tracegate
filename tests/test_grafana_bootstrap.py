@@ -109,6 +109,31 @@ def test_admin_metadata_dashboard_exposes_ids() -> None:
     assert "connection_pid" in wg_expr
 
 
+def test_admin_metadata_dashboard_has_total_traffic_panels() -> None:
+    dashboard = _dashboard_admin_metadata("prom")
+
+    rate_panel = _panel_by_id(dashboard, 4)
+    assert rate_panel["type"] == "timeseries"
+    rx_rate_expr = rate_panel["targets"][0]["expr"]
+    tx_rate_expr = rate_panel["targets"][1]["expr"]
+    for expr in (rx_rate_expr, tx_rate_expr):
+        assert "tracegate_wg_peer_" in expr
+        assert "tracegate_xray_connection_" in expr
+        assert "tracegate_hysteria_connection_" in expr
+        assert "or vector(0)" in expr
+    assert rate_panel["fieldConfig"]["defaults"]["unit"] == "Bps"
+
+    rx_panel = _panel_by_id(dashboard, 5)
+    assert rx_panel["type"] == "stat"
+    assert "increase(" in rx_panel["targets"][0]["expr"]
+    assert rx_panel["fieldConfig"]["defaults"]["unit"] == "bytes"
+
+    tx_panel = _panel_by_id(dashboard, 6)
+    assert tx_panel["type"] == "stat"
+    assert "increase(" in tx_panel["targets"][0]["expr"]
+    assert tx_panel["fieldConfig"]["defaults"]["unit"] == "bytes"
+
+
 def test_operator_dashboard_includes_slo_and_ops_panels() -> None:
     dashboard = _dashboard_operator("prom")
     assert dashboard["uid"] == "tracegate-admin-ops"
