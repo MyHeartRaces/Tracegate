@@ -51,7 +51,7 @@ def test_admin_connection_panels_use_human_readable_labels() -> None:
         assert "sum by (user_handle, connection_marker)" not in expr
 
 
-def test_hysteria_panels_normalize_marker_case_for_join() -> None:
+def test_hysteria_panels_normalize_marker_formats_for_join() -> None:
     user_dashboard = _dashboard_user("prom")
     for panel_id in [13, 14]:
         panel = _panel_by_id(user_dashboard, panel_id)
@@ -59,7 +59,9 @@ def test_hysteria_panels_normalize_marker_case_for_join() -> None:
         assert "on(cm_norm)" in expr
         assert 'label_replace(rate(tracegate_hysteria_connection_' in expr
         assert 'label_replace(tracegate_connection_active{user_pid="${__user.login}", protocol="hysteria2"}' in expr
-        assert '^[Bb]([0-9]+) - ([0-9]+) - (.+)$' in expr
+        assert '"connection_marker", "^(.*)$"' in expr
+        assert '"b${1}_${2}_${3}${4}${5}${6}${7}"' in expr
+        assert '^[Bb]([0-9]+) - ([0-9]+) - ([0-9a-fA-F]{8})-([0-9a-fA-F]{4})-([0-9a-fA-F]{4})-([0-9a-fA-F]{4})-([0-9a-fA-F]{12})$' in expr
 
     admin_dashboard = _dashboard_admin("prom")
     for panel_id in [13, 14]:
@@ -68,7 +70,9 @@ def test_hysteria_panels_normalize_marker_case_for_join() -> None:
         assert "on(cm_norm)" in expr
         assert 'label_replace(rate(tracegate_hysteria_connection_' in expr
         assert 'label_replace(tracegate_connection_active{protocol="hysteria2"}' in expr
-        assert '^[Bb]([0-9]+) - ([0-9]+) - (.+)$' in expr
+        assert '"connection_marker", "^(.*)$"' in expr
+        assert '"b${1}_${2}_${3}${4}${5}${6}${7}"' in expr
+        assert '^[Bb]([0-9]+) - ([0-9]+) - ([0-9a-fA-F]{8})-([0-9a-fA-F]{4})-([0-9a-fA-F]{4})-([0-9a-fA-F]{4})-([0-9a-fA-F]{12})$' in expr
 
 
 def test_user_panels_scope_queries_by_logged_in_user_pid() -> None:
