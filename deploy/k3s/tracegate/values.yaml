@@ -170,6 +170,9 @@ gateway:
   # One external port remains fixed (:443), entry-mux routes by SNI to local Xray ports.
   # Keep this list aligned with static SNI catalog used by the bot/API.
   realityMultiInbound:
+    # When false, group SNI routes to reality_fallback (127.0.0.1:2443).
+    # Enable only if local Xray really exposes all group ports.
+    entryMuxGroupPortRoutingEnabled: false
     groups:
       - id: shared-a
         port: 2501

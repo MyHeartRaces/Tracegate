@@ -1,4 +1,5 @@
 {{- $realityGroups := (.Values.gateway.realityMultiInbound.groups | default (list)) -}}
+{{- $entryMuxGroupPortRoutingEnabled := (.Values.gateway.realityMultiInbound.entryMuxGroupPortRoutingEnabled | default false) -}}
 {{- $transitDecoyHtml := (.Values.gateway.vpsT.decoyHtml | default "<!doctype html><html><head><meta charset=\"utf-8\"><title>Tracegate</title></head><body><h1>It works.</h1></body></html>") -}}
 {{- $entryDecoyHtml := (.Values.gateway.entryDecoyHtml | default $transitDecoyHtml) -}}
 {{- $failoverEnabled := and (.Values.gateway.failover.enabled | default false) .Values.gateway.vpsT.enabled .Values.gateway.vpsE.enabled -}}
@@ -69,7 +70,11 @@ data:
         {{- if and $gid $group.port }}
         {{- $upstream := printf "reality_%s" (regexReplaceAll "[^a-zA-Z0-9_]" (replace "-" "_" (lower $gid)) "_") -}}
         {{- range ($group.snis | default (list)) }}
+        {{- if $entryMuxGroupPortRoutingEnabled }}
         "{{ . }}" {{ $upstream }};
+        {{- else }}
+        "{{ . }}" reality_fallback;
+        {{- end }}
         {{- end }}
         {{- end }}
         {{- end }}
@@ -93,6 +98,7 @@ data:
         server {{ $vpsTPassiveHost }}:443 backup max_fails={{ $failoverMaxFails }} fail_timeout={{ $failoverFailTimeout }}s;
         {{- end }}
       }
+      {{- if $entryMuxGroupPortRoutingEnabled }}
       {{ range $group := $realityGroups }}
       {{ $gid := (toString ($group.id | default "")) }}
       {{ if and $gid $group.port }}
@@ -105,6 +111,7 @@ data:
       }
       {{ end }}
       {{ end }}
+      {{- end }}
 
       upstream ws_tls {
         server 127.0.0.1:4443 max_fails={{ $failoverMaxFails }} fail_timeout={{ $failoverFailTimeout }}s;
@@ -254,7 +261,11 @@ data:
         {{- if and $gid $group.port }}
         {{- $upstream := printf "reality_%s" (regexReplaceAll "[^a-zA-Z0-9_]" (replace "-" "_" (lower $gid)) "_") -}}
         {{- range ($group.snis | default (list)) }}
+        {{- if $entryMuxGroupPortRoutingEnabled }}
         "{{ . }}" {{ $upstream }};
+        {{- else }}
+        "{{ . }}" reality_fallback;
+        {{- end }}
         {{- end }}
         {{- end }}
         {{- end }}
@@ -272,6 +283,7 @@ data:
         server {{ $vpsEPassiveHost }}:443 backup max_fails={{ $failoverMaxFails }} fail_timeout={{ $failoverFailTimeout }}s;
         {{- end }}
       }
+      {{- if $entryMuxGroupPortRoutingEnabled }}
       {{ range $group := $realityGroups }}
       {{ $gid := (toString ($group.id | default "")) }}
       {{ if and $gid $group.port }}
@@ -284,6 +296,7 @@ data:
       }
       {{ end }}
       {{ end }}
+      {{- end }}
 
       upstream ws_tls {
         server 127.0.0.1:4443 max_fails={{ $failoverMaxFails }} fail_timeout={{ $failoverFailTimeout }}s;
