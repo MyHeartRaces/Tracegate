@@ -1,5 +1,4 @@
-from tracegate.bot.keyboards import PROVIDER_CHOICES, vless_transport_keyboard
-from tracegate.bot.keyboards import main_menu_keyboard
+from tracegate.bot.keyboards import PROVIDER_CHOICES, device_actions_keyboard, main_menu_keyboard, vless_transport_keyboard
 
 
 def _button_texts(keyboard) -> list[str]:
@@ -35,3 +34,20 @@ def test_main_menu_does_not_include_sni_catalog_button() -> None:
     kb = main_menu_keyboard(is_admin=False)
     texts = _button_texts(kb)
     assert "Каталог SNI" not in texts
+
+
+def test_main_menu_uses_grafana_button_caption() -> None:
+    kb = main_menu_keyboard(is_admin=False)
+    texts = _button_texts(kb)
+    assert "Grafana" in texts
+    assert "Статистика (Grafana)" not in texts
+
+
+def test_device_actions_keyboard_uses_new_profile_names() -> None:
+    kb = device_actions_keyboard("dev-42")
+    texts = _button_texts(kb)
+    assert "B1 - VLESS Direct" in texts
+    assert "B2 - VLESS Chain" in texts
+    assert "B3 - Hysteria Direct" in texts
+    assert "B4 - Hysteria Chain" in texts
+    assert "B5 - WireGuard" in texts

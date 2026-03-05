@@ -103,6 +103,9 @@ def _msg_error(error: object) -> str:
     return _emoji_text("🔴", f"Ошибка: {text}")
 
 
+BLOCK_HOURS_HINT = f"Hours: from 1 to {MAX_TIMED_BOT_BLOCK_HOURS}, {PERMANENT_BOT_BLOCK_HOURS}=permanent"
+
+
 def _format_block_until_label(until: datetime | None) -> str:
     if until is None:
         return "не определено"
@@ -269,7 +272,7 @@ def _connection_family_name(protocol: str, mode: str) -> str:
     if p == ConnectionProtocol.VLESS_WS_TLS.value:
         return "VLESS TLS Chain" if m == ConnectionMode.CHAIN.value else "VLESS TLS Direct"
     if p == ConnectionProtocol.HYSTERIA2.value:
-        return "Hysteria2"
+        return "Hysteria Chain" if m == ConnectionMode.CHAIN.value else "Hysteria Direct"
     if p == ConnectionProtocol.WIREGUARD.value:
         return "WireGuard"
     return f"{protocol}/{mode}"
@@ -549,7 +552,7 @@ async def announce(message: Message, state: FSMContext) -> None:
         await message.answer(_msg_warn("Недостаточно прав"))
         return
     await state.set_state(AdminFlow.waiting_for_announce_text)
-    await message.answer(_msg_prompt("Введи сообщение для рассылки всем пользователям.\n/cancel для отмены."))
+    await message.answer(_msg_prompt("Введите сообщение для рассылки всем пользователям.\n/cancel для отмены."))
 
 
 @router.message(AdminFlow.waiting_for_announce_text)
@@ -614,7 +617,7 @@ async def admin_menu(callback: CallbackQuery, state: FSMContext) -> None:
         await callback.answer(_msg_warn("Недостаточно прав"))
         return
     await callback.message.edit_text(
-        "🛠️ Админ меню",
+        "🛠️ Админ-меню",
         reply_markup=admin_menu_keyboard(is_superadmin=is_superadmin(user)),
     )
     await callback.answer()
@@ -630,12 +633,12 @@ async def admin_reset_connections(callback: CallbackQuery, state: FSMContext) ->
 
     kb = InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="Подтвердить reset", callback_data="admin_reset_connections_confirm")],
+            [InlineKeyboardButton(text="Подтвердить сброс", callback_data="admin_reset_connections_confirm")],
             [InlineKeyboardButton(text="Отмена", callback_data="admin_menu")],
         ]
     )
     await callback.message.answer(
-        _msg_warn("Reset connections отзовет все активные подключения у всех пользователей.\n\nПодтвердить действие?"),
+        _msg_warn("Сброс подключений отзовет все активные подключения у всех пользователей.\n\nПодтвердите действие?"),
         reply_markup=kb,
     )
     await callback.answer()
@@ -692,10 +695,10 @@ async def grafana_otp_admin(callback: CallbackQuery) -> None:
 async def admin_grant(callback: CallbackQuery, state: FSMContext) -> None:
     user = await ensure_user(callback.from_user.id)
     if not is_superadmin(user):
-        await callback.answer(_msg_warn("Только superadmin"))
+        await callback.answer(_msg_warn("Только для superadmin."))
         return
     await state.set_state(AdminFlow.waiting_for_grant_id)
-    await callback.message.answer(_msg_prompt("Введи Telegram ID пользователя, которому выдать роль admin:"))
+    await callback.message.answer(_msg_prompt("Введите Telegram ID пользователя, которому нужно выдать роль admin:"))
     await callback.answer()
 
 
@@ -703,10 +706,10 @@ async def admin_grant(callback: CallbackQuery, state: FSMContext) -> None:
 async def admin_revoke(callback: CallbackQuery, state: FSMContext) -> None:
     user = await ensure_user(callback.from_user.id)
     if not is_superadmin(user):
-        await callback.answer(_msg_warn("Только superadmin"))
+        await callback.answer(_msg_warn("Только для superadmin."))
         return
     await state.set_state(AdminFlow.waiting_for_revoke_id)
-    await callback.message.answer(_msg_prompt("Введи Telegram ID пользователя, у которого снять роль admin:"))
+    await callback.message.answer(_msg_prompt("Введите Telegram ID пользователя, у которого нужно снять роль admin:"))
     await callback.answer()
 
 
@@ -714,7 +717,7 @@ async def admin_revoke(callback: CallbackQuery, state: FSMContext) -> None:
 async def admin_list(callback: CallbackQuery) -> None:
     user = await ensure_user(callback.from_user.id)
     if not is_superadmin(user):
-        await callback.answer(_msg_warn("Только superadmin"))
+        await callback.answer(_msg_warn("Только для superadmin."))
         return
     try:
         admins = await api.list_users(role="admin", limit=500)
@@ -765,8 +768,8 @@ async def admin_user_block(callback: CallbackQuery, state: FSMContext) -> None:
     await state.set_state(AdminFlow.waiting_for_user_block)
     await callback.message.answer(
         _msg_prompt(
-            "Введи: <telegram_id> <hours> [reason]\n"
-            f"hours: 1..{MAX_TIMED_BOT_BLOCK_HOURS}, {PERMANENT_BOT_BLOCK_HOURS}=перманентно\n"
+            "Введите: <telegram_id> <hours> [reason]\n"
+            f"{BLOCK_HOURS_HINT}\n"
             "Пример: 123456789 72 abuse"
         )
     )
@@ -780,7 +783,7 @@ async def admin_user_unblock(callback: CallbackQuery, state: FSMContext) -> None
         await callback.answer(_msg_warn("Недостаточно прав"))
         return
     await state.set_state(AdminFlow.waiting_for_user_unblock)
-    await callback.message.answer(_msg_prompt("Введи Telegram ID пользователя для снятия блокировки:"))
+    await callback.message.answer(_msg_prompt("Введите Telegram ID пользователя для снятия блокировки:"))
     await callback.answer()
 
 
@@ -826,8 +829,8 @@ async def receive_user_block(message: Message, state: FSMContext) -> None:
         if len(parts) < 2:
             await message.answer(
                 _msg_warn(
-                    f"Формат: <telegram_id> <hours> [reason], где hours=1..{MAX_TIMED_BOT_BLOCK_HOURS} "
-                    f"или {PERMANENT_BOT_BLOCK_HOURS} для перманентной блокировки."
+                    "Формат: <telegram_id> <hours> [reason]\n"
+                    f"{BLOCK_HOURS_HINT}"
                 )
             )
             return
@@ -982,7 +985,7 @@ async def new_connection(callback: CallbackQuery) -> None:
         protocol, _, _ = _profile(spec)
         if protocol == ConnectionProtocol.VLESS_REALITY:
             await callback.message.edit_text(
-                "🌐 Выбери провайдера (для фильтра SNI):",
+                "🌐 Выберите провайдера (для фильтра SNI):",
                 reply_markup=provider_keyboard_with_cancel(
                     "new",
                     f"{spec}:{device_id}",
@@ -1018,14 +1021,14 @@ async def vless_new(callback: CallbackQuery) -> None:
     # vlessnew:<spec>:<device_id> where spec is "b1" (direct) or "b2" (chain)
     _, spec, device_id = callback.data.split(":", 2)
     if spec not in {"b1", "b2"}:
-        await callback.message.answer(_msg_error("неизвестный профиль VLESS"))
+        await callback.message.answer(_msg_error("Неизвестный профиль VLESS."))
         await callback.answer()
         return
 
     if spec == "b2":
         # Chain profile supports only Reality transport in current architecture.
         await callback.message.edit_text(
-            "🛡️ B2 - VLESS Chain\n\nReality выбран автоматически.\n\nВыбери провайдера (для фильтра SNI):",
+            "🛡️ B2 - VLESS Chain\n\nReality выбран автоматически.\n\nВыберите провайдера (для фильтра SNI):",
             reply_markup=provider_keyboard_with_cancel(
                 "new",
                 f"{spec}:{device_id}",
@@ -1036,7 +1039,7 @@ async def vless_new(callback: CallbackQuery) -> None:
         return
 
     await callback.message.edit_text(
-        "🔌 B1 - VLESS Direct\n\nВыбери транспорт подключения:",
+        "🔌 B1 - VLESS Direct\n\nВыберите транспорт подключения:",
         reply_markup=vless_transport_keyboard(spec=spec, device_id=device_id),
     )
     await callback.answer()
@@ -1048,7 +1051,7 @@ async def vless_transport(callback: CallbackQuery) -> None:
     _, spec, device_id, transport = callback.data.split(":", 3)
     transport = (transport or "").strip().lower()
     if spec not in {"b1", "b2"}:
-        await callback.message.answer(_msg_error("неизвестный профиль VLESS"))
+        await callback.message.answer(_msg_error("Неизвестный профиль VLESS."))
         await callback.answer()
         return
 
@@ -1059,7 +1062,7 @@ async def vless_transport(callback: CallbackQuery) -> None:
 
         if transport == "reality":
             await callback.message.edit_text(
-                "🌐 Выбери провайдера (для фильтра SNI):",
+                "🌐 Выберите провайдера (для фильтра SNI):",
                 reply_markup=provider_keyboard_with_cancel(
                     "new",
                     f"{spec}:{device_id}",
@@ -1153,9 +1156,9 @@ async def _render_sni_picker_new(*, spec: str, device_id: str, provider: str, pa
     page_rows = sni_rows[start:end]
 
     text = (
-        "🌐 Выбор SNI для VLESS/REALITY\n\n"
-        f"provider={provider} | page={page+1}/{page_count} | total={total}\n\n"
-        "Выбери домен из списка:"
+        "🌐 Выбор SNI для VLESS/Reality\n\n"
+        f"Провайдер: {provider} | Страница: {page+1}/{page_count} | Всего: {total}\n\n"
+        "Выберите домен из списка:"
     )
     keyboard = sni_page_keyboard_new(
         spec=spec,
@@ -1192,8 +1195,8 @@ async def _render_sni_picker_issue(*, connection_id: str, provider: str, page: i
 
     text = (
         "🧩 Выбор SNI для новой ревизии\n\n"
-        f"provider={provider} | page={page+1}/{page_count} | total={total}\n\n"
-        "Выбери домен из списка:"
+        f"Провайдер: {provider} | Страница: {page+1}/{page_count} | Всего: {total}\n\n"
+        "Выберите домен из списка:"
     )
     keyboard = sni_page_keyboard_issue(
         connection_id=connection_id,
@@ -1235,7 +1238,7 @@ async def _render_sni_catalog(
     end = start + page_size
     page_rows = rows[start:end]
 
-    header = f"📚 Каталог SNI (provider={provider}, {page+1}/{page_count}, total={total})"
+    header = f"📚 Каталог SNI (провайдер: {provider}, страница: {page+1}/{page_count}, всего: {total})"
     if q:
         header += f"\nПоиск: {query.strip()}"
     lines: list[str] = [header]
@@ -1252,8 +1255,8 @@ async def _render_sni_catalog(
                 lines.append(f"{idx}. {fqdn}")
 
     lines.append("")
-    lines.append("✍️ Напиши номер из списка, чтобы выбрать SNI.")
-    lines.append("🔎 Или напиши часть домена для поиска (например: splitter, vk.com).")
+    lines.append("✍️ Введите номер из списка, чтобы выбрать SNI.")
+    lines.append("🔎 Или введите часть домена для поиска (например: splitter, vk.com).")
 
     text = "\n".join(lines)
     keyboard = sni_catalog_pick_keyboard(
@@ -1271,7 +1274,7 @@ async def pick_provider(callback: CallbackQuery, state: FSMContext) -> None:
     # target_id may itself contain ":" (e.g. "b1:<device_id>") so we can't use a fixed maxsplit.
     parts = callback.data.split(":")
     if len(parts) < 4:
-        await callback.message.answer(_msg_error("некорректные данные кнопки"))
+        await callback.message.answer(_msg_error("Некорректные данные кнопки."))
         await callback.answer()
         return
 
@@ -1307,7 +1310,7 @@ async def pick_provider(callback: CallbackQuery, state: FSMContext) -> None:
             )
             await callback.message.edit_text(text, reply_markup=keyboard)
         else:
-            await callback.message.answer(_msg_error("неизвестный контекст выбора провайдера"))
+            await callback.message.answer(_msg_error("Неизвестный контекст выбора провайдера."))
     except Exception as exc:  # noqa: BLE001
         await callback.message.answer(_msg_error(exc))
 
@@ -1442,7 +1445,7 @@ async def sni_catalog_input(message: Message, state: FSMContext) -> None:
     if text_in.isdigit():
         n = int(text_in)
         if n < 1 or n > len(page_rows):
-            await message.answer(_msg_warn(f"Неверный номер. Введи число от 1 до {len(page_rows)}."))
+            await message.answer(_msg_warn(f"Неверный номер. Введите число от 1 до {len(page_rows)}."))
             return
 
         chosen = page_rows[n - 1]
@@ -1522,7 +1525,7 @@ async def sni_catalog_new_pick_device(callback: CallbackQuery) -> None:
     # catnewpick:<b1|b2>:<sni_id>:<provider>:<page>
     parts = callback.data.split(":")
     if len(parts) != 5:
-        await callback.message.answer(_msg_error("некорректные данные кнопки"))
+        await callback.message.answer(_msg_error("Некорректные данные кнопки."))
         await callback.answer()
         return
     _, spec, sni_id_raw, provider, page_raw = parts
@@ -1532,11 +1535,14 @@ async def sni_catalog_new_pick_device(callback: CallbackQuery) -> None:
         user = await ensure_user(callback.from_user.id)
         devices = await api.list_devices(user["telegram_id"])
         if not devices:
-            await callback.message.edit_text(_msg_info("Нет устройств. Сначала добавь устройство."), reply_markup=main_menu_keyboard())
+            await callback.message.edit_text(
+                _msg_info("Нет устройств. Сначала добавьте устройство."),
+                reply_markup=main_menu_keyboard(),
+            )
             await callback.answer()
             return
         await callback.message.edit_text(
-            "📱 Выбери устройство для нового VLESS подключения:",
+            "📱 Выберите устройство для нового VLESS-подключения:",
             reply_markup=sni_catalog_device_pick_keyboard(
                 spec=spec,
                 sni_id=sni_id,
@@ -1604,14 +1610,14 @@ async def sni_catalog_issue_pick_connection(callback: CallbackQuery) -> None:
 
         if not vless_connections:
             await callback.message.edit_text(
-                _msg_info("У тебя нет VLESS подключений, куда можно выпустить ревизию."),
+                _msg_info("Нет VLESS-подключений, для которых можно выпустить ревизию."),
                 reply_markup=sni_catalog_action_keyboard(sni_id=sni_id, provider=provider, page=page),
             )
             await callback.answer()
             return
 
         await callback.message.edit_text(
-            "🧩 Выбери VLESS подключение для новой ревизии\n\nSNI будет применен к новой ревизии.",
+            "🧩 Выберите VLESS-подключение для новой ревизии\n\nSNI будет применен к новой ревизии.",
             reply_markup=sni_catalog_connection_pick_keyboard(
                 sni_id=sni_id,
                 vless_connections=vless_connections,
@@ -1678,7 +1684,7 @@ async def show_current_revision_config(callback: CallbackQuery) -> None:
 async def issue_pick_sni(callback: CallbackQuery) -> None:
     _, connection_id = callback.data.split(":", 1)
     await callback.message.edit_text(
-        "🌐 Выбери провайдера (для фильтра SNI):",
+        "🌐 Выберите провайдера (для фильтра SNI):",
         reply_markup=provider_keyboard_with_cancel("issue", connection_id, cancel_callback_data=f"revs:{connection_id}"),
     )
     await callback.answer()

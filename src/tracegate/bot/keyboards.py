@@ -19,7 +19,7 @@ def main_menu_keyboard(*, is_admin: bool = False) -> InlineKeyboardMarkup:
     rows = [
         [InlineKeyboardButton(text="Устройства", callback_data="devices")],
         [InlineKeyboardButton(text="Добавить устройство", callback_data="add_device")],
-        [InlineKeyboardButton(text="Статистика (Grafana)", callback_data="grafana_otp")],
+        [InlineKeyboardButton(text="Grafana", callback_data="grafana_otp")],
     ]
     if is_admin:
         rows.append([InlineKeyboardButton(text="Админ", callback_data="admin_menu")])
@@ -68,16 +68,16 @@ def device_actions_keyboard(device_id: str, connections: list[dict] | None = Non
         if protocol == ConnectionProtocol.VLESS_WS_TLS.value:
             return "VLESS TLS Chain" if mode == ConnectionMode.CHAIN.value else "VLESS TLS Direct"
         if protocol == ConnectionProtocol.HYSTERIA2.value:
-            return "Hysteria2 Chain" if mode == ConnectionMode.CHAIN.value else "Hysteria2"
+            return "Hysteria Chain" if mode == ConnectionMode.CHAIN.value else "Hysteria Direct"
         if protocol == ConnectionProtocol.WIREGUARD.value:
             return "WireGuard"
         return f"{conn.get('variant')} ({conn.get('protocol')})"
 
     rows = [
         [InlineKeyboardButton(text="B1 - VLESS Direct", callback_data=f"vlessnew:b1:{device_id}")],
-        [InlineKeyboardButton(text="B2 - VLESS Chain (через VPS-E)", callback_data=f"vlessnew:b2:{device_id}")],
-        [InlineKeyboardButton(text="B3 - Hysteria2 (UDP/QUIC)", callback_data=f"new:b3:{device_id}")],
-        [InlineKeyboardButton(text="B4 - Hysteria2 Chain (backup)", callback_data=f"new:b4:{device_id}")],
+        [InlineKeyboardButton(text="B2 - VLESS Chain", callback_data=f"vlessnew:b2:{device_id}")],
+        [InlineKeyboardButton(text="B3 - Hysteria Direct", callback_data=f"new:b3:{device_id}")],
+        [InlineKeyboardButton(text="B4 - Hysteria Chain", callback_data=f"new:b4:{device_id}")],
         [InlineKeyboardButton(text="B5 - WireGuard", callback_data=f"new:b5:{device_id}")],
     ]
     for connection in connections or []:
