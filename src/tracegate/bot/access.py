@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
+from tracegate.services.bot_blocks import is_permanent_bot_block_until
+
 
 def parse_api_datetime(raw: object) -> datetime | None:
     if raw is None:
@@ -33,7 +35,10 @@ def blocked_message(user: dict) -> str:
     until = bot_block_until(user)
     if until is None:
         return "Доступ временно ограничен."
-    text = f"Доступ к боту временно ограничен до {until.isoformat()}."
+    if is_permanent_bot_block_until(until):
+        text = "Доступ к боту перманентно ограничен."
+    else:
+        text = f"Доступ к боту временно ограничен до {until.isoformat()}."
     reason = (user.get("bot_block_reason") or "").strip()
     if reason:
         text += f"\nПричина: {reason}"

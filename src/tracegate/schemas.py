@@ -19,6 +19,7 @@ from tracegate.enums import (
     RecordStatus,
     UserRole,
 )
+from tracegate.services.bot_blocks import PERMANENT_BOT_BLOCK_HOURS
 
 
 class HealthResponse(BaseModel):
@@ -83,7 +84,7 @@ class UserProfileUpdate(BaseModel):
 
 
 class UserBotBlockUpdate(BaseModel):
-    hours: int = Field(ge=1, le=24 * 365)
+    hours: int = Field(ge=1, le=PERMANENT_BOT_BLOCK_HOURS)
     reason: str | None = Field(default=None, max_length=255)
     revoke_access: bool = True
 

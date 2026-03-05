@@ -50,6 +50,12 @@ from tracegate.bot.keyboards import (
 from tracegate.client_export.v2rayn import V2RayNExportError, export_client_config
 from tracegate.enums import ConnectionMode, ConnectionProtocol, ConnectionVariant
 from tracegate.observability import configure_logging
+from tracegate.services.bot_blocks import (
+    MAX_TIMED_BOT_BLOCK_HOURS,
+    PERMANENT_BOT_BLOCK_HOURS,
+    is_permanent_bot_block_hours,
+    is_permanent_bot_block_until,
+)
 from tracegate.settings import get_settings
 
 settings = get_settings()
@@ -95,6 +101,37 @@ def _msg_error(error: object) -> str:
     if lower.startswith("ошибка:"):
         text = text.split(":", 1)[1].strip() or "Неизвестная ошибка"
     return _emoji_text("🔴", f"Ошибка: {text}")
+
+
+def _format_block_until_label(until: datetime | None) -> str:
+    if until is None:
+        return "не определено"
+    if is_permanent_bot_block_until(until):
+        return "перманентно"
+    return until.isoformat()
+
+
+def _format_block_duration_label(hours: int) -> str:
+    if is_permanent_bot_block_hours(hours):
+        return "перманентно"
+    return f"{int(hours)} ч."
+
+
+def _build_block_notification_text(
+    *,
+    blocked_at: datetime,
+    hours: int,
+    until: datetime | None,
+    reason: str | None,
+) -> str:
+    reason_text = (reason or "").strip() or "не указана"
+    return (
+        "Ваш доступ к боту заблокирован администратором.\n"
+        f"Когда: {blocked_at.isoformat()}\n"
+        f"На сколько: {_format_block_duration_label(hours)}\n"
+        f"До: {_format_block_until_label(until)}\n"
+        f"Причина: {reason_text}"
+    )
 
 
 def _format_devices_text(devices: list[dict]) -> str:
@@ -695,7 +732,12 @@ async def admin_users(callback: CallbackQuery) -> None:
         for idx, user in enumerate(users[:max_rows], start=1):
             role = (user.get("role") or "").strip()
             until = bot_block_until(user)
-            block_suffix = f" [BLOCK до {until.isoformat()}]" if until and until > datetime.now(timezone.utc) else ""
+            block_suffix = ""
+            if until and until > datetime.now(timezone.utc):
+                if is_permanent_bot_block_until(until):
+                    block_suffix = " [BLOCK перманентно]"
+                else:
+                    block_suffix = f" [BLOCK до {until.isoformat()}]"
             lines.append(f"{idx}. {user_label(user)} | role={role}{block_suffix}")
         if len(users) > max_rows:
             lines.append("")
@@ -716,6 +758,7 @@ async def admin_user_block(callback: CallbackQuery, state: FSMContext) -> None:
     await callback.message.answer(
         _msg_prompt(
             "Введи: <telegram_id> <hours> [reason]\n"
+            f"hours: 1..{MAX_TIMED_BOT_BLOCK_HOURS}, {PERMANENT_BOT_BLOCK_HOURS}=перманентно\n"
             "Пример: 123456789 72 abuse"
         )
     )
@@ -773,7 +816,12 @@ async def receive_user_block(message: Message, state: FSMContext) -> None:
 
         parts = (message.text or "").strip().split(maxsplit=2)
         if len(parts) < 2:
-            await message.answer(_msg_warn("Формат: <telegram_id> <hours> [reason]"))
+            await message.answer(
+                _msg_warn(
+                    f"Формат: <telegram_id> <hours> [reason], где hours=1..{MAX_TIMED_BOT_BLOCK_HOURS} "
+                    f"или {PERMANENT_BOT_BLOCK_HOURS} для перманентной блокировки."
+                )
+            )
             return
         target_id = int(parts[0])
         hours = int(parts[1])
@@ -785,9 +833,25 @@ async def receive_user_block(message: Message, state: FSMContext) -> None:
             return
 
         blocked = await api.block_user_bot(target_id, hours=hours, reason=reason, revoke_access=True)
+        until = bot_block_until(blocked)
+        reason_from_api = (blocked.get("bot_block_reason") or "").strip() or reason
         await message.answer(
-            _msg_ok(f"Готово: {user_label(target)} заблокирован до {blocked.get('bot_blocked_until')}.")
+            _msg_ok(f"Готово: {user_label(target)} заблокирован ({_format_block_until_label(until)}).")
         )
+        try:
+            await message.bot.send_message(
+                chat_id=target_id,
+                text=_msg_warn(
+                    _build_block_notification_text(
+                        blocked_at=datetime.now(timezone.utc),
+                        hours=hours,
+                        until=until,
+                        reason=reason_from_api,
+                    )
+                ),
+            )
+        except (TelegramBadRequest, TelegramForbiddenError):
+            await message.answer(_msg_warn("Пользователь заблокирован, но уведомление отправить не удалось."))
     except Exception as exc:  # noqa: BLE001
         await message.answer(_msg_error(exc))
     finally:
