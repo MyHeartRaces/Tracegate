@@ -60,6 +60,7 @@ async def list_users(
     session: AsyncSession = Depends(db_session),
 ) -> list[UserRead]:
     settings = get_settings()
+    now = datetime.now(timezone.utc)
     effective_prune_empty = settings.users_auto_prune_empty if prune_empty is None else bool(prune_empty)
     user_without_artifacts = user_without_artifacts_predicate()
     user_without_connections = user_without_connections_predicate()
@@ -71,6 +72,7 @@ async def list_users(
             delete(User).where(
                 User.role == UserRole.USER,
                 user_without_artifacts,
+                or_(User.bot_blocked_until.is_(None), User.bot_blocked_until <= now),
             )
         )
         changed = int(delete_result.rowcount or 0) > 0
@@ -87,7 +89,6 @@ async def list_users(
             q = q.where(~user_without_connections)
 
     rows = (await session.execute(q)).scalars().all()
-    now = datetime.now(timezone.utc)
     for user in rows:
         changed = _clear_expired_bot_block(user, now) or changed
     if changed:

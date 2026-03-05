@@ -12,6 +12,8 @@ def test_user_without_artifacts_predicate_uses_device_and_connection_existence()
     assert "NOT (EXISTS" in sql
     assert "FROM device" in sql
     assert "FROM connection" in sql
+    assert "device.status = 'ACTIVE'" in sql
+    assert "connection.status = 'ACTIVE'" in sql
 
 
 def test_user_without_connections_predicate_uses_connection_existence() -> None:
@@ -20,3 +22,4 @@ def test_user_without_connections_predicate_uses_connection_existence() -> None:
 
     assert "NOT (EXISTS" in sql
     assert "FROM connection" in sql
+    assert "connection.status = 'ACTIVE'" in sql

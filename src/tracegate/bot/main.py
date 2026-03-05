@@ -736,23 +736,51 @@ async def admin_users(callback: CallbackQuery) -> None:
         await callback.answer(_msg_warn("Недостаточно прав"))
         return
     try:
-        users = await api.list_users(limit=300)
-        users.sort(key=lambda row: (str(row.get("role") or ""), int(row.get("telegram_id") or 0)))
-        lines = ["👥 Пользователи (до 300):"]
         max_rows = 80
-        for idx, user in enumerate(users[:max_rows], start=1):
+        now = datetime.now(timezone.utc)
+        users = await api.list_users(limit=300)
+        blocked_users = await api.list_users(
+            limit=300,
+            blocked_only=True,
+            include_empty=True,
+            prune_empty=False,
+        )
+
+        active_blocked_users: list[dict] = []
+        for row in blocked_users:
+            until = bot_block_until(row)
+            if until is not None and until > now:
+                active_blocked_users.append(row)
+        blocked_ids = {int(row.get("telegram_id") or 0) for row in active_blocked_users}
+
+        regular_users = [
+            row
+            for row in users
+            if int(row.get("telegram_id") or 0) not in blocked_ids
+        ]
+
+        regular_users.sort(key=lambda row: (str(row.get("role") or ""), int(row.get("telegram_id") or 0)))
+        active_blocked_users.sort(key=lambda row: int(row.get("telegram_id") or 0))
+
+        lines = ["👥 Пользователи (с активными подключениями):"]
+        if not regular_users:
+            lines.append("Нет пользователей с активными подключениями.")
+        for idx, user in enumerate(regular_users[:max_rows], start=1):
+            role = (user.get("role") or "").strip()
+            lines.append(f"{idx}. {user_label(user)} | role={role}")
+        if len(regular_users) > max_rows:
+            lines.append(f"Показано {max_rows} из {len(regular_users)}.")
+
+        lines.extend(["", "⛔ Заблокированные пользователи:"])
+        if not active_blocked_users:
+            lines.append("Нет активных блокировок.")
+        for idx, user in enumerate(active_blocked_users[:max_rows], start=1):
             role = (user.get("role") or "").strip()
             until = bot_block_until(user)
-            block_suffix = ""
-            if until and until > datetime.now(timezone.utc):
-                if is_permanent_bot_block_until(until):
-                    block_suffix = " [BLOCK перманентно]"
-                else:
-                    block_suffix = f" [BLOCK до {until.isoformat()}]"
-            lines.append(f"{idx}. {user_label(user)} | role={role}{block_suffix}")
-        if len(users) > max_rows:
-            lines.append("")
-            lines.append(f"Показано {max_rows} из {len(users)}.")
+            lines.append(f"{idx}. {user_label(user)} | role={role} | BLOCK {_format_block_until_label(until)}")
+        if len(active_blocked_users) > max_rows:
+            lines.append(f"Показано {max_rows} из {len(active_blocked_users)}.")
+
         await callback.message.answer("\n".join(lines))
     except ApiClientError as exc:
         await callback.message.answer(_msg_error(exc))
