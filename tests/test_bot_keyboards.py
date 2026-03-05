@@ -1,4 +1,5 @@
 from tracegate.bot.keyboards import PROVIDER_CHOICES, vless_transport_keyboard
+from tracegate.bot.keyboards import main_menu_keyboard
 
 
 def _button_texts(keyboard) -> list[str]:
@@ -28,3 +29,9 @@ def test_provider_choices_exclude_beeline_and_other() -> None:
     provider_codes = {code for _, code in PROVIDER_CHOICES}
     assert "beeline" not in provider_codes
     assert "other" not in provider_codes
+
+
+def test_main_menu_does_not_include_sni_catalog_button() -> None:
+    kb = main_menu_keyboard(is_admin=False)
+    texts = _button_texts(kb)
+    assert "Каталог SNI" not in texts

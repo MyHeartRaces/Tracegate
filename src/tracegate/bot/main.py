@@ -134,6 +134,14 @@ def _build_block_notification_text(
     )
 
 
+def _build_unblock_notification_text(*, unblocked_at: datetime) -> str:
+    return (
+        "Блокировка вашего доступа к боту снята администратором.\n"
+        f"Когда: {unblocked_at.isoformat()}\n"
+        "Доступ восстановлен."
+    )
+
+
 def _format_devices_text(devices: list[dict]) -> str:
     header = "📱 Устройства"
     if not devices:
@@ -874,6 +882,13 @@ async def receive_user_unblock(message: Message, state: FSMContext) -> None:
 
         await api.unblock_user_bot(target_id)
         await message.answer(_msg_ok(f"Готово: блокировка снята для {user_label(target)}."))
+        try:
+            await message.bot.send_message(
+                chat_id=target_id,
+                text=_msg_ok(_build_unblock_notification_text(unblocked_at=datetime.now(timezone.utc))),
+            )
+        except (TelegramBadRequest, TelegramForbiddenError):
+            await message.answer(_msg_warn("Блокировка снята, но уведомление отправить не удалось."))
     except Exception as exc:  # noqa: BLE001
         await message.answer(_msg_error(exc))
     finally:
@@ -1338,11 +1353,16 @@ async def sni_page(callback: CallbackQuery) -> None:
 @router.callback_query(F.data == "sni_catalog")
 async def sni_catalog(callback: CallbackQuery, state: FSMContext) -> None:
     await state.clear()
+    user = await ensure_user(callback.from_user.id)
+    devices = await api.list_devices(user["telegram_id"])
     await callback.message.edit_text(
-        "📚 Каталог SNI\n\nВыбери провайдера (для фильтра):",
-        reply_markup=provider_keyboard_with_cancel("catalog", "catalog", cancel_callback_data="menu"),
+        _format_devices_text(devices),
+        reply_markup=devices_keyboard(devices),
     )
-    await callback.answer()
+    await callback.answer(
+        _msg_info("Каталог SNI доступен только при создании Reality-подключения."),
+        show_alert=True,
+    )
 
 
 @router.callback_query(F.data == "catreset")

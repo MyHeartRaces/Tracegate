@@ -19,7 +19,6 @@ def main_menu_keyboard(*, is_admin: bool = False) -> InlineKeyboardMarkup:
     rows = [
         [InlineKeyboardButton(text="Устройства", callback_data="devices")],
         [InlineKeyboardButton(text="Добавить устройство", callback_data="add_device")],
-        [InlineKeyboardButton(text="Каталог SNI", callback_data="sni_catalog")],
         [InlineKeyboardButton(text="Статистика (Grafana)", callback_data="grafana_otp")],
     ]
     if is_admin:
