@@ -802,6 +802,11 @@ gateway:
       # Optional extra SNI hostnames that should be treated as VLESS+WS+TLS.
       # `proxyFqdn` is included automatically (if set).
       wsSniHosts: []
+      # Optional override for REALITY grouped SNI upstreams on VPS-E. When set,
+      # entry-mux forwards grouped REALITY traffic to this remote host:port
+      # instead of local Xray ports (2501+). Prefer a literal IP here for nginx stream upstreams.
+      realityGroupUpstreamHost: ""
+      realityGroupUpstreamPort: 443
 
     # TLS certificate used to terminate VLESS+WS+TLS on VPS-E (chain mode / splitter).
     # Leave empty to generate and persist a self-signed cert in a k8s Secret.

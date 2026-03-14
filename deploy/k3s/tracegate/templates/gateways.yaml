@@ -1,3 +1,5 @@
+{{- $configmapsChecksum := include (print $.Template.BasePath "/configmaps.yaml") . | sha256sum -}}
+{{- $secretsChecksum := include (print $.Template.BasePath "/secrets.yaml") . | sha256sum -}}
 {{- if and .Values.gateway.enabled .Values.gateway.vpsT.enabled }}
 {{- if .Values.gateway.vpsT.agent.enabled }}
 apiVersion: v1
@@ -42,6 +44,9 @@ spec:
       labels:
         {{- include "tracegate.labels" . | nindent 8 }}
         app.kubernetes.io/component: gateway-vps-t
+      annotations:
+        checksum/configmaps: {{ $configmapsChecksum | quote }}
+        checksum/secrets: {{ $secretsChecksum | quote }}
     spec:
       hostNetwork: {{ .Values.gateway.vpsT.hostNetwork }}
       dnsPolicy: ClusterFirstWithHostNet
@@ -345,6 +350,9 @@ spec:
       labels:
         {{- include "tracegate.labels" . | nindent 8 }}
         app.kubernetes.io/component: gateway-vps-e
+      annotations:
+        checksum/configmaps: {{ $configmapsChecksum | quote }}
+        checksum/secrets: {{ $secretsChecksum | quote }}
     spec:
       hostNetwork: {{ .Values.gateway.vpsE.hostNetwork }}
       dnsPolicy: ClusterFirstWithHostNet

@@ -84,6 +84,11 @@ gateway:
       pullPolicy: IfNotPresent
       workerConnections: 8192
       wsSniHosts: []
+      # Optional override for REALITY grouped SNI upstreams on VPS-E. When set,
+      # entry-mux forwards grouped REALITY traffic to this remote host:port
+      # instead of local Xray ports (2501+). Prefer a literal IP here for nginx stream upstreams.
+      realityGroupUpstreamHost: ""
+      realityGroupUpstreamPort: 443
     # TLS certificate used to terminate VLESS+WS+TLS on VPS-T. PEM.
     wsTls:
       crt: ""

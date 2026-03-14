@@ -17,6 +17,9 @@
 {{- if and $failoverEnabled (eq $vpsEPassiveHost "") -}}
 {{- $vpsEPassiveHost = (default .Values.gateway.vpsT.publicIPv4 (default .Values.gateway.vpsT.fqdn .Values.gateway.vpsT.proxyFqdn)) -}}
 {{- end -}}
+{{- $vpsEGroupUpstreamHost := (.Values.gateway.vpsE.entryMux.realityGroupUpstreamHost | default "" | trim) -}}
+{{- $vpsEGroupUpstreamPort := int (.Values.gateway.vpsE.entryMux.realityGroupUpstreamPort | default 443) -}}
+{{- if lt $vpsEGroupUpstreamPort 1 }}{{- $vpsEGroupUpstreamPort = 443 -}}{{- end -}}
 {{- if and .Values.gateway.enabled (or .Values.gateway.vpsT.enabled .Values.gateway.vpsE.enabled) }}
 apiVersion: v1
 kind: ConfigMap
@@ -289,9 +292,15 @@ data:
       {{ if and $gid $group.port }}
       {{ $upstream := printf "reality_%s" (regexReplaceAll "[^a-zA-Z0-9_]" (replace "-" "_" (lower $gid)) "_") }}
       upstream {{ $upstream }} {
+        {{- if $vpsEGroupUpstreamHost }}
+        server {{ $vpsEGroupUpstreamHost }}:{{ $vpsEGroupUpstreamPort }} max_fails={{ $failoverMaxFails }} fail_timeout={{ $failoverFailTimeout }}s;
+        {{- else }}
         server 127.0.0.1:{{ int $group.port }} max_fails={{ $failoverMaxFails }} fail_timeout={{ $failoverFailTimeout }}s;
+        {{- end }}
         {{- if and $failoverEnabled $vpsEPassiveHost }}
+        {{- if or (not $vpsEGroupUpstreamHost) (ne $vpsEPassiveHost $vpsEGroupUpstreamHost) }}
         server {{ $vpsEPassiveHost }}:443 backup max_fails={{ $failoverMaxFails }} fail_timeout={{ $failoverFailTimeout }}s;
+        {{- end }}
         {{- end }}
       }
       {{ end }}
