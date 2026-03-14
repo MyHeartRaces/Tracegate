@@ -151,7 +151,7 @@ gateway:
     # Optional explicit passive upstream hosts. If empty, derived from peer fqdn/publicIPv4.
     vpsTPassiveUpstreamHost: ""
     vpsEPassiveUpstreamHost: ""
-    connectTimeoutSeconds: 1
+    connectTimeoutSeconds: 3
     maxFails: 2
     failTimeoutSeconds: 5
 
