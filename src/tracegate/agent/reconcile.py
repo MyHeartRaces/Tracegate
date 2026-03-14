@@ -697,8 +697,11 @@ def reconcile_xray(settings: Settings) -> bool:
         vnext = settings_block.get("vnext")
         if not isinstance(vnext, list):
             continue
+        transit_host = str(settings.default_vps_t_host or "").strip()
         for hop in vnext:
             if isinstance(hop, dict):
+                if transit_host:
+                    hop["address"] = transit_host
                 hop["port"] = 443
 
     # Only write when there is a real change; otherwise we trigger unnecessary reloads.

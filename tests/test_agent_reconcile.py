@@ -195,6 +195,7 @@ def test_reconcile_vps_e_forces_transit_port_443(tmp_path: Path) -> None:
         agent_data_root=str(tmp_path),
         agent_runtime_mode="kubernetes",
         agent_role="VPS_E",
+        default_vps_t_host="tracegate.su",
     )
 
     _write(
@@ -224,6 +225,7 @@ def test_reconcile_vps_e_forces_transit_port_443(tmp_path: Path) -> None:
     assert changed == ["xray"]
 
     rendered = json.loads((tmp_path / "runtime/xray/config.json").read_text(encoding="utf-8"))
+    assert rendered["outbounds"][0]["settings"]["vnext"][0]["address"] == "tracegate.su"
     assert rendered["outbounds"][0]["settings"]["vnext"][0]["port"] == 443
 
 

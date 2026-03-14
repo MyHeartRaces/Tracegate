@@ -262,6 +262,10 @@ spec:
               value: {{ .Values.gateway.vpsT.agent.wgInterface | quote }}
             - name: AGENT_WG_EXPECTED_PORT
               value: {{ .Values.gateway.vpsT.agent.wgExpectedPort | quote }}
+            - name: DEFAULT_VPS_T_HOST
+              value: {{ .Values.controlPlane.env.defaultVpsTHost | quote }}
+            - name: DEFAULT_VPS_E_HOST
+              value: {{ .Values.controlPlane.env.defaultVpsEHost | quote }}
             - name: REALITY_MULTI_INBOUND_GROUPS
               value: {{ toJson (.Values.gateway.realityMultiInbound.groups | default (list)) | quote }}
             - name: AGENT_RELOAD_XRAY_CMD
@@ -563,6 +567,10 @@ spec:
               value: {{ .Values.gateway.vpsE.agent.wgInterface | quote }}
             - name: AGENT_WG_EXPECTED_PORT
               value: {{ .Values.gateway.vpsE.agent.wgExpectedPort | quote }}
+            - name: DEFAULT_VPS_T_HOST
+              value: {{ .Values.controlPlane.env.defaultVpsTHost | quote }}
+            - name: DEFAULT_VPS_E_HOST
+              value: {{ .Values.controlPlane.env.defaultVpsEHost | quote }}
             - name: REALITY_MULTI_INBOUND_GROUPS
               value: {{ toJson (.Values.gateway.realityMultiInbound.groups | default (list)) | quote }}
             - name: AGENT_RELOAD_XRAY_CMD
