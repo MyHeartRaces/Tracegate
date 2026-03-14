@@ -82,6 +82,7 @@ gateway:
     entryMux:
       image: nginx:1.24-alpine
       pullPolicy: IfNotPresent
+      workerConnections: 8192
       wsSniHosts: []
     # TLS certificate used to terminate VLESS+WS+TLS on VPS-T. PEM.
     wsTls:
@@ -142,7 +143,7 @@ gateway:
       xrayApiTimeoutSeconds: 3
       reloadXrayCmd: sh -lc '(flock -n 9 || exit 0; sleep 1; pkill -HUP xray || true) 9>/tmp/xray-reload.lock'
       # Leave empty unless you verified a non-disruptive reload command for your Hysteria build.
-      reloadHysteriaCmd: ""
+      reloadHysteriaCmd: sh -lc '(flock 9; pkill -TERM -x hysteria || true) 9>/tmp/hysteria-reload.lock'
       reloadWgCmd: wg-quick strip /etc/wireguard/wg0.conf | wg syncconf wg0 /dev/fd/0 || true
 
   vpsE:
@@ -155,6 +156,7 @@ gateway:
     entryMux:
       image: nginx:1.24-alpine
       pullPolicy: IfNotPresent
+      workerConnections: 8192
       wsSniHosts: []
     # TLS certificate used to terminate VLESS+WS+TLS on VPS-E (chain mode / splitter). PEM.
     wsTls:

@@ -10,7 +10,7 @@ from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from tracegate.observability import configure_logging, install_http_observability
 from tracegate.schemas import AgentEventEnvelope, AgentEventResponse, AgentHealthCheckResult, AgentHealthResponse
 from tracegate.security import require_agent_token
-from tracegate.settings import ensure_agent_dirs, get_settings
+from tracegate.settings import effective_hysteria_reload_cmd, ensure_agent_dirs, get_settings
 
 from .metrics import register_agent_metrics
 from .reconcile import reconcile_all
@@ -47,7 +47,7 @@ def _startup_reconcile() -> None:
     if "xray" in changed:
         commands.append(settings.agent_reload_xray_cmd)
     if "hysteria" in changed:
-        commands.append(settings.agent_reload_hysteria_cmd)
+        commands.append(effective_hysteria_reload_cmd(settings))
     if "wireguard" in changed:
         commands.append(settings.agent_reload_wg_cmd)
 

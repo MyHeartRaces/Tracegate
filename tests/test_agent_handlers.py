@@ -4,7 +4,7 @@ import shlex
 import pytest
 
 from tracegate.agent import handlers
-from tracegate.settings import Settings
+from tracegate.settings import DEFAULT_KUBERNETES_HYSTERIA_RELOAD_CMD, Settings
 
 
 def test_run_reload_commands_success(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -35,6 +35,32 @@ def test_run_reload_commands_failure_raises(monkeypatch: pytest.MonkeyPatch) -> 
 
     with pytest.raises(handlers.HandlerError, match="bad-cmd"):
         handlers._run_reload_commands(settings, ["good-cmd", "bad-cmd"])
+
+
+def test_reload_commands_use_kubernetes_hysteria_restart_fallback() -> None:
+    settings = Settings(
+        agent_runtime_mode="kubernetes",
+        agent_reload_xray_cmd="reload-xray",
+        agent_reload_hysteria_cmd="",
+        agent_reload_wg_cmd="reload-wg",
+    )
+
+    cmds = handlers._reload_commands_for_changed(settings, {"hysteria", "xray", "wireguard"})
+
+    assert cmds == ["reload-xray", DEFAULT_KUBERNETES_HYSTERIA_RELOAD_CMD, "reload-wg"]
+
+
+def test_reload_commands_keep_hysteria_empty_outside_kubernetes() -> None:
+    settings = Settings(
+        agent_runtime_mode="systemd",
+        agent_reload_xray_cmd="reload-xray",
+        agent_reload_hysteria_cmd="",
+        agent_reload_wg_cmd="reload-wg",
+    )
+
+    cmds = handlers._reload_commands_for_changed(settings, {"hysteria"})
+
+    assert cmds == [""]
 
 
 def test_handle_apply_bundle_applies_firewall_when_nftables_conf_present(

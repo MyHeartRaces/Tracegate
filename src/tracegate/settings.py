@@ -130,8 +130,8 @@ class Settings(BaseSettings):
     agent_reload_xray_cmd: str = (
         "sh -lc '(flock 9; sleep 1; pkill -HUP xray || true) 9>/tmp/xray-reload.lock'"
     )
-    # Leave disabled by default: some Hysteria v2 builds exit on SIGHUP, which causes pod restarts.
     # Operators can override with a verified safe reload command for their exact image/version.
+    # If left empty in kubernetes mode, the agent falls back to restarting the hysteria process.
     agent_reload_hysteria_cmd: str = ""
     agent_reload_wg_cmd: str = "wg syncconf wg0 /etc/wireguard/wg0.conf"
     agent_server_cert: str | None = None
@@ -183,6 +183,27 @@ class Settings(BaseSettings):
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
     return Settings()
+
+
+DEFAULT_KUBERNETES_HYSTERIA_RELOAD_CMD = (
+    "sh -lc '(flock 9; pkill -TERM -x hysteria || true) 9>/tmp/hysteria-reload.lock'"
+)
+
+
+def effective_hysteria_reload_cmd(settings: Settings) -> str:
+    """
+    Return the reload action for Hysteria.
+
+    In k3s mode, Hysteria v2 does not reliably support live config reloads.
+    If no operator override is configured, restart the server process so the
+    container comes back with the latest runtime config.
+    """
+    configured = str(settings.agent_reload_hysteria_cmd or "").strip()
+    if configured:
+        return configured
+    if str(settings.agent_runtime_mode or "").strip().lower() == "kubernetes":
+        return DEFAULT_KUBERNETES_HYSTERIA_RELOAD_CMD
+    return ""
 
 
 def ensure_agent_dirs(settings: Settings) -> None:

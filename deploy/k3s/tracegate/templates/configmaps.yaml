@@ -59,7 +59,7 @@ data:
     worker_processes  1;
 
     events {
-      worker_connections  1024;
+      worker_connections  {{ int (.Values.gateway.vpsT.entryMux.workerConnections | default 8192) }};
     }
 
     stream {
@@ -250,7 +250,7 @@ data:
     worker_processes  1;
 
     events {
-      worker_connections  1024;
+      worker_connections  {{ int (.Values.gateway.vpsE.entryMux.workerConnections | default 8192) }};
     }
 
     stream {

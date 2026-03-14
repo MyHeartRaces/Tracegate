@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from tracegate.enums import OutboxEventType
-from tracegate.settings import Settings
+from tracegate.settings import Settings, effective_hysteria_reload_cmd
 
 from .system import apply_files, run_command
 from .reconcile import (
@@ -111,7 +111,7 @@ def _run_reload_commands(settings: Settings, commands: list[str]) -> None:
 
 
 def _proxy_reload_commands(settings: Settings) -> list[str]:
-    return [settings.agent_reload_xray_cmd, settings.agent_reload_hysteria_cmd]
+    return [settings.agent_reload_xray_cmd, effective_hysteria_reload_cmd(settings)]
 
 
 def _reload_commands_for_changed(
@@ -124,7 +124,7 @@ def _reload_commands_for_changed(
     if "xray" in changed and (force_xray_reload or not settings.agent_xray_api_enabled):
         cmds.append(settings.agent_reload_xray_cmd)
     if "hysteria" in changed:
-        cmds.append(settings.agent_reload_hysteria_cmd)
+        cmds.append(effective_hysteria_reload_cmd(settings))
     if "wireguard" in changed:
         cmds.append(settings.agent_reload_wg_cmd)
     return cmds
@@ -347,7 +347,7 @@ def handle_revoke_connection(settings: Settings, payload: dict[str, Any]) -> str
         if "xray" in changed and not settings.agent_xray_api_enabled:
             cmds.append(settings.agent_reload_xray_cmd)
         if "hysteria" in changed:
-            cmds.append(settings.agent_reload_hysteria_cmd)
+            cmds.append(effective_hysteria_reload_cmd(settings))
         _run_reload_commands(settings, cmds)
 
     return f"revoked connection artifacts for user={user_id_s} connection={connection_id_s}"
