@@ -124,6 +124,20 @@ spec:
         - name: entry-mux
           image: {{ .Values.gateway.vpsT.entryMux.image | default "nginx:1.24-alpine" }}
           imagePullPolicy: {{ .Values.gateway.vpsT.entryMux.pullPolicy | default "IfNotPresent" }}
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              n=0
+              until nc -z 127.0.0.1 2443 && nc -z 127.0.0.1 10000; do
+                n=$((n+1))
+                if [ "$n" -ge 120 ]; then
+                  echo "entry-mux dependencies are not ready on VPS-T" >&2
+                  exit 1
+                fi
+                sleep 1
+              done
+              exec /docker-entrypoint.sh nginx -g 'daemon off;'
           ports:
             - containerPort: 443
               protocol: TCP
@@ -435,6 +449,20 @@ spec:
         - name: entry-mux
           image: {{ .Values.gateway.vpsE.entryMux.image | default "nginx:1.24-alpine" }}
           imagePullPolicy: {{ .Values.gateway.vpsE.entryMux.pullPolicy | default "IfNotPresent" }}
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              n=0
+              until nc -z 127.0.0.1 2443 && nc -z 127.0.0.1 10000{{- if .Values.gateway.vpsE.b2SplitBackend.enabled }} && nc -z 127.0.0.1 2501{{- end }}; do
+                n=$((n+1))
+                if [ "$n" -ge 120 ]; then
+                  echo "entry-mux dependencies are not ready on VPS-E" >&2
+                  exit 1
+                fi
+                sleep 1
+              done
+              exec /docker-entrypoint.sh nginx -g 'daemon off;'
           ports:
             - containerPort: 443
               protocol: TCP

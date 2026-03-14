@@ -1,4 +1,5 @@
 {{- if .Values.observability.enabled }}
+{{- $secretsChecksum := include (print $.Template.BasePath "/secrets.yaml") . | sha256sum -}}
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -262,6 +263,8 @@ spec:
         {{- include "tracegate.labels" . | nindent 8 }}
         app.kubernetes.io/component: observability
         app.kubernetes.io/name: grafana
+      annotations:
+        checksum/secrets: {{ $secretsChecksum | quote }}
     spec:
       volumes:
         - name: data
