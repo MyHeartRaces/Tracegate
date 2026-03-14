@@ -124,6 +124,9 @@ class Settings(BaseSettings):
     agent_xray_api_enabled: bool = False
     agent_xray_api_server: str = "127.0.0.1:8080"
     agent_xray_api_timeout_seconds: int = 3
+    # Run VPS-E REALITY inbounds on a dedicated in-pod Xray sidecar built from
+    # the Tracegate image when the upstream Xray image misbehaves on xhttp+REALITY.
+    agent_vps_e_b2_split_backend_enabled: bool = False
     # In k3s pipeline prefer graceful signal where supported.
     # Coalesce bursty outbox events into a single reload to avoid xray CrashLoopBackOff
     # while still applying the latest runtime config.
@@ -214,3 +217,5 @@ def ensure_agent_dirs(settings: Settings) -> None:
     (root / "wg-peers").mkdir(parents=True, exist_ok=True)
     (root / "base").mkdir(parents=True, exist_ok=True)
     (root / "runtime").mkdir(parents=True, exist_ok=True)
+    (root / "runtime" / "xray").mkdir(parents=True, exist_ok=True)
+    (root / "runtime" / "xray-b2").mkdir(parents=True, exist_ok=True)

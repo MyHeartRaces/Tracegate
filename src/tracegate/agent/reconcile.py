@@ -141,6 +141,12 @@ def _grouped_reality_tag(base_tag: str, group_id: str) -> str:
     return f"{base}-{suffix}"
 
 
+def _vps_e_b2_split_backend_enabled(settings: Settings) -> bool:
+    return str(settings.agent_role or "").strip() == "VPS_E" and bool(
+        settings.agent_vps_e_b2_split_backend_enabled
+    )
+
+
 def _load_reality_multi_inbound_groups(settings: Settings) -> list[RealityInboundGroup]:
     rows = settings.reality_multi_inbound_groups or []
     out: list[RealityInboundGroup] = []
@@ -191,6 +197,48 @@ def _load_reality_multi_inbound_groups(settings: Settings) -> list[RealityInboun
         )
     out.sort(key=lambda g: (g.port, g.id))
     return out
+
+
+def _is_managed_reality_inbound(*, inbound: dict, managed_reality_tags: set[str]) -> bool:
+    tag = str(inbound.get("tag") or "").strip()
+    stream = inbound.get("streamSettings") or {}
+    is_reality = inbound.get("protocol") == "vless" and stream.get("security") == "reality"
+    if not is_reality:
+        return False
+    if managed_reality_tags:
+        return tag in managed_reality_tags
+    return True
+
+
+def _split_vps_e_b2_runtime_configs(
+    *,
+    settings: Settings,
+    rendered: dict,
+    managed_reality_tags: set[str],
+) -> tuple[dict, dict | None]:
+    if not _vps_e_b2_split_backend_enabled(settings):
+        return rendered, None
+
+    main = copy.deepcopy(rendered)
+    b2 = copy.deepcopy(rendered)
+
+    main_inbounds: list = []
+    b2_inbounds: list = []
+    for inbound in rendered.get("inbounds", []):
+        if not isinstance(inbound, dict):
+            main_inbounds.append(copy.deepcopy(inbound))
+            continue
+        if _is_managed_reality_inbound(inbound=inbound, managed_reality_tags=managed_reality_tags):
+            b2_inbounds.append(copy.deepcopy(inbound))
+        else:
+            main_inbounds.append(copy.deepcopy(inbound))
+
+    if not b2_inbounds:
+        return rendered, None
+
+    main["inbounds"] = main_inbounds
+    b2["inbounds"] = b2_inbounds
+    return main, b2
 
 
 def _extend_reality_routing_tags(
@@ -436,6 +484,7 @@ def reconcile_xray(settings: Settings) -> bool:
     paths = AgentPaths.from_settings(settings)
     base_path = paths.base / "xray" / "config.json"
     runtime_path = paths.runtime / "xray" / "config.json"
+    runtime_b2_path = paths.runtime / "xray-b2" / "config.json"
     if not base_path.exists():
         return False
 
@@ -704,19 +753,42 @@ def reconcile_xray(settings: Settings) -> bool:
                     hop["address"] = transit_host
                 hop["port"] = 443
 
+    main_runtime, b2_runtime = _split_vps_e_b2_runtime_configs(
+        settings=settings,
+        rendered=base,
+        managed_reality_tags=managed_reality_runtime_tags,
+    )
+
     # Only write when there is a real change; otherwise we trigger unnecessary reloads.
     current = _load_json(runtime_path) if runtime_path.exists() else None
-    should_write = current != base
+    should_write = current != main_runtime
 
     if should_write:
-        _safe_dump_json(runtime_path, base)
+        _safe_dump_json(runtime_path, main_runtime)
+
+    should_write_b2 = False
+    if b2_runtime is not None:
+        current_b2 = _load_json(runtime_b2_path) if runtime_b2_path.exists() else None
+        should_write_b2 = current_b2 != b2_runtime
+        if should_write_b2:
+            _safe_dump_json(runtime_b2_path, b2_runtime)
+    elif runtime_b2_path.exists():
+        runtime_b2_path.unlink()
+        should_write_b2 = True
 
     if settings.agent_xray_api_enabled:
         # Apply user changes live without restarting Xray.
+        main_inbound_tags = {
+            str(row.get("tag") or "").strip()
+            for row in (main_runtime.get("inbounds") or [])
+            if isinstance(row, dict)
+        }
         for tag, desired in desired_by_tag.items():
+            if tag not in main_inbound_tags:
+                continue
             sync_inbound_users(settings, inbound_tag=tag, desired_email_to_uuid=desired)
 
-    return should_write
+    return should_write or should_write_b2
 
 
 def reconcile_hysteria(settings: Settings) -> bool:

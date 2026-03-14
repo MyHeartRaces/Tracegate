@@ -164,6 +164,8 @@ gateway:
       pullPolicy: IfNotPresent
       workerConnections: 8192
       wsSniHosts: []
+    b2SplitBackend:
+      enabled: true
     # TLS certificate used to terminate VLESS+WS+TLS on VPS-E (chain mode / splitter). PEM.
     wsTls:
       crt: ""

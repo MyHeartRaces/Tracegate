@@ -419,6 +419,7 @@ spec:
               mkdir -p /agent-data/runtime/hysteria
               [ -f /agent-data/runtime/hysteria/config.yaml ] || cp /agent-data/base/hysteria/config.yaml /agent-data/runtime/hysteria/config.yaml
               {{- end }}
+              mkdir -p /agent-data/runtime/xray-b2
           volumeMounts:
             - name: agent-data
               mountPath: /agent-data
@@ -480,6 +481,26 @@ spec:
           securityContext:
             runAsUser: 0
             runAsGroup: 0
+        {{- if .Values.gateway.vpsE.b2SplitBackend.enabled }}
+        - name: xray-b2
+          image: {{ include "tracegate.image" .Values.gateway.agentImage }}
+          imagePullPolicy: {{ .Values.gateway.agentImage.pullPolicy }}
+          command:
+            - sh
+            - -ec
+            - |
+              until [ -s /etc/xray-b2/config.json ]; do
+                sleep 1
+              done
+              exec xray run -c /etc/xray-b2/config.json
+          volumeMounts:
+            - name: agent-data
+              mountPath: /etc/xray-b2
+              subPath: runtime/xray-b2
+          securityContext:
+            runAsUser: 0
+            runAsGroup: 0
+        {{- end }}
         {{- if .Values.gateway.vpsE.hysteria.enabled }}
         - name: hysteria
           image: {{ .Values.gateway.vpsE.hysteria.image }}
@@ -581,6 +602,8 @@ spec:
               value: {{ .Values.controlPlane.env.defaultVpsEHost | quote }}
             - name: REALITY_MULTI_INBOUND_GROUPS
               value: {{ toJson (.Values.gateway.realityMultiInbound.groups | default (list)) | quote }}
+            - name: AGENT_VPS_E_B2_SPLIT_BACKEND_ENABLED
+              value: {{ .Values.gateway.vpsE.b2SplitBackend.enabled | quote }}
             - name: AGENT_RELOAD_XRAY_CMD
               value: {{ .Values.gateway.vpsE.agent.reloadXrayCmd | quote }}
             - name: AGENT_RELOAD_HYSTERIA_CMD

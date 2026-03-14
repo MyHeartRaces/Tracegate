@@ -535,3 +535,104 @@ def test_reconcile_reality_multi_inbound_groups_assign_by_sni_and_keep_fallback(
     assert "entry-in" in route_tags
     assert "entry-in-shared-a" in route_tags
     assert "entry-in-shared-b" in route_tags
+
+
+def test_reconcile_vps_e_b2_split_backend_moves_reality_inbounds_to_sidecar(tmp_path: Path) -> None:
+    settings = Settings(
+        agent_data_root=str(tmp_path),
+        agent_runtime_mode="kubernetes",
+        agent_role="VPS_E",
+        agent_vps_e_b2_split_backend_enabled=True,
+        reality_multi_inbound_groups=[
+            {
+                "id": "shared-a",
+                "port": 2501,
+                "dest": "splitter.wb.ru",
+                "snis": ["splitter.wb.ru"],
+            },
+            {
+                "id": "shared-b",
+                "port": 2502,
+                "dest": "st.ozone.ru",
+                "snis": ["st.ozone.ru"],
+            },
+        ],
+    )
+
+    _write(
+        tmp_path / "base/xray/config.json",
+        json.dumps(
+            {
+                "inbounds": [
+                    {
+                        "tag": "api",
+                        "protocol": "dokodemo-door",
+                        "port": 8080,
+                        "settings": {"address": "127.0.0.1"},
+                    },
+                    {
+                        "tag": "entry-in",
+                        "protocol": "vless",
+                        "port": 2443,
+                        "settings": {"clients": []},
+                        "streamSettings": {
+                            "security": "reality",
+                            "realitySettings": {"dest": "splitter.wb.ru:443", "serverNames": ["splitter.wb.ru"]},
+                        },
+                    },
+                    {
+                        "tag": "vless-ws-in",
+                        "protocol": "vless",
+                        "port": 10000,
+                        "settings": {"clients": []},
+                        "streamSettings": {"network": "ws", "security": "none"},
+                    },
+                ],
+                "outbounds": [{"protocol": "freedom"}],
+                "routing": {
+                    "rules": [
+                        {"type": "field", "inboundTag": ["entry-in"], "outboundTag": "direct"},
+                    ]
+                },
+            }
+        ),
+    )
+    _write(
+        tmp_path / "users/u1/connection-a.json",
+        json.dumps(
+            {
+                "user_id": "u1",
+                "device_id": "d1",
+                "connection_id": "a",
+                "revision_id": "r1",
+                "protocol": "vless_reality",
+                "config": {"uuid": "a", "sni": "splitter.wb.ru"},
+            }
+        ),
+    )
+    _write(
+        tmp_path / "users/u1/connection-b.json",
+        json.dumps(
+            {
+                "user_id": "u1",
+                "device_id": "d1",
+                "connection_id": "b",
+                "revision_id": "r2",
+                "protocol": "vless_reality",
+                "config": {"uuid": "b", "sni": "st.ozone.ru"},
+            }
+        ),
+    )
+
+    changed = reconcile_all(settings)
+    assert changed == ["xray"]
+
+    rendered_main = json.loads((tmp_path / "runtime/xray/config.json").read_text(encoding="utf-8"))
+    main_tags = {str(row.get("tag")) for row in rendered_main["inbounds"]}
+    assert main_tags == {"api", "vless-ws-in"}
+
+    rendered_b2 = json.loads((tmp_path / "runtime/xray-b2/config.json").read_text(encoding="utf-8"))
+    b2_inbounds = {str(row.get("tag")): row for row in rendered_b2["inbounds"]}
+    assert set(b2_inbounds) == {"entry-in", "entry-in-shared-a", "entry-in-shared-b"}
+    assert {row.get("id") for row in b2_inbounds["entry-in-shared-a"]["settings"]["clients"]} == {"a"}
+    assert {row.get("id") for row in b2_inbounds["entry-in-shared-b"]["settings"]["clients"]} == {"b"}

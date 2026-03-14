@@ -809,6 +809,11 @@ gateway:
       realityGroupUpstreamHost: ""
       realityGroupUpstreamPort: 443
 
+    # Run VPS-E REALITY inbounds on a dedicated Tracegate-managed Xray sidecar.
+    # This isolates chain REALITY+xhttp from the upstream Xray image used for WS/hy2 backhaul.
+    b2SplitBackend:
+      enabled: false
+
     # TLS certificate used to terminate VLESS+WS+TLS on VPS-E (chain mode / splitter).
     # Leave empty to generate and persist a self-signed cert in a k8s Secret.
     wsTls:
