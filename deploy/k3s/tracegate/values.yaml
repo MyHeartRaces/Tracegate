@@ -173,7 +173,7 @@ gateway:
   realityMultiInbound:
     # When false, group SNI routes to reality_fallback (127.0.0.1:2443).
     # Enable only if local Xray really exposes all group ports.
-    entryMuxGroupPortRoutingEnabled: false
+    entryMuxGroupPortRoutingEnabled: true
     groups:
       - id: shared-a
         port: 2501

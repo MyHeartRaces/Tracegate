@@ -152,6 +152,11 @@ data:
 
     http {
       server {
+        listen 0.0.0.0:80;
+        return 301 https://$host$request_uri;
+      }
+
+      server {
         listen 127.0.0.1:4443 ssl;
 
         ssl_certificate     /etc/nginx/tls/tls.crt;
