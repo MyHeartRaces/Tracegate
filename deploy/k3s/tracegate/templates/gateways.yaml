@@ -49,7 +49,7 @@ spec:
         checksum/secrets: {{ $secretsChecksum | quote }}
     spec:
       hostNetwork: {{ .Values.gateway.vpsT.hostNetwork }}
-      dnsPolicy: ClusterFirstWithHostNet
+      dnsPolicy: {{ ternary "Default" "ClusterFirst" .Values.gateway.vpsT.hostNetwork }}
       shareProcessNamespace: {{ .Values.gateway.vpsT.shareProcessNamespace }}
       {{- if .Values.imagePullSecrets }}
       imagePullSecrets:
@@ -355,7 +355,7 @@ spec:
         checksum/secrets: {{ $secretsChecksum | quote }}
     spec:
       hostNetwork: {{ .Values.gateway.vpsE.hostNetwork }}
-      dnsPolicy: ClusterFirstWithHostNet
+      dnsPolicy: {{ ternary "Default" "ClusterFirst" .Values.gateway.vpsE.hostNetwork }}
       shareProcessNamespace: {{ .Values.gateway.vpsE.shareProcessNamespace }}
       {{- if .Values.imagePullSecrets }}
       imagePullSecrets:
