@@ -32,6 +32,8 @@
 {{- $vpsEGroupUpstreamHost := (.Values.gateway.vpsE.entryMux.realityGroupUpstreamHost | default "" | trim) -}}
 {{- $vpsEGroupUpstreamPort := int (.Values.gateway.vpsE.entryMux.realityGroupUpstreamPort | default 443) -}}
 {{- if lt $vpsEGroupUpstreamPort 1 }}{{- $vpsEGroupUpstreamPort = 443 -}}{{- end -}}
+{{- $vpsEB2SplitBackendEnabled := and .Values.gateway.vpsE.enabled (eq .Values.gateway.vpsE.mode "xray") (.Values.gateway.vpsE.b2SplitBackend.enabled | default false) -}}
+{{- if $vpsEB2SplitBackendEnabled }}{{- $vpsEGroupUpstreamHost = "" -}}{{- end -}}
 {{- if and .Values.gateway.enabled (or .Values.gateway.vpsT.enabled .Values.gateway.vpsE.enabled) }}
 apiVersion: v1
 kind: ConfigMap
