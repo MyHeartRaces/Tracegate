@@ -71,7 +71,8 @@ gateway:
       publicKey: REPLACE_REALITY_PUBLIC_KEY
       shortId: "0123456789abcdef"
       serverName: "splitter.wb.ru"
-      upstreamHost: "vps-t.example.com"
+      # Leave empty to derive from gateway.vpsT.publicIPv4.
+      upstreamHost: ""
       upstreamPort: 443
 
   vpsT:
@@ -168,7 +169,8 @@ gateway:
       crt: ""
       key: ""
     tcpForward:
-      upstreamHost: vps-t.example.com
+      # Leave empty to derive from gateway.vpsT.publicIPv4.
+      upstreamHost: ""
       upstreamPort: 443
     # Splitter mode: transit parameters are taken from gateway.splitter.transit.*.
       xray:
@@ -202,7 +204,7 @@ gateway:
             "outbounds": [
               {"tag":"api","protocol":"freedom"},
               {"tag":"direct","protocol":"freedom"},
-              {"tag":"to-transit","protocol":"vless","settings":{"vnext":[{"address":"{{ .Values.gateway.splitter.transit.upstreamHost }}","port":443,"users":[{"id":"{{ .Values.gateway.splitter.transit.uuid }}","encryption":"none"}]}]},"streamSettings":{"network":"xhttp","security":"reality","realitySettings":{"fingerprint":"chrome","serverName":"{{ .Values.gateway.splitter.transit.serverName }}","publicKey":"{{ .Values.gateway.splitter.transit.publicKey | default .Values.controlPlane.env.realityPublicKey }}","shortId":"{{ .Values.gateway.splitter.transit.shortId }}"},"xhttpSettings":{"mode":"packet-up","path":"/api/v1/update"}}},
+              {"tag":"to-transit","protocol":"vless","settings":{"vnext":[{"address":"{{ .Values.gateway.splitter.transit.upstreamHost | default .Values.gateway.vpsT.publicIPv4 | default .Values.gateway.vpsT.proxyFqdn | default .Values.gateway.vpsT.fqdn }}","port":443,"users":[{"id":"{{ .Values.gateway.splitter.transit.uuid }}","encryption":"none"}]}]},"streamSettings":{"network":"xhttp","security":"reality","realitySettings":{"fingerprint":"chrome","serverName":"{{ .Values.gateway.splitter.transit.serverName }}","publicKey":"{{ .Values.gateway.splitter.transit.publicKey | default .Values.controlPlane.env.realityPublicKey }}","shortId":"{{ .Values.gateway.splitter.transit.shortId }}"},"xhttpSettings":{"mode":"packet-up","path":"/api/v1/update"}}},
               {"tag":"block","protocol":"blackhole"}
             ],
             "routing": {

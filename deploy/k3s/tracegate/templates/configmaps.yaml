@@ -17,6 +17,18 @@
 {{- if and $failoverEnabled (eq $vpsEPassiveHost "") -}}
 {{- $vpsEPassiveHost = (default .Values.gateway.vpsT.publicIPv4 (default .Values.gateway.vpsT.fqdn .Values.gateway.vpsT.proxyFqdn)) -}}
 {{- end -}}
+{{- $vpsTPrimaryHost := (.Values.gateway.vpsT.publicIPv4 | default "" | trim) -}}
+{{- if eq $vpsTPrimaryHost "" -}}
+{{- $vpsTPrimaryHost = (default .Values.gateway.vpsT.fqdn .Values.gateway.vpsT.proxyFqdn | trim) -}}
+{{- end -}}
+{{- $splitterTransitHost := (.Values.gateway.splitter.transit.upstreamHost | default "" | trim) -}}
+{{- if and (eq $splitterTransitHost "") $vpsTPrimaryHost -}}
+{{- $splitterTransitHost = $vpsTPrimaryHost -}}
+{{- end -}}
+{{- $vpsETcpForwardHost := (.Values.gateway.vpsE.tcpForward.upstreamHost | default "" | trim) -}}
+{{- if and (eq $vpsETcpForwardHost "") $vpsTPrimaryHost -}}
+{{- $vpsETcpForwardHost = $vpsTPrimaryHost -}}
+{{- end -}}
 {{- $vpsEGroupUpstreamHost := (.Values.gateway.vpsE.entryMux.realityGroupUpstreamHost | default "" | trim) -}}
 {{- $vpsEGroupUpstreamPort := int (.Values.gateway.vpsE.entryMux.realityGroupUpstreamPort | default 443) -}}
 {{- if lt $vpsEGroupUpstreamPort 1 }}{{- $vpsEGroupUpstreamPort = 443 -}}{{- end -}}
@@ -218,7 +230,7 @@ data:
     backend be_transit
       option tcp-check
       default-server inter 2s fall {{ $failoverMaxFails }} rise 1
-      server transit_primary {{ .Values.gateway.vpsE.tcpForward.upstreamHost }}:{{ .Values.gateway.vpsE.tcpForward.upstreamPort }} check
+      server transit_primary {{ $vpsETcpForwardHost }}:{{ .Values.gateway.vpsE.tcpForward.upstreamPort }} check
       {{- if and $failoverEnabled $vpsEPassiveHost }}
       server transit_backup {{ $vpsEPassiveHost }}:443 check backup
       {{- end }}
@@ -233,7 +245,7 @@ data:
     backend be_ws_tls
       option tcp-check
       default-server inter 2s fall {{ $failoverMaxFails }} rise 1
-      server transit_ws_primary {{ .Values.gateway.vpsE.tcpForward.upstreamHost }}:{{ $wsPort }} check
+      server transit_ws_primary {{ $vpsETcpForwardHost }}:{{ $wsPort }} check
       {{- if and $failoverEnabled $vpsEPassiveHost }}
       server transit_ws_backup {{ $vpsEPassiveHost }}:{{ $wsPort }} check backup
       {{- end }}
