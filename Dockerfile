@@ -6,6 +6,8 @@ RUN apt-get update \
     && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
         ca-certificates \
         git \
+        curl \
+        unzip \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /src
@@ -15,6 +17,9 @@ RUN git clone --branch "${XRAY_VERSION}" --depth 1 https://github.com/XTLS/Xray-
 WORKDIR /src/xray-core
 
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags="-s -w -buildid=" -o /out/xray ./main
+RUN curl -fsSL -o /tmp/xray-linux-64.zip "https://github.com/XTLS/Xray-core/releases/download/${XRAY_VERSION}/Xray-linux-64.zip" \
+    && unzip -j /tmp/xray-linux-64.zip geoip.dat geosite.dat -d /out \
+    && rm -f /tmp/xray-linux-64.zip
 
 FROM python:3.12-slim
 
@@ -29,6 +34,8 @@ ENV PYTHONUNBUFFERED=1 \
 WORKDIR /app
 
 COPY --from=xray-builder /out/xray /usr/local/bin/xray
+COPY --from=xray-builder /out/geoip.dat /usr/local/bin/geoip.dat
+COPY --from=xray-builder /out/geosite.dat /usr/local/bin/geosite.dat
 
 COPY pyproject.toml /app/
 COPY alembic.ini /app/
