@@ -1,17 +1,20 @@
 from __future__ import annotations
 
 from importlib.metadata import PackageNotFoundError, version as pkg_version
+from ipaddress import ip_address
 from pathlib import Path
 
 import uvicorn
-from fastapi import Depends, FastAPI, HTTPException, Response, status
+from fastapi import Depends, FastAPI, HTTPException, Request, Response, status
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
+from pydantic import BaseModel
 
 from tracegate.observability import configure_logging, install_http_observability
 from tracegate.schemas import AgentEventEnvelope, AgentEventResponse, AgentHealthCheckResult, AgentHealthResponse
 from tracegate.security import require_agent_token
 from tracegate.settings import effective_hysteria_reload_cmd, ensure_agent_dirs, get_settings
 
+from .hysteria_auth import authenticate_hysteria_userpass
 from .metrics import register_agent_metrics
 from .reconcile import reconcile_all
 from .system import run_command
@@ -63,6 +66,28 @@ def _startup_reconcile() -> None:
 
 _startup_reconcile()
 
+
+class HysteriaHttpAuthRequest(BaseModel):
+    addr: str | None = None
+    auth: str | None = None
+    tx: int | None = None
+
+
+class HysteriaHttpAuthResponse(BaseModel):
+    ok: bool
+    id: str | None = None
+
+
+def _is_loopback_host(host: str | None) -> bool:
+    raw = str(host or "").strip()
+    if not raw:
+        return False
+    try:
+        return ip_address(raw).is_loopback
+    except ValueError:
+        return raw == "localhost"
+
+
 def _app_version() -> str:
     try:
         return pkg_version("tracegate")
@@ -89,6 +114,18 @@ async def receive_event(event: AgentEventEnvelope) -> AgentEventResponse:
 
     state_store.mark(event_id, event.idempotency_key)
     return AgentEventResponse(accepted=True, duplicate=False, message=message)
+
+
+@app.post("/v1/hysteria/auth", response_model=HysteriaHttpAuthResponse)
+async def hysteria_auth(payload: HysteriaHttpAuthRequest, request: Request) -> HysteriaHttpAuthResponse:
+    client_host = request.client.host if request.client is not None else ""
+    if not _is_loopback_host(client_host):
+        return HysteriaHttpAuthResponse(ok=False)
+
+    ok, client_id = authenticate_hysteria_userpass(settings, payload.auth or "")
+    if not ok:
+        return HysteriaHttpAuthResponse(ok=False)
+    return HysteriaHttpAuthResponse(ok=True, id=client_id)
 
 
 @app.get("/v1/health", response_model=AgentHealthResponse)

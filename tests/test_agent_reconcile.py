@@ -1,7 +1,7 @@
 import json
 from pathlib import Path
 
-from tracegate.agent.reconcile import reconcile_all
+from tracegate.agent.reconcile import reconcile_all, upsert_user_artifact_index
 from tracegate.settings import Settings
 
 
@@ -188,6 +188,107 @@ def test_reconcile_hysteria_adds_legacy_and_ios_safe_userpass_aliases(tmp_path: 
     assert "bootstrap: bootstrap" in rendered_hy
     assert "b3_123456789_11111111222243338444555555555555: dev-pass" in rendered_hy
     assert "B3 - 123456789 - 11111111-2222-4333-8444-555555555555: dev-pass" in rendered_hy
+
+
+def test_reconcile_hysteria_http_auth_updates_auth_db_without_runtime_reload(tmp_path: Path) -> None:
+    settings = Settings(
+        agent_data_root=str(tmp_path),
+        agent_runtime_mode="kubernetes",
+        agent_role="VPS_T",
+    )
+
+    _write(
+        tmp_path / "base/hysteria/config.yaml",
+        (
+            "listen: :443\n"
+            "auth:\n"
+            "  type: http\n"
+            "  http:\n"
+            "    url: http://127.0.0.1:8070/v1/hysteria/auth\n"
+            "  userpass:\n"
+            "    bootstrap: bootstrap\n"
+        ),
+    )
+    artifact_path = tmp_path / "users/123456789/connection-b3.json"
+    _write(
+        artifact_path,
+        json.dumps(
+            {
+                "user_id": "123456789",
+                "connection_id": "11111111-2222-4333-8444-555555555555",
+                "variant": "B3",
+                "protocol": "hysteria2",
+                "config": {
+                    "auth": {
+                        "type": "userpass",
+                        "username": "b3_123456789_11111111222243338444555555555555",
+                        "password": "dev-pass",
+                    }
+                },
+            }
+        ),
+    )
+
+    changed = reconcile_all(settings)
+    assert changed == ["hysteria"]
+
+    rendered_hy = (tmp_path / "runtime/hysteria/config.yaml").read_text(encoding="utf-8")
+    assert "type: http" in rendered_hy
+    assert "url: http://127.0.0.1:8070/v1/hysteria/auth" in rendered_hy
+    assert "bootstrap: bootstrap" in rendered_hy
+    assert "B3 - 123456789 - 11111111-2222-4333-8444-555555555555: dev-pass" not in rendered_hy
+
+    auth_db = json.loads((tmp_path / "runtime/hysteria/auth.json").read_text(encoding="utf-8"))
+    assert auth_db["bootstrap"]["password"] == "bootstrap"
+    assert auth_db["b3_123456789_11111111222243338444555555555555"]["password"] == "dev-pass"
+    assert (
+        auth_db["b3_123456789_11111111222243338444555555555555"]["id"]
+        == "B3 - 123456789 - 11111111-2222-4333-8444-555555555555"
+    )
+    assert (
+        auth_db["B3 - 123456789 - 11111111-2222-4333-8444-555555555555"]["password"]
+        == "dev-pass"
+    )
+
+    _write(
+        artifact_path,
+        json.dumps(
+            {
+                "user_id": "123456789",
+                "connection_id": "11111111-2222-4333-8444-555555555555",
+                "variant": "B3",
+                "protocol": "hysteria2",
+                "config": {
+                    "auth": {
+                        "type": "userpass",
+                        "username": "b3_123456789_11111111222243338444555555555555",
+                        "password": "next-pass",
+                    }
+                },
+            }
+        ),
+    )
+    upsert_user_artifact_index(
+        settings,
+        {
+            "user_id": "123456789",
+            "connection_id": "11111111-2222-4333-8444-555555555555",
+            "variant": "B3",
+            "protocol": "hysteria2",
+            "config": {
+                "auth": {
+                    "type": "userpass",
+                    "username": "b3_123456789_11111111222243338444555555555555",
+                    "password": "next-pass",
+                }
+            },
+        },
+    )
+
+    changed2 = reconcile_all(settings)
+    assert changed2 == []
+    auth_db2 = json.loads((tmp_path / "runtime/hysteria/auth.json").read_text(encoding="utf-8"))
+    assert auth_db2["b3_123456789_11111111222243338444555555555555"]["password"] == "next-pass"
 
 
 def test_reconcile_vps_e_forces_transit_port_443(tmp_path: Path) -> None:

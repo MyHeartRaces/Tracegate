@@ -530,7 +530,9 @@ gateway:
             - example.com
           email: admin@example.com
         auth:
-          type: userpass
+          type: http
+          http:
+            url: http://127.0.0.1:8070/v1/hysteria/auth
           userpass:
             bootstrap: bootstrap-password
         masquerade:
@@ -831,7 +833,9 @@ gateway:
           cert: /etc/hysteria/tls/tls.crt
           key: /etc/hysteria/tls/tls.key
         auth:
-          type: userpass
+          type: http
+          http:
+            url: http://127.0.0.1:8070/v1/hysteria/auth
           userpass:
             bootstrap: bootstrap-password
         masquerade:

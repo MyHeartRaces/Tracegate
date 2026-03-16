@@ -8,8 +8,8 @@ import threading
 
 import yaml
 
+from tracegate.agent.hysteria_auth import build_hysteria_auth_db, hysteria_auth_db_path
 from tracegate.enums import ConnectionProtocol, ConnectionVariant, NodeRole
-from tracegate.services.hysteria_markers import hysteria_auth_username_aliases_for_artifact_row
 from tracegate.services.role_targeting import target_roles_for_connection
 from tracegate.services.sni_catalog import load_catalog
 from tracegate.settings import Settings
@@ -795,35 +795,30 @@ def reconcile_hysteria(settings: Settings) -> bool:
     paths = AgentPaths.from_settings(settings)
     base_path = paths.base / "hysteria" / "config.yaml"
     runtime_path = paths.runtime / "hysteria" / "config.yaml"
+    auth_db_path = hysteria_auth_db_path(settings)
     if not base_path.exists():
         return False
 
     base = _load_yaml(base_path)
     artifacts = load_all_user_artifacts(paths)
 
-    userpass: dict[str, str] = {}
     auth = base.get("auth") or {}
-    if auth.get("type") == "userpass":
-        userpass = (auth.get("userpass") or {}) if isinstance(auth.get("userpass"), dict) else {}
+    auth_type = str(auth.get("type") or "").strip().lower()
+    static_userpass = (auth.get("userpass") or {}) if isinstance(auth.get("userpass"), dict) else {}
+    auth_db = build_hysteria_auth_db(static_userpass=static_userpass, artifacts=artifacts)
 
-    for row in artifacts:
-        if row.get("protocol") != "hysteria2":
-            continue
-        cfg = row.get("config") or {}
-        auth_cfg = cfg.get("auth") or {}
-        if auth_cfg.get("type") != "userpass":
-            continue
-        username = (auth_cfg.get("username") or "").strip()
-        password = (auth_cfg.get("password") or "").strip()
-        if not username or not password:
-            continue
-        aliases = hysteria_auth_username_aliases_for_artifact_row(row, username)
-        if not aliases:
-            aliases = {username}
-        for alias in aliases:
-            if alias:
-                userpass[alias] = password
+    current_auth_db = _load_json(auth_db_path) if auth_db_path.exists() else None
+    if current_auth_db != auth_db:
+        _safe_dump_json(auth_db_path, auth_db)
 
+    if auth_type in {"http", "command"}:
+        current = _load_yaml(runtime_path) if runtime_path.exists() else None
+        if current == base:
+            return False
+        _safe_dump_text(runtime_path, yaml.safe_dump(base, sort_keys=False))
+        return True
+
+    userpass = {key: row["password"] for key, row in auth_db.items() if row.get("password")}
     base["auth"] = {"type": "userpass", "userpass": userpass}
     current = _load_yaml(runtime_path) if runtime_path.exists() else None
     if current == base:
