@@ -19,6 +19,12 @@ controlPlane:
       enabled: true
       # In-cluster Prometheus service (used for disk alerts from node-exporter metrics).
       prometheusUrl: http://tracegate-prometheus:9090
+      # Debounce transient metrics-server gaps before sending Telegram alerts.
+      metricsServer:
+        minActiveSeconds: 180
+      # Debounce short kubelet/control-plane flaps and rollout windows.
+      nodeDownMinActiveSeconds: 120
+      componentHealthMinActiveSeconds: 120
       disk:
         enabled: true
         thresholdPercent: 80

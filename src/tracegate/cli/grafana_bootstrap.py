@@ -229,6 +229,7 @@ def _slo_alert_rules(ds_uid: str, *, folder_uid: str) -> list[dict[str, Any]]:
                 "description": "min(tracegate_slo_component_up_ratio_5m{job=tracegate-agent}) is below 0.95",
             },
             labels={**base_labels, "component": "agent", "slo_type": "availability", "severity": "critical"},
+            for_duration="5m",
             no_data_state="Alerting",
         ),
         _slo_alert_rule(

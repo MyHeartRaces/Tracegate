@@ -44,8 +44,14 @@ controlPlane:
       metricsServer:
         enabled: true
         maxAgeSeconds: 180
+        # Avoid Telegram noise on one-off metrics-server blips.
+        minActiveSeconds: 180
       nodeDown: true
+      # Ignore single-minute kubelet/lease flaps before paging.
+      nodeDownMinActiveSeconds: 120
       componentHealth: true
+      # Suppress rollout/startup transitions unless they persist.
+      componentHealthMinActiveSeconds: 120
 
     outboxRetention:
       enabled: true

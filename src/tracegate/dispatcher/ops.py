@@ -127,6 +127,17 @@ def _ops_alert_text(kind: str, text: str) -> str:
     return f"{header}\n\n{body}"
 
 
+def _ops_alert_min_active_seconds(settings: Settings, alert_key: str) -> int:
+    key = str(alert_key or "").strip()
+    if key.startswith("metrics_server_"):
+        return max(0, int(settings.dispatcher_ops_alerts_metrics_server_min_active_seconds))
+    if key.startswith("node_not_ready:"):
+        return max(0, int(settings.dispatcher_ops_alerts_node_down_min_active_seconds))
+    if key.startswith("component_unready:"):
+        return max(0, int(settings.dispatcher_ops_alerts_component_health_min_active_seconds))
+    return 0
+
+
 def _bool_env_file(path: Path) -> str | None:
     try:
         return path.read_text(encoding="utf-8").strip() or None
@@ -448,12 +459,22 @@ async def _collect_k8s_alerts(
         if settings.dispatcher_ops_alerts_component_health_enabled:
             active.update(_collect_component_health_alerts(state=state, pods_payload=pods_payload))
 
-    node_names: set[str] = set()
+    ready_node_names: set[str] = set()
     if nodes_payload is not None:
-        node_names = _collect_node_down_alerts(settings=settings, state=state, nodes_payload=nodes_payload, active=active)
+        ready_node_names = _collect_node_down_alerts(
+            settings=settings,
+            state=state,
+            nodes_payload=nodes_payload,
+            active=active,
+        )
 
     if settings.dispatcher_ops_alerts_metrics_server_enabled:
-        metrics_alerts = await _collect_metrics_server_alerts(settings=settings, state=state, ctx=ctx, node_names=node_names)
+        metrics_alerts = await _collect_metrics_server_alerts(
+            settings=settings,
+            state=state,
+            ctx=ctx,
+            node_names=ready_node_names,
+        )
         active.update(metrics_alerts)
 
     return active, instant_events
@@ -615,7 +636,8 @@ def _collect_node_down_alerts(
     nodes_payload: dict[str, Any],
     active: dict[str, str],
 ) -> set[str]:
-    node_names: set[str] = set()
+    all_node_names: set[str] = set()
+    ready_node_names: set[str] = set()
 
     for item in nodes_payload.get("items", []):
         if not isinstance(item, dict):
@@ -624,7 +646,7 @@ def _collect_node_down_alerts(
         node_name = str(metadata.get("name") or "")
         if not node_name:
             continue
-        node_names.add(node_name)
+        all_node_names.add(node_name)
         conditions = (item.get("status") or {}).get("conditions") or []
         ready_status = None
         ready_message = ""
@@ -641,15 +663,17 @@ def _collect_node_down_alerts(
             break
 
         _OPS_NODE_READY.labels(node_name).set(1.0 if ready_status == "True" else 0.0)
+        if ready_status == "True":
+            ready_node_names.add(node_name)
         if settings.dispatcher_ops_alerts_node_down_enabled and ready_status != "True":
             suffix = f" ({ready_message})" if ready_message else ""
             active[f"node_not_ready:{node_name}"] = f"Node not Ready: {node_name}{suffix}"
 
-    stale_nodes = set(state.node_ready_keys) - node_names
+    stale_nodes = set(state.node_ready_keys) - all_node_names
     for node in stale_nodes:
         _OPS_NODE_READY.remove(node)
-    state.node_ready_keys = set(node_names)
-    return node_names
+    state.node_ready_keys = set(all_node_names)
+    return ready_node_names
 
 
 async def _collect_metrics_server_alerts(
@@ -684,27 +708,31 @@ async def _collect_metrics_server_alerts(
         if not name:
             continue
         seen_metrics_nodes.add(name)
+        consider_for_alert = bool(node_names) and name in node_names
         ts = _parse_rfc3339(item.get("timestamp"))
         if ts is None:
-            stale_nodes.append(f"{name}(no-timestamp)")
+            if consider_for_alert:
+                stale_nodes.append(f"{name}(no-timestamp)")
             _OPS_METRICS_SERVER_NODE_AGE_SECONDS.labels(name).set(float(max_age + 1))
             continue
         age = (now - ts).total_seconds()
         _OPS_METRICS_SERVER_NODE_AGE_SECONDS.labels(name).set(float(max(0.0, age)))
-        if age > max_age:
+        if consider_for_alert and age > max_age:
             stale_nodes.append(f"{name}({int(age)}s)")
     stale_age_nodes = set(state.metrics_age_node_keys) - seen_metrics_nodes
     for node in stale_age_nodes:
         _OPS_METRICS_SERVER_NODE_AGE_SECONDS.remove(node)
     state.metrics_age_node_keys = set(seen_metrics_nodes)
 
+    # metrics-server coverage is meaningful only for nodes that are currently Ready.
+    # When kubelet/lease flaps make a node NotReady, node_down alerts already cover it.
     if node_names:
         missing = sorted(node_names - seen_metrics_nodes)
         if missing:
             active["metrics_server_missing_nodes"] = (
                 "metrics-server scrape gap: missing node metrics for " + ", ".join(missing)
             )
-    if stale_nodes:
+    if node_names and stale_nodes:
         active["metrics_server_stale"] = "metrics-server scrape gap: stale node metrics " + ", ".join(sorted(stale_nodes))
     return active
 
@@ -786,16 +814,22 @@ async def _process_alerts(
 
     for key, text in sorted(active_alerts.items()):
         existing = state.active_alerts.get(key)
+        min_active_seconds = _ops_alert_min_active_seconds(settings, key)
         if existing is None:
             state.active_alerts[key] = _ActiveAlert(text=text, since=now)
-            messages.append(("alert", _ops_alert_text("alert", text), [key]))
+            if min_active_seconds <= 0:
+                messages.append(("alert", _ops_alert_text("alert", text), [key]))
             continue
 
         existing.text = text
+        if existing.last_sent_at is None:
+            active_for = (now - existing.since).total_seconds()
+            if active_for >= min_active_seconds:
+                messages.append(("alert", _ops_alert_text("alert", text), [key]))
+            continue
+
         repeat_seconds = max(0, int(settings.dispatcher_ops_alerts_repeat_seconds))
         if repeat_seconds <= 0:
-            continue
-        if existing.last_sent_at is None:
             continue
         if (now - existing.last_sent_at).total_seconds() >= repeat_seconds:
             messages.append(("repeat", _ops_alert_text("repeat", text), [key]))
@@ -805,7 +839,7 @@ async def _process_alerts(
         prev = state.active_alerts.pop(key, None)
         if prev is None:
             continue
-        if settings.dispatcher_ops_alerts_send_resolved:
+        if settings.dispatcher_ops_alerts_send_resolved and prev.last_sent_at is not None:
             duration = int(max(0.0, (now - prev.since).total_seconds()))
             messages.append(("resolved", _ops_alert_text("resolved", f"{prev.text} (for {duration}s)"), []))
 

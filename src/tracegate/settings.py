@@ -58,8 +58,11 @@ class Settings(BaseSettings):
     dispatcher_ops_alerts_outbox_dead_threshold: int = 0
     dispatcher_ops_alerts_metrics_server_enabled: bool = True
     dispatcher_ops_alerts_metrics_server_max_age_seconds: int = 180
+    dispatcher_ops_alerts_metrics_server_min_active_seconds: int = 180
     dispatcher_ops_alerts_node_down_enabled: bool = True
+    dispatcher_ops_alerts_node_down_min_active_seconds: int = 120
     dispatcher_ops_alerts_component_health_enabled: bool = True
+    dispatcher_ops_alerts_component_health_min_active_seconds: int = 120
     dispatcher_outbox_retention_enabled: bool = True
     dispatcher_outbox_retention_interval_seconds: int = 3600
     dispatcher_outbox_retention_sent_days: int = 14

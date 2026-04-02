@@ -200,6 +200,10 @@ def test_slo_alert_rules_cover_api_bot_and_agent() -> None:
     assert api_avail["data"][1]["model"]["conditions"][0]["evaluator"]["type"] == "lt"
     assert api_avail["data"][1]["model"]["conditions"][0]["evaluator"]["params"] == [0.99]
 
+    agent_avail = by_uid["tg-slo-agent-availability-low"]
+    assert agent_avail["for"] == "5m"
+    assert agent_avail["data"][1]["model"]["conditions"][0]["evaluator"]["params"] == [0.95]
+
     agent_latency = by_uid["tg-slo-agent-http-latency-high"]
     assert 'tracegate_slo_http_request_latency_p95_seconds_5m{component="agent"}' in agent_latency["data"][0]["model"]["expr"]
     assert agent_latency["data"][1]["model"]["conditions"][0]["evaluator"]["type"] == "gt"
