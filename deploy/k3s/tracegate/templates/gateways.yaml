@@ -161,6 +161,11 @@ spec:
               port: entry-tcp
             initialDelaySeconds: 2
             periodSeconds: 10
+          startupProbe:
+            tcpSocket:
+              port: entry-tcp
+            periodSeconds: 2
+            failureThreshold: 90
           livenessProbe:
             tcpSocket:
               port: entry-tcp
@@ -486,6 +491,11 @@ spec:
               port: entry-tcp
             initialDelaySeconds: 2
             periodSeconds: 10
+          startupProbe:
+            tcpSocket:
+              port: entry-tcp
+            periodSeconds: 2
+            failureThreshold: 90
           livenessProbe:
             tcpSocket:
               port: entry-tcp
