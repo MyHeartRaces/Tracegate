@@ -28,6 +28,12 @@ from tracegate.bot.access import (
     is_superadmin,
     user_label,
 )
+from tracegate.bot.admin_tools import (
+    build_admin_users_report,
+    build_feedback_admin_text,
+    format_block_until_label,
+    parse_user_block_request,
+)
 from tracegate.bot.client import ApiClientError, TracegateApiClient
 from tracegate.bot.metrics import BotMetricsMiddleware, maybe_start_bot_metrics_server
 from tracegate.bot.startup import delete_webhook_with_retry
@@ -36,6 +42,7 @@ from tracegate.bot.keyboards import (
     admin_menu_keyboard,
     device_actions_keyboard,
     devices_keyboard,
+    feedback_admin_keyboard,
     main_menu_keyboard,
     provider_keyboard_with_cancel,
     revisions_keyboard,
@@ -54,7 +61,6 @@ from tracegate.services.bot_blocks import (
     MAX_TIMED_BOT_BLOCK_HOURS,
     PERMANENT_BOT_BLOCK_HOURS,
     is_permanent_bot_block_hours,
-    is_permanent_bot_block_until,
 )
 from tracegate.settings import get_settings
 
@@ -107,11 +113,7 @@ BLOCK_HOURS_HINT = f"Hours: from 1 to {MAX_TIMED_BOT_BLOCK_HOURS}, {PERMANENT_BO
 
 
 def _format_block_until_label(until: datetime | None) -> str:
-    if until is None:
-        return "не определено"
-    if is_permanent_bot_block_until(until):
-        return "перманентно"
-    return until.isoformat()
+    return format_block_until_label(until)
 
 
 def _format_block_duration_label(hours: int) -> str:
@@ -216,6 +218,10 @@ class DeviceFlow(StatesGroup):
     waiting_for_name = State()
 
 
+class FeedbackFlow(StatesGroup):
+    waiting_for_message = State()
+
+
 class SniCatalogFlow(StatesGroup):
     waiting_for_input = State()
 
@@ -262,6 +268,21 @@ class BotAccessMiddleware(BaseMiddleware):
 
 async def ensure_user(telegram_id: int) -> dict:
     return await api.get_or_create_user(telegram_id)
+
+
+async def _load_admin_chat_ids() -> list[int]:
+    ids: set[int] = {int(value) for value in (settings.superadmin_telegram_ids or []) if int(value) > 0}
+    for role in ("admin", "superadmin"):
+        rows = await api.list_users(role=role, limit=500, include_empty=True, prune_empty=False)
+        for row in rows:
+            telegram_id = int(row.get("telegram_id") or 0)
+            if telegram_id > 0:
+                ids.add(telegram_id)
+    return sorted(ids)
+
+
+def _feedback_text_from_message(message: Message) -> str:
+    return (message.text or message.caption or "").strip()
 
 
 def _connection_family_name(protocol: str, mode: str) -> str:
@@ -541,6 +562,78 @@ async def cancel(message: Message, state: FSMContext) -> None:
     await _send_main_menu(message)
 
 
+@router.callback_query(F.data == "feedback_start")
+async def feedback_start(callback: CallbackQuery, state: FSMContext) -> None:
+    await state.clear()
+    await state.set_state(FeedbackFlow.waiting_for_message)
+    await callback.message.answer(
+        _msg_prompt(
+            "Напишите сообщение для администраторов.\n"
+            "Его увидят admin/superadmin, а ваш Telegram ID будет приложен.\n"
+            "/cancel для отмены."
+        )
+    )
+    await callback.answer()
+
+
+@router.message(FeedbackFlow.waiting_for_message)
+async def feedback_message(message: Message, state: FSMContext) -> None:
+    try:
+        text = _feedback_text_from_message(message)
+        if not text:
+            await message.answer(_msg_warn("Сообщение не может быть пустым.\n/cancel для отмены."))
+            return
+
+        author = await ensure_user(message.from_user.id)
+        admin_chat_ids = await _load_admin_chat_ids()
+        if not admin_chat_ids:
+            await message.answer(_msg_error("Список администраторов пуст, сообщение не отправлено."))
+            return
+
+        sent_at = datetime.now(timezone.utc)
+        admin_text = build_feedback_admin_text(author=author, feedback_text=text, sent_at=sent_at)
+        sent = 0
+        failed = 0
+        for chat_id in admin_chat_ids:
+            try:
+                await message.bot.send_message(
+                    chat_id=chat_id,
+                    text=admin_text,
+                    reply_markup=feedback_admin_keyboard(telegram_id=int(author["telegram_id"])),
+                )
+                sent += 1
+            except TelegramRetryAfter as exc:
+                await asyncio.sleep(float(exc.retry_after))
+                try:
+                    await message.bot.send_message(
+                        chat_id=chat_id,
+                        text=admin_text,
+                        reply_markup=feedback_admin_keyboard(telegram_id=int(author["telegram_id"])),
+                    )
+                    sent += 1
+                except Exception:
+                    failed += 1
+            except (TelegramForbiddenError, TelegramBadRequest):
+                failed += 1
+            except Exception:
+                failed += 1
+            await asyncio.sleep(0.04)
+
+        if sent == 0:
+            await message.answer(_msg_error("Не удалось доставить сообщение администраторам."))
+            return
+
+        if failed:
+            await message.answer(_msg_ok(f"Сообщение отправлено администраторам.\nДоставлено: {sent}, ошибки: {failed}"))
+        else:
+            await message.answer(_msg_ok("Сообщение отправлено администраторам."))
+        await _send_main_menu(message)
+    except ApiClientError as exc:
+        await message.answer(_msg_error(exc))
+    finally:
+        await state.clear()
+
+
 @router.message(Command("announce"))
 async def announce(message: Message, state: FSMContext) -> None:
     await state.clear()
@@ -568,7 +661,7 @@ async def announce_text(message: Message, state: FSMContext) -> None:
             await message.answer(_msg_warn("Недостаточно прав"))
             return
 
-        users = await api.list_users(limit=1000)
+        users = await api.list_users(limit=1000, include_empty=True, prune_empty=False)
         sent = 0
         failed = 0
         for user in users:
@@ -736,11 +829,11 @@ async def admin_users(callback: CallbackQuery) -> None:
         await callback.answer(_msg_warn("Недостаточно прав"))
         return
     try:
-        max_rows = 80
         now = datetime.now(timezone.utc)
-        users = await api.list_users(limit=300)
+        all_users = await api.list_users(limit=500, include_empty=True, prune_empty=False)
+        active_users = await api.list_users(limit=500, include_empty=False, prune_empty=False)
         blocked_users = await api.list_users(
-            limit=300,
+            limit=500,
             blocked_only=True,
             include_empty=True,
             prune_empty=False,
@@ -751,37 +844,13 @@ async def admin_users(callback: CallbackQuery) -> None:
             until = bot_block_until(row)
             if until is not None and until > now:
                 active_blocked_users.append(row)
-        blocked_ids = {int(row.get("telegram_id") or 0) for row in active_blocked_users}
-
-        regular_users = [
-            row
-            for row in users
-            if int(row.get("telegram_id") or 0) not in blocked_ids
-        ]
-
-        regular_users.sort(key=lambda row: (str(row.get("role") or ""), int(row.get("telegram_id") or 0)))
-        active_blocked_users.sort(key=lambda row: int(row.get("telegram_id") or 0))
-
-        lines = ["👥 Пользователи (с активными подключениями):"]
-        if not regular_users:
-            lines.append("Нет пользователей с активными подключениями.")
-        for idx, user in enumerate(regular_users[:max_rows], start=1):
-            role = (user.get("role") or "").strip()
-            lines.append(f"{idx}. {user_label(user)} | role={role}")
-        if len(regular_users) > max_rows:
-            lines.append(f"Показано {max_rows} из {len(regular_users)}.")
-
-        lines.extend(["", "⛔ Заблокированные пользователи:"])
-        if not active_blocked_users:
-            lines.append("Нет активных блокировок.")
-        for idx, user in enumerate(active_blocked_users[:max_rows], start=1):
-            role = (user.get("role") or "").strip()
-            until = bot_block_until(user)
-            lines.append(f"{idx}. {user_label(user)} | role={role} | BLOCK {_format_block_until_label(until)}")
-        if len(active_blocked_users) > max_rows:
-            lines.append(f"Показано {max_rows} из {len(active_blocked_users)}.")
-
-        await callback.message.answer("\n".join(lines))
+        await callback.message.answer(
+            build_admin_users_report(
+                all_users=all_users,
+                active_users=active_users,
+                blocked_users=active_blocked_users,
+            )
+        )
     except ApiClientError as exc:
         await callback.message.answer(_msg_error(exc))
     await callback.answer()
@@ -793,7 +862,9 @@ async def admin_user_block(callback: CallbackQuery, state: FSMContext) -> None:
     if not is_admin(actor):
         await callback.answer(_msg_warn("Недостаточно прав"))
         return
+    await state.clear()
     await state.set_state(AdminFlow.waiting_for_user_block)
+    await state.update_data(block_target_id=None, block_target_label=None)
     await callback.message.answer(
         _msg_prompt(
             "Введите: <telegram_id> <hours> [reason]\n"
@@ -853,18 +924,33 @@ async def receive_user_block(message: Message, state: FSMContext) -> None:
             await message.answer(_msg_warn("Недостаточно прав."))
             return
 
-        parts = (message.text or "").strip().split(maxsplit=2)
-        if len(parts) < 2:
-            await message.answer(
-                _msg_warn(
-                    "Формат: <telegram_id> <hours> [reason]\n"
-                    f"{BLOCK_HOURS_HINT}"
-                )
+        state_data = await state.get_data()
+        default_target_id_raw = state_data.get("block_target_id")
+        default_target_label = (state_data.get("block_target_label") or "").strip()
+        default_target_id = int(default_target_id_raw) if default_target_id_raw is not None else None
+
+        try:
+            target_id, hours, reason = parse_user_block_request(
+                message.text or "",
+                default_target_id=default_target_id,
             )
+        except ValueError as exc:
+            if default_target_id is None:
+                await message.answer(
+                    _msg_warn(
+                        f"{exc}\n"
+                        f"{BLOCK_HOURS_HINT}"
+                    )
+                )
+            else:
+                await message.answer(
+                    _msg_warn(
+                        f"{exc}\n"
+                        f"Для {default_target_label or default_target_id}: <hours> [reason]\n"
+                        f"{BLOCK_HOURS_HINT}"
+                    )
+                )
             return
-        target_id = int(parts[0])
-        hours = int(parts[1])
-        reason = parts[2].strip() if len(parts) >= 3 else None
 
         target = await api.get_or_create_user(target_id)
         if not can_manage_block(actor, target):
@@ -1071,6 +1157,39 @@ async def vless_new(callback: CallbackQuery) -> None:
         reply_markup=vless_transport_keyboard(spec=spec, device_id=device_id),
     )
     await callback.answer()
+
+
+@router.callback_query(F.data.startswith("feedback_block:"))
+async def feedback_block(callback: CallbackQuery, state: FSMContext) -> None:
+    actor = await ensure_user(callback.from_user.id)
+    if not is_admin(actor):
+        await callback.answer(_msg_warn("Недостаточно прав"))
+        return
+    try:
+        _, raw_target_id = callback.data.split(":", 1)
+        target_id = int(raw_target_id)
+        target = await api.get_or_create_user(target_id)
+        if not can_manage_block(actor, target):
+            await callback.answer(_msg_warn("Недостаточно прав для блокировки этой роли."), show_alert=True)
+            return
+        await state.clear()
+        await state.set_state(AdminFlow.waiting_for_user_block)
+        await state.update_data(
+            block_target_id=target_id,
+            block_target_label=user_label(target),
+        )
+        await callback.message.answer(
+            _msg_prompt(
+                f"Блокировка автора фидбека: {user_label(target)}\n"
+                f"Введите: <hours> [reason]\n"
+                f"{BLOCK_HOURS_HINT}\n"
+                "Пример: 72 abuse"
+            )
+        )
+        await callback.answer()
+    except Exception as exc:  # noqa: BLE001
+        await callback.message.answer(_msg_error(exc))
+        await callback.answer()
 
 
 @router.callback_query(F.data.startswith("vlesstrans:"))

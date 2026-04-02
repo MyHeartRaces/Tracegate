@@ -20,6 +20,7 @@ def main_menu_keyboard(*, is_admin: bool = False) -> InlineKeyboardMarkup:
         [InlineKeyboardButton(text="Устройства", callback_data="devices")],
         [InlineKeyboardButton(text="Добавить устройство", callback_data="add_device")],
         [InlineKeyboardButton(text="Grafana", callback_data="grafana_otp")],
+        [InlineKeyboardButton(text="Обратная связь", callback_data="feedback_start")],
     ]
     if is_admin:
         rows.append([InlineKeyboardButton(text="Админ", callback_data="admin_menu")])
@@ -44,6 +45,14 @@ def admin_menu_keyboard(*, is_superadmin: bool) -> InlineKeyboardMarkup:
         )
     rows.append([InlineKeyboardButton(text="Меню", callback_data="menu")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def feedback_admin_keyboard(*, telegram_id: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="Заблокировать автора", callback_data=f"feedback_block:{int(telegram_id)}")]
+        ]
+    )
 
 
 def devices_keyboard(devices: list[dict]) -> InlineKeyboardMarkup:

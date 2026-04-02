@@ -1,4 +1,10 @@
-from tracegate.bot.keyboards import PROVIDER_CHOICES, device_actions_keyboard, main_menu_keyboard, vless_transport_keyboard
+from tracegate.bot.keyboards import (
+    PROVIDER_CHOICES,
+    device_actions_keyboard,
+    feedback_admin_keyboard,
+    main_menu_keyboard,
+    vless_transport_keyboard,
+)
 
 
 def _button_texts(keyboard) -> list[str]:
@@ -41,6 +47,19 @@ def test_main_menu_uses_grafana_button_caption() -> None:
     texts = _button_texts(kb)
     assert "Grafana" in texts
     assert "Статистика (Grafana)" not in texts
+
+
+def test_main_menu_includes_feedback_button() -> None:
+    kb = main_menu_keyboard(is_admin=False)
+    texts = _button_texts(kb)
+    assert "Обратная связь" in texts
+
+
+def test_feedback_admin_keyboard_uses_targeted_callback() -> None:
+    kb = feedback_admin_keyboard(telegram_id=123456789)
+    button = kb.inline_keyboard[0][0]
+    assert button.text == "Заблокировать автора"
+    assert button.callback_data == "feedback_block:123456789"
 
 
 def test_device_actions_keyboard_uses_new_profile_names() -> None:
