@@ -2,11 +2,22 @@
 {{- $secretsChecksum := include (print $.Template.BasePath "/secrets.yaml") . | sha256sum -}}
 {{- $interconnectSelectorEnabled := and .Values.gateway.enabled .Values.gateway.vpsE.enabled (.Values.gateway.interconnect.selector.enabled | default false) -}}
 {{- $interconnectHyEnabled := and .Values.gateway.enabled .Values.gateway.vpsE.enabled .Values.gateway.vpsT.enabled (.Values.gateway.interconnect.hysteriaBackplane.enabled | default false) -}}
+{{- $interconnectHyTcpEncapEnabled := and $interconnectHyEnabled (.Values.gateway.interconnect.hysteriaBackplane.tcpEncapsulation.enabled | default false) -}}
 {{- $interconnectWgEnabled := and .Values.gateway.enabled (.Values.gateway.interconnect.wireguardBackplane.enabled | default false) -}}
 {{- $selectorMetricsPort := int (.Values.gateway.interconnect.selector.metricsPort | default 9093) -}}
 {{- $hyBackplaneListenPort := int (.Values.gateway.interconnect.hysteriaBackplane.listenPort | default 15445) -}}
 {{- $hyBackplaneTransitPort := int (.Values.gateway.interconnect.hysteriaBackplane.localTransitPort | default 16443) -}}
 {{- $hyBackplaneWsPort := int (.Values.gateway.interconnect.hysteriaBackplane.localWsPort | default 16444) -}}
+{{- $hyBackplaneTcpServerHost := (.Values.gateway.interconnect.hysteriaBackplane.tcpEncapsulation.serverListenHost | default "0.0.0.0" | trim) -}}
+{{- if eq $hyBackplaneTcpServerHost "" }}{{- $hyBackplaneTcpServerHost = "0.0.0.0" -}}{{- end -}}
+{{- $hyBackplaneTcpServerPort := int (.Values.gateway.interconnect.hysteriaBackplane.tcpEncapsulation.serverListenPort | default 15446) -}}
+{{- $hyBackplaneTcpClientHost := (.Values.gateway.interconnect.hysteriaBackplane.tcpEncapsulation.clientBindHost | default "127.0.0.1" | trim) -}}
+{{- if eq $hyBackplaneTcpClientHost "" }}{{- $hyBackplaneTcpClientHost = "127.0.0.1" -}}{{- end -}}
+{{- $hyBackplaneTcpClientPort := int (.Values.gateway.interconnect.hysteriaBackplane.tcpEncapsulation.clientBindPort | default 16445) -}}
+{{- $hyBackplaneRemoteHost := (.Values.gateway.vpsT.publicIPv4 | default "" | trim) -}}
+{{- if eq $hyBackplaneRemoteHost "" -}}
+{{- $hyBackplaneRemoteHost = (.Values.gateway.vpsT.fqdn | default "" | trim) -}}
+{{- end -}}
 {{- if and .Values.gateway.enabled .Values.gateway.vpsT.enabled }}
 {{- if .Values.gateway.vpsT.agent.enabled }}
 apiVersion: v1
@@ -236,10 +247,12 @@ spec:
           image: {{ .Values.gateway.vpsT.hysteria.image }}
           imagePullPolicy: {{ .Values.gateway.vpsT.hysteria.pullPolicy }}
           command: ["hysteria", "server", "-c", "/etc/hysteria-backplane/config.yaml"]
+          {{- if not $interconnectHyTcpEncapEnabled }}
           ports:
             - containerPort: {{ $hyBackplaneListenPort }}
               protocol: UDP
               name: hy-backplane
+          {{- end }}
           volumeMounts:
             - name: hysteria-backplane-config
               mountPath: /etc/hysteria-backplane
@@ -250,6 +263,33 @@ spec:
           securityContext:
             runAsUser: 0
             runAsGroup: 0
+        {{- if $interconnectHyTcpEncapEnabled }}
+        - name: hysteria-backplane-tcp-bridge
+          image: {{ include "tracegate.image" .Values.gateway.agentImage }}
+          imagePullPolicy: {{ .Values.gateway.agentImage.pullPolicy }}
+          command:
+            - tracegate-udp-tcp-tunnel
+            - --log-level
+            - INFO
+            - server
+            - --tcp-bind-host
+            - {{ $hyBackplaneTcpServerHost | quote }}
+            - --tcp-bind-port
+            - {{ $hyBackplaneTcpServerPort | quote }}
+            - --udp-target-host
+            - 127.0.0.1
+            - --udp-target-port
+            - {{ $hyBackplaneListenPort | quote }}
+            - --idle-timeout-seconds
+            - {{ (.Values.gateway.interconnect.hysteriaBackplane.tcpEncapsulation.idleTimeoutSeconds | default 300) | quote }}
+          ports:
+            - containerPort: {{ $hyBackplaneTcpServerPort }}
+              protocol: TCP
+              name: hybp-encap
+          securityContext:
+            runAsUser: 0
+            runAsGroup: 0
+        {{- end }}
         {{- end }}
         - name: wireguard
           image: {{ .Values.gateway.vpsT.wireguard.image }}
@@ -711,6 +751,31 @@ spec:
               port: hybp-tcp
             initialDelaySeconds: 10
             periodSeconds: 20
+        {{- if $interconnectHyTcpEncapEnabled }}
+        - name: hysteria-backplane-tcp-bridge
+          image: {{ include "tracegate.image" .Values.gateway.agentImage }}
+          imagePullPolicy: {{ .Values.gateway.agentImage.pullPolicy }}
+          command:
+            - tracegate-udp-tcp-tunnel
+            - --log-level
+            - INFO
+            - client
+            - --udp-bind-host
+            - {{ $hyBackplaneTcpClientHost | quote }}
+            - --udp-bind-port
+            - {{ $hyBackplaneTcpClientPort | quote }}
+            - --tcp-connect-host
+            - {{ required "gateway.vpsT.publicIPv4 or gateway.vpsT.fqdn is required when hysteriaBackplane tcpEncapsulation is enabled" $hyBackplaneRemoteHost | quote }}
+            - --tcp-connect-port
+            - {{ $hyBackplaneTcpServerPort | quote }}
+            - --connect-timeout-seconds
+            - {{ (.Values.gateway.interconnect.hysteriaBackplane.tcpEncapsulation.connectTimeoutSeconds | default 5) | quote }}
+            - --reconnect-delay-seconds
+            - {{ (.Values.gateway.interconnect.hysteriaBackplane.tcpEncapsulation.reconnectDelaySeconds | default 1) | quote }}
+          securityContext:
+            runAsUser: 0
+            runAsGroup: 0
+        {{- end }}
         {{- end }}
         {{- if $interconnectSelectorEnabled }}
         - name: transit-selector

@@ -212,6 +212,15 @@ gateway:
       localWsPort: 16444
       serverName: backplane-vps-t.internal
       auth: ""
+      tcpEncapsulation:
+        enabled: false
+        serverListenHost: 0.0.0.0
+        serverListenPort: 15446
+        clientBindHost: 127.0.0.1
+        clientBindPort: 16445
+        connectTimeoutSeconds: 5
+        reconnectDelaySeconds: 1
+        idleTimeoutSeconds: 300
       obfs:
         enabled: false
         password: ""

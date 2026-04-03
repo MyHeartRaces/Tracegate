@@ -48,6 +48,7 @@ tracegate-init-db = "tracegate.cli.init_db:main"
 tracegate-migrate-db = "tracegate.cli.migrate_db:main"
 tracegate-grafana-bootstrap = "tracegate.cli.grafana_bootstrap:main"
 tracegate-transit-selector = "tracegate.cli.transit_selector:main"
+tracegate-udp-tcp-tunnel = "tracegate.cli.udp_tcp_tunnel:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
