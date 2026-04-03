@@ -677,11 +677,11 @@ spec:
           ports:
             - containerPort: {{ $hyBackplaneTransitPort }}
               protocol: TCP
-              name: hy-backplane-tcp
+              name: hybp-tcp
             {{- if ne $hyBackplaneWsPort $hyBackplaneTransitPort }}
             - containerPort: {{ $hyBackplaneWsPort }}
               protocol: TCP
-              name: hy-backplane-ws
+              name: hybp-ws
             {{- end }}
           volumeMounts:
             - name: hysteria-backplane-config
@@ -695,17 +695,17 @@ spec:
             runAsGroup: 0
           readinessProbe:
             tcpSocket:
-              port: hy-backplane-tcp
+              port: hybp-tcp
             initialDelaySeconds: 1
             periodSeconds: 10
           startupProbe:
             tcpSocket:
-              port: hy-backplane-tcp
+              port: hybp-tcp
             periodSeconds: 2
             failureThreshold: 30
           livenessProbe:
             tcpSocket:
-              port: hy-backplane-tcp
+              port: hybp-tcp
             initialDelaySeconds: 10
             periodSeconds: 20
         {{- end }}
@@ -743,16 +743,16 @@ spec:
           ports:
             - containerPort: {{ .Values.gateway.interconnect.selector.transitPort }}
               protocol: TCP
-              name: selector-transit
+              name: sel-tcp
             {{- if ne (int (.Values.gateway.interconnect.selector.wsTransitPort | default 15444)) (int (.Values.gateway.interconnect.selector.transitPort | default 15443)) }}
             - containerPort: {{ .Values.gateway.interconnect.selector.wsTransitPort }}
               protocol: TCP
-              name: selector-ws
+              name: sel-ws
             {{- end }}
           {{- if .Values.gateway.interconnect.selector.metricsEnabled }}
             - containerPort: {{ $selectorMetricsPort }}
               protocol: TCP
-              name: selector-metrics
+              name: sel-metrics
           {{- end }}
           volumeMounts:
             - name: transit-selector-config
@@ -763,17 +763,17 @@ spec:
             runAsGroup: 0
           readinessProbe:
             tcpSocket:
-              port: selector-transit
+              port: sel-tcp
             initialDelaySeconds: 1
             periodSeconds: 10
           startupProbe:
             tcpSocket:
-              port: selector-transit
+              port: sel-tcp
             periodSeconds: 2
             failureThreshold: 30
           livenessProbe:
             tcpSocket:
-              port: selector-transit
+              port: sel-tcp
             initialDelaySeconds: 10
             periodSeconds: 20
         {{- end }}
