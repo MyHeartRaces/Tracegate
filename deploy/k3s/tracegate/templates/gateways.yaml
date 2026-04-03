@@ -339,7 +339,7 @@ spec:
             - name: WG_INTERFACE
               value: {{ .Values.gateway.interconnect.wireguardBackplane.interface | quote }}
             - name: WG_CONFIG
-              value: /etc/wireguard-backplane/wg0.conf
+              value: /etc/wireguard-backplane/{{ .Values.gateway.interconnect.wireguardBackplane.interface }}.conf
             - name: ENABLE_IP_FORWARD
               value: "0"
             - name: ENABLE_NAT
@@ -882,7 +882,7 @@ spec:
             - name: WG_INTERFACE
               value: {{ .Values.gateway.interconnect.wireguardBackplane.interface | quote }}
             - name: WG_CONFIG
-              value: /etc/wireguard-backplane/wg0.conf
+              value: /etc/wireguard-backplane/{{ .Values.gateway.interconnect.wireguardBackplane.interface }}.conf
             - name: ENABLE_IP_FORWARD
               value: "0"
             - name: ENABLE_NAT

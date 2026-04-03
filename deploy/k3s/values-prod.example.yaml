@@ -141,6 +141,7 @@ gateway:
       enabled: false
       interface: wgs2s
       listenPort: 51821
+      endpointHost: ""
       vpsTAddress: 10.200.0.1/30
       vpsEAddress: 10.200.0.2/30
       vpsTPrivateKey: ""
