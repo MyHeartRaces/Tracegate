@@ -5,6 +5,7 @@ import contextlib
 import json
 import logging
 import socket
+import ssl
 import time
 from dataclasses import dataclass
 from typing import Any
@@ -63,6 +64,7 @@ class TransitPathConfig:
     priority: int = 0
     probe_host: str | None = None
     probe_port: int | None = None
+    probe_tls_server_name: str | None = None
 
     def connect_target(self) -> tuple[str, int]:
         return self.host, int(self.port)
@@ -172,6 +174,7 @@ def parse_listener_configs(raw: str) -> list[TransitListenerConfig]:
             probe_host = str(raw_path.get("probe_host") or "").strip() or None
             probe_port_raw = raw_path.get("probe_port")
             probe_port = int(probe_port_raw) if probe_port_raw not in (None, "") else None
+            probe_tls_server_name = str(raw_path.get("probe_tls_server_name") or "").strip() or None
             if not path_name:
                 raise ValueError(f"listener {name} path #{path_idx + 1} is missing name")
             if path_name in seen_path_names:
@@ -187,6 +190,7 @@ def parse_listener_configs(raw: str) -> list[TransitListenerConfig]:
                     priority=priority,
                     probe_host=probe_host,
                     probe_port=probe_port,
+                    probe_tls_server_name=probe_tls_server_name,
                 )
             )
 
@@ -383,21 +387,7 @@ class TransitListenerServer:
         jitter = (self.selector._path_index[path.name] % 5) * 0.15
         await asyncio.sleep(jitter)
         while True:
-            latency_ms: float | None = None
-            error: str | None = None
-            started = time.perf_counter()
-            probe_host, probe_port = path.probe_target()
-            try:
-                reader, writer = await asyncio.wait_for(
-                    asyncio.open_connection(probe_host, probe_port),
-                    timeout=self.runtime.probe_timeout_seconds,
-                )
-                latency_ms = max(0.0, (time.perf_counter() - started) * 1000.0)
-                writer.close()
-                with contextlib.suppress(Exception):
-                    await writer.wait_closed()
-            except Exception as exc:  # noqa: BLE001
-                error = type(exc).__name__
+            latency_ms, error = await _probe_path(path, timeout_seconds=self.runtime.probe_timeout_seconds)
             await self.selector.register_probe_result(path.name, latency_ms=latency_ms, error=error)
             await asyncio.sleep(max(0.5, self.runtime.probe_interval_seconds))
 
@@ -518,6 +508,44 @@ class TransitSelectorService:
             for listener in self.listeners:
                 with contextlib.suppress(Exception):
                     await listener.stop()
+
+
+async def _probe_path(
+    path: TransitPathConfig,
+    *,
+    timeout_seconds: float,
+) -> tuple[float | None, str | None]:
+    latency_ms: float | None = None
+    error: str | None = None
+    started = time.perf_counter()
+    probe_host, probe_port = path.probe_target()
+    ssl_context: ssl.SSLContext | None = None
+    server_hostname: str | None = None
+
+    if path.probe_tls_server_name:
+        ssl_context = ssl.create_default_context()
+        ssl_context.check_hostname = False
+        ssl_context.verify_mode = ssl.CERT_NONE
+        server_hostname = path.probe_tls_server_name
+
+    try:
+        _reader, writer = await asyncio.wait_for(
+            asyncio.open_connection(
+                probe_host,
+                probe_port,
+                ssl=ssl_context,
+                server_hostname=server_hostname,
+            ),
+            timeout=timeout_seconds,
+        )
+        latency_ms = max(0.0, (time.perf_counter() - started) * 1000.0)
+        writer.close()
+        with contextlib.suppress(Exception):
+            await writer.wait_closed()
+    except Exception as exc:  # noqa: BLE001
+        error = type(exc).__name__
+
+    return latency_ms, error
 
 
 async def _pipe_stream(

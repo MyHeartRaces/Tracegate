@@ -21,6 +21,10 @@
 {{- if eq $vpsTPrimaryHost "" -}}
 {{- $vpsTPrimaryHost = (default .Values.gateway.vpsT.fqdn .Values.gateway.vpsT.proxyFqdn | trim) -}}
 {{- end -}}
+{{- $vpsTProbeTlsName := (.Values.gateway.vpsT.fqdn | default "" | trim) -}}
+{{- if eq $vpsTProbeTlsName "" -}}
+{{- $vpsTProbeTlsName = (.Values.gateway.vpsT.proxyFqdn | default "" | trim) -}}
+{{- end -}}
 {{- $splitterTransitHost := (.Values.gateway.splitter.transit.upstreamHost | default "" | trim) -}}
 {{- if and (eq $splitterTransitHost "") $vpsTPrimaryHost -}}
 {{- $splitterTransitHost = $vpsTPrimaryHost -}}
@@ -55,27 +59,39 @@
 {{- $selectorTransitPathNames := dict -}}
 {{- if and $selectorEnabled (.Values.gateway.interconnect.selector.candidates.configuredSplitterHost.enabled | default true) $splitterTransitHost }}
 {{- $_ := set $selectorTransitPathNames "configured_splitter_host" true -}}
-{{- $selectorTransitPaths = append $selectorTransitPaths (dict "name" "configured_splitter_host" "host" $splitterTransitHost "port" 443 "priority" (int (.Values.gateway.interconnect.selector.candidates.configuredSplitterHost.priority | default 5))) -}}
+{{- $path := dict "name" "configured_splitter_host" "host" $splitterTransitHost "port" 443 "priority" (int (.Values.gateway.interconnect.selector.candidates.configuredSplitterHost.priority | default 5)) -}}
+{{- if $vpsTProbeTlsName }}{{- $_ := set $path "probe_tls_server_name" $vpsTProbeTlsName -}}{{- end -}}
+{{- $selectorTransitPaths = append $selectorTransitPaths $path -}}
 {{- end -}}
 {{- if and $selectorEnabled (.Values.gateway.interconnect.selector.candidates.configuredTcpForwardHost.enabled | default true) $vpsETcpForwardHost }}
 {{- $_ := set $selectorTransitPathNames "configured_tcp_forward_host" true -}}
-{{- $selectorTransitPaths = append $selectorTransitPaths (dict "name" "configured_tcp_forward_host" "host" $vpsETcpForwardHost "port" 443 "priority" (int (.Values.gateway.interconnect.selector.candidates.configuredTcpForwardHost.priority | default 5))) -}}
+{{- $path := dict "name" "configured_tcp_forward_host" "host" $vpsETcpForwardHost "port" 443 "priority" (int (.Values.gateway.interconnect.selector.candidates.configuredTcpForwardHost.priority | default 5)) -}}
+{{- if $vpsTProbeTlsName }}{{- $_ := set $path "probe_tls_server_name" $vpsTProbeTlsName -}}{{- end -}}
+{{- $selectorTransitPaths = append $selectorTransitPaths $path -}}
 {{- end -}}
 {{- if and $selectorEnabled (.Values.gateway.interconnect.selector.candidates.publicIPv4.enabled | default true) .Values.gateway.vpsT.publicIPv4 }}
 {{- $_ := set $selectorTransitPathNames "public_ipv4" true -}}
-{{- $selectorTransitPaths = append $selectorTransitPaths (dict "name" "public_ipv4" "host" .Values.gateway.vpsT.publicIPv4 "port" 443 "priority" (int (.Values.gateway.interconnect.selector.candidates.publicIPv4.priority | default 0))) -}}
+{{- $path := dict "name" "public_ipv4" "host" .Values.gateway.vpsT.publicIPv4 "port" 443 "priority" (int (.Values.gateway.interconnect.selector.candidates.publicIPv4.priority | default 0)) -}}
+{{- if $vpsTProbeTlsName }}{{- $_ := set $path "probe_tls_server_name" $vpsTProbeTlsName -}}{{- end -}}
+{{- $selectorTransitPaths = append $selectorTransitPaths $path -}}
 {{- end -}}
 {{- if and $selectorEnabled (.Values.gateway.interconnect.selector.candidates.fqdn.enabled | default true) .Values.gateway.vpsT.fqdn }}
 {{- $_ := set $selectorTransitPathNames "fqdn" true -}}
-{{- $selectorTransitPaths = append $selectorTransitPaths (dict "name" "fqdn" "host" .Values.gateway.vpsT.fqdn "port" 443 "priority" (int (.Values.gateway.interconnect.selector.candidates.fqdn.priority | default 0))) -}}
+{{- $path := dict "name" "fqdn" "host" .Values.gateway.vpsT.fqdn "port" 443 "priority" (int (.Values.gateway.interconnect.selector.candidates.fqdn.priority | default 0)) -}}
+{{- if $vpsTProbeTlsName }}{{- $_ := set $path "probe_tls_server_name" $vpsTProbeTlsName -}}{{- end -}}
+{{- $selectorTransitPaths = append $selectorTransitPaths $path -}}
 {{- end -}}
 {{- if and $selectorEnabled $hyBackplaneEnabled (.Values.gateway.interconnect.selector.candidates.hysteriaBackplane.enabled | default true) }}
 {{- $_ := set $selectorTransitPathNames "hysteria_backplane" true -}}
-{{- $selectorTransitPaths = append $selectorTransitPaths (dict "name" "hysteria_backplane" "host" $hyBackplaneBindHost "port" $hyBackplaneTransitPort "priority" (int (.Values.gateway.interconnect.selector.candidates.hysteriaBackplane.priority | default 9)) "probe_host" $hyBackplaneBindHost "probe_port" $hyBackplaneTransitPort) -}}
+{{- $path := dict "name" "hysteria_backplane" "host" $hyBackplaneBindHost "port" $hyBackplaneTransitPort "priority" (int (.Values.gateway.interconnect.selector.candidates.hysteriaBackplane.priority | default 9)) "probe_host" $hyBackplaneBindHost "probe_port" $hyBackplaneTransitPort -}}
+{{- if $vpsTProbeTlsName }}{{- $_ := set $path "probe_tls_server_name" $vpsTProbeTlsName -}}{{- end -}}
+{{- $selectorTransitPaths = append $selectorTransitPaths $path -}}
 {{- end -}}
 {{- if and $selectorEnabled $wgBackplaneEnabled (.Values.gateway.interconnect.selector.candidates.wireguardBackplane.enabled | default true) $wgBackplaneHost }}
 {{- $_ := set $selectorTransitPathNames "wireguard_backplane" true -}}
-{{- $selectorTransitPaths = append $selectorTransitPaths (dict "name" "wireguard_backplane" "host" $wgBackplaneHost "port" 443 "priority" (int (.Values.gateway.interconnect.selector.candidates.wireguardBackplane.priority | default 10))) -}}
+{{- $path := dict "name" "wireguard_backplane" "host" $wgBackplaneHost "port" 443 "priority" (int (.Values.gateway.interconnect.selector.candidates.wireguardBackplane.priority | default 10)) -}}
+{{- if $vpsTProbeTlsName }}{{- $_ := set $path "probe_tls_server_name" $vpsTProbeTlsName -}}{{- end -}}
+{{- $selectorTransitPaths = append $selectorTransitPaths $path -}}
 {{- end -}}
 {{- range $idx, $path := (.Values.gateway.interconnect.selector.extraTransitPaths | default (list)) }}
 {{- $name := (toString ($path.name | default "")) | trim -}}
@@ -91,33 +107,47 @@
 {{- if ne $probeHost "" }}{{- $_ := set $extraPath "probe_host" $probeHost -}}{{- end -}}
 {{- $probePort := int ($path.probe_port | default 0) -}}
 {{- if gt $probePort 0 }}{{- $_ := set $extraPath "probe_port" $probePort -}}{{- end -}}
+{{- $probeTlsServerName := (toString ($path.probe_tls_server_name | default "")) | trim -}}
+{{- if ne $probeTlsServerName "" }}{{- $_ := set $extraPath "probe_tls_server_name" $probeTlsServerName -}}{{- end -}}
 {{- $selectorTransitPaths = append $selectorTransitPaths $extraPath -}}
 {{- end -}}
 {{- $selectorWsPaths := list -}}
 {{- $selectorWsPathNames := dict -}}
 {{- if and $selectorEnabled (ne $wsPort 443) (.Values.gateway.interconnect.selector.candidates.configuredTcpForwardHost.enabled | default true) $vpsETcpForwardHost }}
 {{- $_ := set $selectorWsPathNames "configured_tcp_forward_host" true -}}
-{{- $selectorWsPaths = append $selectorWsPaths (dict "name" "configured_tcp_forward_host" "host" $vpsETcpForwardHost "port" $wsPort "priority" (int (.Values.gateway.interconnect.selector.candidates.configuredTcpForwardHost.priority | default 5))) -}}
+{{- $path := dict "name" "configured_tcp_forward_host" "host" $vpsETcpForwardHost "port" $wsPort "priority" (int (.Values.gateway.interconnect.selector.candidates.configuredTcpForwardHost.priority | default 5)) -}}
+{{- if $vpsTProbeTlsName }}{{- $_ := set $path "probe_tls_server_name" $vpsTProbeTlsName -}}{{- end -}}
+{{- $selectorWsPaths = append $selectorWsPaths $path -}}
 {{- end -}}
 {{- if and $selectorEnabled (ne $wsPort 443) (.Values.gateway.interconnect.selector.candidates.publicIPv4.enabled | default true) .Values.gateway.vpsT.publicIPv4 }}
 {{- $_ := set $selectorWsPathNames "public_ipv4" true -}}
-{{- $selectorWsPaths = append $selectorWsPaths (dict "name" "public_ipv4" "host" .Values.gateway.vpsT.publicIPv4 "port" $wsPort "priority" (int (.Values.gateway.interconnect.selector.candidates.publicIPv4.priority | default 0))) -}}
+{{- $path := dict "name" "public_ipv4" "host" .Values.gateway.vpsT.publicIPv4 "port" $wsPort "priority" (int (.Values.gateway.interconnect.selector.candidates.publicIPv4.priority | default 0)) -}}
+{{- if $vpsTProbeTlsName }}{{- $_ := set $path "probe_tls_server_name" $vpsTProbeTlsName -}}{{- end -}}
+{{- $selectorWsPaths = append $selectorWsPaths $path -}}
 {{- end -}}
 {{- if and $selectorEnabled (ne $wsPort 443) (.Values.gateway.interconnect.selector.candidates.fqdn.enabled | default true) .Values.gateway.vpsT.fqdn }}
 {{- $_ := set $selectorWsPathNames "fqdn" true -}}
-{{- $selectorWsPaths = append $selectorWsPaths (dict "name" "fqdn" "host" .Values.gateway.vpsT.fqdn "port" $wsPort "priority" (int (.Values.gateway.interconnect.selector.candidates.fqdn.priority | default 0))) -}}
+{{- $path := dict "name" "fqdn" "host" .Values.gateway.vpsT.fqdn "port" $wsPort "priority" (int (.Values.gateway.interconnect.selector.candidates.fqdn.priority | default 0)) -}}
+{{- if $vpsTProbeTlsName }}{{- $_ := set $path "probe_tls_server_name" $vpsTProbeTlsName -}}{{- end -}}
+{{- $selectorWsPaths = append $selectorWsPaths $path -}}
 {{- end -}}
 {{- if and $selectorEnabled (ne $wsPort 443) (.Values.gateway.interconnect.selector.candidates.proxyFqdn.enabled | default true) .Values.gateway.vpsT.proxyFqdn }}
 {{- $_ := set $selectorWsPathNames "proxy_fqdn" true -}}
-{{- $selectorWsPaths = append $selectorWsPaths (dict "name" "proxy_fqdn" "host" .Values.gateway.vpsT.proxyFqdn "port" $wsPort "priority" (int (.Values.gateway.interconnect.selector.candidates.proxyFqdn.priority | default 0))) -}}
+{{- $path := dict "name" "proxy_fqdn" "host" .Values.gateway.vpsT.proxyFqdn "port" $wsPort "priority" (int (.Values.gateway.interconnect.selector.candidates.proxyFqdn.priority | default 0)) -}}
+{{- if $vpsTProbeTlsName }}{{- $_ := set $path "probe_tls_server_name" $vpsTProbeTlsName -}}{{- end -}}
+{{- $selectorWsPaths = append $selectorWsPaths $path -}}
 {{- end -}}
 {{- if and $selectorEnabled (ne $wsPort 443) $hyBackplaneEnabled (.Values.gateway.interconnect.selector.candidates.hysteriaBackplane.enabled | default true) }}
 {{- $_ := set $selectorWsPathNames "hysteria_backplane" true -}}
-{{- $selectorWsPaths = append $selectorWsPaths (dict "name" "hysteria_backplane" "host" $hyBackplaneBindHost "port" $hyBackplaneWsPort "priority" (int (.Values.gateway.interconnect.selector.candidates.hysteriaBackplane.priority | default 9)) "probe_host" $hyBackplaneBindHost "probe_port" $hyBackplaneWsPort) -}}
+{{- $path := dict "name" "hysteria_backplane" "host" $hyBackplaneBindHost "port" $hyBackplaneWsPort "priority" (int (.Values.gateway.interconnect.selector.candidates.hysteriaBackplane.priority | default 9)) "probe_host" $hyBackplaneBindHost "probe_port" $hyBackplaneWsPort -}}
+{{- if $vpsTProbeTlsName }}{{- $_ := set $path "probe_tls_server_name" $vpsTProbeTlsName -}}{{- end -}}
+{{- $selectorWsPaths = append $selectorWsPaths $path -}}
 {{- end -}}
 {{- if and $selectorEnabled (ne $wsPort 443) $wgBackplaneEnabled (.Values.gateway.interconnect.selector.candidates.wireguardBackplane.enabled | default true) $wgBackplaneHost }}
 {{- $_ := set $selectorWsPathNames "wireguard_backplane" true -}}
-{{- $selectorWsPaths = append $selectorWsPaths (dict "name" "wireguard_backplane" "host" $wgBackplaneHost "port" $wsPort "priority" (int (.Values.gateway.interconnect.selector.candidates.wireguardBackplane.priority | default 10))) -}}
+{{- $path := dict "name" "wireguard_backplane" "host" $wgBackplaneHost "port" $wsPort "priority" (int (.Values.gateway.interconnect.selector.candidates.wireguardBackplane.priority | default 10)) -}}
+{{- if $vpsTProbeTlsName }}{{- $_ := set $path "probe_tls_server_name" $vpsTProbeTlsName -}}{{- end -}}
+{{- $selectorWsPaths = append $selectorWsPaths $path -}}
 {{- end -}}
 {{- range $idx, $path := (.Values.gateway.interconnect.selector.extraWsPaths | default (list)) }}
 {{- $name := (toString ($path.name | default "")) | trim -}}
@@ -133,6 +163,8 @@
 {{- if ne $probeHost "" }}{{- $_ := set $extraPath "probe_host" $probeHost -}}{{- end -}}
 {{- $probePort := int ($path.probe_port | default 0) -}}
 {{- if gt $probePort 0 }}{{- $_ := set $extraPath "probe_port" $probePort -}}{{- end -}}
+{{- $probeTlsServerName := (toString ($path.probe_tls_server_name | default "")) | trim -}}
+{{- if ne $probeTlsServerName "" }}{{- $_ := set $extraPath "probe_tls_server_name" $probeTlsServerName -}}{{- end -}}
 {{- $selectorWsPaths = append $selectorWsPaths $extraPath -}}
 {{- end -}}
 {{- $selectorListeners := list -}}

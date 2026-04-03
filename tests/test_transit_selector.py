@@ -8,6 +8,7 @@ from tracegate.transit_selector import (
     TransitListenerConfig,
     TransitPathConfig,
     TransitSelectorRuntimeConfig,
+    _probe_path,
     parse_listener_configs,
 )
 
@@ -139,3 +140,68 @@ def test_parse_listener_configs_preserves_probe_overrides() -> None:
 
     assert listeners[0].paths[0].connect_target() == ("tracegate-vps-t", 443)
     assert listeners[0].paths[0].probe_target() == ("10.200.0.1", 8443)
+
+
+def test_parse_listener_configs_preserves_probe_tls_server_name() -> None:
+    listeners = parse_listener_configs(
+        """
+        [
+          {
+            "name": "transit-443",
+            "bind_host": "127.0.0.1",
+            "bind_port": 15443,
+            "idle_timeout_seconds": 120,
+            "paths": [
+              {
+                "name": "hysteria_backplane",
+                "host": "127.0.0.1",
+                "port": 16443,
+                "probe_host": "127.0.0.1",
+                "probe_port": 16443,
+                "probe_tls_server_name": "tracegate.su"
+              }
+            ]
+          }
+        ]
+        """
+    )
+
+    assert listeners[0].paths[0].probe_tls_server_name == "tracegate.su"
+
+
+@pytest.mark.asyncio
+async def test_probe_path_uses_tls_when_configured(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[dict[str, object]] = []
+
+    class _Writer:
+        def close(self) -> None:
+            return None
+
+        async def wait_closed(self) -> None:
+            return None
+
+    async def _open_connection(host: str, port: int, **kwargs: object) -> tuple[object, _Writer]:
+        calls.append({"host": host, "port": port, **kwargs})
+        return object(), _Writer()
+
+    monkeypatch.setattr("tracegate.transit_selector.asyncio.open_connection", _open_connection)
+
+    latency_ms, error = await _probe_path(
+        TransitPathConfig(
+            name="hysteria_backplane",
+            host="127.0.0.1",
+            port=16443,
+            probe_host="127.0.0.1",
+            probe_port=16443,
+            probe_tls_server_name="tracegate.su",
+        ),
+        timeout_seconds=1.0,
+    )
+
+    assert latency_ms is not None
+    assert error is None
+    assert len(calls) == 1
+    assert calls[0]["host"] == "127.0.0.1"
+    assert calls[0]["port"] == 16443
+    assert calls[0]["server_hostname"] == "tracegate.su"
+    assert calls[0]["ssl"] is not None

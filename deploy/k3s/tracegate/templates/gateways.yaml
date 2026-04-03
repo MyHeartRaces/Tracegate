@@ -695,16 +695,19 @@ spec:
             runAsGroup: 0
           readinessProbe:
             tcpSocket:
+              host: 127.0.0.1
               port: hybp-tcp
             initialDelaySeconds: 1
             periodSeconds: 10
           startupProbe:
             tcpSocket:
+              host: 127.0.0.1
               port: hybp-tcp
             periodSeconds: 2
             failureThreshold: 30
           livenessProbe:
             tcpSocket:
+              host: 127.0.0.1
               port: hybp-tcp
             initialDelaySeconds: 10
             periodSeconds: 20
@@ -763,16 +766,19 @@ spec:
             runAsGroup: 0
           readinessProbe:
             tcpSocket:
+              host: 127.0.0.1
               port: sel-tcp
             initialDelaySeconds: 1
             periodSeconds: 10
           startupProbe:
             tcpSocket:
+              host: 127.0.0.1
               port: sel-tcp
             periodSeconds: 2
             failureThreshold: 30
           livenessProbe:
             tcpSocket:
+              host: 127.0.0.1
               port: sel-tcp
             initialDelaySeconds: 10
             periodSeconds: 20
