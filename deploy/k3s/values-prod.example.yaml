@@ -1,7 +1,7 @@
 controlPlane:
   image:
     repository: ghcr.io/your-org/tracegate
-    tag: "0.5"
+    tag: "0.6"
   auth:
     apiInternalToken: REPLACE_API_INTERNAL_TOKEN
     agentAuthToken: REPLACE_AGENT_AUTH_TOKEN
@@ -57,7 +57,7 @@ controlPlane:
 gateway:
   agentImage:
     repository: ghcr.io/your-org/tracegate
-    tag: "0.5"
+    tag: "0.6"
 
   failover:
     # Enable active-passive upstream failover between VPS-T and VPS-E entry points.
@@ -222,7 +222,7 @@ gateway:
       crt: ""
       key: ""
     wireguard:
-      image: ghcr.io/your-org/tracegate-wireguard:0.5
+      image: ghcr.io/your-org/tracegate-wireguard:0.6
       config: |
         [Interface]
         Address = 10.70.0.1/24

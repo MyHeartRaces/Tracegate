@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "tracegate"
-version = "0.5"
-description = "Tracegate v0.5 control-plane, node-agent and Telegram bot"
+version = "0.6.0"
+description = "Tracegate v0.6 control-plane, node-agent and Telegram bot"
 requires-python = ">=3.11"
 authors = [{name = "Tracegate"}]
 license = {file = "LICENSE"}

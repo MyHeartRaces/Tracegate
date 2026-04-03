@@ -7,7 +7,7 @@ controlPlane:
   enabled: true
   image:
     repository: ghcr.io/your-org/tracegate
-    tag: "0.5"
+    tag: "0.6"
     pullPolicy: IfNotPresent
 
   replicas:
@@ -146,7 +146,7 @@ gateway:
 
   agentImage:
     repository: ghcr.io/your-org/tracegate
-    tag: "0.5"
+    tag: "0.6"
     pullPolicy: IfNotPresent
 
   # Active-passive failover between VPS-T and VPS-E entry points.
@@ -635,7 +635,7 @@ gateway:
           secret: CHANGE_ME_HYSTERIA_STATS
 
     wireguard:
-      image: ghcr.io/your-org/tracegate-wireguard:0.5
+      image: ghcr.io/your-org/tracegate-wireguard:0.6
       pullPolicy: IfNotPresent
       interface: wg0
       config: |

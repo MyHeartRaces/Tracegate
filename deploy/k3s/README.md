@@ -2,8 +2,8 @@
 
 This chart deploys:
 - control-plane (`api`, `dispatcher`, optional `bot`, optional `postgres`)
-- gateway on VPS-T (`xray`, `hysteria2`, `wireguard`, `agent`) in one pod
-- gateway on VPS-E (`xray`, `agent`) in one pod
+- gateway on VPS-T (`entry-mux`, `xray`, `hysteria2`, `wireguard`, optional interconnect backplanes, `agent`) in one pod
+- gateway on VPS-E (`entry-mux`, `xray`, optional `xray-b2`, optional `hysteria`, optional selector/backplanes, `agent`) in one pod
 - optional observability stack (`prometheus`, `grafana`)
 
 ## Prerequisites
@@ -59,6 +59,7 @@ kubectl -n tracegate get job
 ## Notes
 
 - Pods use `hostNetwork: true` for data-plane ports (`443/tcp`, `443/udp`, `51820/udp`).
+- `VPS-T` uses `ClusterFirstWithHostNet`; `VPS-E` uses host DNS (`dnsPolicy: Default`) when `hostNetwork=true`.
 - For `wireguard` container, privileged mode and `NET_ADMIN/SYS_MODULE` are enabled.
 - `registration` job auto-registers node endpoints into control-plane and runs reapply/reissue.
 - The gateway uses a hostPath (`/var/lib/tracegate-agent`) for runtime configs. The init container seeds files only if they are missing.
@@ -66,6 +67,14 @@ kubectl -n tracegate get job
   (for example `/var/lib/tracegate-agent/runtime/hysteria/config.yaml`) and restart the gateway pod.
 - For VPS-E splitter mode (`gateway.vpsE.mode=xray`), set transit params in
   `gateway.splitter.transit.*` (`uuid`, `publicKey`, `shortId`, `upstreamHost`).
+
+### Interconnect selector and backplanes
+
+- `gateway.interconnect.selector.enabled=true` enables local path selection on `VPS-E` for the `E -> T` hop.
+- Built-in selector candidates include configured upstreams, `publicIPv4`, `fqdn`, optional `Hysteria` backplane and optional `WireGuard` backplane.
+- `gateway.interconnect.hysteriaBackplane.tcpEncapsulation.enabled=true` tunnels the QUIC backplane through `VPS-T entry-mux :443`.
+- `gateway.interconnect.wireguardBackplane` uses a dedicated interface (`wgs2s` by default); set `endpointHost` explicitly if the real WireGuard target differs from `gateway.vpsT.publicIPv4`.
+- If you want to minimize `VPS-E` overhead, prefer one active backplane instead of probing several candidates at once.
 
 ### Observability (optional)
 
