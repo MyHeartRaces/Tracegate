@@ -596,7 +596,9 @@ gateway:
         }
 
     hysteria:
-      image: tobyxdd/hysteria:v2
+      # Pin Hysteria to a concrete release. Floating :v2 caused node-local cache drift
+      # between VPS-E and VPS-T, which is toxic for the inter-server QUIC backplane.
+      image: tobyxdd/hysteria:v2.7.1@sha256:b85d8c5d355189827960b64b112eb6b35170d933f3c98178a4631edebcca745c
       pullPolicy: IfNotPresent
       config: |
         listen: :443
@@ -900,7 +902,8 @@ gateway:
     # Optional Hysteria2 entry on VPS-E (UDP/443) with backhaul via local Xray -> VPS-T REALITY transit.
     hysteria:
       enabled: true
-      image: tobyxdd/hysteria:v2
+      # Keep VPS-E on the exact same Hysteria build as VPS-T to avoid backplane drift.
+      image: tobyxdd/hysteria:v2.7.1@sha256:b85d8c5d355189827960b64b112eb6b35170d933f3c98178a4631edebcca745c
       pullPolicy: IfNotPresent
       config: |
         listen: :443
