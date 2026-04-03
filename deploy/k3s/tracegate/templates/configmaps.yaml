@@ -34,6 +34,116 @@
 {{- if lt $vpsEGroupUpstreamPort 1 }}{{- $vpsEGroupUpstreamPort = 443 -}}{{- end -}}
 {{- $vpsEB2SplitBackendEnabled := and .Values.gateway.vpsE.enabled (eq .Values.gateway.vpsE.mode "xray") (.Values.gateway.vpsE.b2SplitBackend.enabled | default false) -}}
 {{- if $vpsEB2SplitBackendEnabled }}{{- $vpsEGroupUpstreamHost = "" -}}{{- end -}}
+{{- $wsPort := int (.Values.controlPlane.env.vlessWsTlsPort | default 443) -}}
+{{- $selectorEnabled := and .Values.gateway.enabled .Values.gateway.vpsE.enabled (.Values.gateway.interconnect.selector.enabled | default false) -}}
+{{- $selectorBindHost := (.Values.gateway.interconnect.selector.bindHost | default "127.0.0.1" | trim) -}}
+{{- if eq $selectorBindHost "" }}{{- $selectorBindHost = "127.0.0.1" -}}{{- end -}}
+{{- $selectorTransitPort := int (.Values.gateway.interconnect.selector.transitPort | default 15443) -}}
+{{- if lt $selectorTransitPort 1 }}{{- $selectorTransitPort = 15443 -}}{{- end -}}
+{{- $selectorWsTransitPort := int (.Values.gateway.interconnect.selector.wsTransitPort | default 15444) -}}
+{{- if lt $selectorWsTransitPort 1 }}{{- $selectorWsTransitPort = 15444 -}}{{- end -}}
+{{- $hyBackplaneEnabled := and $selectorEnabled (.Values.gateway.interconnect.hysteriaBackplane.enabled | default false) -}}
+{{- $hyBackplaneBindHost := (.Values.gateway.interconnect.hysteriaBackplane.bindHost | default "127.0.0.1" | trim) -}}
+{{- if eq $hyBackplaneBindHost "" }}{{- $hyBackplaneBindHost = "127.0.0.1" -}}{{- end -}}
+{{- $hyBackplaneTransitPort := int (.Values.gateway.interconnect.hysteriaBackplane.localTransitPort | default 16443) -}}
+{{- if lt $hyBackplaneTransitPort 1 }}{{- $hyBackplaneTransitPort = 16443 -}}{{- end -}}
+{{- $hyBackplaneWsPort := int (.Values.gateway.interconnect.hysteriaBackplane.localWsPort | default 16444) -}}
+{{- if lt $hyBackplaneWsPort 1 }}{{- $hyBackplaneWsPort = 16444 -}}{{- end -}}
+{{- $wgBackplaneEnabled := and $selectorEnabled (.Values.gateway.interconnect.wireguardBackplane.enabled | default false) -}}
+{{- $wgBackplaneHost := regexReplaceAll "/.*$" (.Values.gateway.interconnect.wireguardBackplane.vpsTAddress | default "") "" -}}
+{{- $selectorTransitPaths := list -}}
+{{- $selectorTransitPathNames := dict -}}
+{{- if and $selectorEnabled (.Values.gateway.interconnect.selector.candidates.configuredSplitterHost.enabled | default true) $splitterTransitHost }}
+{{- $_ := set $selectorTransitPathNames "configured_splitter_host" true -}}
+{{- $selectorTransitPaths = append $selectorTransitPaths (dict "name" "configured_splitter_host" "host" $splitterTransitHost "port" 443 "priority" (int (.Values.gateway.interconnect.selector.candidates.configuredSplitterHost.priority | default 5))) -}}
+{{- end -}}
+{{- if and $selectorEnabled (.Values.gateway.interconnect.selector.candidates.configuredTcpForwardHost.enabled | default true) $vpsETcpForwardHost }}
+{{- $_ := set $selectorTransitPathNames "configured_tcp_forward_host" true -}}
+{{- $selectorTransitPaths = append $selectorTransitPaths (dict "name" "configured_tcp_forward_host" "host" $vpsETcpForwardHost "port" 443 "priority" (int (.Values.gateway.interconnect.selector.candidates.configuredTcpForwardHost.priority | default 5))) -}}
+{{- end -}}
+{{- if and $selectorEnabled (.Values.gateway.interconnect.selector.candidates.publicIPv4.enabled | default true) .Values.gateway.vpsT.publicIPv4 }}
+{{- $_ := set $selectorTransitPathNames "public_ipv4" true -}}
+{{- $selectorTransitPaths = append $selectorTransitPaths (dict "name" "public_ipv4" "host" .Values.gateway.vpsT.publicIPv4 "port" 443 "priority" (int (.Values.gateway.interconnect.selector.candidates.publicIPv4.priority | default 0))) -}}
+{{- end -}}
+{{- if and $selectorEnabled (.Values.gateway.interconnect.selector.candidates.fqdn.enabled | default true) .Values.gateway.vpsT.fqdn }}
+{{- $_ := set $selectorTransitPathNames "fqdn" true -}}
+{{- $selectorTransitPaths = append $selectorTransitPaths (dict "name" "fqdn" "host" .Values.gateway.vpsT.fqdn "port" 443 "priority" (int (.Values.gateway.interconnect.selector.candidates.fqdn.priority | default 0))) -}}
+{{- end -}}
+{{- if and $selectorEnabled $hyBackplaneEnabled (.Values.gateway.interconnect.selector.candidates.hysteriaBackplane.enabled | default true) }}
+{{- $_ := set $selectorTransitPathNames "hysteria_backplane" true -}}
+{{- $selectorTransitPaths = append $selectorTransitPaths (dict "name" "hysteria_backplane" "host" $hyBackplaneBindHost "port" $hyBackplaneTransitPort "priority" (int (.Values.gateway.interconnect.selector.candidates.hysteriaBackplane.priority | default 9)) "probe_host" $hyBackplaneBindHost "probe_port" $hyBackplaneTransitPort) -}}
+{{- end -}}
+{{- if and $selectorEnabled $wgBackplaneEnabled (.Values.gateway.interconnect.selector.candidates.wireguardBackplane.enabled | default true) $wgBackplaneHost }}
+{{- $_ := set $selectorTransitPathNames "wireguard_backplane" true -}}
+{{- $selectorTransitPaths = append $selectorTransitPaths (dict "name" "wireguard_backplane" "host" $wgBackplaneHost "port" 443 "priority" (int (.Values.gateway.interconnect.selector.candidates.wireguardBackplane.priority | default 10))) -}}
+{{- end -}}
+{{- range $idx, $path := (.Values.gateway.interconnect.selector.extraTransitPaths | default (list)) }}
+{{- $name := (toString ($path.name | default "")) | trim -}}
+{{- $host := (toString ($path.host | default "")) | trim -}}
+{{- $port := int ($path.port | default 0) -}}
+{{- if eq $name "" }}{{- fail (printf "gateway.interconnect.selector.extraTransitPaths[%d].name is required" $idx) }}{{- end -}}
+{{- if hasKey $selectorTransitPathNames $name }}{{- fail (printf "gateway.interconnect.selector.extraTransitPaths[%d].name duplicates selector path %q" $idx $name) }}{{- end -}}
+{{- if eq $host "" }}{{- fail (printf "gateway.interconnect.selector.extraTransitPaths[%d].host is required" $idx) }}{{- end -}}
+{{- if lt $port 1 }}{{- fail (printf "gateway.interconnect.selector.extraTransitPaths[%d].port must be > 0" $idx) }}{{- end -}}
+{{- $_ := set $selectorTransitPathNames $name true -}}
+{{- $extraPath := dict "name" $name "host" $host "port" $port "priority" (int ($path.priority | default 0)) -}}
+{{- $probeHost := (toString ($path.probe_host | default "")) | trim -}}
+{{- if ne $probeHost "" }}{{- $_ := set $extraPath "probe_host" $probeHost -}}{{- end -}}
+{{- $probePort := int ($path.probe_port | default 0) -}}
+{{- if gt $probePort 0 }}{{- $_ := set $extraPath "probe_port" $probePort -}}{{- end -}}
+{{- $selectorTransitPaths = append $selectorTransitPaths $extraPath -}}
+{{- end -}}
+{{- $selectorWsPaths := list -}}
+{{- $selectorWsPathNames := dict -}}
+{{- if and $selectorEnabled (ne $wsPort 443) (.Values.gateway.interconnect.selector.candidates.configuredTcpForwardHost.enabled | default true) $vpsETcpForwardHost }}
+{{- $_ := set $selectorWsPathNames "configured_tcp_forward_host" true -}}
+{{- $selectorWsPaths = append $selectorWsPaths (dict "name" "configured_tcp_forward_host" "host" $vpsETcpForwardHost "port" $wsPort "priority" (int (.Values.gateway.interconnect.selector.candidates.configuredTcpForwardHost.priority | default 5))) -}}
+{{- end -}}
+{{- if and $selectorEnabled (ne $wsPort 443) (.Values.gateway.interconnect.selector.candidates.publicIPv4.enabled | default true) .Values.gateway.vpsT.publicIPv4 }}
+{{- $_ := set $selectorWsPathNames "public_ipv4" true -}}
+{{- $selectorWsPaths = append $selectorWsPaths (dict "name" "public_ipv4" "host" .Values.gateway.vpsT.publicIPv4 "port" $wsPort "priority" (int (.Values.gateway.interconnect.selector.candidates.publicIPv4.priority | default 0))) -}}
+{{- end -}}
+{{- if and $selectorEnabled (ne $wsPort 443) (.Values.gateway.interconnect.selector.candidates.fqdn.enabled | default true) .Values.gateway.vpsT.fqdn }}
+{{- $_ := set $selectorWsPathNames "fqdn" true -}}
+{{- $selectorWsPaths = append $selectorWsPaths (dict "name" "fqdn" "host" .Values.gateway.vpsT.fqdn "port" $wsPort "priority" (int (.Values.gateway.interconnect.selector.candidates.fqdn.priority | default 0))) -}}
+{{- end -}}
+{{- if and $selectorEnabled (ne $wsPort 443) (.Values.gateway.interconnect.selector.candidates.proxyFqdn.enabled | default true) .Values.gateway.vpsT.proxyFqdn }}
+{{- $_ := set $selectorWsPathNames "proxy_fqdn" true -}}
+{{- $selectorWsPaths = append $selectorWsPaths (dict "name" "proxy_fqdn" "host" .Values.gateway.vpsT.proxyFqdn "port" $wsPort "priority" (int (.Values.gateway.interconnect.selector.candidates.proxyFqdn.priority | default 0))) -}}
+{{- end -}}
+{{- if and $selectorEnabled (ne $wsPort 443) $hyBackplaneEnabled (.Values.gateway.interconnect.selector.candidates.hysteriaBackplane.enabled | default true) }}
+{{- $_ := set $selectorWsPathNames "hysteria_backplane" true -}}
+{{- $selectorWsPaths = append $selectorWsPaths (dict "name" "hysteria_backplane" "host" $hyBackplaneBindHost "port" $hyBackplaneWsPort "priority" (int (.Values.gateway.interconnect.selector.candidates.hysteriaBackplane.priority | default 9)) "probe_host" $hyBackplaneBindHost "probe_port" $hyBackplaneWsPort) -}}
+{{- end -}}
+{{- if and $selectorEnabled (ne $wsPort 443) $wgBackplaneEnabled (.Values.gateway.interconnect.selector.candidates.wireguardBackplane.enabled | default true) $wgBackplaneHost }}
+{{- $_ := set $selectorWsPathNames "wireguard_backplane" true -}}
+{{- $selectorWsPaths = append $selectorWsPaths (dict "name" "wireguard_backplane" "host" $wgBackplaneHost "port" $wsPort "priority" (int (.Values.gateway.interconnect.selector.candidates.wireguardBackplane.priority | default 10))) -}}
+{{- end -}}
+{{- range $idx, $path := (.Values.gateway.interconnect.selector.extraWsPaths | default (list)) }}
+{{- $name := (toString ($path.name | default "")) | trim -}}
+{{- $host := (toString ($path.host | default "")) | trim -}}
+{{- $port := int ($path.port | default 0) -}}
+{{- if eq $name "" }}{{- fail (printf "gateway.interconnect.selector.extraWsPaths[%d].name is required" $idx) }}{{- end -}}
+{{- if hasKey $selectorWsPathNames $name }}{{- fail (printf "gateway.interconnect.selector.extraWsPaths[%d].name duplicates selector path %q" $idx $name) }}{{- end -}}
+{{- if eq $host "" }}{{- fail (printf "gateway.interconnect.selector.extraWsPaths[%d].host is required" $idx) }}{{- end -}}
+{{- if lt $port 1 }}{{- fail (printf "gateway.interconnect.selector.extraWsPaths[%d].port must be > 0" $idx) }}{{- end -}}
+{{- $_ := set $selectorWsPathNames $name true -}}
+{{- $extraPath := dict "name" $name "host" $host "port" $port "priority" (int ($path.priority | default 0)) -}}
+{{- $probeHost := (toString ($path.probe_host | default "")) | trim -}}
+{{- if ne $probeHost "" }}{{- $_ := set $extraPath "probe_host" $probeHost -}}{{- end -}}
+{{- $probePort := int ($path.probe_port | default 0) -}}
+{{- if gt $probePort 0 }}{{- $_ := set $extraPath "probe_port" $probePort -}}{{- end -}}
+{{- $selectorWsPaths = append $selectorWsPaths $extraPath -}}
+{{- end -}}
+{{- $selectorListeners := list -}}
+{{- if and $selectorEnabled (gt (len $selectorTransitPaths) 0) }}
+{{- $selectorListeners = append $selectorListeners (dict "name" "transit_443" "bind_host" $selectorBindHost "bind_port" $selectorTransitPort "idle_timeout_seconds" 3600 "paths" $selectorTransitPaths) -}}
+{{- end -}}
+{{- if and $selectorEnabled (ne $wsPort 443) (gt (len $selectorWsPaths) 0) }}
+{{- $selectorListeners = append $selectorListeners (dict "name" "ws_tls" "bind_host" $selectorBindHost "bind_port" $selectorWsTransitPort "idle_timeout_seconds" 3600 "paths" $selectorWsPaths) -}}
+{{- end -}}
+{{- if and $selectorEnabled (eq (len $selectorTransitPaths) 0) }}{{- fail "gateway.interconnect.selector.enabled=true but no transit selector candidates were resolved" }}{{- end -}}
+{{- if and $selectorEnabled (ne $wsPort 443) (eq (len $selectorWsPaths) 0) }}{{- fail "gateway.interconnect.selector.enabled=true but no WS selector candidates were resolved" }}{{- end -}}
 {{- if and .Values.gateway.enabled (or .Values.gateway.vpsT.enabled .Values.gateway.vpsE.enabled) }}
 apiVersion: v1
 kind: ConfigMap
@@ -209,6 +319,19 @@ data:
 {{- end }}
 
 {{- if and .Values.gateway.enabled .Values.gateway.vpsE.enabled }}
+{{- if $selectorEnabled }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "tracegate.fullname" . }}-vps-e-transit-selector
+  namespace: {{ include "tracegate.namespace" . }}
+  labels:
+    {{- include "tracegate.labels" . | nindent 4 }}
+data:
+  listeners.json: |
+{{ $selectorListeners | toJson | nindent 4 }}
+{{- end }}
 {{- if eq .Values.gateway.vpsE.mode "tcpForward" }}
 ---
 apiVersion: v1
@@ -237,12 +360,15 @@ data:
     backend be_transit
       option tcp-check
       default-server inter 2s fall {{ $failoverMaxFails }} rise 1
+      {{- if $selectorEnabled }}
+      server transit_primary {{ $selectorBindHost }}:{{ $selectorTransitPort }} check
+      {{- else }}
       server transit_primary {{ $vpsETcpForwardHost }}:{{ .Values.gateway.vpsE.tcpForward.upstreamPort }} check
+      {{- end }}
       {{- if and $failoverEnabled $vpsEPassiveHost }}
       server transit_backup {{ $vpsEPassiveHost }}:443 check backup
       {{- end }}
 
-    {{ $wsPort := int (.Values.controlPlane.env.vlessWsTlsPort | default 443) }}
     {{ if ne $wsPort 443 }}
 
     frontend fe_{{ $wsPort }}
@@ -252,7 +378,11 @@ data:
     backend be_ws_tls
       option tcp-check
       default-server inter 2s fall {{ $failoverMaxFails }} rise 1
+      {{- if $selectorEnabled }}
+      server transit_ws_primary {{ $selectorBindHost }}:{{ $selectorWsTransitPort }} check
+      {{- else }}
       server transit_ws_primary {{ $vpsETcpForwardHost }}:{{ $wsPort }} check
+      {{- end }}
       {{- if and $failoverEnabled $vpsEPassiveHost }}
       server transit_ws_backup {{ $vpsEPassiveHost }}:{{ $wsPort }} check backup
       {{- end }}

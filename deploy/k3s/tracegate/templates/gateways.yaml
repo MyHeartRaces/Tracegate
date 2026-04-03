@@ -1,5 +1,12 @@
 {{- $configmapsChecksum := include (print $.Template.BasePath "/configmaps.yaml") . | sha256sum -}}
 {{- $secretsChecksum := include (print $.Template.BasePath "/secrets.yaml") . | sha256sum -}}
+{{- $interconnectSelectorEnabled := and .Values.gateway.enabled .Values.gateway.vpsE.enabled (.Values.gateway.interconnect.selector.enabled | default false) -}}
+{{- $interconnectHyEnabled := and .Values.gateway.enabled .Values.gateway.vpsE.enabled .Values.gateway.vpsT.enabled (.Values.gateway.interconnect.hysteriaBackplane.enabled | default false) -}}
+{{- $interconnectWgEnabled := and .Values.gateway.enabled (.Values.gateway.interconnect.wireguardBackplane.enabled | default false) -}}
+{{- $selectorMetricsPort := int (.Values.gateway.interconnect.selector.metricsPort | default 9093) -}}
+{{- $hyBackplaneListenPort := int (.Values.gateway.interconnect.hysteriaBackplane.listenPort | default 15445) -}}
+{{- $hyBackplaneTransitPort := int (.Values.gateway.interconnect.hysteriaBackplane.localTransitPort | default 16443) -}}
+{{- $hyBackplaneWsPort := int (.Values.gateway.interconnect.hysteriaBackplane.localWsPort | default 16444) -}}
 {{- if and .Values.gateway.enabled .Values.gateway.vpsT.enabled }}
 {{- if .Values.gateway.vpsT.agent.enabled }}
 apiVersion: v1
@@ -80,6 +87,19 @@ spec:
         - name: wg-config
           secret:
             secretName: {{ include "tracegate.fullname" . }}-vps-t-wireguard-config
+        {{- if $interconnectHyEnabled }}
+        - name: hysteria-backplane-config
+          secret:
+            secretName: {{ include "tracegate.fullname" . }}-vps-t-hysteria-backplane-config
+        - name: hysteria-backplane-tls
+          secret:
+            secretName: {{ include "tracegate.fullname" . }}-vps-t-hysteria-backplane-tls
+        {{- end }}
+        {{- if $interconnectWgEnabled }}
+        - name: wg-backplane-config
+          secret:
+            secretName: {{ include "tracegate.fullname" . }}-vps-t-wireguard-backplane
+        {{- end }}
         - name: decoy
           configMap:
             name: {{ include "tracegate.fullname" . }}-vps-t-decoy
@@ -211,6 +231,26 @@ spec:
           securityContext:
             runAsUser: 0
             runAsGroup: 0
+        {{- if $interconnectHyEnabled }}
+        - name: hysteria-backplane
+          image: {{ .Values.gateway.vpsT.hysteria.image }}
+          imagePullPolicy: {{ .Values.gateway.vpsT.hysteria.pullPolicy }}
+          command: ["hysteria", "server", "-c", "/etc/hysteria-backplane/config.yaml"]
+          ports:
+            - containerPort: {{ $hyBackplaneListenPort }}
+              protocol: UDP
+              name: hy-backplane
+          volumeMounts:
+            - name: hysteria-backplane-config
+              mountPath: /etc/hysteria-backplane
+              readOnly: true
+            - name: hysteria-backplane-tls
+              mountPath: /etc/hysteria-backplane-tls
+              readOnly: true
+          securityContext:
+            runAsUser: 0
+            runAsGroup: 0
+        {{- end }}
         - name: wireguard
           image: {{ .Values.gateway.vpsT.wireguard.image }}
           imagePullPolicy: {{ .Values.gateway.vpsT.wireguard.pullPolicy }}
@@ -235,6 +275,34 @@ spec:
               add: ["NET_ADMIN", "SYS_MODULE"]
             runAsUser: 0
             runAsGroup: 0
+        {{- if $interconnectWgEnabled }}
+        - name: wireguard-backplane
+          image: {{ .Values.gateway.vpsT.wireguard.image }}
+          imagePullPolicy: {{ .Values.gateway.vpsT.wireguard.pullPolicy }}
+          env:
+            - name: WG_INTERFACE
+              value: {{ .Values.gateway.interconnect.wireguardBackplane.interface | quote }}
+            - name: WG_CONFIG
+              value: /etc/wireguard-backplane/wg0.conf
+            - name: ENABLE_IP_FORWARD
+              value: "0"
+            - name: ENABLE_NAT
+              value: "0"
+          ports:
+            - containerPort: {{ .Values.gateway.interconnect.wireguardBackplane.listenPort }}
+              protocol: UDP
+              name: wg-backplane
+          volumeMounts:
+            - name: wg-backplane-config
+              mountPath: /etc/wireguard-backplane
+              readOnly: true
+          securityContext:
+            privileged: true
+            capabilities:
+              add: ["NET_ADMIN", "SYS_MODULE"]
+            runAsUser: 0
+            runAsGroup: 0
+        {{- end }}
         {{- if .Values.gateway.vpsT.agent.enabled }}
         - name: agent
           image: {{ include "tracegate.image" .Values.gateway.agentImage }}
@@ -414,6 +482,24 @@ spec:
           hostPath:
             path: {{ .Values.gateway.vpsE.agentDataHostPath | quote }}
             type: DirectoryOrCreate
+        {{- if $interconnectHyEnabled }}
+        - name: hysteria-backplane-config
+          secret:
+            secretName: {{ include "tracegate.fullname" . }}-vps-e-hysteria-backplane-config
+        - name: hysteria-backplane-ca
+          secret:
+            secretName: {{ include "tracegate.fullname" . }}-vps-e-hysteria-backplane-ca
+        {{- end }}
+        {{- if $interconnectSelectorEnabled }}
+        - name: transit-selector-config
+          configMap:
+            name: {{ include "tracegate.fullname" . }}-vps-e-transit-selector
+        {{- end }}
+        {{- if $interconnectWgEnabled }}
+        - name: wg-backplane-config
+          secret:
+            secretName: {{ include "tracegate.fullname" . }}-vps-e-wireguard-backplane
+        {{- end }}
       {{- if eq .Values.gateway.vpsE.mode "xray" }}
       initContainers:
         - name: seed-runtime
@@ -580,6 +666,142 @@ spec:
               mountPath: /usr/local/etc/haproxy/haproxy.cfg
               subPath: haproxy.cfg
           securityContext:
+            runAsUser: 0
+            runAsGroup: 0
+        {{- end }}
+        {{- if $interconnectHyEnabled }}
+        - name: hysteria-backplane-client
+          image: {{ .Values.gateway.vpsE.hysteria.image }}
+          imagePullPolicy: {{ .Values.gateway.vpsE.hysteria.pullPolicy }}
+          command: ["hysteria", "client", "-c", "/etc/hysteria-backplane/config.yaml"]
+          ports:
+            - containerPort: {{ $hyBackplaneTransitPort }}
+              protocol: TCP
+              name: hy-backplane-tcp
+            {{- if ne $hyBackplaneWsPort $hyBackplaneTransitPort }}
+            - containerPort: {{ $hyBackplaneWsPort }}
+              protocol: TCP
+              name: hy-backplane-ws
+            {{- end }}
+          volumeMounts:
+            - name: hysteria-backplane-config
+              mountPath: /etc/hysteria-backplane
+              readOnly: true
+            - name: hysteria-backplane-ca
+              mountPath: /etc/hysteria-backplane-ca
+              readOnly: true
+          securityContext:
+            runAsUser: 0
+            runAsGroup: 0
+          readinessProbe:
+            tcpSocket:
+              port: hy-backplane-tcp
+            initialDelaySeconds: 1
+            periodSeconds: 10
+          startupProbe:
+            tcpSocket:
+              port: hy-backplane-tcp
+            periodSeconds: 2
+            failureThreshold: 30
+          livenessProbe:
+            tcpSocket:
+              port: hy-backplane-tcp
+            initialDelaySeconds: 10
+            periodSeconds: 20
+        {{- end }}
+        {{- if $interconnectSelectorEnabled }}
+        - name: transit-selector
+          image: {{ include "tracegate.image" .Values.gateway.agentImage }}
+          imagePullPolicy: {{ .Values.gateway.agentImage.pullPolicy }}
+          command: ["tracegate-transit-selector"]
+          env:
+            - name: APP_ENV
+              value: prod
+            - name: TRANSIT_SELECTOR_LISTENERS_JSON
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "tracegate.fullname" . }}-vps-e-transit-selector
+                  key: listeners.json
+            - name: TRANSIT_SELECTOR_PROBE_INTERVAL_SECONDS
+              value: {{ .Values.gateway.interconnect.selector.probeIntervalSeconds | quote }}
+            - name: TRANSIT_SELECTOR_PROBE_TIMEOUT_SECONDS
+              value: {{ .Values.gateway.interconnect.selector.probeTimeoutSeconds | quote }}
+            - name: TRANSIT_SELECTOR_CONNECT_TIMEOUT_SECONDS
+              value: {{ .Values.gateway.interconnect.selector.connectTimeoutSeconds | quote }}
+            - name: TRANSIT_SELECTOR_FAILURE_STALE_SECONDS
+              value: {{ .Values.gateway.interconnect.selector.failureStaleSeconds | quote }}
+            - name: TRANSIT_SELECTOR_SWITCH_COOLDOWN_SECONDS
+              value: {{ .Values.gateway.interconnect.selector.switchCooldownSeconds | quote }}
+            - name: TRANSIT_SELECTOR_SWITCH_MARGIN_MS
+              value: {{ .Values.gateway.interconnect.selector.switchMarginMs | quote }}
+            - name: TRANSIT_SELECTOR_METRICS_ENABLED
+              value: {{ .Values.gateway.interconnect.selector.metricsEnabled | quote }}
+            - name: TRANSIT_SELECTOR_METRICS_HOST
+              value: {{ .Values.gateway.interconnect.selector.metricsHost | quote }}
+            - name: TRANSIT_SELECTOR_METRICS_PORT
+              value: {{ .Values.gateway.interconnect.selector.metricsPort | quote }}
+          ports:
+            - containerPort: {{ .Values.gateway.interconnect.selector.transitPort }}
+              protocol: TCP
+              name: selector-transit
+            {{- if ne (int (.Values.gateway.interconnect.selector.wsTransitPort | default 15444)) (int (.Values.gateway.interconnect.selector.transitPort | default 15443)) }}
+            - containerPort: {{ .Values.gateway.interconnect.selector.wsTransitPort }}
+              protocol: TCP
+              name: selector-ws
+            {{- end }}
+          {{- if .Values.gateway.interconnect.selector.metricsEnabled }}
+            - containerPort: {{ $selectorMetricsPort }}
+              protocol: TCP
+              name: selector-metrics
+          {{- end }}
+          volumeMounts:
+            - name: transit-selector-config
+              mountPath: /etc/tracegate-transit-selector
+              readOnly: true
+          securityContext:
+            runAsUser: 0
+            runAsGroup: 0
+          readinessProbe:
+            tcpSocket:
+              port: selector-transit
+            initialDelaySeconds: 1
+            periodSeconds: 10
+          startupProbe:
+            tcpSocket:
+              port: selector-transit
+            periodSeconds: 2
+            failureThreshold: 30
+          livenessProbe:
+            tcpSocket:
+              port: selector-transit
+            initialDelaySeconds: 10
+            periodSeconds: 20
+        {{- end }}
+        {{- if $interconnectWgEnabled }}
+        - name: wireguard-backplane
+          image: {{ .Values.gateway.vpsT.wireguard.image }}
+          imagePullPolicy: {{ .Values.gateway.vpsT.wireguard.pullPolicy }}
+          env:
+            - name: WG_INTERFACE
+              value: {{ .Values.gateway.interconnect.wireguardBackplane.interface | quote }}
+            - name: WG_CONFIG
+              value: /etc/wireguard-backplane/wg0.conf
+            - name: ENABLE_IP_FORWARD
+              value: "0"
+            - name: ENABLE_NAT
+              value: "0"
+          ports:
+            - containerPort: {{ .Values.gateway.interconnect.wireguardBackplane.listenPort }}
+              protocol: UDP
+              name: wg-backplane
+          volumeMounts:
+            - name: wg-backplane-config
+              mountPath: /etc/wireguard-backplane
+              readOnly: true
+          securityContext:
+            privileged: true
+            capabilities:
+              add: ["NET_ADMIN", "SYS_MODULE"]
             runAsUser: 0
             runAsGroup: 0
         {{- end }}

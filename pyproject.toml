@@ -47,6 +47,7 @@ tracegate-bot = "tracegate.bot.main:run"
 tracegate-init-db = "tracegate.cli.init_db:main"
 tracegate-migrate-db = "tracegate.cli.migrate_db:main"
 tracegate-grafana-bootstrap = "tracegate.cli.grafana_bootstrap:main"
+tracegate-transit-selector = "tracegate.cli.transit_selector:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}

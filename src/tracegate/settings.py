@@ -88,6 +88,16 @@ class Settings(BaseSettings):
     bot_metrics_enabled: bool = True
     bot_metrics_host: str = "0.0.0.0"
     bot_metrics_port: int = 9092
+    transit_selector_listeners_json: str = "[]"
+    transit_selector_probe_interval_seconds: float = 5.0
+    transit_selector_probe_timeout_seconds: float = 2.0
+    transit_selector_connect_timeout_seconds: float = 5.0
+    transit_selector_failure_stale_seconds: float = 15.0
+    transit_selector_switch_cooldown_seconds: float = 15.0
+    transit_selector_switch_margin_ms: float = 20.0
+    transit_selector_metrics_enabled: bool = True
+    transit_selector_metrics_host: str = "127.0.0.1"
+    transit_selector_metrics_port: int = 9093
     # Optional: path to a text/markdown file served by /guide.
     # If empty, defaults to "{bundle_root}/bot/guide.md".
     bot_guide_path: str = ""

@@ -161,6 +161,75 @@ gateway:
     maxFails: 2
     failTimeoutSeconds: 5
 
+  interconnect:
+    selector:
+      enabled: true
+      bindHost: 127.0.0.1
+      transitPort: 15443
+      wsTransitPort: 15444
+      probeIntervalSeconds: 5
+      probeTimeoutSeconds: 2
+      connectTimeoutSeconds: 5
+      failureStaleSeconds: 15
+      switchCooldownSeconds: 15
+      switchMarginMs: 20
+      metricsEnabled: true
+      metricsHost: 127.0.0.1
+      metricsPort: 9093
+      # Additional raw TCP transit paths for the selector on VPS-E.
+      # Each item supports: name, host, port, priority, probe_host, probe_port.
+      extraTransitPaths: []
+      # Additional WS-TLS transit paths for the selector on VPS-E.
+      # Each item supports: name, host, port, priority, probe_host, probe_port.
+      extraWsPaths: []
+      candidates:
+        publicIPv4:
+          enabled: true
+          priority: 0
+        fqdn:
+          enabled: true
+          priority: 0
+        proxyFqdn:
+          enabled: true
+          priority: 0
+        configuredTcpForwardHost:
+          enabled: true
+          priority: 5
+        configuredSplitterHost:
+          enabled: true
+          priority: 5
+        hysteriaBackplane:
+          enabled: true
+          priority: 9
+        wireguardBackplane:
+          enabled: true
+          priority: 10
+    hysteriaBackplane:
+      enabled: false
+      bindHost: 127.0.0.1
+      listenPort: 15445
+      localTransitPort: 16443
+      localWsPort: 16444
+      serverName: backplane-vps-t.internal
+      auth: ""
+      obfs:
+        enabled: false
+        password: ""
+      tls:
+        crt: ""
+        key: ""
+    wireguardBackplane:
+      enabled: false
+      interface: wgs2s
+      listenPort: 51821
+      vpsTAddress: 10.200.0.1/30
+      vpsEAddress: 10.200.0.2/30
+      vpsTPrivateKey: ""
+      vpsTPublicKey: ""
+      vpsEPrivateKey: ""
+      vpsEPublicKey: ""
+      persistentKeepaliveSeconds: 25
+
   splitter:
     transit:
       # Must match VPS-T static transit client id in Xray.
@@ -967,8 +1036,8 @@ gateway:
               "settings": {
                 "vnext": [
                   {
-                    "address": "{{ .Values.gateway.splitter.transit.upstreamHost | default .Values.gateway.vpsT.publicIPv4 | default .Values.gateway.vpsT.proxyFqdn | default .Values.gateway.vpsT.fqdn }}",
-                    "port": 443,
+                    "address": "{{- if (.Values.gateway.interconnect.selector.enabled | default false) -}}{{ .Values.gateway.interconnect.selector.bindHost | default "127.0.0.1" }}{{- else -}}{{ .Values.gateway.splitter.transit.upstreamHost | default .Values.gateway.vpsT.publicIPv4 | default .Values.gateway.vpsT.proxyFqdn | default .Values.gateway.vpsT.fqdn }}{{- end -}}",
+                    "port": {{- if (.Values.gateway.interconnect.selector.enabled | default false) -}}{{ int (.Values.gateway.interconnect.selector.transitPort | default 15443) }}{{- else -}}443{{- end -}},
                     "users": [
                       {
                         "id": "{{ .Values.gateway.splitter.transit.uuid }}",
