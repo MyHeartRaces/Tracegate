@@ -16,11 +16,14 @@
 {{- $hyBackplaneTcpClientHost := (.Values.gateway.interconnect.hysteriaBackplane.tcpEncapsulation.clientBindHost | default "127.0.0.1" | trim) -}}
 {{- if eq $hyBackplaneTcpClientHost "" }}{{- $hyBackplaneTcpClientHost = "127.0.0.1" -}}{{- end -}}
 {{- $hyBackplaneTcpClientPort := int (.Values.gateway.interconnect.hysteriaBackplane.tcpEncapsulation.clientBindPort | default 16445) -}}
-{{- $hyBackplaneTcpRemotePort := int (.Values.gateway.interconnect.hysteriaBackplane.tcpEncapsulation.remoteConnectPort | default 443) -}}
-{{- $hyBackplaneRemoteHost := (.Values.gateway.vpsT.publicIPv4 | default "" | trim) -}}
+{{- $hyBackplaneRemoteHost := (.Values.gateway.interconnect.hysteriaBackplane.tcpEncapsulation.remoteConnectHost | default "" | trim) -}}
 {{- if eq $hyBackplaneRemoteHost "" -}}
 {{- $hyBackplaneRemoteHost = (.Values.gateway.vpsT.fqdn | default "" | trim) -}}
 {{- end -}}
+{{- if eq $hyBackplaneRemoteHost "" -}}
+{{- $hyBackplaneRemoteHost = (.Values.gateway.vpsT.publicIPv4 | default "" | trim) -}}
+{{- end -}}
+{{- $hyBackplaneTcpRemotePort := int (.Values.gateway.interconnect.hysteriaBackplane.tcpEncapsulation.remoteConnectPort | default 443) -}}
 {{- if and .Values.gateway.enabled .Values.gateway.vpsT.enabled }}
 {{- if .Values.gateway.vpsT.agent.enabled }}
 apiVersion: v1
