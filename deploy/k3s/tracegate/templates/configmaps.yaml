@@ -53,6 +53,11 @@
 {{- if lt $hyBackplaneTransitPort 1 }}{{- $hyBackplaneTransitPort = 16443 -}}{{- end -}}
 {{- $hyBackplaneWsPort := int (.Values.gateway.interconnect.hysteriaBackplane.localWsPort | default 16444) -}}
 {{- if lt $hyBackplaneWsPort 1 }}{{- $hyBackplaneWsPort = 16444 -}}{{- end -}}
+{{- $hyBackplaneTcpEncapEnabled := and $hyBackplaneEnabled (.Values.gateway.interconnect.hysteriaBackplane.tcpEncapsulation.enabled | default false) -}}
+{{- $hyBackplaneServerName := (.Values.gateway.interconnect.hysteriaBackplane.serverName | default "" | trim) -}}
+{{- if eq $hyBackplaneServerName "" }}{{- $hyBackplaneServerName = "backplane-vps-t.internal" -}}{{- end -}}
+{{- $hyBackplaneTcpServerPort := int (.Values.gateway.interconnect.hysteriaBackplane.tcpEncapsulation.serverListenPort | default 15446) -}}
+{{- if lt $hyBackplaneTcpServerPort 1 }}{{- $hyBackplaneTcpServerPort = 15446 -}}{{- end -}}
 {{- $wgBackplaneEnabled := and $selectorEnabled (.Values.gateway.interconnect.wireguardBackplane.enabled | default false) -}}
 {{- $wgBackplaneHost := regexReplaceAll "/.*$" (.Values.gateway.interconnect.wireguardBackplane.vpsTAddress | default "") "" -}}
 {{- $selectorTransitPaths := list -}}
@@ -249,6 +254,9 @@ data:
         {{- range (.Values.gateway.vpsT.entryMux.wsSniHosts | default (list)) }}
         "{{ . }}" ws_tls;
         {{- end }}
+        {{- if $hyBackplaneTcpEncapEnabled }}
+        "{{ $hyBackplaneServerName }}" hysteria_backplane_tcp_bridge;
+        {{- end }}
       }
 
       upstream reality_fallback {
@@ -278,6 +286,12 @@ data:
         server {{ $vpsTPassiveHost }}:443 backup max_fails={{ $failoverMaxFails }} fail_timeout={{ $failoverFailTimeout }}s;
         {{- end }}
       }
+
+      {{- if $hyBackplaneTcpEncapEnabled }}
+      upstream hysteria_backplane_tcp_bridge {
+        server 127.0.0.1:{{ $hyBackplaneTcpServerPort }};
+      }
+      {{- end }}
 
       server {
         listen 0.0.0.0:443;

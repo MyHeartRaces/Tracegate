@@ -8,12 +8,15 @@
 {{- $hyBackplaneListenPort := int (.Values.gateway.interconnect.hysteriaBackplane.listenPort | default 15445) -}}
 {{- $hyBackplaneTransitPort := int (.Values.gateway.interconnect.hysteriaBackplane.localTransitPort | default 16443) -}}
 {{- $hyBackplaneWsPort := int (.Values.gateway.interconnect.hysteriaBackplane.localWsPort | default 16444) -}}
-{{- $hyBackplaneTcpServerHost := (.Values.gateway.interconnect.hysteriaBackplane.tcpEncapsulation.serverListenHost | default "0.0.0.0" | trim) -}}
-{{- if eq $hyBackplaneTcpServerHost "" }}{{- $hyBackplaneTcpServerHost = "0.0.0.0" -}}{{- end -}}
+{{- $hyBackplaneServerName := (.Values.gateway.interconnect.hysteriaBackplane.serverName | default "" | trim) -}}
+{{- if eq $hyBackplaneServerName "" }}{{- $hyBackplaneServerName = "backplane-vps-t.internal" -}}{{- end -}}
+{{- $hyBackplaneTcpServerHost := (.Values.gateway.interconnect.hysteriaBackplane.tcpEncapsulation.serverListenHost | default "127.0.0.1" | trim) -}}
+{{- if eq $hyBackplaneTcpServerHost "" }}{{- $hyBackplaneTcpServerHost = "127.0.0.1" -}}{{- end -}}
 {{- $hyBackplaneTcpServerPort := int (.Values.gateway.interconnect.hysteriaBackplane.tcpEncapsulation.serverListenPort | default 15446) -}}
 {{- $hyBackplaneTcpClientHost := (.Values.gateway.interconnect.hysteriaBackplane.tcpEncapsulation.clientBindHost | default "127.0.0.1" | trim) -}}
 {{- if eq $hyBackplaneTcpClientHost "" }}{{- $hyBackplaneTcpClientHost = "127.0.0.1" -}}{{- end -}}
 {{- $hyBackplaneTcpClientPort := int (.Values.gateway.interconnect.hysteriaBackplane.tcpEncapsulation.clientBindPort | default 16445) -}}
+{{- $hyBackplaneTcpRemotePort := int (.Values.gateway.interconnect.hysteriaBackplane.tcpEncapsulation.remoteConnectPort | default 443) -}}
 {{- $hyBackplaneRemoteHost := (.Values.gateway.vpsT.publicIPv4 | default "" | trim) -}}
 {{- if eq $hyBackplaneRemoteHost "" -}}
 {{- $hyBackplaneRemoteHost = (.Values.gateway.vpsT.fqdn | default "" | trim) -}}
@@ -280,12 +283,22 @@ spec:
             - 127.0.0.1
             - --udp-target-port
             - {{ $hyBackplaneListenPort | quote }}
+            - --tls-cert-file
+            - /etc/hysteria-backplane-tls/tls.crt
+            - --tls-key-file
+            - /etc/hysteria-backplane-tls/tls.key
+            - --tls-handshake-timeout-seconds
+            - {{ (.Values.gateway.interconnect.hysteriaBackplane.tcpEncapsulation.tlsHandshakeTimeoutSeconds | default 5) | quote }}
             - --idle-timeout-seconds
             - {{ (.Values.gateway.interconnect.hysteriaBackplane.tcpEncapsulation.idleTimeoutSeconds | default 300) | quote }}
           ports:
             - containerPort: {{ $hyBackplaneTcpServerPort }}
               protocol: TCP
               name: hybp-encap
+          volumeMounts:
+            - name: hysteria-backplane-tls
+              mountPath: /etc/hysteria-backplane-tls
+              readOnly: true
           securityContext:
             runAsUser: 0
             runAsGroup: 0
@@ -767,11 +780,21 @@ spec:
             - --tcp-connect-host
             - {{ required "gateway.vpsT.publicIPv4 or gateway.vpsT.fqdn is required when hysteriaBackplane tcpEncapsulation is enabled" $hyBackplaneRemoteHost | quote }}
             - --tcp-connect-port
-            - {{ $hyBackplaneTcpServerPort | quote }}
+            - {{ $hyBackplaneTcpRemotePort | quote }}
+            - --tls-server-name
+            - {{ $hyBackplaneServerName | quote }}
+            - --tls-ca-file
+            - /etc/hysteria-backplane-ca/tls.crt
+            - --tls-handshake-timeout-seconds
+            - {{ (.Values.gateway.interconnect.hysteriaBackplane.tcpEncapsulation.tlsHandshakeTimeoutSeconds | default 5) | quote }}
             - --connect-timeout-seconds
             - {{ (.Values.gateway.interconnect.hysteriaBackplane.tcpEncapsulation.connectTimeoutSeconds | default 5) | quote }}
             - --reconnect-delay-seconds
             - {{ (.Values.gateway.interconnect.hysteriaBackplane.tcpEncapsulation.reconnectDelaySeconds | default 1) | quote }}
+          volumeMounts:
+            - name: hysteria-backplane-ca
+              mountPath: /etc/hysteria-backplane-ca
+              readOnly: true
           securityContext:
             runAsUser: 0
             runAsGroup: 0

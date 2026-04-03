@@ -214,12 +214,15 @@ gateway:
       auth: ""
       tcpEncapsulation:
         enabled: false
-        serverListenHost: 0.0.0.0
+        # Runs behind VPS-T entry-mux on :443, so bind locally by default.
+        serverListenHost: 127.0.0.1
         serverListenPort: 15446
         clientBindHost: 127.0.0.1
         clientBindPort: 16445
+        remoteConnectPort: 443
         connectTimeoutSeconds: 5
         reconnectDelaySeconds: 1
+        tlsHandshakeTimeoutSeconds: 5
         idleTimeoutSeconds: 300
       obfs:
         enabled: false
