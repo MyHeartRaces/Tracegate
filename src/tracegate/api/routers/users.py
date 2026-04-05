@@ -18,7 +18,7 @@ from tracegate.schemas import (
 )
 from tracegate.security import require_api_scope
 from tracegate.services.bot_blocks import compute_bot_block_until
-from tracegate.services.connections import revoke_user_access
+from tracegate.services.connections import UserAccessRevokeError, revoke_user_access
 from tracegate.services.user_cleanup import user_without_artifacts_predicate, user_without_connections_predicate
 from tracegate.settings import get_settings
 
@@ -170,7 +170,10 @@ async def set_entitlement(
     else:
         user.grace_ends_at = payload.grace_ends_at
     if payload.entitlement_status == EntitlementStatus.BLOCKED:
-        await revoke_user_access(session, user.telegram_id)
+        try:
+            await revoke_user_access(session, user.telegram_id)
+        except UserAccessRevokeError as exc:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
     await session.commit()
     await session.refresh(user)
@@ -214,7 +217,10 @@ async def bot_block_user(
     user.bot_block_reason = _normalize_profile_part(payload.reason)
 
     if payload.revoke_access:
-        await revoke_user_access(session, user.telegram_id)
+        try:
+            await revoke_user_access(session, user.telegram_id)
+        except UserAccessRevokeError as exc:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
     await session.commit()
     await session.refresh(user)

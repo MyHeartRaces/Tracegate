@@ -264,6 +264,17 @@ class AdminResetConnectionsResult(BaseModel):
     revoked_connections: int
 
 
+class AdminRevokeUserAccessRequest(BaseModel):
+    actor_telegram_id: int
+    target_telegram_id: int
+
+
+class AdminRevokeUserAccessResult(BaseModel):
+    target_telegram_id: int
+    revoked_connections: int
+    revoked_devices: int
+
+
 class AgentEventEnvelope(BaseModel):
     event_id: UUID
     idempotency_key: str

@@ -7,13 +7,18 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracegate.enums import ConnectionProtocol, OutboxEventType, RecordStatus
-from tracegate.models import Connection, ConnectionRevision, Device, IpamLease, WireguardPeer
+from tracegate.models import Connection, ConnectionRevision, Device, IpamLease, User, WireguardPeer
+from tracegate.services.user_roles import normalize_user_role
 from tracegate.services.ipam import release_lease
 from tracegate.services.outbox import create_outbox_event
 from tracegate.services.role_targeting import target_roles_for_connection
 
 
 class ConnectionRevokeError(RuntimeError):
+    pass
+
+
+class UserAccessRevokeError(RuntimeError):
     pass
 
 
@@ -86,6 +91,10 @@ async def revoke_user_access(session: AsyncSession, user_id: int) -> tuple[int, 
     Returns:
       (revoked_connections_count, revoked_devices_count)
     """
+    user = await session.get(User, user_id)
+    if user is not None and normalize_user_role(user.role) == "superadmin":
+        raise UserAccessRevokeError("Cannot revoke superadmin access")
+
     connections = (
         await session.execute(
             select(Connection).where(

@@ -1,5 +1,7 @@
 from tracegate.bot.keyboards import (
     PROVIDER_CHOICES,
+    admin_menu_keyboard,
+    admin_user_revoke_notify_keyboard,
     device_actions_keyboard,
     feedback_admin_keyboard,
     main_menu_keyboard,
@@ -60,6 +62,20 @@ def test_feedback_admin_keyboard_uses_targeted_callback() -> None:
     button = kb.inline_keyboard[0][0]
     assert button.text == "Заблокировать автора"
     assert button.callback_data == "feedback_block:123456789"
+
+
+def test_admin_menu_keyboard_includes_targeted_access_revoke_action() -> None:
+    kb = admin_menu_keyboard(is_superadmin=False)
+    texts = _button_texts(kb)
+    assert "Отозвать доступ пользователя" in texts
+
+
+def test_admin_user_revoke_notify_keyboard_has_yes_no_actions() -> None:
+    kb = admin_user_revoke_notify_keyboard()
+    assert kb.inline_keyboard[0][0].text == "Да"
+    assert kb.inline_keyboard[0][0].callback_data == "admin_user_revoke_notify:yes"
+    assert kb.inline_keyboard[1][0].text == "Нет"
+    assert kb.inline_keyboard[1][0].callback_data == "admin_user_revoke_notify:no"
 
 
 def test_device_actions_keyboard_uses_new_profile_names() -> None:

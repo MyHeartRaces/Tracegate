@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
+from tracegate.services.user_roles import can_manage_user
 from tracegate.services.bot_blocks import is_permanent_bot_block_until
 
 
@@ -67,12 +68,8 @@ def user_label(user: dict) -> str:
 
 
 def can_manage_block(actor: dict, target: dict) -> bool:
-    actor_role = (actor.get("role") or "").strip().lower()
-    target_role = (target.get("role") or "").strip().lower()
-    if target_role == "superadmin":
-        return False
-    if actor_role == "superadmin":
-        return True
-    if actor_role == "admin":
-        return target_role == "user"
-    return False
+    return can_manage_user(actor_role=actor.get("role"), target_role=target.get("role"))
+
+
+def can_manage_user_access(actor: dict, target: dict) -> bool:
+    return can_manage_user(actor_role=actor.get("role"), target_role=target.get("role"))

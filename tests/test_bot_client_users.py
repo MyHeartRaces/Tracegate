@@ -53,3 +53,26 @@ def test_list_users_can_include_and_prune_empty() -> None:
         "include_empty": "true",
         "prune_empty": "false",
     }
+
+
+def test_revoke_user_access_uses_admin_endpoint() -> None:
+    client = TracegateApiClient("http://example.test", "token")
+    calls: list[tuple[str, str, dict]] = []
+
+    async def fake_request(method: str, path: str, **kwargs):  # noqa: ANN001
+        calls.append((method, path, kwargs))
+        return {}
+
+    client._request = fake_request  # type: ignore[method-assign]
+    try:
+        asyncio.run(client.revoke_user_access(actor_telegram_id=11, target_telegram_id=22))
+    finally:
+        asyncio.run(client.close())
+
+    method, path, kwargs = calls[0]
+    assert method == "POST"
+    assert path == "/admin/revoke-user-access"
+    assert kwargs["json"] == {
+        "actor_telegram_id": 11,
+        "target_telegram_id": 22,
+    }

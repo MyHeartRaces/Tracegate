@@ -5,9 +5,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from tracegate.api.deps import db_session
 from tracegate.enums import ApiScope, RecordStatus, UserRole
 from tracegate.models import Connection, User
-from tracegate.schemas import AdminResetConnectionsRequest, AdminResetConnectionsResult
+from tracegate.schemas import (
+    AdminResetConnectionsRequest,
+    AdminResetConnectionsResult,
+    AdminRevokeUserAccessRequest,
+    AdminRevokeUserAccessResult,
+)
 from tracegate.security import require_api_scope
-from tracegate.services.connections import revoke_connection
+from tracegate.services.connections import UserAccessRevokeError, revoke_connection, revoke_user_access
+from tracegate.services.user_roles import can_manage_user
 
 router = APIRouter(
     prefix="/admin",
@@ -28,7 +34,14 @@ async def reset_connections(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin role required")
 
     ids = (
-        await session.execute(select(Connection.id).where(Connection.status == RecordStatus.ACTIVE))
+        await session.execute(
+            select(Connection.id)
+            .join(User, User.telegram_id == Connection.user_id)
+            .where(
+                Connection.status == RecordStatus.ACTIVE,
+                User.role != UserRole.SUPERADMIN,
+            )
+        )
     ).scalars().all()
 
     count = 0
@@ -39,3 +52,33 @@ async def reset_connections(
 
     return AdminResetConnectionsResult(revoked_connections=count)
 
+
+@router.post("/revoke-user-access", response_model=AdminRevokeUserAccessResult)
+async def revoke_user_access_by_telegram_id(
+    payload: AdminRevokeUserAccessRequest,
+    session: AsyncSession = Depends(db_session),
+) -> AdminRevokeUserAccessResult:
+    actor = await session.get(User, payload.actor_telegram_id)
+    if actor is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Actor not found")
+    if actor.role not in {UserRole.ADMIN, UserRole.SUPERADMIN}:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin role required")
+
+    target = await session.get(User, payload.target_telegram_id)
+    if target is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Target user not found")
+    if not can_manage_user(actor_role=actor.role, target_role=target.role):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Insufficient rights for target role")
+
+    try:
+        revoked_connections, revoked_devices = await revoke_user_access(session, target.telegram_id)
+    except UserAccessRevokeError as exc:
+        await session.rollback()
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+    await session.commit()
+    return AdminRevokeUserAccessResult(
+        target_telegram_id=target.telegram_id,
+        revoked_connections=revoked_connections,
+        revoked_devices=revoked_devices,
+    )

@@ -31,6 +31,7 @@ def admin_menu_keyboard(*, is_superadmin: bool) -> InlineKeyboardMarkup:
     rows = [
         [InlineKeyboardButton(text="Grafana (OTP, admin)", callback_data="grafana_otp_admin")],
         [InlineKeyboardButton(text="Список пользователей", callback_data="admin_users")],
+        [InlineKeyboardButton(text="Отозвать доступ пользователя", callback_data="admin_user_revoke_access")],
         [InlineKeyboardButton(text="Блокировать пользователя", callback_data="admin_user_block")],
         [InlineKeyboardButton(text="Снять блокировку", callback_data="admin_user_unblock")],
         [InlineKeyboardButton(text="Reset connections (ALL)", callback_data="admin_reset_connections")],
@@ -51,6 +52,16 @@ def feedback_admin_keyboard(*, telegram_id: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text="Заблокировать автора", callback_data=f"feedback_block:{int(telegram_id)}")]
+        ]
+    )
+
+
+def admin_user_revoke_notify_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="Да", callback_data="admin_user_revoke_notify:yes")],
+            [InlineKeyboardButton(text="Нет", callback_data="admin_user_revoke_notify:no")],
+            [InlineKeyboardButton(text="Отмена", callback_data="admin_menu")],
         ]
     )
 

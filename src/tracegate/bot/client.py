@@ -249,3 +249,13 @@ class TracegateApiClient:
             "/admin/reset-connections",
             json={"actor_telegram_id": int(actor_telegram_id)},
         )
+
+    async def revoke_user_access(self, *, actor_telegram_id: int, target_telegram_id: int) -> dict:
+        return await self._request(
+            "POST",
+            "/admin/revoke-user-access",
+            json={
+                "actor_telegram_id": int(actor_telegram_id),
+                "target_telegram_id": int(target_telegram_id),
+            },
+        )

@@ -23,6 +23,7 @@ from tracegate.bot.access import (
     blocked_message,
     bot_block_until,
     can_manage_block,
+    can_manage_user_access,
     is_admin,
     is_bot_blocked,
     is_superadmin,
@@ -40,6 +41,7 @@ from tracegate.bot.startup import delete_webhook_with_retry
 from tracegate.bot.keyboards import (
     SNI_PAGE_SIZE,
     admin_menu_keyboard,
+    admin_user_revoke_notify_keyboard,
     device_actions_keyboard,
     devices_keyboard,
     feedback_admin_keyboard,
@@ -147,6 +149,14 @@ def _build_unblock_notification_text(*, unblocked_at: datetime) -> str:
     )
 
 
+def _build_access_revoked_notification_text(*, revoked_at: datetime) -> str:
+    return (
+        "Ваши активные устройства и подключения были отозваны администратором.\n"
+        f"Когда: {revoked_at.isoformat()}\n"
+        "Это не блокировка бота. При необходимости запросите доступ заново."
+    )
+
+
 def _format_devices_text(devices: list[dict]) -> str:
     header = "📱 Устройства"
     if not devices:
@@ -228,6 +238,8 @@ class SniCatalogFlow(StatesGroup):
 class AdminFlow(StatesGroup):
     waiting_for_grant_id = State()
     waiting_for_revoke_id = State()
+    waiting_for_user_access_revoke_id = State()
+    waiting_for_user_access_revoke_notify = State()
     waiting_for_user_block = State()
     waiting_for_user_unblock = State()
     waiting_for_announce_text = State()
@@ -856,6 +868,21 @@ async def admin_users(callback: CallbackQuery) -> None:
     await callback.answer()
 
 
+@router.callback_query(F.data == "admin_user_revoke_access")
+async def admin_user_revoke_access(callback: CallbackQuery, state: FSMContext) -> None:
+    actor = await ensure_user(callback.from_user.id)
+    if not is_admin(actor):
+        await callback.answer(_msg_warn("Недостаточно прав"))
+        return
+    await state.clear()
+    await state.set_state(AdminFlow.waiting_for_user_access_revoke_id)
+    await state.update_data(revoke_access_target_id=None, revoke_access_target_label=None)
+    await callback.message.answer(
+        _msg_prompt("Введите Telegram ID пользователя, для которого нужно отозвать все активные устройства и подключения:")
+    )
+    await callback.answer()
+
+
 @router.callback_query(F.data == "admin_user_block")
 async def admin_user_block(callback: CallbackQuery, state: FSMContext) -> None:
     actor = await ensure_user(callback.from_user.id)
@@ -884,6 +911,92 @@ async def admin_user_unblock(callback: CallbackQuery, state: FSMContext) -> None
     await state.set_state(AdminFlow.waiting_for_user_unblock)
     await callback.message.answer(_msg_prompt("Введите Telegram ID пользователя для снятия блокировки:"))
     await callback.answer()
+
+
+@router.message(AdminFlow.waiting_for_user_access_revoke_id)
+async def receive_user_access_revoke_id(message: Message, state: FSMContext) -> None:
+    try:
+        actor = await ensure_user(message.from_user.id)
+        if not is_admin(actor):
+            await message.answer(_msg_warn("Недостаточно прав."))
+            return
+
+        target_id = int((message.text or "").strip())
+        target = await api.get_user(target_id)
+        if not can_manage_user_access(actor, target):
+            await message.answer(_msg_warn("Недостаточно прав для отзыва доступа этой роли."))
+            return
+
+        await state.set_state(AdminFlow.waiting_for_user_access_revoke_notify)
+        await state.update_data(
+            revoke_access_target_id=target_id,
+            revoke_access_target_label=user_label(target),
+        )
+        await message.answer(
+            _msg_prompt(
+                f"Отозвать все активные устройства и подключения для {user_label(target)}?\n\n"
+                "Отправить уведомление пользователю?"
+            ),
+            reply_markup=admin_user_revoke_notify_keyboard(),
+        )
+    except Exception as exc:  # noqa: BLE001
+        await message.answer(_msg_error(exc))
+        await state.clear()
+
+
+@router.callback_query(F.data.startswith("admin_user_revoke_notify:"))
+async def admin_user_revoke_notify(callback: CallbackQuery, state: FSMContext) -> None:
+    actor = await ensure_user(callback.from_user.id)
+    if not is_admin(actor):
+        await callback.answer(_msg_warn("Недостаточно прав"))
+        return
+
+    state_data = await state.get_data()
+    target_id_raw = state_data.get("revoke_access_target_id")
+    target_label = (state_data.get("revoke_access_target_label") or "").strip()
+    if target_id_raw is None:
+        await state.clear()
+        await callback.answer(_msg_warn("Сессия отзыва истекла. Повторите действие."), show_alert=True)
+        return
+
+    notify = callback.data.endswith(":yes")
+    target_id = int(target_id_raw)
+    try:
+        target = await api.get_user(target_id)
+        if not can_manage_user_access(actor, target):
+            await callback.message.answer(_msg_warn("Недостаточно прав для отзыва доступа этой роли."))
+            await callback.answer()
+            return
+
+        result = await api.revoke_user_access(
+            actor_telegram_id=callback.from_user.id,
+            target_telegram_id=target_id,
+        )
+        revoked_connections = int(result.get("revoked_connections") or 0)
+        revoked_devices = int(result.get("revoked_devices") or 0)
+        await callback.message.answer(
+            _msg_ok(
+                f"Готово: для {target_label or user_label(target)} "
+                f"отозваны подключения={revoked_connections}, устройства={revoked_devices}."
+            )
+        )
+        if notify:
+            try:
+                await callback.message.bot.send_message(
+                    chat_id=target_id,
+                    text=_msg_warn(
+                        _build_access_revoked_notification_text(revoked_at=datetime.now(timezone.utc))
+                    ),
+                )
+            except (TelegramBadRequest, TelegramForbiddenError):
+                await callback.message.answer(
+                    _msg_warn("Доступ отозван, но уведомление отправить не удалось.")
+                )
+    except Exception as exc:  # noqa: BLE001
+        await callback.message.answer(_msg_error(exc))
+    finally:
+        await state.clear()
+        await callback.answer()
 
 
 @router.message(AdminFlow.waiting_for_grant_id)

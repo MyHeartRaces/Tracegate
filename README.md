@@ -1,4 +1,4 @@
-# Tracegate v0.6
+# Tracegate v0.6.1
 
 Tracegate is a control-plane, node-agent and Telegram bot stack for managing a two-node privacy gateway topology on k3s.
 
@@ -44,6 +44,12 @@ Optional `VLESS + WebSocket + TLS` is also supported when you control a domain a
 - `VPS-E` is the public chain entry node
 - Chain traffic from `VPS-E` can use selector-driven interconnect routing toward `VPS-T`
 - Interconnect candidates can include direct hostnames/IPs plus optional `Hysteria` and `WireGuard` backplanes
+
+## Major changes in v0.6.1
+
+- Targeted admin revoke flow by `telegram_id` without bot blocking.
+- Optional end-user notification when an admin revokes active devices and connections.
+- Explicit protection against revoking `superadmin` access.
 
 ## Major changes in v0.6
 

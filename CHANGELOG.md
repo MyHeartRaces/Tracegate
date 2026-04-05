@@ -1,5 +1,20 @@
 # Changelog
 
+## v0.6.1 - 2026-04-05
+
+Changes included in this release were landed on 2026-04-05.
+
+### Bot and Admin UX
+
+- Added targeted admin access revocation by `telegram_id` without blocking the user account.
+- Added optional user notification for targeted access revocation, with explicit `Да/Нет` choice in the admin bot flow.
+- Blocked access revocation for `superadmin` targets in both bot and API flows.
+
+### Packaging and Docs
+
+- Bumped project version to `0.6.1`.
+- Refreshed README release references for the `0.6.1` patch release.
+
 ## v0.6.0 - 2026-04-04
 
 Changes included in this release were landed between 2026-03-05 and 2026-04-04.
