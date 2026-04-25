@@ -1,0 +1,215 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ACTION="${1:-start}"
+ROLE="${2:-unknown}"
+
+CONFIG_DIR="${CONFIG_DIR:-/etc/tracegate}"
+BUNDLE_MATERIALIZED_ROOT="${BUNDLE_MATERIALIZED_ROOT:-/var/lib/tracegate/materialized-bundles}"
+BUNDLE_PRIVATE_OVERLAY_ROOT="${BUNDLE_PRIVATE_OVERLAY_ROOT:-${CONFIG_DIR}/private/overlays}"
+TRACEGATE_RUNTIME_PROFILE="${TRACEGATE_RUNTIME_PROFILE:-xray-centric}"
+TRACEGATE_OBFUSCATION_ENABLED="${TRACEGATE_OBFUSCATION_ENABLED:-false}"
+TRACEGATE_PRIVATE_RUNTIME_DIR="${TRACEGATE_PRIVATE_RUNTIME_DIR:-/var/lib/tracegate/private}"
+TRACEGATE_OBFUSCATION_BACKEND="${TRACEGATE_OBFUSCATION_BACKEND:-zapret2}"
+TRACEGATE_ZAPRET_ROOT="${TRACEGATE_ZAPRET_ROOT:-/opt/zapret2-private}"
+TRACEGATE_ZAPRET_RUNNER="${TRACEGATE_ZAPRET_RUNNER:-${TRACEGATE_ZAPRET_ROOT}/tracegate-zapret-wrapper}"
+TRACEGATE_ZAPRET_POLICY_DIR="${TRACEGATE_ZAPRET_POLICY_DIR:-${CONFIG_DIR}/private/zapret}"
+TRACEGATE_ZAPRET_STATE_DIR="${TRACEGATE_ZAPRET_STATE_DIR:-${TRACEGATE_PRIVATE_RUNTIME_DIR}/zapret}"
+TRACEGATE_ZAPRET_PROFILE_DIR="${TRACEGATE_ZAPRET_PROFILE_DIR:-${CONFIG_DIR}/private/zapret}"
+TRACEGATE_ZAPRET_PROFILE_ENTRY="${TRACEGATE_ZAPRET_PROFILE_ENTRY:-entry-lite.env}"
+TRACEGATE_ZAPRET_PROFILE_TRANSIT="${TRACEGATE_ZAPRET_PROFILE_TRANSIT:-transit-lite.env}"
+TRACEGATE_ZAPRET_PROFILE_INTERCONNECT="${TRACEGATE_ZAPRET_PROFILE_INTERCONNECT:-entry-transit-stealth.env}"
+TRACEGATE_ZAPRET_PROFILE_MTPROTO="${TRACEGATE_ZAPRET_PROFILE_MTPROTO:-mtproto-extra.env}"
+TRACEGATE_ENTRY_INTERFACE="${TRACEGATE_ENTRY_INTERFACE:-eth0}"
+TRACEGATE_TRANSIT_INTERFACE="${TRACEGATE_TRANSIT_INTERFACE:-eth0}"
+
+case "${ROLE}" in
+  entry)
+    TRACEGATE_RUNTIME_CONTRACT="${TRACEGATE_ENTRY_RUNTIME_CONTRACT:-/var/lib/tracegate/agent-entry/runtime/runtime-contract.json}"
+    TRACEGATE_NETWORK_INTERFACE="${TRACEGATE_ENTRY_INTERFACE}"
+    TRACEGATE_ZAPRET_PROFILE_FILE="${TRACEGATE_ZAPRET_PROFILE_DIR}/${TRACEGATE_ZAPRET_PROFILE_ENTRY}"
+    ;;
+  transit)
+    TRACEGATE_RUNTIME_CONTRACT="${TRACEGATE_TRANSIT_RUNTIME_CONTRACT:-/var/lib/tracegate/agent-transit/runtime/runtime-contract.json}"
+    TRACEGATE_NETWORK_INTERFACE="${TRACEGATE_TRANSIT_INTERFACE}"
+    TRACEGATE_ZAPRET_PROFILE_FILE="${TRACEGATE_ZAPRET_PROFILE_DIR}/${TRACEGATE_ZAPRET_PROFILE_TRANSIT}"
+    ;;
+  *)
+    TRACEGATE_RUNTIME_CONTRACT="${TRACEGATE_RUNTIME_CONTRACT:-}"
+    TRACEGATE_NETWORK_INTERFACE="${TRACEGATE_NETWORK_INTERFACE:-}"
+    TRACEGATE_ZAPRET_PROFILE_FILE="${TRACEGATE_ZAPRET_PROFILE_FILE:-}"
+    ;;
+esac
+
+TRACEGATE_ZAPRET_MTPROTO_PROFILE_FILE="${TRACEGATE_ZAPRET_PROFILE_DIR}/${TRACEGATE_ZAPRET_PROFILE_MTPROTO}"
+TRACEGATE_ZAPRET_INTERCONNECT_PROFILE_FILE="${TRACEGATE_ZAPRET_PROFILE_DIR}/${TRACEGATE_ZAPRET_PROFILE_INTERCONNECT}"
+
+ROLE_STATE_DIR="${TRACEGATE_PRIVATE_RUNTIME_DIR}/obfuscation/${ROLE}"
+RUNTIME_STATE_JSON="${ROLE_STATE_DIR}/runtime-state.json"
+RUNTIME_STATE_ENV="${ROLE_STATE_DIR}/runtime-state.env"
+
+mkdir -p "${ROLE_STATE_DIR}" "${TRACEGATE_ZAPRET_STATE_DIR}" "${TRACEGATE_ZAPRET_POLICY_DIR}"
+
+python3 - "${TRACEGATE_RUNTIME_CONTRACT}" "${RUNTIME_STATE_JSON}" "${RUNTIME_STATE_ENV}" "${ROLE}" "${TRACEGATE_NETWORK_INTERFACE}" "${TRACEGATE_RUNTIME_PROFILE}" "${TRACEGATE_OBFUSCATION_BACKEND}" "${TRACEGATE_ZAPRET_PROFILE_FILE}" "${TRACEGATE_ZAPRET_INTERCONNECT_PROFILE_FILE}" "${TRACEGATE_ZAPRET_MTPROTO_PROFILE_FILE}" "${TRACEGATE_ZAPRET_POLICY_DIR}" "${TRACEGATE_ZAPRET_STATE_DIR}" <<'PY'
+from __future__ import annotations
+
+import json
+import sys
+from pathlib import Path
+
+
+def shell_quote(value: object) -> str:
+    raw = str(value)
+    return "'" + raw.replace("'", "'\"'\"'") + "'"
+
+
+contract_path = Path(sys.argv[1])
+json_out = Path(sys.argv[2])
+env_out = Path(sys.argv[3])
+role = str(sys.argv[4])
+interface = str(sys.argv[5])
+runtime_profile = str(sys.argv[6])
+backend = str(sys.argv[7]).strip().lower()
+zapret_profile_file = str(sys.argv[8]).strip()
+zapret_interconnect_profile_file = str(sys.argv[9]).strip()
+zapret_mtproto_profile_file = str(sys.argv[10]).strip()
+zapret_policy_dir = str(sys.argv[11]).strip()
+zapret_state_dir = str(sys.argv[12]).strip()
+
+payload = {
+    "role": role,
+    "interface": interface,
+    "runtimeProfile": runtime_profile,
+    "runtimeContractPath": str(contract_path),
+    "contractPresent": contract_path.exists(),
+    "backend": backend,
+    "decoyRoots": [],
+    "splitHysteriaMasqueradeDirs": [],
+    "xrayHysteriaMasqueradeDirs": [],
+    "xrayConfigPaths": [],
+    "xrayHysteriaInboundTags": [],
+    "finalMaskEnabled": False,
+    "echEnabled": False,
+    "public": {
+        "zapretProfileFile": zapret_profile_file,
+        "zapretInterconnectProfileFile": zapret_interconnect_profile_file,
+        "zapretMtprotoProfileFile": zapret_mtproto_profile_file,
+        "zapretPolicyDir": zapret_policy_dir,
+        "zapretStateDir": zapret_state_dir,
+    },
+    "fronting": {
+        "tcp443Owner": "",
+        "udp443Owner": "",
+        "touchUdp443": False,
+        "mtprotoDomain": "",
+        "mtprotoPublicPort": 443,
+        "mtprotoFrontingMode": "dedicated-dns-only",
+    },
+}
+
+if contract_path.exists():
+    raw = json.loads(contract_path.read_text(encoding="utf-8"))
+    payload["runtimeProfile"] = str(raw.get("runtimeProfile") or runtime_profile)
+    decoy = raw.get("decoy") or {}
+    xray = raw.get("xray") or {}
+    fronting = raw.get("fronting") or {}
+    payload["decoyRoots"] = [str(v) for v in (decoy.get("nginxRoots") or []) if str(v).strip()]
+    payload["splitHysteriaMasqueradeDirs"] = [str(v) for v in (decoy.get("splitHysteriaMasqueradeDirs") or []) if str(v).strip()]
+    payload["xrayHysteriaMasqueradeDirs"] = [str(v) for v in (decoy.get("xrayHysteriaMasqueradeDirs") or []) if str(v).strip()]
+    payload["xrayConfigPaths"] = [str(v) for v in (xray.get("configPaths") or []) if str(v).strip()]
+    payload["xrayHysteriaInboundTags"] = [str(v) for v in (xray.get("hysteriaInboundTags") or []) if str(v).strip()]
+    payload["finalMaskEnabled"] = bool(xray.get("finalMaskEnabled", False))
+    payload["echEnabled"] = bool(xray.get("echEnabled", False))
+    payload["fronting"] = {
+        "tcp443Owner": str(fronting.get("tcp443Owner") or "").strip(),
+        "udp443Owner": str(fronting.get("udp443Owner") or "").strip(),
+        "touchUdp443": bool(fronting.get("touchUdp443", False)),
+        "mtprotoDomain": str(fronting.get("mtprotoDomain") or "").strip(),
+        "mtprotoPublicPort": int(fronting.get("mtprotoPublicPort") or 443),
+        "mtprotoFrontingMode": str(fronting.get("mtprotoFrontingMode") or "dedicated-dns-only").strip().lower(),
+    }
+
+json_out.parent.mkdir(parents=True, exist_ok=True)
+json_out.write_text(json.dumps(payload, ensure_ascii=True, indent=2) + "\n", encoding="utf-8")
+
+env_lines = [
+    f"TRACEGATE_RUNTIME_ROLE={shell_quote(payload['role'])}",
+    f"TRACEGATE_NETWORK_INTERFACE={shell_quote(payload['interface'])}",
+    f"TRACEGATE_RUNTIME_PROFILE={shell_quote(payload['runtimeProfile'])}",
+    f"TRACEGATE_RUNTIME_CONTRACT={shell_quote(payload['runtimeContractPath'])}",
+    f"TRACEGATE_RUNTIME_CONTRACT_PRESENT={shell_quote(str(payload['contractPresent']).lower())}",
+    f"TRACEGATE_RUNTIME_STATE_JSON={shell_quote(str(json_out))}",
+    f"TRACEGATE_OBFUSCATION_BACKEND={shell_quote(payload['backend'])}",
+    f"TRACEGATE_DECOY_ROOTS={shell_quote(':'.join(payload['decoyRoots']))}",
+    f"TRACEGATE_SPLIT_HYSTERIA_DIRS={shell_quote(':'.join(payload['splitHysteriaMasqueradeDirs']))}",
+    f"TRACEGATE_XRAY_HYSTERIA_DIRS={shell_quote(':'.join(payload['xrayHysteriaMasqueradeDirs']))}",
+    f"TRACEGATE_XRAY_CONFIG_PATHS={shell_quote(':'.join(payload['xrayConfigPaths']))}",
+    f"TRACEGATE_XRAY_HYSTERIA_TAGS={shell_quote(':'.join(payload['xrayHysteriaInboundTags']))}",
+    f"TRACEGATE_FINALMASK_ENABLED={shell_quote(str(payload['finalMaskEnabled']).lower())}",
+    f"TRACEGATE_ECH_ENABLED={shell_quote(str(payload['echEnabled']).lower())}",
+    f"TRACEGATE_ZAPRET_PROFILE_FILE={shell_quote(payload['public']['zapretProfileFile'])}",
+    f"TRACEGATE_ZAPRET_INTERCONNECT_PROFILE_FILE={shell_quote(payload['public']['zapretInterconnectProfileFile'])}",
+    f"TRACEGATE_ZAPRET_MTPROTO_PROFILE_FILE={shell_quote(payload['public']['zapretMtprotoProfileFile'])}",
+    f"TRACEGATE_ZAPRET_POLICY_DIR={shell_quote(payload['public']['zapretPolicyDir'])}",
+    f"TRACEGATE_ZAPRET_STATE_DIR={shell_quote(payload['public']['zapretStateDir'])}",
+    f"TRACEGATE_TCP_443_OWNER={shell_quote(payload['fronting']['tcp443Owner'])}",
+    f"TRACEGATE_UDP_443_OWNER={shell_quote(payload['fronting']['udp443Owner'])}",
+    f"TRACEGATE_TOUCH_UDP_443={shell_quote(str(payload['fronting']['touchUdp443']).lower())}",
+    f"TRACEGATE_MTPROTO_DOMAIN={shell_quote(payload['fronting']['mtprotoDomain'])}",
+    f"TRACEGATE_MTPROTO_PUBLIC_PORT={shell_quote(payload['fronting']['mtprotoPublicPort'])}",
+    f"TRACEGATE_MTPROTO_FRONTING_MODE={shell_quote(payload['fronting']['mtprotoFrontingMode'])}",
+]
+env_out.write_text("\n".join(env_lines) + "\n", encoding="utf-8")
+PY
+
+if [[ -f "${RUNTIME_STATE_ENV}" ]]; then
+  # Generated locally from runtime-contract.json; safe to source for the current process.
+  # shellcheck disable=SC1090
+  . "${RUNTIME_STATE_ENV}"
+fi
+
+if [[ "${TRACEGATE_OBFUSCATION_ENABLED,,}" != "true" ]]; then
+  echo "tracegate obfuscation disabled"
+  echo "action=${ACTION}"
+  echo "role=${ROLE}"
+  echo "runtime_profile=${TRACEGATE_RUNTIME_PROFILE}"
+  echo "backend=${TRACEGATE_OBFUSCATION_BACKEND}"
+  echo "runtime_state_json=${RUNTIME_STATE_JSON}"
+  exit 0
+fi
+
+case "${TRACEGATE_OBFUSCATION_BACKEND}" in
+  zapret2|zapret)
+    if [[ -x "${TRACEGATE_ZAPRET_RUNNER}" ]]; then
+      TRACEGATE_RUNTIME_STATE_JSON="${RUNTIME_STATE_JSON}" \
+      TRACEGATE_RUNTIME_STATE_ENV="${RUNTIME_STATE_ENV}" \
+      TRACEGATE_RUNTIME_CONTRACT="${TRACEGATE_RUNTIME_CONTRACT}" \
+      TRACEGATE_NETWORK_INTERFACE="${TRACEGATE_NETWORK_INTERFACE}" \
+      TRACEGATE_ZAPRET_PROFILE_FILE="${TRACEGATE_ZAPRET_PROFILE_FILE}" \
+      TRACEGATE_ZAPRET_INTERCONNECT_PROFILE_FILE="${TRACEGATE_ZAPRET_INTERCONNECT_PROFILE_FILE}" \
+      TRACEGATE_ZAPRET_MTPROTO_PROFILE_FILE="${TRACEGATE_ZAPRET_MTPROTO_PROFILE_FILE}" \
+      TRACEGATE_ZAPRET_POLICY_DIR="${TRACEGATE_ZAPRET_POLICY_DIR}" \
+      TRACEGATE_ZAPRET_STATE_DIR="${TRACEGATE_ZAPRET_STATE_DIR}" \
+      "${TRACEGATE_ZAPRET_RUNNER}" "${ACTION}" "${ROLE}"
+      exit 0
+    fi
+    echo "tracegate zapret2 runner not installed: ${TRACEGATE_ZAPRET_RUNNER}"
+    ;;
+  *)
+    echo "tracegate unknown obfuscation backend: ${TRACEGATE_OBFUSCATION_BACKEND}"
+    ;;
+esac
+
+echo "tracegate obfuscation wrapper wrote runtime state only"
+echo "action=${ACTION}"
+echo "role=${ROLE}"
+echo "runtime_profile=${TRACEGATE_RUNTIME_PROFILE}"
+echo "backend=${TRACEGATE_OBFUSCATION_BACKEND}"
+echo "materialized=${BUNDLE_MATERIALIZED_ROOT}"
+echo "overlays=${BUNDLE_PRIVATE_OVERLAY_ROOT}"
+echo "private_runtime=${TRACEGATE_PRIVATE_RUNTIME_DIR}"
+echo "runtime_contract=${TRACEGATE_RUNTIME_CONTRACT}"
+echo "runtime_state_json=${RUNTIME_STATE_JSON}"
+echo "zapret_profile=${TRACEGATE_ZAPRET_PROFILE_FILE}"
+echo "zapret_interconnect_profile=${TRACEGATE_ZAPRET_INTERCONNECT_PROFILE_FILE}"
+echo "zapret_mtproto_profile=${TRACEGATE_ZAPRET_MTPROTO_PROFILE_FILE}"

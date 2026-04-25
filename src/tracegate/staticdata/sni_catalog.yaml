@@ -1,0 +1,154 @@
+- id: 4
+  fqdn: a.wb.ru
+  enabled: true
+  is_test: false
+  note: работает на МТС.
+  providers:
+  - mts
+- id: 8
+  fqdn: alfabank.ru
+  enabled: true
+  is_test: false
+  note: работает на МТС, Мегафон, Т2, Yota.
+  providers:
+  - mts
+  - megafon
+  - t2
+  - yota
+- id: 25
+  fqdn: dzen.ru
+  enabled: true
+  is_test: false
+  note: работает на Мегафон, Т2.
+  providers:
+  - megafon
+  - t2
+- id: 32
+  fqdn: goya.rutube.ru
+  enabled: true
+  is_test: false
+  note: работает на МТС, Мегафон, Т2, Тмобайл, РТК.
+  providers:
+  - mts
+  - megafon
+  - t2
+  - tmobile
+  - rtk
+- id: 42
+  fqdn: login.vk.com
+  enabled: true
+  is_test: false
+  note: работает на МТС, Мегафон, Т2, Тмобайл, РТК.
+  providers:
+  - mts
+  - megafon
+  - t2
+  - tmobile
+  - rtk
+- id: 50
+  fqdn: ok.ru
+  enabled: true
+  is_test: false
+  note: работает на МТС, Мегафон.
+  providers:
+  - mts
+  - megafon
+- id: 57
+  fqdn: queuev4.vk.com
+  enabled: true
+  is_test: false
+  note: работает на МТС, Мегафон, Т2, Тмобайл, РТК, Yota.
+  providers:
+  - mts
+  - megafon
+  - t2
+  - tmobile
+  - rtk
+  - yota
+- id: 62
+  fqdn: sba.yandex.net
+  enabled: true
+  is_test: false
+  note: работает на МТС, Мегафон.
+  providers:
+  - mts
+  - megafon
+- id: 66
+  fqdn: speller.yandex.net
+  enabled: true
+  is_test: false
+  note: работает на МТС, Мегафон, Т2, Тмобайл, РТК, Yota.
+  providers:
+  - mts
+  - megafon
+  - t2
+  - tmobile
+  - rtk
+  - yota
+- id: 67
+  fqdn: splitter.wb.ru
+  enabled: true
+  is_test: false
+  note: работает на МТС, Мегафон, Т2, Тмобайл, РТК, Yota.
+  providers:
+  - mts
+  - megafon
+  - t2
+  - tmobile
+  - rtk
+  - yota
+- id: 69
+  fqdn: st.ozone.ru
+  enabled: true
+  is_test: false
+  note: работает на МТС, Мегафон, Т2, Тмобайл, РТК, Yota.
+  providers:
+  - mts
+  - megafon
+  - t2
+  - tmobile
+  - rtk
+  - yota
+- id: 86
+  fqdn: vk.com
+  enabled: true
+  is_test: false
+  note: работает на МТС, Мегафон, Т2, Тмобайл, РТК.
+  providers:
+  - mts
+  - megafon
+  - t2
+  - tmobile
+  - rtk
+- id: 92
+  fqdn: www.kinopoisk.ru
+  enabled: true
+  is_test: false
+  note: работает на МТС, Мегафон, Т2, Тмобайл, РТК, Yota.
+  providers:
+  - mts
+  - megafon
+  - t2
+  - tmobile
+  - rtk
+  - yota
+- id: 97
+  fqdn: www.wildberries.ru
+  enabled: true
+  is_test: false
+  note: работает на МТС, Мегафон, Т2, Тмобайл, РТК.
+  providers:
+  - mts
+  - megafon
+  - t2
+  - tmobile
+  - rtk
+- id: 100
+  fqdn: yandex.ru
+  enabled: true
+  is_test: false
+  note: работает на МТС, Мегафон, Т2.
+  providers:
+  - mts
+  - megafon
+  - t2

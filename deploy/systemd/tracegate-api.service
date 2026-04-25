@@ -1,0 +1,26 @@
+[Unit]
+Description=Tracegate API
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=tracegate
+Group=tracegate
+WorkingDirectory=/opt/tracegate
+EnvironmentFile=/etc/tracegate/tracegate.env
+ExecStart=/opt/tracegate/.venv/bin/tracegate-api
+Restart=on-failure
+RestartSec=3
+UMask=0077
+StateDirectory=tracegate
+ConfigurationDirectory=tracegate
+RuntimeDirectory=tracegate
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=full
+LimitNOFILE=65535
+
+[Install]
+WantedBy=multi-user.target

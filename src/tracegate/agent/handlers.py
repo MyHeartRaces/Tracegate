@@ -1,0 +1,431 @@
+from __future__ import annotations
+
+import json
+import shlex
+import shutil
+import threading
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+
+from tracegate.enums import OutboxEventType
+from tracegate.services.bundle_files import BundleFilePayload
+from tracegate.services.runtime_contract import resolve_runtime_contract
+from tracegate.settings import Settings
+
+from .system import apply_files, run_command
+from .transit_assignment import assign_sticky_transit_if_needed
+from .reconcile import (
+    _reconcile_all_result,
+    reconcile_all,
+    remove_connection_artifact_index,
+    remove_user_artifact_index,
+    upsert_user_artifact_index,
+)
+
+
+class HandlerError(RuntimeError):
+    pass
+
+
+_RELOAD_LOCK = threading.Lock()
+_FIREWALL_LOCK = threading.Lock()
+
+
+def _parse_ts(value: Any) -> datetime | None:
+    """
+    Parse an ISO8601 timestamp (best-effort).
+
+    Used to make state application robust against out-of-order delivery.
+    """
+    if value is None:
+        return None
+    raw = str(value).strip()
+    if not raw:
+        return None
+    try:
+        dt = datetime.fromisoformat(raw)
+    except Exception:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt
+
+
+def _payload_ts(payload: dict[str, Any]) -> datetime | None:
+    # Prefer explicit op_ts, fall back to older field names for compatibility.
+    return _parse_ts(payload.get("op_ts") or payload.get("revision_created_at") or payload.get("revoked_at"))
+
+
+def _tombstones_dir(settings: Settings) -> Path:
+    root = Path(settings.agent_data_root)
+    return root / "runtime" / "tombstones"
+
+
+def _tombstone_path(settings: Settings, *, kind: str, key: str) -> Path:
+    safe_kind = str(kind).strip() or "unknown"
+    safe_key = str(key).strip() or "missing"
+    return _tombstones_dir(settings) / f"{safe_kind}-{safe_key}.json"
+
+
+def _read_tombstone_ts(path: Path) -> datetime | None:
+    if not path.exists():
+        return None
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+    if not isinstance(data, dict):
+        return None
+    return _parse_ts(data.get("op_ts") or data.get("revoked_at") or data.get("created_at"))
+
+
+def _write_tombstone(path: Path, *, ts: datetime, extra: dict[str, Any] | None = None) -> None:
+    payload: dict[str, Any] = {"op_ts": ts.isoformat()}
+    if extra:
+        payload.update({k: v for (k, v) in extra.items() if v is not None})
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(json.dumps(payload, ensure_ascii=True, indent=2) + "\n", encoding="utf-8")
+    tmp.replace(path)
+
+
+def _user_dir(root: Path, user_id: str) -> Path:
+    return root / "users" / user_id
+
+
+def _run_reload_commands(settings: Settings, commands: list[str]) -> None:
+    failures: list[str] = []
+    # Serialize reload hooks so concurrent event handlers never drop a pending Xray apply.
+    with _RELOAD_LOCK:
+        for cmd in commands:
+            if not cmd:
+                continue
+            ok, out = run_command(cmd, settings.agent_dry_run)
+            if ok:
+                continue
+            details = (out or "").strip() or "no output"
+            if len(details) > 400:
+                details = details[:400].rstrip() + "..."
+            failures.append(f"{cmd}: {details}")
+    if failures:
+        raise HandlerError("reload command failed: " + " | ".join(failures))
+
+
+def _proxy_reload_commands(settings: Settings) -> list[str]:
+    contract = resolve_runtime_contract(settings.agent_runtime_profile)
+    commands: list[str] = []
+    if contract.manages_component("xray"):
+        commands.append(settings.agent_reload_xray_cmd)
+    if contract.manages_component("haproxy"):
+        commands.append(settings.agent_reload_haproxy_cmd)
+    if contract.manages_component("nginx"):
+        commands.append(settings.agent_reload_nginx_cmd)
+    commands.append(settings.agent_reload_obfuscation_cmd)
+    commands.append(settings.agent_reload_mtproto_cmd)
+    commands.append(settings.agent_reload_fronting_cmd)
+    commands.append(settings.agent_reload_profiles_cmd)
+    commands.append(settings.agent_reload_link_crypto_cmd)
+    return commands
+
+
+def _reload_commands_for_changed(
+    settings: Settings,
+    changed: set[str],
+    *,
+    force_xray_reload: bool = False,
+) -> list[str]:
+    contract = resolve_runtime_contract(settings.agent_runtime_profile)
+    cmds: list[str] = []
+    if contract.manages_component("xray") and "xray" in changed and (force_xray_reload or not settings.agent_xray_api_enabled):
+        cmds.append(settings.agent_reload_xray_cmd)
+    if contract.manages_component("haproxy") and "haproxy" in changed:
+        cmds.append(settings.agent_reload_haproxy_cmd)
+    if contract.manages_component("nginx") and "nginx" in changed:
+        cmds.append(settings.agent_reload_nginx_cmd)
+    if "obfuscation" in changed:
+        cmds.append(settings.agent_reload_obfuscation_cmd)
+    if "mtproto" in changed:
+        cmds.append(settings.agent_reload_mtproto_cmd)
+    if "fronting" in changed:
+        cmds.append(settings.agent_reload_fronting_cmd)
+    if "profiles" in changed:
+        cmds.append(settings.agent_reload_profiles_cmd)
+    if "link-crypto" in changed:
+        cmds.append(settings.agent_reload_link_crypto_cmd)
+    return cmds
+
+
+def _apply_firewall_bundle(settings: Settings, *, bundle_root: Path) -> bool:
+    """
+    Apply bundle firewall rules in an idempotent way.
+
+    The same nftables config can be replayed safely to converge host firewall state.
+    """
+    nft_conf = bundle_root / "nftables.conf"
+    if not nft_conf.exists():
+        return False
+
+    conf_arg = shlex.quote(str(nft_conf))
+    with _FIREWALL_LOCK:
+        ok, out = run_command(f"nft -c -f {conf_arg}", settings.agent_dry_run)
+        if not ok:
+            raise HandlerError(f"firewall validation failed: {out}")
+
+        ok, out = run_command(f"nft -f {conf_arg}", settings.agent_dry_run)
+        if not ok:
+            raise HandlerError(f"firewall apply failed: {out}")
+    return True
+
+
+def _sync_base_configs_from_bundle(
+    settings: Settings,
+    *,
+    bundle_name: str,
+    files: dict[str, BundleFilePayload],
+) -> set[str]:
+    """
+    Mirror known base configs/assets into agent `base/*` and return affected components.
+
+    This makes `/dispatch/reapply-base` converge not only the host firewall, but also
+    reconciled runtime configs (xray/haproxy/nginx) and decoy assets on managed nodes.
+    """
+    if not str(bundle_name).startswith("base-"):
+        return set()
+
+    contract = resolve_runtime_contract(settings.agent_runtime_profile)
+    mapping = {
+        "xray.json": ("base/xray/config.json", "xray"),
+        "haproxy.cfg": ("base/haproxy/haproxy.cfg", "haproxy"),
+        "nginx.conf": ("base/nginx/nginx.conf", "nginx"),
+    }
+    placeholder_markers = (
+        "REPLACE_",
+        "CHANGE_ME_",
+        "example.com",
+        "transit.example.com",
+        "entry.example.com",
+        "bootstrap-password",
+    )
+    to_write: dict[str, BundleFilePayload] = {}
+    changed_components: set[str] = set()
+    for source_name, (dest_rel, component) in mapping.items():
+        if not contract.manages_component(component):
+            continue
+        raw = files.get(source_name)
+        if not isinstance(raw, str):
+            continue
+        if any(marker in raw for marker in placeholder_markers):
+            continue
+        to_write[dest_rel] = raw
+        changed_components.add(component)
+
+    for source_name, raw in files.items():
+        if not isinstance(source_name, str):
+            continue
+        if not source_name.startswith("decoy/"):
+            continue
+        relative_name = source_name[len("decoy/") :].strip("/")
+        if not relative_name:
+            continue
+        to_write[f"base/decoy/{relative_name}"] = raw
+        changed_components.add("decoy")
+
+    if to_write:
+        apply_files(Path(settings.agent_data_root), to_write)
+    return changed_components
+
+
+def _reconcile_after_bundle_sync(settings: Settings) -> set[str]:
+    # Bundle apply updates base topology/runtime templates. We don't need (and don't want)
+    # best-effort live gRPC user sync here, because xray may still be starting up.
+    orig_xray_api_enabled = bool(settings.agent_xray_api_enabled)
+    if orig_xray_api_enabled:
+        settings.agent_xray_api_enabled = False
+    try:
+        return set(reconcile_all(settings))
+    finally:
+        if orig_xray_api_enabled:
+            settings.agent_xray_api_enabled = True
+
+
+def handle_apply_bundle(settings: Settings, payload: dict[str, Any]) -> str:
+    bundle_name = payload.get("bundle_name")
+    if not bundle_name:
+        raise HandlerError("bundle_name is required")
+
+    files = payload.get("files") or {}
+    if not isinstance(files, dict):
+        raise HandlerError("files must be a dictionary")
+
+    root = Path(settings.agent_data_root) / "bundles" / bundle_name
+    root.mkdir(parents=True, exist_ok=True)
+    try:
+        apply_files(root, files)
+    except ValueError as exc:
+        raise HandlerError(f"invalid bundle files payload: {exc}") from exc
+    firewall_applied = _apply_firewall_bundle(settings, bundle_root=root)
+    if firewall_applied:
+        # Applying bundle firewall rules flushes the active ruleset, so private
+        # helpers that own their own nftables tables must be restored right away.
+        _run_reload_commands(settings, _reload_commands_for_changed(settings, {"obfuscation"}))
+    try:
+        synced_components = _sync_base_configs_from_bundle(settings, bundle_name=str(bundle_name), files=files)
+    except ValueError as exc:
+        raise HandlerError(f"invalid bundle files payload: {exc}") from exc
+
+    command_results: list[str] = []
+    for cmd in payload.get("commands", []):
+        ok, out = run_command(cmd, settings.agent_dry_run)
+        command_results.append(f"{cmd}: {'ok' if ok else 'failed'}: {out}")
+
+    reconciled = _reconcile_after_bundle_sync(settings) if synced_components else set()
+    if reconciled:
+        # Bundle apply changes the base topology/config, so xray must reload even in API mode.
+        _run_reload_commands(settings, _reload_commands_for_changed(settings, reconciled, force_xray_reload=True))
+
+    extras: list[str] = []
+    if synced_components:
+        extras.append("base_sync=" + ",".join(sorted(synced_components)))
+    if reconciled:
+        extras.append("reconciled=" + ",".join(sorted(reconciled)))
+    extra_suffix = ("; " + "; ".join(extras)) if extras else ""
+    return f"bundle applied: {bundle_name}; files={len(files)}; commands={len(command_results)}{extra_suffix}"
+
+
+def handle_upsert_user(settings: Settings, payload: dict[str, Any]) -> str:
+    required = ["user_id", "connection_id", "revision_id", "config"]
+    missing = [key for key in required if key not in payload]
+    if missing:
+        raise HandlerError(f"missing fields: {', '.join(missing)}")
+
+    user_id = str(payload["user_id"]).strip()
+    connection_id = str(payload["connection_id"]).strip()
+    incoming_ts = _payload_ts(payload)
+
+    tombstone = _tombstone_path(settings, kind="connection", key=connection_id)
+    tomb_ts = _read_tombstone_ts(tombstone)
+    if tomb_ts is not None:
+        # If we cannot compare timestamps, keep the connection revoked.
+        if incoming_ts is None or incoming_ts <= tomb_ts:
+            return f"ignored upsert for revoked connection={connection_id}"
+        # Reactivation: newer upsert overrides revoke tombstone.
+        try:
+            tombstone.unlink()
+        except OSError:
+            pass
+
+    user_root = _user_dir(Path(settings.agent_data_root), user_id)
+    user_root.mkdir(parents=True, exist_ok=True)
+
+    target = user_root / f"connection-{connection_id}.json"
+    existing_payload: dict[str, Any] | None = None
+    if target.exists():
+        try:
+            existing_payload = json.loads(target.read_text(encoding="utf-8"))
+        except Exception:
+            existing_payload = None
+        if incoming_ts is not None and isinstance(existing_payload, dict):
+            existing_ts = _payload_ts(existing_payload)
+            if existing_ts is not None and incoming_ts < existing_ts:
+                return f"ignored older upsert for connection={connection_id}"
+
+    payload = assign_sticky_transit_if_needed(settings, payload, existing_payload=existing_payload)
+    target.write_text(json.dumps(payload, ensure_ascii=True, indent=2), encoding="utf-8")
+    upsert_user_artifact_index(settings, payload)
+
+    reconcile_result = _reconcile_all_result(settings)
+    changed = set(reconcile_result.changed)
+    if changed:
+        _run_reload_commands(
+            settings,
+            _reload_commands_for_changed(settings, changed, force_xray_reload=reconcile_result.force_xray_reload),
+        )
+
+    return f"upserted user payload for user={user_id} connection={connection_id}"
+
+
+def handle_revoke_user(settings: Settings, payload: dict[str, Any]) -> str:
+    user_id = payload.get("user_id")
+    if not user_id:
+        raise HandlerError("missing user_id")
+
+    path = _user_dir(Path(settings.agent_data_root), user_id)
+    if path.exists():
+        shutil.rmtree(path)
+    remove_user_artifact_index(settings, user_id)
+
+    reconcile_result = _reconcile_all_result(settings)
+    changed = set(reconcile_result.changed)
+    if changed:
+        _run_reload_commands(
+            settings,
+            _reload_commands_for_changed(settings, changed, force_xray_reload=reconcile_result.force_xray_reload),
+        )
+
+    return f"revoked user artifacts for {user_id}"
+
+
+def handle_revoke_connection(settings: Settings, payload: dict[str, Any]) -> str:
+    user_id = payload.get("user_id")
+    connection_id = payload.get("connection_id")
+    if not user_id or not connection_id:
+        raise HandlerError("missing user_id/connection_id")
+
+    user_id_s = str(user_id).strip()
+    connection_id_s = str(connection_id).strip()
+    incoming_ts = _payload_ts(payload) or datetime.now(timezone.utc)
+
+    tombstone = _tombstone_path(settings, kind="connection", key=connection_id_s)
+    tomb_ts = _read_tombstone_ts(tombstone)
+    if tomb_ts is not None and tomb_ts >= incoming_ts:
+        return f"ignored stale revoke for connection={connection_id_s}"
+
+    user_root = _user_dir(Path(settings.agent_data_root), user_id_s)
+    target = user_root / f"connection-{connection_id_s}.json"
+    if target.exists():
+        try:
+            existing = json.loads(target.read_text(encoding="utf-8"))
+        except Exception:
+            existing = None
+        if isinstance(existing, dict):
+            existing_ts = _payload_ts(existing)
+            if existing_ts is not None and existing_ts > incoming_ts:
+                return f"ignored stale revoke for connection={connection_id_s}"
+        target.unlink()
+    remove_connection_artifact_index(settings, connection_id_s)
+    # Remove empty user dir to keep filesystem tidy.
+    try:
+        if user_root.exists() and not any(user_root.iterdir()):
+            user_root.rmdir()
+    except OSError:
+        pass
+
+    _write_tombstone(
+        tombstone,
+        ts=incoming_ts,
+        extra={"user_id": user_id_s, "connection_id": connection_id_s},
+    )
+
+    reconcile_result = _reconcile_all_result(settings)
+    changed = set(reconcile_result.changed)
+    if changed:
+        _run_reload_commands(
+            settings,
+            _reload_commands_for_changed(settings, changed, force_xray_reload=reconcile_result.force_xray_reload),
+        )
+
+    return f"revoked connection artifacts for user={user_id_s} connection={connection_id_s}"
+
+
+def dispatch_event(settings: Settings, event_type: OutboxEventType, payload: dict[str, Any]) -> str:
+    if event_type == OutboxEventType.APPLY_BUNDLE:
+        return handle_apply_bundle(settings, payload)
+    if event_type == OutboxEventType.UPSERT_USER:
+        return handle_upsert_user(settings, payload)
+    if event_type == OutboxEventType.REVOKE_USER:
+        return handle_revoke_user(settings, payload)
+    if event_type == OutboxEventType.REVOKE_CONNECTION:
+        return handle_revoke_connection(settings, payload)
+
+    raise HandlerError(f"Unsupported event type: {event_type}")

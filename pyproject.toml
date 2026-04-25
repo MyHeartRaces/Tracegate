@@ -1,0 +1,71 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tracegate"
+version = "2.1.0"
+description = "Tracegate 2 control-plane, node-agent and Telegram bot"
+requires-python = ">=3.11"
+authors = [{name = "Tracegate"}]
+license = {file = "LICENSE"}
+classifiers = [
+  "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
+]
+dependencies = [
+  "fastapi>=0.115.0",
+  "uvicorn[standard]>=0.34.0",
+  "sqlalchemy>=2.0.36",
+  "alembic>=1.14.0",
+  "asyncpg>=0.30.0",
+  "psycopg[binary]>=3.2.0",
+  "pydantic>=2.10.0",
+  "pydantic-settings>=2.6.0",
+  "pyyaml>=6.0.0",
+  "httpx>=0.28.0",
+  "prometheus-client>=0.20.0",
+  "aiogram>=3.15.0",
+  "python-dateutil>=2.9.0",
+  "qrcode[pil]>=7.4.2",
+  "grpcio>=1.70.0",
+  "protobuf>=5.29.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.3.0",
+  "pytest-asyncio>=0.25.0",
+  "ruff>=0.8.0",
+  "grpcio-tools>=1.70.0",
+]
+
+[project.scripts]
+tracegate-api = "tracegate.api.main:run"
+tracegate-dispatcher = "tracegate.dispatcher.main:run"
+tracegate-agent = "tracegate.agent.main:run"
+tracegate-bot = "tracegate.bot.main:run"
+tracegate-init-db = "tracegate.cli.init_db:main"
+tracegate-migrate-db = "tracegate.cli.migrate_db:main"
+tracegate-grafana-bootstrap = "tracegate.cli.grafana_bootstrap:main"
+tracegate-render-materialized-bundles = "tracegate.cli.render_materialized_bundles:main"
+tracegate-render-xray-centric-overlays = "tracegate.cli.render_xray_centric_overlays:main"
+tracegate-validate-runtime-contracts = "tracegate.cli.validate_runtime_contracts:main"
+tracegate-k3s-private-preflight = "tracegate.cli.k3s_private_preflight:main"
+tracegate-k3s-private-reload = "tracegate.cli.k3s_private_reload:main"
+tracegate-udp-tcp-tunnel = "tracegate.cli.udp_tcp_tunnel:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+"tracegate.staticdata" = ["*.yaml"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+asyncio_mode = "auto"
+
+[tool.ruff]
+extend-exclude = ["src/xray"]

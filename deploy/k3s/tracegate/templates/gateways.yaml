@@ -1,0 +1,938 @@
+{{- range $roleName, $role := .Values.gateway.roles }}
+{{- if and $.Values.gateway.enabled $role.enabled }}
+{{- $roleRealityKey := ternary $.Values.privateProfiles.keys.realityPrivateKeyEntry $.Values.privateProfiles.keys.realityPrivateKeyTransit (eq $roleName "entry") }}
+{{- $roleRealitySecretKey := ternary $.Values.privateProfiles.secretKeys.realityPrivateKeyEntry $.Values.privateProfiles.secretKeys.realityPrivateKeyTransit (eq $roleName "entry") }}
+{{- $roleHysteriaKey := ternary $.Values.privateProfiles.keys.hysteriaAuthEntry $.Values.privateProfiles.keys.hysteriaAuthTransit (eq $roleName "entry") }}
+{{- $roleHysteriaSecretKey := ternary $.Values.privateProfiles.secretKeys.hysteriaAuthEntry $.Values.privateProfiles.secretKeys.hysteriaAuthTransit (eq $roleName "entry") }}
+{{- $roleZapretKey := ternary $.Values.privateProfiles.keys.zapretEntry $.Values.privateProfiles.keys.zapretTransit (eq $roleName "entry") }}
+{{- $roleZapretSecretKey := ternary $.Values.privateProfiles.secretKeys.zapretEntry $.Values.privateProfiles.secretKeys.zapretTransit (eq $roleName "entry") }}
+{{- $roleShadowsocks2022Key := ternary $.Values.privateProfiles.keys.shadowsocks2022Entry $.Values.privateProfiles.keys.shadowsocks2022Transit (eq $roleName "entry") }}
+{{- $roleShadowsocks2022SecretKey := ternary $.Values.privateProfiles.secretKeys.shadowsocks2022Entry $.Values.privateProfiles.secretKeys.shadowsocks2022Transit (eq $roleName "entry") }}
+{{- $roleShadowtlsKey := ternary $.Values.privateProfiles.keys.shadowtlsEntry $.Values.privateProfiles.keys.shadowtlsTransit (eq $roleName "entry") }}
+{{- $roleShadowtlsSecretKey := ternary $.Values.privateProfiles.secretKeys.shadowtlsEntry $.Values.privateProfiles.secretKeys.shadowtlsTransit (eq $roleName "entry") }}
+{{- $roleLabTuicKey := ternary $.Values.privateProfiles.keys.labTuicEntry $.Values.privateProfiles.keys.labTuicTransit (eq $roleName "entry") }}
+{{- $roleLabTuicSecretKey := ternary $.Values.privateProfiles.secretKeys.labTuicEntry $.Values.privateProfiles.secretKeys.labTuicTransit (eq $roleName "entry") }}
+{{- $roleProfileState := printf "/var/lib/tracegate/private/profiles/%s/desired-state.json" $roleName }}
+{{- $roleProfileEnv := printf "/var/lib/tracegate/private/profiles/%s/desired-state.env" $roleName }}
+{{- $roleLinkCryptoState := printf "/var/lib/tracegate/private/link-crypto/%s/desired-state.json" $roleName }}
+{{- $roleLinkCryptoEnv := printf "/var/lib/tracegate/private/link-crypto/%s/desired-state.env" $roleName }}
+{{- $roleProfileReloadMarker := printf "/var/lib/tracegate/private/runtime/profiles-%s-last-reload.json" $roleName }}
+{{- $roleLinkCryptoReloadMarker := printf "/var/lib/tracegate/private/runtime/link-crypto-%s-last-reload.json" $roleName }}
+{{- $roleProfileMarkerTest := printf "grep -q '\\\"schema\\\": \\\"tracegate.k3s-private-reload.v1\\\"' %s && grep -q '\\\"summarySchema\\\": \\\"tracegate.k3s-private-reload-summary.v1\\\"' %s && grep -q '\\\"component\\\": \\\"profiles\\\"' %s && grep -q '\\\"role\\\": \\\"%s\\\"' %s && grep -q '\\\"auth\\\": \\\"required\\\"' %s && grep -q '\\\"allowAnonymousLocalhost\\\": false' %s" $roleProfileReloadMarker $roleProfileReloadMarker $roleProfileReloadMarker $role.role $roleProfileReloadMarker $roleProfileReloadMarker $roleProfileReloadMarker }}
+{{- $roleLinkCryptoMarkerTest := printf "grep -q '\\\"schema\\\": \\\"tracegate.k3s-private-reload.v1\\\"' %s && grep -q '\\\"summarySchema\\\": \\\"tracegate.k3s-private-reload-summary.v1\\\"' %s && grep -q '\\\"component\\\": \\\"link-crypto\\\"' %s && grep -q '\\\"role\\\": \\\"%s\\\"' %s && grep -q '\\\"private-profile\\\"' %s" $roleLinkCryptoReloadMarker $roleLinkCryptoReloadMarker $roleLinkCryptoReloadMarker $role.role $roleLinkCryptoReloadMarker $roleLinkCryptoReloadMarker }}
+{{- $roleProfileReadyTest := printf "[ -s %s ] && [ -s %s ] && [ -s %s ] && [ ! %s -nt %s ] && [ ! %s -nt %s ] && %s" $roleProfileState $roleProfileEnv $roleProfileReloadMarker $roleProfileState $roleProfileReloadMarker $roleProfileEnv $roleProfileReloadMarker $roleProfileMarkerTest }}
+{{- $roleLinkCryptoReadyTest := printf "[ -s %s ] && [ -s %s ] && [ -s %s ] && [ ! %s -nt %s ] && [ ! %s -nt %s ] && %s" $roleLinkCryptoState $roleLinkCryptoEnv $roleLinkCryptoReloadMarker $roleLinkCryptoState $roleLinkCryptoReloadMarker $roleLinkCryptoEnv $roleLinkCryptoReloadMarker $roleLinkCryptoMarkerTest }}
+{{- $labDirectMieruEnabled := and (eq $roleName "transit") $.Values.experimentalProfiles.enabled $.Values.experimentalProfiles.directTransitObfuscation.enabled $.Values.experimentalProfiles.directTransitObfuscation.mieru.enabled }}
+{{- $labDirectRestlsEnabled := and (eq $roleName "transit") $.Values.experimentalProfiles.enabled $.Values.experimentalProfiles.directTransitObfuscation.enabled $.Values.experimentalProfiles.directTransitObfuscation.restls.enabled }}
+{{- $labTuicRoleEnabled := and $.Values.experimentalProfiles.enabled $.Values.experimentalProfiles.tuicV5.enabled (or (and (eq $roleName "transit") $.Values.experimentalProfiles.tuicV5.directEnabled) $.Values.experimentalProfiles.tuicV5.chainEnabled) }}
+{{- $roleLinkCryptoClientEnabled := and $.Values.interconnect.mieru.enabled $.Values.interconnect.entryTransit.enabled (eq $roleName "entry") }}
+{{- $roleLinkCryptoServerEnabled := and $.Values.interconnect.mieru.enabled (or (and (eq $roleName "transit") $.Values.interconnect.entryTransit.enabled) (and (eq $roleName "entry") $.Values.interconnect.entryTransit.routerEntry.enabled) (and (eq $roleName "transit") $.Values.interconnect.entryTransit.routerTransit.enabled)) }}
+{{- $roleLinkCryptoEnabled := or $roleLinkCryptoClientEnabled $roleLinkCryptoServerEnabled }}
+{{- $linkZapretProfileEnabled := and $.Values.interconnect.zapret2.enabled $roleLinkCryptoEnabled }}
+{{- if $.Values.gateway.pdb.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "tracegate.roleName" (dict "root" $ "role" $roleName) }}
+  namespace: {{ include "tracegate.namespace" $ }}
+  labels:
+    {{- include "tracegate.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: gateway-{{ $roleName }}
+spec:
+  minAvailable: {{ $.Values.gateway.pdb.minAvailable }}
+  selector:
+    matchLabels:
+      {{- include "tracegate.selectorLabels" $ | nindent 6 }}
+      app.kubernetes.io/component: gateway-{{ $roleName }}
+---
+{{- end }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "tracegate.roleName" (dict "root" $ "role" $roleName) }}
+  namespace: {{ include "tracegate.namespace" $ }}
+  labels:
+    {{- include "tracegate.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: gateway-{{ $roleName }}
+spec:
+  strategy:
+    type: {{ $.Values.gateway.strategy }}
+{{- if eq $.Values.gateway.strategy "RollingUpdate" }}
+    rollingUpdate:
+      maxUnavailable: {{ $.Values.gateway.rollingUpdate.maxUnavailable | quote }}
+      maxSurge: {{ $.Values.gateway.rollingUpdate.maxSurge | quote }}
+{{- end }}
+  progressDeadlineSeconds: {{ int $.Values.gateway.progressDeadlineSeconds }}
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "tracegate.selectorLabels" $ | nindent 6 }}
+      app.kubernetes.io/component: gateway-{{ $roleName }}
+  template:
+    metadata:
+      labels:
+        {{- include "tracegate.selectorLabels" $ | nindent 8 }}
+        app.kubernetes.io/component: gateway-{{ $roleName }}
+      annotations:
+        tracegate.io/restart-boundary: static-topology-only
+        tracegate.io/private-profiles: external-secret
+        tracegate.io/no-host-wide-nfqueue: {{ not $.Values.interconnect.zapret2.hostWideInterception | quote }}
+    spec:
+      hostNetwork: {{ $.Values.gateway.hostNetwork }}
+      dnsPolicy: {{ $.Values.gateway.dnsPolicy }}
+      shareProcessNamespace: {{ $.Values.gateway.shareProcessNamespace }}
+      terminationGracePeriodSeconds: {{ int $.Values.gateway.terminationGracePeriodSeconds }}
+      {{- if $.Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml $.Values.global.imagePullSecrets | nindent 8 }}
+      {{- end }}
+      nodeSelector:
+        {{- toYaml $role.nodeSelector | nindent 8 }}
+      tolerations:
+        {{- toYaml $role.tolerations | nindent 8 }}
+      affinity:
+        {{- toYaml $role.affinity | nindent 8 }}
+      volumes:
+        - name: runtime-contract
+          configMap:
+            name: {{ include "tracegate.fullname" $ }}-runtime-contract
+        - name: haproxy-config
+          configMap:
+            name: {{ include "tracegate.roleName" (dict "root" $ "role" $roleName) }}-haproxy
+        - name: nginx-config
+          configMap:
+            name: {{ include "tracegate.roleName" (dict "root" $ "role" $roleName) }}-nginx
+        - name: xray-config
+          configMap:
+            name: {{ include "tracegate.roleName" (dict "root" $ "role" $roleName) }}-xray
+        - name: decoy
+{{- if $.Values.decoy.hostPath }}
+          hostPath:
+            path: {{ $.Values.decoy.hostPath | quote }}
+            type: {{ $.Values.decoy.hostPathType | default "Directory" | quote }}
+{{- else if $.Values.decoy.existingClaim }}
+          persistentVolumeClaim:
+            claimName: {{ $.Values.decoy.existingClaim | quote }}
+{{- else if $.Values.decoy.existingConfigMap }}
+          configMap:
+            name: {{ $.Values.decoy.existingConfigMap | quote }}
+{{- else }}
+          emptyDir: {}
+{{- end }}
+        - name: gateway-state
+          hostPath:
+            path: {{ printf "%s/%s" $.Values.gateway.agent.dataHostPathPrefix $roleName | quote }}
+            type: DirectoryOrCreate
+        - name: private-profiles
+          secret:
+            secretName: {{ include "tracegate.privateProfilesSecretName" $ }}
+            optional: {{ not $.Values.privateProfiles.required }}
+            defaultMode: {{ int $.Values.privateProfiles.defaultMode }}
+            items:
+              - key: {{ $roleRealitySecretKey }}
+                path: {{ $roleRealityKey }}
+              - key: {{ $roleHysteriaSecretKey }}
+                path: {{ $roleHysteriaKey }}
+{{- if $roleLinkCryptoClientEnabled }}
+              - key: {{ $.Values.privateProfiles.secretKeys.mieruClient }}
+                path: {{ $.Values.privateProfiles.keys.mieruClient }}
+{{- end }}
+{{- if $roleLinkCryptoServerEnabled }}
+              - key: {{ $.Values.privateProfiles.secretKeys.mieruServer }}
+                path: {{ $.Values.privateProfiles.keys.mieruServer }}
+{{- end }}
+{{- if $.Values.interconnect.zapret2.enabled }}
+              - key: {{ $roleZapretSecretKey }}
+                path: {{ $roleZapretKey }}
+{{- if $linkZapretProfileEnabled }}
+              - key: {{ $.Values.privateProfiles.secretKeys.zapretInterconnect }}
+                path: {{ $.Values.privateProfiles.keys.zapretInterconnect }}
+{{- end }}
+{{- if and (eq $roleName "transit") $.Values.mtproto.enabled }}
+              - key: {{ $.Values.privateProfiles.secretKeys.zapretMtproto }}
+                path: {{ $.Values.privateProfiles.keys.zapretMtproto }}
+{{- end }}
+{{- end }}
+{{- if $.Values.shadowsocks2022.enabled }}
+              - key: {{ $roleShadowsocks2022SecretKey }}
+                path: {{ $roleShadowsocks2022Key }}
+              - key: {{ $roleShadowtlsSecretKey }}
+                path: {{ $roleShadowtlsKey }}
+{{- end }}
+{{- if and (eq $roleName "transit") $.Values.wireguard.enabled }}
+              - key: {{ $.Values.privateProfiles.secretKeys.wireguard }}
+                path: {{ $.Values.privateProfiles.keys.wireguard }}
+{{- end }}
+{{- if and (eq $roleName "transit") $.Values.mtproto.enabled }}
+              - key: {{ $.Values.privateProfiles.secretKeys.mtproto }}
+                path: {{ $.Values.privateProfiles.keys.mtproto }}
+{{- end }}
+{{- if $labDirectMieruEnabled }}
+              - key: {{ $.Values.privateProfiles.secretKeys.labMieruDirect }}
+                path: {{ $.Values.privateProfiles.keys.labMieruDirect }}
+{{- end }}
+{{- if $labDirectRestlsEnabled }}
+              - key: {{ $.Values.privateProfiles.secretKeys.labRestlsDirect }}
+                path: {{ $.Values.privateProfiles.keys.labRestlsDirect }}
+{{- end }}
+{{- if $labTuicRoleEnabled }}
+              - key: {{ $roleLabTuicSecretKey }}
+                path: {{ $roleLabTuicKey }}
+{{- end }}
+        - name: tls
+          secret:
+            secretName: {{ $role.tls.existingSecretName | default (printf "%s-tls" (include "tracegate.roleName" (dict "root" $ "role" $roleName))) }}
+            optional: {{ not $role.tls.existingSecretName }}
+      initContainers:
+{{- if and $.Values.gateway.privatePreflight.enabled $.Values.privateProfiles.required }}
+        - name: validate-private-profiles
+          image: {{ include "tracegate.image" $.Values.global.image | quote }}
+          imagePullPolicy: {{ $.Values.global.image.pullPolicy }}
+          command: ["tracegate-k3s-private-preflight"]
+          args:
+            - --role
+            - {{ $role.role | quote }}
+            - --root
+            - {{ $.Values.privateProfiles.mountPath | quote }}
+            - --required-file
+            - {{ $roleRealityKey | quote }}
+            - --required-file
+            - {{ $roleHysteriaKey | quote }}
+{{- if $roleLinkCryptoClientEnabled }}
+            - --required-file
+            - {{ $.Values.privateProfiles.keys.mieruClient | quote }}
+{{- end }}
+{{- if $roleLinkCryptoServerEnabled }}
+            - --required-file
+            - {{ $.Values.privateProfiles.keys.mieruServer | quote }}
+{{- end }}
+{{- if $.Values.shadowsocks2022.enabled }}
+            - --required-file
+            - {{ $roleShadowsocks2022Key | quote }}
+            - --required-file
+            - {{ $roleShadowtlsKey | quote }}
+{{- end }}
+{{- if and (eq $roleName "transit") $.Values.wireguard.enabled }}
+            - --required-file
+            - {{ $.Values.privateProfiles.keys.wireguard | quote }}
+{{- end }}
+{{- if and (eq $roleName "transit") $.Values.mtproto.enabled }}
+            - --required-file
+            - {{ $.Values.privateProfiles.keys.mtproto | quote }}
+{{- end }}
+{{- if $labDirectMieruEnabled }}
+            - --required-file
+            - {{ $.Values.privateProfiles.keys.labMieruDirect | quote }}
+{{- end }}
+{{- if $labDirectRestlsEnabled }}
+            - --required-file
+            - {{ $.Values.privateProfiles.keys.labRestlsDirect | quote }}
+{{- end }}
+{{- if $labTuicRoleEnabled }}
+            - --required-file
+            - {{ $roleLabTuicKey | quote }}
+{{- end }}
+{{- if $.Values.interconnect.zapret2.enabled }}
+            - --zapret-file
+            - {{ $roleZapretKey | quote }}
+{{- if $linkZapretProfileEnabled }}
+            - --zapret-file
+            - {{ $.Values.privateProfiles.keys.zapretInterconnect | quote }}
+{{- end }}
+{{- if and (eq $roleName "transit") $.Values.mtproto.enabled }}
+            - --zapret-file
+            - {{ $.Values.privateProfiles.keys.zapretMtproto | quote }}
+{{- end }}
+{{- end }}
+          volumeMounts:
+            - name: private-profiles
+              mountPath: {{ $.Values.privateProfiles.mountPath }}
+              readOnly: true
+{{- end }}
+        - name: seed-runtime
+          image: busybox:1.36
+          imagePullPolicy: IfNotPresent
+          command:
+            - sh
+            - -ec
+            - |
+              set -eu
+              mkdir -p /state/base/xray /state/base/haproxy /state/base/nginx /state/runtime/xray /state/runtime/haproxy /state/runtime/nginx
+              cp /base/xray/config.json /state/base/xray/config.json
+              escape_sed_replacement() {
+                printf '%s' "$1" | sed 's/[\/&|\\]/\\&/g'
+              }
+              replace_literal() {
+                marker="$1"
+                value="$(escape_sed_replacement "$2")"
+                sed -i "s|${marker}|${value}|g" /state/base/xray/config.json
+              }
+              replace_literal REPLACE_REALITY_PRIVATE_KEY "${REALITY_PRIVATE_KEY}"
+              replace_literal REPLACE_HYSTERIA_AUTH "${HYSTERIA_AUTH}"
+              cp /base/haproxy/haproxy.cfg /state/base/haproxy/haproxy.cfg
+              cp /base/nginx/nginx.conf /state/base/nginx/nginx.conf
+              [ -f /state/runtime/xray/config.json ] || cp /state/base/xray/config.json /state/runtime/xray/config.json
+              [ -f /state/runtime/haproxy/haproxy.cfg ] || cp /state/base/haproxy/haproxy.cfg /state/runtime/haproxy/haproxy.cfg
+              [ -f /state/runtime/nginx/nginx.conf ] || cp /state/base/nginx/nginx.conf /state/runtime/nginx/nginx.conf
+          env:
+            - name: REALITY_PRIVATE_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "tracegate.privateProfilesSecretName" $ }}
+                  key: {{ ternary $.Values.privateProfiles.secretKeys.realityPrivateKeyEntry $.Values.privateProfiles.secretKeys.realityPrivateKeyTransit (eq $roleName "entry") }}
+            - name: HYSTERIA_AUTH
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "tracegate.privateProfilesSecretName" $ }}
+                  key: {{ ternary $.Values.privateProfiles.secretKeys.hysteriaAuthEntry $.Values.privateProfiles.secretKeys.hysteriaAuthTransit (eq $roleName "entry") }}
+          volumeMounts:
+            - name: gateway-state
+              mountPath: /state
+            - name: xray-config
+              mountPath: /base/xray
+            - name: haproxy-config
+              mountPath: /base/haproxy
+            - name: nginx-config
+              mountPath: /base/nginx
+      containers:
+        - name: agent
+          image: {{ include "tracegate.image" $.Values.global.image | quote }}
+          imagePullPolicy: {{ $.Values.global.image.pullPolicy }}
+          command: ["tracegate-agent"]
+{{- with $.Values.gateway.containerResources.agent }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+{{- end }}
+          ports:
+            - name: agent
+              containerPort: {{ int $.Values.gateway.agent.port }}
+{{- if $.Values.gateway.probes.enabled }}
+          startupProbe:
+            httpGet:
+              path: /v1/live
+              port: agent
+            periodSeconds: {{ int $.Values.gateway.probes.startup.periodSeconds }}
+            failureThreshold: {{ int $.Values.gateway.probes.startup.failureThreshold }}
+            timeoutSeconds: {{ int $.Values.gateway.probes.startup.timeoutSeconds }}
+          readinessProbe:
+            httpGet:
+              path: /v1/health
+              port: agent
+            periodSeconds: {{ int $.Values.gateway.probes.readiness.periodSeconds }}
+            failureThreshold: {{ int $.Values.gateway.probes.readiness.failureThreshold }}
+            timeoutSeconds: {{ int $.Values.gateway.probes.readiness.timeoutSeconds }}
+          livenessProbe:
+            httpGet:
+              path: /v1/live
+              port: agent
+            periodSeconds: {{ int $.Values.gateway.probes.liveness.periodSeconds }}
+            failureThreshold: {{ int $.Values.gateway.probes.liveness.failureThreshold }}
+            timeoutSeconds: {{ int $.Values.gateway.probes.liveness.timeoutSeconds }}
+{{- end }}
+          env:
+            - name: AGENT_ROLE
+              value: {{ $role.role | quote }}
+            - name: AGENT_RUNTIME_MODE
+              value: "kubernetes"
+            - name: AGENT_RUNTIME_PROFILE
+              value: {{ $.Values.global.runtimeProfile | quote }}
+            - name: AGENT_GATEWAY_STRATEGY
+              value: {{ $.Values.gateway.strategy | quote }}
+            - name: AGENT_GATEWAY_ALLOW_RECREATE_STRATEGY
+              value: {{ $.Values.gateway.allowRecreateStrategy | quote }}
+            - name: AGENT_GATEWAY_MAX_UNAVAILABLE
+              value: {{ $.Values.gateway.rollingUpdate.maxUnavailable | quote }}
+            - name: AGENT_GATEWAY_MAX_SURGE
+              value: {{ $.Values.gateway.rollingUpdate.maxSurge | quote }}
+            - name: AGENT_GATEWAY_PROGRESS_DEADLINE_SECONDS
+              value: {{ $.Values.gateway.progressDeadlineSeconds | quote }}
+            - name: AGENT_GATEWAY_PDB_MIN_AVAILABLE
+              value: {{ $.Values.gateway.pdb.minAvailable | quote }}
+            - name: AGENT_GATEWAY_PROBES_ENABLED
+              value: {{ $.Values.gateway.probes.enabled | quote }}
+            - name: AGENT_GATEWAY_PRIVATE_PREFLIGHT_ENABLED
+              value: {{ $.Values.gateway.privatePreflight.enabled | quote }}
+            - name: AGENT_GATEWAY_PRIVATE_PREFLIGHT_FORBID_PLACEHOLDERS
+              value: {{ $.Values.gateway.privatePreflight.forbidPlaceholders | quote }}
+            - name: DEFAULT_ENTRY_HOST
+              value: {{ $.Values.controlPlane.env.defaultEntryHost | quote }}
+            - name: DEFAULT_TRANSIT_HOST
+              value: {{ $.Values.controlPlane.env.defaultTransitHost | quote }}
+            - name: AGENT_DATA_ROOT
+              value: /var/lib/tracegate
+            - name: AGENT_DRY_RUN
+              value: {{ $.Values.gateway.agent.dryRun | quote }}
+            - name: AGENT_XRAY_API_ENABLED
+              value: "true"
+            - name: AGENT_XRAY_API_SERVER
+              value: {{ printf "127.0.0.1:%d" (int $role.ports.xrayApi) | quote }}
+            - name: AGENT_RELOAD_XRAY_CMD
+              value: {{ $.Values.gateway.agent.reloadCommands.xray | quote }}
+            - name: AGENT_RELOAD_HAPROXY_CMD
+              value: {{ $.Values.gateway.agent.reloadCommands.haproxy | quote }}
+            - name: AGENT_RELOAD_NGINX_CMD
+              value: {{ $.Values.gateway.agent.reloadCommands.nginx | quote }}
+            - name: AGENT_RELOAD_OBFUSCATION_CMD
+              value: {{ $.Values.gateway.agent.reloadCommands.obfuscation | quote }}
+            - name: AGENT_RELOAD_FRONTING_CMD
+              value: {{ $.Values.gateway.agent.reloadCommands.fronting | quote }}
+            - name: AGENT_RELOAD_MTPROTO_CMD
+              value: {{ $.Values.gateway.agent.reloadCommands.mtproto | quote }}
+            - name: AGENT_RELOAD_PROFILES_CMD
+              value: {{ $.Values.gateway.agent.reloadCommands.profiles | quote }}
+            - name: AGENT_RELOAD_LINK_CRYPTO_CMD
+              value: {{ $.Values.gateway.agent.reloadCommands.linkCrypto | quote }}
+            - name: API_INTERNAL_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "tracegate.controlPlaneSecretName" $ }}
+                  key: api-internal-token
+            - name: AGENT_AUTH_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "tracegate.controlPlaneSecretName" $ }}
+                  key: agent-auth-token
+            - name: PRIVATE_RUNTIME_ROOT
+              value: "/var/lib/tracegate/private"
+            - name: PRIVATE_ZAPRET_PROFILE_DIR
+              value: {{ $.Values.privateProfiles.mountPath | quote }}
+            - name: PRIVATE_ZAPRET_PROFILE_ENTRY
+              value: {{ $.Values.privateProfiles.keys.zapretEntry | quote }}
+            - name: PRIVATE_ZAPRET_PROFILE_TRANSIT
+              value: {{ $.Values.privateProfiles.keys.zapretTransit | quote }}
+            - name: PRIVATE_ZAPRET_PROFILE_INTERCONNECT
+              value: {{ $.Values.privateProfiles.keys.zapretInterconnect | quote }}
+            - name: PRIVATE_ZAPRET_PROFILE_MTPROTO
+              value: {{ $.Values.privateProfiles.keys.zapretMtproto | quote }}
+            - name: PRIVATE_MIERU_PROFILE_DIR
+              value: {{ printf "%s/mieru" $.Values.privateProfiles.mountPath | quote }}
+            - name: PRIVATE_MIERU_CLIENT_PROFILE
+              value: "client.json"
+            - name: PRIVATE_MIERU_SERVER_PROFILE
+              value: "server.json"
+            - name: PRIVATE_SHADOWTLS_PROFILE_DIR
+              value: {{ printf "%s/shadowtls" $.Values.privateProfiles.mountPath | quote }}
+            - name: PRIVATE_SHADOWTLS_PROFILE_ENTRY
+              value: {{ base $.Values.privateProfiles.keys.shadowtlsEntry | quote }}
+            - name: PRIVATE_SHADOWTLS_PROFILE_TRANSIT
+              value: {{ base $.Values.privateProfiles.keys.shadowtlsTransit | quote }}
+            - name: PRIVATE_LINK_CRYPTO_ENABLED
+              value: {{ $.Values.interconnect.entryTransit.enabled | quote }}
+            - name: PRIVATE_LINK_CRYPTO_GENERATION
+              value: {{ $.Values.interconnect.entryTransit.generation | quote }}
+            - name: PRIVATE_LINK_CRYPTO_BIND_HOST
+              value: {{ $.Values.interconnect.mieru.localSocks.bindHost | quote }}
+            - name: PRIVATE_LINK_CRYPTO_ENTRY_PORT
+              value: {{ $.Values.interconnect.mieru.localSocks.entryPort | quote }}
+            - name: PRIVATE_LINK_CRYPTO_TRANSIT_PORT
+              value: {{ $.Values.interconnect.mieru.localSocks.transitPort | quote }}
+            - name: PRIVATE_LINK_CRYPTO_ROUTER_ENTRY_ENABLED
+              value: {{ $.Values.interconnect.entryTransit.routerEntry.enabled | quote }}
+            - name: PRIVATE_LINK_CRYPTO_ROUTER_ENTRY_PORT
+              value: {{ $.Values.interconnect.mieru.localSocks.routerEntryPort | quote }}
+            - name: PRIVATE_LINK_CRYPTO_ROUTER_TRANSIT_ENABLED
+              value: {{ $.Values.interconnect.entryTransit.routerTransit.enabled | quote }}
+            - name: PRIVATE_LINK_CRYPTO_ROUTER_TRANSIT_PORT
+              value: {{ $.Values.interconnect.mieru.localSocks.routerTransitPort | quote }}
+            - name: PRIVATE_LINK_CRYPTO_REMOTE_PORT
+              value: {{ $.Values.interconnect.entryTransit.remotePort | quote }}
+            - name: PRIVATE_LINK_CRYPTO_ZAPRET2_ENABLED
+              value: {{ $.Values.interconnect.zapret2.enabled | quote }}
+            - name: MTPROTO_DOMAIN
+              value: {{ ($.Values.mtproto.domain | default $.Values.controlPlane.env.mtprotoDomain) | quote }}
+          volumeMounts:
+            - name: gateway-state
+              mountPath: /var/lib/tracegate
+            - name: runtime-contract
+              mountPath: /etc/tracegate/runtime-contract
+              readOnly: true
+            - name: private-profiles
+              mountPath: {{ $.Values.privateProfiles.mountPath }}
+              readOnly: true
+        - name: haproxy
+          image: {{ include "tracegate.image" $.Values.gateway.images.haproxy | quote }}
+          imagePullPolicy: {{ $.Values.gateway.images.haproxy.pullPolicy }}
+          command: ["haproxy", "-W", "-db", "-f", "/usr/local/etc/haproxy/haproxy.cfg"]
+{{- with $.Values.gateway.containerResources.haproxy }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+{{- end }}
+          ports:
+            - name: https
+              containerPort: {{ int $role.ports.publicTcp }}
+              protocol: TCP
+{{- if $.Values.gateway.probes.enabled }}
+          startupProbe:
+            exec:
+              command: ["sh", "-lc", "test -s /usr/local/etc/haproxy/haproxy.cfg"]
+            periodSeconds: {{ int $.Values.gateway.probes.startup.periodSeconds }}
+            failureThreshold: {{ int $.Values.gateway.probes.startup.failureThreshold }}
+            timeoutSeconds: {{ int $.Values.gateway.probes.startup.timeoutSeconds }}
+          readinessProbe:
+            tcpSocket:
+              port: https
+            periodSeconds: {{ int $.Values.gateway.probes.readiness.periodSeconds }}
+            failureThreshold: {{ int $.Values.gateway.probes.readiness.failureThreshold }}
+            timeoutSeconds: {{ int $.Values.gateway.probes.readiness.timeoutSeconds }}
+          livenessProbe:
+            exec:
+              command: ["sh", "-lc", "test -s /usr/local/etc/haproxy/haproxy.cfg"]
+            periodSeconds: {{ int $.Values.gateway.probes.liveness.periodSeconds }}
+            failureThreshold: {{ int $.Values.gateway.probes.liveness.failureThreshold }}
+            timeoutSeconds: {{ int $.Values.gateway.probes.liveness.timeoutSeconds }}
+{{- end }}
+          volumeMounts:
+            - name: gateway-state
+              mountPath: /usr/local/etc/haproxy
+              subPath: runtime/haproxy
+        - name: nginx
+          image: {{ include "tracegate.image" $.Values.gateway.images.nginx | quote }}
+          imagePullPolicy: {{ $.Values.gateway.images.nginx.pullPolicy }}
+          command: ["nginx", "-g", "daemon off;", "-c", "/etc/nginx/nginx.conf"]
+{{- with $.Values.gateway.containerResources.nginx }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+{{- end }}
+          {{- if eq $roleName "transit" }}
+          ports:
+            - name: http
+              containerPort: {{ int ($role.ports.publicHttp | default 80) }}
+              protocol: TCP
+          {{- end }}
+{{- if $.Values.gateway.probes.enabled }}
+          startupProbe:
+            exec:
+              command: ["sh", "-lc", "test -s /etc/nginx/nginx.conf"]
+            periodSeconds: {{ int $.Values.gateway.probes.startup.periodSeconds }}
+            failureThreshold: {{ int $.Values.gateway.probes.startup.failureThreshold }}
+            timeoutSeconds: {{ int $.Values.gateway.probes.startup.timeoutSeconds }}
+          readinessProbe:
+            exec:
+              command: ["sh", "-lc", "test -s /etc/nginx/nginx.conf"]
+            periodSeconds: {{ int $.Values.gateway.probes.readiness.periodSeconds }}
+            failureThreshold: {{ int $.Values.gateway.probes.readiness.failureThreshold }}
+            timeoutSeconds: {{ int $.Values.gateway.probes.readiness.timeoutSeconds }}
+          livenessProbe:
+            exec:
+              command: ["sh", "-lc", "test -s /etc/nginx/nginx.conf"]
+            periodSeconds: {{ int $.Values.gateway.probes.liveness.periodSeconds }}
+            failureThreshold: {{ int $.Values.gateway.probes.liveness.failureThreshold }}
+            timeoutSeconds: {{ int $.Values.gateway.probes.liveness.timeoutSeconds }}
+{{- end }}
+          volumeMounts:
+            - name: gateway-state
+              mountPath: /etc/nginx/nginx.conf
+              subPath: runtime/nginx/nginx.conf
+            - name: decoy
+              mountPath: {{ $.Values.decoy.mountPath }}
+              readOnly: true
+            - name: tls
+              mountPath: /etc/tracegate/tls
+              readOnly: true
+        - name: xray
+          image: {{ include "tracegate.image" $.Values.gateway.images.xray | quote }}
+          imagePullPolicy: {{ $.Values.gateway.images.xray.pullPolicy }}
+          command: ["xray", "run", "-c", "/etc/xray/config.json"]
+{{- with $.Values.gateway.containerResources.xray }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+{{- end }}
+          ports:
+            - name: reality
+              containerPort: {{ int $role.ports.reality }}
+              protocol: TCP
+            - name: hy2
+              containerPort: {{ int $role.ports.publicUdp }}
+              protocol: UDP
+{{- if $.Values.gateway.probes.enabled }}
+          startupProbe:
+            exec:
+              command: ["sh", "-lc", "test -s /etc/xray/config.json"]
+            periodSeconds: {{ int $.Values.gateway.probes.startup.periodSeconds }}
+            failureThreshold: {{ int $.Values.gateway.probes.startup.failureThreshold }}
+            timeoutSeconds: {{ int $.Values.gateway.probes.startup.timeoutSeconds }}
+          readinessProbe:
+            exec:
+              command: ["sh", "-lc", "test -s /etc/xray/config.json"]
+            periodSeconds: {{ int $.Values.gateway.probes.readiness.periodSeconds }}
+            failureThreshold: {{ int $.Values.gateway.probes.readiness.failureThreshold }}
+            timeoutSeconds: {{ int $.Values.gateway.probes.readiness.timeoutSeconds }}
+          livenessProbe:
+            exec:
+              command: ["sh", "-lc", "test -s /etc/xray/config.json"]
+            periodSeconds: {{ int $.Values.gateway.probes.liveness.periodSeconds }}
+            failureThreshold: {{ int $.Values.gateway.probes.liveness.failureThreshold }}
+            timeoutSeconds: {{ int $.Values.gateway.probes.liveness.timeoutSeconds }}
+{{- end }}
+          volumeMounts:
+            - name: gateway-state
+              mountPath: /etc/xray
+              subPath: runtime/xray
+            - name: decoy
+              mountPath: {{ $.Values.decoy.mountPath }}
+              readOnly: true
+            - name: tls
+              mountPath: /etc/tracegate/tls
+              readOnly: true
+{{- if $roleLinkCryptoEnabled }}
+        - name: mieru
+          image: {{ include "tracegate.image" $.Values.gateway.images.mieru | quote }}
+          imagePullPolicy: {{ $.Values.gateway.images.mieru.pullPolicy }}
+          command:
+            - sh
+            - -lc
+            - |
+              set -eu
+              until {{ $roleLinkCryptoReadyTest }}; do sleep 2; done
+              status_dir="/tmp/tracegate-mieru-status"
+              rm -rf "${status_dir}"
+              mkdir -p "${status_dir}"
+              pids=""
+              profile_count=0
+              shutdown_mieru_profiles() {
+                kill ${pids} 2>/dev/null || true
+                wait ${pids} 2>/dev/null || true
+              }
+              start_mieru_profile() {
+                profile="$1"
+                [ -s "${profile}" ] || return 0
+                profile_count=$((profile_count + 1))
+                status_file="${status_dir}/${profile_count}.status"
+                (
+                  set +e
+                  mieru run -c "${profile}" &
+                  child_pid="$!"
+                  trap 'kill "${child_pid}" 2>/dev/null || true; wait "${child_pid}" 2>/dev/null || true; exit 143' TERM INT
+                  wait "${child_pid}"
+                  code="$?"
+                  printf '%s\n' "${code}" > "${status_file}"
+                  exit "${code}"
+                ) &
+                pids="${pids} $!"
+              }
+              trap 'shutdown_mieru_profiles; exit 143' TERM INT
+{{- if $roleLinkCryptoClientEnabled }}
+              start_mieru_profile "{{ $.Values.privateProfiles.mountPath }}/{{ $.Values.privateProfiles.keys.mieruClient }}"
+{{- end }}
+{{- if $roleLinkCryptoServerEnabled }}
+              start_mieru_profile "{{ $.Values.privateProfiles.mountPath }}/{{ $.Values.privateProfiles.keys.mieruServer }}"
+{{- end }}
+              if [ "${profile_count}" -eq 0 ]; then
+                echo "tracegate mieru: no link-crypto profiles started"
+                while :; do sleep 3600; done
+              fi
+              while :; do
+                for status_file in "${status_dir}"/*.status; do
+                  [ -f "${status_file}" ] || continue
+                  code="$(cat "${status_file}" 2>/dev/null || echo 1)"
+                  shutdown_mieru_profiles
+                  exit "${code:-1}"
+                done
+                sleep 2
+              done
+          env:
+            - name: TRACEGATE_LINK_CRYPTO_ROLE
+              value: {{ $role.role | quote }}
+            - name: TRACEGATE_LINK_CRYPTO_STATE_JSON
+              value: {{ $roleLinkCryptoState | quote }}
+            - name: TRACEGATE_LINK_CRYPTO_STATE_ENV
+              value: {{ $roleLinkCryptoEnv | quote }}
+            - name: TRACEGATE_LINK_CRYPTO_RELOAD_MARKER
+              value: {{ $roleLinkCryptoReloadMarker | quote }}
+{{- with $.Values.gateway.containerResources.mieru }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+{{- end }}
+          volumeMounts:
+            - name: private-profiles
+              mountPath: {{ $.Values.privateProfiles.mountPath }}
+              readOnly: true
+            - name: gateway-state
+              mountPath: /var/lib/tracegate
+              readOnly: true
+{{- end }}
+{{- if $.Values.interconnect.zapret2.enabled }}
+{{- $zapretProfileKey := ternary $.Values.privateProfiles.keys.zapretEntry $.Values.privateProfiles.keys.zapretTransit (eq $roleName "entry") }}
+        - name: zapret2
+          image: {{ include "tracegate.image" $.Values.gateway.images.zapret2 | quote }}
+          imagePullPolicy: {{ $.Values.gateway.images.zapret2.pullPolicy }}
+          securityContext:
+            capabilities:
+              add: ["NET_ADMIN", "NET_RAW"]
+          command:
+            - sh
+            - -lc
+            - |
+              set -eu
+              until [ -s /var/lib/tracegate/runtime/runtime-contract.json ]; do sleep 2; done
+              status_dir="/tmp/tracegate-zapret2-status"
+              rm -rf "${status_dir}"
+              mkdir -p "${status_dir}"
+              pids=""
+              profile_count=0
+              shutdown_zapret_profiles() {
+                kill ${pids} 2>/dev/null || true
+                wait ${pids} 2>/dev/null || true
+              }
+              start_zapret_profile() {
+                profile="$1"
+                [ -s "${profile}" ] || return 0
+                profile_count=$((profile_count + 1))
+                status_file="${status_dir}/${profile_count}.status"
+                (
+                  set +e
+                  zapret --config "${profile}" &
+                  child_pid="$!"
+                  trap 'kill "${child_pid}" 2>/dev/null || true; wait "${child_pid}" 2>/dev/null || true; exit 143' TERM INT
+                  wait "${child_pid}"
+                  code="$?"
+                  printf '%s\n' "${code}" > "${status_file}"
+                  exit "${code}"
+                ) &
+                pids="${pids} $!"
+              }
+              trap 'shutdown_zapret_profiles; exit 143' TERM INT
+              start_zapret_profile "{{ $.Values.privateProfiles.mountPath }}/{{ $zapretProfileKey }}"
+{{- if $linkZapretProfileEnabled }}
+              start_zapret_profile "{{ $.Values.privateProfiles.mountPath }}/{{ $.Values.privateProfiles.keys.zapretInterconnect }}"
+{{- end }}
+{{- if and (eq $roleName "transit") $.Values.mtproto.enabled }}
+              start_zapret_profile "{{ $.Values.privateProfiles.mountPath }}/{{ $.Values.privateProfiles.keys.zapretMtproto }}"
+{{- end }}
+              if [ "${profile_count}" -eq 0 ]; then
+                echo "tracegate zapret2: no scoped profiles started"
+                while :; do sleep 3600; done
+              fi
+              while :; do
+                for status_file in "${status_dir}"/*.status; do
+                  [ -f "${status_file}" ] || continue
+                  code="$(cat "${status_file}" 2>/dev/null || echo 1)"
+                  shutdown_zapret_profiles
+                  exit "${code:-1}"
+                done
+                sleep 2
+              done
+{{- with $.Values.gateway.containerResources.zapret2 }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+{{- end }}
+          volumeMounts:
+            - name: private-profiles
+              mountPath: {{ $.Values.privateProfiles.mountPath }}
+              readOnly: true
+            - name: gateway-state
+              mountPath: /var/lib/tracegate
+              readOnly: true
+{{- end }}
+{{- if and (eq $roleName "transit") $.Values.mtproto.enabled }}
+        - name: mtproto
+          image: {{ include "tracegate.image" $.Values.gateway.images.mtproto | quote }}
+          imagePullPolicy: {{ $.Values.gateway.images.mtproto.pullPolicy }}
+          command: ["sh", "-lc", "mtg run {{ $.Values.privateProfiles.mountPath }}/{{ $.Values.privateProfiles.keys.mtproto }} --bind 127.0.0.1:{{ int $.Values.mtproto.backendPort }}"]
+{{- with $.Values.gateway.containerResources.mtproto }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+{{- end }}
+          volumeMounts:
+            - name: private-profiles
+              mountPath: {{ $.Values.privateProfiles.mountPath }}
+              readOnly: true
+            - name: gateway-state
+              mountPath: /var/lib/tracegate
+              readOnly: true
+{{- end }}
+{{- if $.Values.shadowsocks2022.enabled }}
+        - name: shadowsocks-2022
+          image: {{ include "tracegate.image" $.Values.gateway.images.shadowsocks | quote }}
+          imagePullPolicy: {{ $.Values.gateway.images.shadowsocks.pullPolicy }}
+          command: ["sh", "-lc", "until {{ $roleProfileReadyTest }}; do sleep 2; done; ssserver -c {{ $.Values.privateProfiles.mountPath }}/{{ $roleShadowsocks2022Key }}"]
+          env:
+            - name: TRACEGATE_PROFILE_ROLE
+              value: {{ $role.role | quote }}
+            - name: TRACEGATE_PROFILE_STATE_JSON
+              value: {{ $roleProfileState | quote }}
+            - name: TRACEGATE_PROFILE_STATE_ENV
+              value: {{ $roleProfileEnv | quote }}
+            - name: TRACEGATE_PROFILE_RELOAD_MARKER
+              value: {{ $roleProfileReloadMarker | quote }}
+{{- with $.Values.gateway.containerResources.shadowsocks }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+{{- end }}
+          volumeMounts:
+            - name: private-profiles
+              mountPath: {{ $.Values.privateProfiles.mountPath }}
+              readOnly: true
+            - name: gateway-state
+              mountPath: /var/lib/tracegate
+              readOnly: true
+        - name: shadowtls-v3
+          image: {{ include "tracegate.image" $.Values.gateway.images.shadowtls | quote }}
+          imagePullPolicy: {{ $.Values.gateway.images.shadowtls.pullPolicy }}
+          command: ["sh", "-lc", "until {{ $roleProfileReadyTest }}; do sleep 2; done; shadow-tls --config {{ $.Values.privateProfiles.mountPath }}/{{ $roleShadowtlsKey }}"]
+          env:
+            - name: TRACEGATE_PROFILE_ROLE
+              value: {{ $role.role | quote }}
+            - name: TRACEGATE_PROFILE_STATE_JSON
+              value: {{ $roleProfileState | quote }}
+            - name: TRACEGATE_PROFILE_STATE_ENV
+              value: {{ $roleProfileEnv | quote }}
+            - name: TRACEGATE_PROFILE_RELOAD_MARKER
+              value: {{ $roleProfileReloadMarker | quote }}
+{{- with $.Values.gateway.containerResources.shadowtls }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+{{- end }}
+          volumeMounts:
+            - name: private-profiles
+              mountPath: {{ $.Values.privateProfiles.mountPath }}
+              readOnly: true
+            - name: gateway-state
+              mountPath: /var/lib/tracegate
+              readOnly: true
+{{- end }}
+{{- if and (eq $roleName "transit") $.Values.wireguard.enabled $.Values.wireguard.wstunnel.enabled }}
+        - name: wireguard
+          image: {{ include "tracegate.image" $.Values.gateway.images.wireguard | quote }}
+          imagePullPolicy: {{ $.Values.gateway.images.wireguard.pullPolicy }}
+          securityContext:
+            capabilities:
+              add: ["NET_ADMIN", "NET_RAW"]
+          command:
+            - sh
+            - -lc
+            - |
+              set -eu
+              until {{ $roleProfileReadyTest }}; do sleep 2; done
+              wg-quick up {{ $.Values.privateProfiles.mountPath }}/{{ $.Values.privateProfiles.keys.wireguard }}
+              teardown_wireguard() {
+                wg-quick down {{ $.Values.privateProfiles.mountPath }}/{{ $.Values.privateProfiles.keys.wireguard }} || true
+              }
+              trap 'teardown_wireguard; exit 0' TERM INT
+              while :; do sleep 3600 & wait "$!"; done
+          env:
+            - name: TRACEGATE_PROFILE_ROLE
+              value: {{ $role.role | quote }}
+            - name: TRACEGATE_PROFILE_STATE_JSON
+              value: {{ $roleProfileState | quote }}
+            - name: TRACEGATE_PROFILE_STATE_ENV
+              value: {{ $roleProfileEnv | quote }}
+            - name: TRACEGATE_PROFILE_RELOAD_MARKER
+              value: {{ $roleProfileReloadMarker | quote }}
+{{- with $.Values.gateway.containerResources.wireguard }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+{{- end }}
+          volumeMounts:
+            - name: private-profiles
+              mountPath: {{ $.Values.privateProfiles.mountPath }}
+              readOnly: true
+            - name: gateway-state
+              mountPath: /var/lib/tracegate
+              readOnly: true
+        - name: wstunnel-wireguard
+          image: {{ include "tracegate.image" $.Values.gateway.images.wstunnel | quote }}
+          imagePullPolicy: {{ $.Values.gateway.images.wstunnel.pullPolicy }}
+          command: ["sh", "-lc", "until {{ $roleProfileReadyTest }}; do sleep 2; done; wstunnel server ws://127.0.0.1:{{ int $.Values.wireguard.wstunnel.websocketPort }} --restrict-to 127.0.0.1:{{ int $.Values.wireguard.wstunnel.localWireguardPort }}"]
+          env:
+            - name: TRACEGATE_PROFILE_ROLE
+              value: {{ $role.role | quote }}
+            - name: TRACEGATE_PROFILE_STATE_JSON
+              value: {{ $roleProfileState | quote }}
+            - name: TRACEGATE_PROFILE_STATE_ENV
+              value: {{ $roleProfileEnv | quote }}
+            - name: TRACEGATE_PROFILE_RELOAD_MARKER
+              value: {{ $roleProfileReloadMarker | quote }}
+{{- with $.Values.gateway.containerResources.wstunnel }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+{{- end }}
+          volumeMounts:
+            - name: private-profiles
+              mountPath: {{ $.Values.privateProfiles.mountPath }}
+              readOnly: true
+            - name: gateway-state
+              mountPath: /var/lib/tracegate
+              readOnly: true
+{{- end }}
+{{- if $labDirectMieruEnabled }}
+        - name: mieru-direct-lab
+          image: {{ include "tracegate.image" $.Values.gateway.images.mieru | quote }}
+          imagePullPolicy: {{ $.Values.gateway.images.mieru.pullPolicy }}
+          command: ["sh", "-lc", "until {{ $roleProfileReadyTest }}; do sleep 2; done; mieru run -c {{ $.Values.privateProfiles.mountPath }}/{{ $.Values.privateProfiles.keys.labMieruDirect }}"]
+          env:
+            - name: TRACEGATE_PROFILE_ROLE
+              value: {{ $role.role | quote }}
+            - name: TRACEGATE_PROFILE_STATE_JSON
+              value: {{ $roleProfileState | quote }}
+            - name: TRACEGATE_PROFILE_STATE_ENV
+              value: {{ $roleProfileEnv | quote }}
+            - name: TRACEGATE_PROFILE_RELOAD_MARKER
+              value: {{ $roleProfileReloadMarker | quote }}
+{{- with $.Values.gateway.containerResources.mieru }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+{{- end }}
+          volumeMounts:
+            - name: private-profiles
+              mountPath: {{ $.Values.privateProfiles.mountPath }}
+              readOnly: true
+            - name: gateway-state
+              mountPath: /var/lib/tracegate
+              readOnly: true
+{{- end }}
+{{- if $labDirectRestlsEnabled }}
+        - name: restls-direct-lab
+          image: {{ include "tracegate.image" $.Values.gateway.images.singbox | quote }}
+          imagePullPolicy: {{ $.Values.gateway.images.singbox.pullPolicy }}
+          command: ["sh", "-lc", "until {{ $roleProfileReadyTest }}; do sleep 2; done; sing-box run -c {{ $.Values.privateProfiles.mountPath }}/{{ $.Values.privateProfiles.keys.labRestlsDirect }}"]
+          env:
+            - name: TRACEGATE_PROFILE_ROLE
+              value: {{ $role.role | quote }}
+            - name: TRACEGATE_PROFILE_STATE_JSON
+              value: {{ $roleProfileState | quote }}
+            - name: TRACEGATE_PROFILE_STATE_ENV
+              value: {{ $roleProfileEnv | quote }}
+            - name: TRACEGATE_PROFILE_RELOAD_MARKER
+              value: {{ $roleProfileReloadMarker | quote }}
+{{- with $.Values.gateway.containerResources.singbox }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+{{- end }}
+          volumeMounts:
+            - name: private-profiles
+              mountPath: {{ $.Values.privateProfiles.mountPath }}
+              readOnly: true
+            - name: gateway-state
+              mountPath: /var/lib/tracegate
+              readOnly: true
+{{- end }}
+{{- if $labTuicRoleEnabled }}
+        - name: tuic-v5-lab
+          image: {{ include "tracegate.image" $.Values.gateway.images.singbox | quote }}
+          imagePullPolicy: {{ $.Values.gateway.images.singbox.pullPolicy }}
+          command: ["sh", "-lc", "until {{ $roleProfileReadyTest }}; do sleep 2; done; sing-box run -c {{ $.Values.privateProfiles.mountPath }}/{{ $roleLabTuicKey }}"]
+          env:
+            - name: TRACEGATE_PROFILE_ROLE
+              value: {{ $role.role | quote }}
+            - name: TRACEGATE_PROFILE_STATE_JSON
+              value: {{ $roleProfileState | quote }}
+            - name: TRACEGATE_PROFILE_STATE_ENV
+              value: {{ $roleProfileEnv | quote }}
+            - name: TRACEGATE_PROFILE_RELOAD_MARKER
+              value: {{ $roleProfileReloadMarker | quote }}
+{{- with $.Values.gateway.containerResources.singbox }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+{{- end }}
+          volumeMounts:
+            - name: private-profiles
+              mountPath: {{ $.Values.privateProfiles.mountPath }}
+              readOnly: true
+            - name: gateway-state
+              mountPath: /var/lib/tracegate
+              readOnly: true
+{{- end }}
+---
+{{- end }}
+{{- end }}

@@ -1,0 +1,29 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.venv/
+.env
+.env.local
+.DS_Store
+.idea/
+.coverage
+.coverage.*
+htmlcov/
+dist/
+build/
+*.egg-info/
+.tmp/
+.tmp-*/
+local-notes/
+
+# Tracegate operator-private artifacts. Public examples must stay under
+# deploy/**/private-example; live profiles and prod values stay off-repo.
+private/
+local-private/
+deploy/k3s/values-prod.yaml
+deploy/k3s/values-*.private.yaml
+deploy/k3s/values-*.local.yaml
+deploy/k3s/private/
+deploy/k3s/link-profiles/

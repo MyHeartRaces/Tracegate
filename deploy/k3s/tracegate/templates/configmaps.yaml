@@ -1,0 +1,405 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "tracegate.fullname" . }}-runtime-contract
+  namespace: {{ include "tracegate.namespace" . }}
+  labels:
+    {{- include "tracegate.labels" . | nindent 4 }}
+data:
+  tracegate-2.1-runtime.yaml: |
+    architecture: Tracegate 2.1
+    runtimeProfile: {{ .Values.global.runtimeProfile }}
+    zeroRestartRule: "user and connection mutations must use live APIs or narrow reload hooks"
+    localSocksAuth: {{ .Values.transportProfiles.socks5.required | ternary "required" "disabled" }}
+    rollout:
+      gatewayStrategy: {{ .Values.gateway.strategy }}
+      allowRecreateStrategy: {{ .Values.gateway.allowRecreateStrategy }}
+      maxUnavailable: {{ .Values.gateway.rollingUpdate.maxUnavailable | quote }}
+      maxSurge: {{ .Values.gateway.rollingUpdate.maxSurge | quote }}
+      progressDeadlineSeconds: {{ int .Values.gateway.progressDeadlineSeconds }}
+      pdbMinAvailable: {{ .Values.gateway.pdb.minAvailable | quote }}
+      probesEnabled: {{ .Values.gateway.probes.enabled }}
+      privatePreflightEnabled: {{ .Values.gateway.privatePreflight.enabled }}
+      privatePreflightForbidPlaceholders: {{ .Values.gateway.privatePreflight.forbidPlaceholders }}
+    privateProfiles:
+      source: external-secret
+      inlineProfilesAllowed: {{ .Values.privateProfiles.inlineProfiles }}
+      secretName: {{ include "tracegate.privateProfilesSecretName" . }}
+    decoy:
+      preserveExisting: {{ .Values.decoy.preserveExisting }}
+      source: {{ if .Values.decoy.hostPath }}hostPath{{ else if .Values.decoy.existingClaim }}existingClaim{{ else if .Values.decoy.existingConfigMap }}existingConfigMap{{ else }}externalSourceRequired{{ end }}
+      mountPath: {{ .Values.decoy.mountPath }}
+    trafficInterception:
+      hostWideInterception: {{ .Values.interconnect.zapret2.hostWideInterception }}
+      nfqueue: {{ .Values.interconnect.zapret2.nfqueue }}
+      scope: {{ .Values.interconnect.zapret2.scope }}
+      applyTo:
+{{ toYaml .Values.interconnect.zapret2.applyTo | nindent 8 }}
+    interconnect:
+{{ toYaml .Values.interconnect.entryTransit | nindent 6 }}
+    linkCrypto:
+      enabled: {{ or .Values.interconnect.entryTransit.enabled .Values.interconnect.entryTransit.routerEntry.enabled .Values.interconnect.entryTransit.routerTransit.enabled }}
+      carrier: mieru
+      manager: link-crypto
+      profileSource: external-secret-file-reference
+      secretMaterial: false
+      xrayBackhaul: {{ .Values.interconnect.entryTransit.xrayBackhaul }}
+      generation: {{ int .Values.interconnect.entryTransit.generation }}
+      remotePort: {{ int .Values.interconnect.entryTransit.remotePort }}
+      classes:
+{{- if .Values.interconnect.entryTransit.enabled }}
+        - entry-transit
+{{- end }}
+{{- if .Values.interconnect.entryTransit.routerEntry.enabled }}
+        - router-entry
+{{- end }}
+{{- if .Values.interconnect.entryTransit.routerTransit.enabled }}
+        - router-transit
+{{- end }}
+{{- if not (or .Values.interconnect.entryTransit.enabled .Values.interconnect.entryTransit.routerEntry.enabled .Values.interconnect.entryTransit.routerTransit.enabled) }}
+        []
+{{- end }}
+      counts:
+        total: {{ add (ternary 1 0 .Values.interconnect.entryTransit.enabled) (ternary 1 0 .Values.interconnect.entryTransit.routerEntry.enabled) (ternary 1 0 .Values.interconnect.entryTransit.routerTransit.enabled) }}
+        entryTransit: {{ ternary 1 0 .Values.interconnect.entryTransit.enabled }}
+        routerEntry: {{ ternary 1 0 .Values.interconnect.entryTransit.routerEntry.enabled }}
+        routerTransit: {{ ternary 1 0 .Values.interconnect.entryTransit.routerTransit.enabled }}
+      roles:
+        entry:
+          enabled: {{ or .Values.interconnect.entryTransit.enabled .Values.interconnect.entryTransit.routerEntry.enabled }}
+          classes:
+{{- if .Values.interconnect.entryTransit.enabled }}
+            - entry-transit
+{{- end }}
+{{- if .Values.interconnect.entryTransit.routerEntry.enabled }}
+            - router-entry
+{{- end }}
+{{- if not (or .Values.interconnect.entryTransit.enabled .Values.interconnect.entryTransit.routerEntry.enabled) }}
+            []
+{{- end }}
+          counts:
+            total: {{ add (ternary 1 0 .Values.interconnect.entryTransit.enabled) (ternary 1 0 .Values.interconnect.entryTransit.routerEntry.enabled) }}
+            entryTransit: {{ ternary 1 0 .Values.interconnect.entryTransit.enabled }}
+            routerEntry: {{ ternary 1 0 .Values.interconnect.entryTransit.routerEntry.enabled }}
+            routerTransit: 0
+          localPorts:
+{{- if .Values.interconnect.entryTransit.enabled }}
+            entry-transit: {{ int .Values.interconnect.mieru.localSocks.entryPort }}
+{{- end }}
+{{- if .Values.interconnect.entryTransit.routerEntry.enabled }}
+            router-entry: {{ int .Values.interconnect.mieru.localSocks.routerEntryPort }}
+{{- end }}
+{{- if not (or .Values.interconnect.entryTransit.enabled .Values.interconnect.entryTransit.routerEntry.enabled) }}
+            {}
+{{- end }}
+          selectedProfiles:
+{{- if .Values.interconnect.entryTransit.enabled }}
+            entry-transit: ["V2", "V4", "V6"]
+{{- end }}
+{{- if .Values.interconnect.entryTransit.routerEntry.enabled }}
+            router-entry: ["V2", "V4", "V6"]
+{{- end }}
+{{- if not (or .Values.interconnect.entryTransit.enabled .Values.interconnect.entryTransit.routerEntry.enabled) }}
+            {}
+{{- end }}
+        transit:
+          enabled: {{ or .Values.interconnect.entryTransit.enabled .Values.interconnect.entryTransit.routerTransit.enabled }}
+          classes:
+{{- if .Values.interconnect.entryTransit.enabled }}
+            - entry-transit
+{{- end }}
+{{- if .Values.interconnect.entryTransit.routerTransit.enabled }}
+            - router-transit
+{{- end }}
+{{- if not (or .Values.interconnect.entryTransit.enabled .Values.interconnect.entryTransit.routerTransit.enabled) }}
+            []
+{{- end }}
+          counts:
+            total: {{ add (ternary 1 0 .Values.interconnect.entryTransit.enabled) (ternary 1 0 .Values.interconnect.entryTransit.routerTransit.enabled) }}
+            entryTransit: {{ ternary 1 0 .Values.interconnect.entryTransit.enabled }}
+            routerEntry: 0
+            routerTransit: {{ ternary 1 0 .Values.interconnect.entryTransit.routerTransit.enabled }}
+          localPorts:
+{{- if .Values.interconnect.entryTransit.enabled }}
+            entry-transit: {{ int .Values.interconnect.mieru.localSocks.transitPort }}
+{{- end }}
+{{- if .Values.interconnect.entryTransit.routerTransit.enabled }}
+            router-transit: {{ int .Values.interconnect.mieru.localSocks.routerTransitPort }}
+{{- end }}
+{{- if not (or .Values.interconnect.entryTransit.enabled .Values.interconnect.entryTransit.routerTransit.enabled) }}
+            {}
+{{- end }}
+          selectedProfiles:
+{{- if .Values.interconnect.entryTransit.enabled }}
+            entry-transit: ["V2", "V4", "V6"]
+{{- end }}
+{{- if .Values.interconnect.entryTransit.routerTransit.enabled }}
+            router-transit: ["V1", "V3", "V5", "V7"]
+{{- end }}
+{{- if not (or .Values.interconnect.entryTransit.enabled .Values.interconnect.entryTransit.routerTransit.enabled) }}
+            {}
+{{- end }}
+      zapret2:
+        enabled: {{ .Values.interconnect.zapret2.enabled }}
+        packetShaping: zapret2-scoped
+        applyMode: marked-flow-only
+        hostWideInterception: {{ .Values.interconnect.zapret2.hostWideInterception }}
+        nfqueue: {{ .Values.interconnect.zapret2.nfqueue }}
+        failOpen: true
+    transports:
+{{ toYaml .Values.transportProfiles.clientNames | nindent 6 }}
+    experimentalProfiles:
+{{ toYaml .Values.experimentalProfiles | nindent 6 }}
+{{- range $roleName, $role := .Values.gateway.roles }}
+{{- if and $.Values.gateway.enabled $role.enabled }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "tracegate.roleName" (dict "root" $ "role" $roleName) }}-haproxy
+  namespace: {{ include "tracegate.namespace" $ }}
+  labels:
+    {{- include "tracegate.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: gateway-{{ $roleName }}
+data:
+  haproxy.cfg: |
+    global
+      log stdout format raw local0
+      maxconn 20000
+
+    defaults
+      log global
+      mode tcp
+      option tcplog
+      timeout connect 5s
+      timeout client 5m
+      timeout server 5m
+      timeout tunnel 1h
+
+    frontend fe_tracegate_{{ $roleName }}_tls
+      bind :{{ int $role.ports.publicTcp }}
+      tcp-request inspect-delay 5s
+      tcp-request content accept if { req.ssl_hello_type 1 }
+      acl tls_adapter_sni req.ssl_sni -i {{ $role.tls.serverName }}
+{{- if and (eq $roleName "transit") $.Values.mtproto.enabled }}
+{{- $mtprotoDomain := $.Values.mtproto.domain | default $.Values.controlPlane.env.mtprotoDomain }}
+{{- if $mtprotoDomain }}
+      acl mtproto_sni req.ssl_sni -i {{ $mtprotoDomain }}
+      use_backend be_mtproto if mtproto_sni
+{{- end }}
+{{- end }}
+      use_backend be_https_adapter if tls_adapter_sni
+      default_backend be_reality
+
+    backend be_reality
+      server xray_reality 127.0.0.1:{{ int $role.ports.reality }} check
+
+    backend be_https_adapter
+      server nginx_https 127.0.0.1:{{ int $role.ports.httpsAdapter }} check
+{{- if and (eq $roleName "transit") $.Values.mtproto.enabled }}
+
+    backend be_mtproto
+      server mtproto 127.0.0.1:{{ int $.Values.mtproto.backendPort }} check
+{{- end }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "tracegate.roleName" (dict "root" $ "role" $roleName) }}-nginx
+  namespace: {{ include "tracegate.namespace" $ }}
+  labels:
+    {{- include "tracegate.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: gateway-{{ $roleName }}
+data:
+  nginx.conf: |
+    worker_processes auto;
+    pid /tmp/tracegate-nginx-{{ $roleName }}.pid;
+
+    events {
+      worker_connections 2048;
+    }
+
+    http {
+      include /etc/nginx/mime.types;
+      default_type application/octet-stream;
+      sendfile on;
+      keepalive_timeout 65;
+
+{{- if eq $roleName "transit" }}
+      server {
+        listen {{ int ($role.ports.publicHttp | default 80) }};
+        server_name _;
+        root {{ $.Values.decoy.mountPath }};
+        index index.html;
+
+        location / {
+          try_files $uri $uri/ /index.html;
+        }
+      }
+{{- end }}
+
+      server {
+        listen 127.0.0.1:{{ int $role.ports.httpsAdapter }} ssl http2;
+        server_name {{ $role.tls.serverName }};
+
+        ssl_certificate /etc/tracegate/tls/tls.crt;
+        ssl_certificate_key /etc/tracegate/tls/tls.key;
+        ssl_session_timeout 1d;
+        ssl_session_cache shared:TracegateTLS{{ title $roleName }}:10m;
+        ssl_protocols TLSv1.2 TLSv1.3;
+        ssl_prefer_server_ciphers off;
+
+        root {{ $.Values.decoy.mountPath }};
+        index index.html;
+
+        location {{ $.Values.controlPlane.env.vlessWsPath }} {
+          proxy_pass http://127.0.0.1:{{ int $role.ports.vlessWs }};
+          proxy_http_version 1.1;
+          proxy_connect_timeout 5s;
+          proxy_read_timeout 5m;
+          proxy_send_timeout 5m;
+          proxy_set_header Upgrade $http_upgrade;
+          proxy_set_header Connection "upgrade";
+          proxy_set_header Host $host;
+          proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+          proxy_set_header X-Forwarded-Proto https;
+        }
+
+        location {{ $.Values.controlPlane.env.vlessGrpcPath }} {
+          grpc_read_timeout 5m;
+          grpc_send_timeout 5m;
+          grpc_set_header Host $host;
+          grpc_pass grpc://127.0.0.1:{{ int $role.ports.vlessGrpc }};
+        }
+
+{{- if and (eq $roleName "transit") $.Values.wireguard.enabled $.Values.wireguard.wstunnel.enabled }}
+        location {{ $.Values.wireguard.wstunnel.publicPath }} {
+          proxy_pass http://127.0.0.1:{{ int $.Values.wireguard.wstunnel.websocketPort }};
+          proxy_http_version 1.1;
+          proxy_connect_timeout 5s;
+          proxy_read_timeout 1h;
+          proxy_send_timeout 1h;
+          proxy_set_header Upgrade $http_upgrade;
+          proxy_set_header Connection "upgrade";
+          proxy_set_header Host $host;
+          proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+          proxy_set_header X-Forwarded-Proto https;
+        }
+
+{{- end }}
+{{- if eq $roleName "transit" }}
+        location = /vault/mtproto {
+          return 302 /vault/mtproto/;
+        }
+{{- end }}
+
+        location / {
+          try_files $uri $uri/ /index.html;
+        }
+      }
+    }
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "tracegate.roleName" (dict "root" $ "role" $roleName) }}-xray
+  namespace: {{ include "tracegate.namespace" $ }}
+  labels:
+    {{- include "tracegate.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: gateway-{{ $roleName }}
+data:
+  config.json: |
+    {
+      "log": {"loglevel": "warning"},
+      "api": {"tag": "api", "services": ["HandlerService", "StatsService"]},
+      "stats": {},
+      "policy": {
+        "levels": {
+          "0": {
+            "handshake": 4,
+            "connIdle": 300,
+            "uplinkOnly": 2,
+            "downlinkOnly": 5,
+            "statsUserUplink": true,
+            "statsUserDownlink": true
+          }
+        },
+        "system": {
+          "statsInboundUplink": true,
+          "statsInboundDownlink": true,
+          "statsOutboundUplink": true,
+          "statsOutboundDownlink": true
+        }
+      },
+      "inbounds": [
+        {"tag": "api", "listen": "127.0.0.1", "port": {{ int $role.ports.xrayApi }}, "protocol": "dokodemo-door", "settings": {"address": "127.0.0.1"}},
+        {
+          "tag": "{{ ternary "entry-in" "vless-reality-in" (eq $roleName "entry") }}",
+          "listen": "127.0.0.1",
+          "port": {{ int $role.ports.reality }},
+          "protocol": "vless",
+          "settings": {"clients": [], "decryption": "none"},
+          "streamSettings": {
+            "network": "xhttp",
+            "security": "reality",
+            "realitySettings": {
+              "show": false,
+              "dest": {{ $role.reality.dest | quote }},
+              "xver": 0,
+              "serverNames": {{ toJson $role.reality.serverNames }},
+              "privateKey": "REPLACE_REALITY_PRIVATE_KEY",
+              "shortIds": {{ toJson $role.reality.shortIds }}
+            },
+            "xhttpSettings": {"mode": "packet-up", "path": "/api/v1/update"}
+          },
+          "sniffing": {"enabled": true, "destOverride": ["http", "tls", "quic"]}
+        },
+        {
+          "tag": "vless-ws-in",
+          "listen": "127.0.0.1",
+          "port": {{ int $role.ports.vlessWs }},
+          "protocol": "vless",
+          "settings": {"clients": [], "decryption": "none"},
+          "streamSettings": {"network": "ws", "security": "none", "wsSettings": {"path": {{ $.Values.controlPlane.env.vlessWsPath | quote }}, "heartbeatPeriod": 15}},
+          "sniffing": {"enabled": true, "destOverride": ["http", "tls", "quic"]}
+        },
+        {
+          "tag": "vless-grpc-in",
+          "listen": "127.0.0.1",
+          "port": {{ int $role.ports.vlessGrpc }},
+          "protocol": "vless",
+          "settings": {"clients": [], "decryption": "none"},
+          "streamSettings": {"network": "grpc", "security": "none", "grpcSettings": {"serviceName": {{ $.Values.controlPlane.env.vlessGrpcServiceName | quote }}}},
+          "sniffing": {"enabled": true, "destOverride": ["http", "tls", "quic"]}
+        },
+        {
+          "tag": "hy2-in",
+          "listen": "0.0.0.0",
+          "port": {{ int $role.ports.publicUdp }},
+          "protocol": "hysteria",
+          "settings": {"version": 2, "clients": []},
+          "streamSettings": {
+            "network": "hysteria",
+            "security": "tls",
+            "tlsSettings": {"alpn": ["h3"], "certificates": [{"certificateFile": "/etc/tracegate/tls/tls.crt", "keyFile": "/etc/tracegate/tls/tls.key"}]},
+            "hysteriaSettings": {"version": 2, "auth": "REPLACE_HYSTERIA_AUTH", "udpIdleTimeout": 60, "masquerade": {"type": "file", "dir": {{ $.Values.decoy.mountPath | quote }}}}
+          },
+          "sniffing": {"enabled": true, "destOverride": ["http", "tls", "quic"]}
+        }
+      ],
+      "outbounds": [
+        {"tag": "api", "protocol": "freedom"},
+        {"tag": "direct", "protocol": "freedom"},
+        {"tag": "block", "protocol": "blackhole"}
+      ],
+      "routing": {
+        "domainStrategy": "IPIfNonMatch",
+        "rules": [
+          {"type": "field", "inboundTag": ["api"], "outboundTag": "api"},
+          {"type": "field", "inboundTag": ["entry-in", "vless-reality-in", "vless-ws-in", "vless-grpc-in", "hy2-in"], "protocol": ["bittorrent"], "outboundTag": "block"},
+          {"type": "field", "ip": ["geoip:private"], "outboundTag": "block"}
+        ]
+      }
+    }
+{{- end }}
+{{- end }}
