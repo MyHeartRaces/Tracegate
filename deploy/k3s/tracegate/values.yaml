@@ -51,7 +51,7 @@ controlPlane:
     mtprotoDomain: ""
     localSocksAuth: required
     botWelcomeRequired: true
-    botWelcomeVersion: tracegate-2.1-client-safety-v1
+    botWelcomeVersion: tracegate-2.1-client-safety-v2
     botWelcomeMessageSecret:
       name: tracegate-bot-welcome
       key: message

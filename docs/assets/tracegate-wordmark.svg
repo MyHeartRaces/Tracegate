@@ -2,7 +2,12 @@
   <title id="title">TRACEGATE</title>
   <desc id="desc">Tracegate public repository wordmark.</desc>
   <rect width="960" height="180" fill="none"/>
-  <g fill="#111827">
+  <g
+    fill="#111827"
+    stroke="#ffffff"
+    stroke-width="8"
+    stroke-linejoin="round"
+    paint-order="stroke fill">
     <text
       x="480"
       y="112"
@@ -12,6 +17,8 @@
       font-weight="800"
       letter-spacing="0">TRACEGATE</text>
   </g>
+  <path d="M315 135H645" fill="none" stroke="#ffffff" stroke-width="16" stroke-linecap="square"/>
   <path d="M315 135H645" fill="none" stroke="#2563eb" stroke-width="8" stroke-linecap="square"/>
+  <path d="M432 147H528" fill="none" stroke="#ffffff" stroke-width="10" stroke-linecap="square"/>
   <path d="M432 147H528" fill="none" stroke="#0f172a" stroke-width="4" stroke-linecap="square"/>
 </svg>

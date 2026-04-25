@@ -503,7 +503,7 @@ def test_tracegate21_chart_externalizes_private_profiles() -> None:
     assert "interconnect.entryTransit.routerTransit.enabled=true requires the Transit gateway role" in _chart_text()
     assert "router link-crypto profiles require interconnect.mieru.enabled=true" in _chart_text()
     assert values["controlPlane"]["env"]["botWelcomeRequired"] is True
-    assert values["controlPlane"]["env"]["botWelcomeVersion"] == "tracegate-2.1-client-safety-v1"
+    assert values["controlPlane"]["env"]["botWelcomeVersion"] == "tracegate-2.1-client-safety-v2"
     assert values["controlPlane"]["env"]["botWelcomeMessageSecret"] == {
         "name": "tracegate-bot-welcome",
         "key": "message",
@@ -550,7 +550,7 @@ def test_tracegate21_bot_welcome_message_is_secret_backed(tmp_path: Path) -> Non
     container = bot["spec"]["template"]["spec"]["containers"][0]
     env_by_name = {row["name"]: row for row in container["env"]}
     assert env_by_name["BOT_WELCOME_REQUIRED"]["value"] == "true"
-    assert env_by_name["BOT_WELCOME_VERSION"]["value"] == "tracegate-2.1-client-safety-v1"
+    assert env_by_name["BOT_WELCOME_VERSION"]["value"] == "tracegate-2.1-client-safety-v2"
     assert env_by_name["BOT_WELCOME_MESSAGE"]["valueFrom"]["secretKeyRef"] == {
         "name": "tracegate-bot-welcome",
         "key": "message",

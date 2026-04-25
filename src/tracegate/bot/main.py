@@ -301,7 +301,7 @@ def _load_guide_text() -> str:
 
 
 def _bot_welcome_version() -> str:
-    return str(settings.bot_welcome_version or "").strip() or "tracegate-2.1-client-safety-v1"
+    return str(settings.bot_welcome_version or "").strip() or "tracegate-2.1-client-safety-v2"
 
 
 def _bot_welcome_text() -> str:

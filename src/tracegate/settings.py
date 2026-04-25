@@ -97,7 +97,7 @@ class Settings(BaseSettings):
     # Production warning shown before the normal /start flow. Keep the real
     # copy in private env/Secrets; the repository default is a placeholder.
     bot_welcome_required: bool = True
-    bot_welcome_version: str = "tracegate-2.1-client-safety-v1"
+    bot_welcome_version: str = "tracegate-2.1-client-safety-v2"
     bot_welcome_message: str = "[TRACEGATE_BOT_WELCOME_MESSAGE_PLACEHOLDER]"
     bot_welcome_message_file: str = ""
     # /clear command tries to delete last N messages in chat (best-effort).
