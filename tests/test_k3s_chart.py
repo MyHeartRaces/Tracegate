@@ -1338,7 +1338,7 @@ def test_tracegate21_templates_include_grpc_mtproto_and_mieru_surfaces() -> None
     assert "mieru run -c" in text
     assert "wstunnel server" in text
     assert "wstunnel-link-crypto" in text
-    assert "wstunnel client -L" in text
+    assert "wstunnel client --http-upgrade-path-prefix" in text
 
 
 def test_tracegate21_gateway_projects_private_profile_secret_paths() -> None:
@@ -1382,7 +1382,11 @@ def test_tracegate21_gateway_projects_private_profile_secret_paths() -> None:
     assert "wg-quick up {{ $.Values.privateProfiles.mountPath }}/{{ $.Values.privateProfiles.keys.wireguard }}" in gateways
     assert "wstunnel-wireguard" in gateways
     assert "wstunnel-link-crypto" in gateways
-    assert 'exec wstunnel client -L "tcp://127.0.0.1:{{ int $linkOuterCarrier.clientLocalPort }}:127.0.0.1:{{ int $.Values.interconnect.mieru.localSocks.transitPort }}"' in gateways
+    assert (
+        'exec wstunnel client --http-upgrade-path-prefix "{{ $linkOuterCarrierPathPrefix }}" '
+        '-L "tcp://127.0.0.1:{{ int $linkOuterCarrier.clientLocalPort }}:127.0.0.1:{{ int $.Values.interconnect.mieru.localSocks.transitPort }}"'
+        in gateways
+    )
     assert 'exec wstunnel server "ws://127.0.0.1:{{ int $linkOuterCarrier.serverLocalPort }}"' in gateways
     assert '(eq $roleName "transit") $.Values.wireguard.enabled $.Values.wireguard.wstunnel.enabled' in gateways
     assert "location {{ $.Values.wireguard.wstunnel.publicPath }}" in configmaps

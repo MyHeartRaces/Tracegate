@@ -29,6 +29,7 @@
 {{- $roleLinkCryptoServerEnabled := and $.Values.interconnect.mieru.enabled (or (and (eq $roleName "transit") $.Values.interconnect.entryTransit.enabled) (and (eq $roleName "entry") $.Values.interconnect.entryTransit.routerEntry.enabled) (and (eq $roleName "transit") $.Values.interconnect.entryTransit.routerTransit.enabled)) }}
 {{- $roleLinkCryptoEnabled := or $roleLinkCryptoClientEnabled $roleLinkCryptoServerEnabled }}
 {{- $linkOuterCarrier := $.Values.interconnect.entryTransit.outerCarrier }}
+{{- $linkOuterCarrierPathPrefix := trimPrefix "/" (toString $linkOuterCarrier.publicPath) }}
 {{- $linkWssCarrierEnabled := and $.Values.interconnect.entryTransit.enabled $linkOuterCarrier.enabled (eq (toString $linkOuterCarrier.mode) "wss") }}
 {{- $roleLinkWssCarrierEnabled := and $roleLinkCryptoEnabled $linkWssCarrierEnabled (or (eq $roleName "entry") (eq $roleName "transit")) }}
 {{- $linkZapretProfileEnabled := and $.Values.interconnect.zapret2.enabled $roleLinkCryptoEnabled }}
@@ -681,7 +682,7 @@ spec:
               set -eu
               until {{ $roleLinkCryptoReadyTest }}; do sleep 2; done
 {{- if eq $roleName "entry" }}
-              exec wstunnel client -L "tcp://127.0.0.1:{{ int $linkOuterCarrier.clientLocalPort }}:127.0.0.1:{{ int $.Values.interconnect.mieru.localSocks.transitPort }}" "wss://{{ $linkOuterCarrier.serverName }}:{{ int $linkOuterCarrier.publicPort }}{{ $linkOuterCarrier.publicPath }}"
+              exec wstunnel client --http-upgrade-path-prefix "{{ $linkOuterCarrierPathPrefix }}" -L "tcp://127.0.0.1:{{ int $linkOuterCarrier.clientLocalPort }}:127.0.0.1:{{ int $.Values.interconnect.mieru.localSocks.transitPort }}" "wss://{{ $linkOuterCarrier.serverName }}:{{ int $linkOuterCarrier.publicPort }}"
 {{- else }}
               exec wstunnel server "ws://127.0.0.1:{{ int $linkOuterCarrier.serverLocalPort }}" --restrict-to "127.0.0.1:{{ int $.Values.interconnect.mieru.localSocks.transitPort }}"
 {{- end }}
