@@ -40,11 +40,18 @@ surface until the Helm rollout is complete.
   gateway PDB at `minAvailable=1`.
 - Do not use host-wide NFQUEUE or broad userspace interception for all traffic.
 - Keep Entry-to-Transit chaining outside Xray. In the k3s chart the V2/V4/V6
-  chain bridge is owned by `link-crypto` and carried by Mieru; Xray backhaul is
-  rejected at render time. Direct backhaul fallback is also rejected; the
+  chain bridge is owned by `link-crypto`, encrypted by Mieru, and wrapped in a
+  required WSS carrier on `tcp/443`; Xray backhaul is rejected at render time.
+  Direct backhaul fallback is also rejected; the
   `interconnect.entryTransit.fallback` value must stay `none`.
-  `interconnect.entryTransit.primary`, `chainBridgeOwner` and `remotePort`
-  must stay `mieru`, `link-crypto` and `443`.
+  `interconnect.entryTransit.primary`, `chainBridgeOwner`, `remotePort` and
+  `outerCarrier.mode` must stay `mieru`, `link-crypto`, `443` and `wss`.
+  The bridge WSS `serverName` must be a dedicated hostname separate from the
+  Transit user-facing TLS name and the MTProto domain. The Transit TLS Secret
+  must cover that bridge hostname, either as a SAN on the existing certificate
+  or through an operator-provided equivalent TLS termination layout. When the
+  carrier is enabled, the private Mieru client profile must target the
+  `outerCarrier` loopback listener on Entry, not the Transit public address.
 - Keep role topology explicit. At least one gateway role must be enabled. A
   single-role Transit deployment must set `gateway.roles.entry.enabled=false`
   and `interconnect.entryTransit.enabled=false`; the Entry-Transit bridge is

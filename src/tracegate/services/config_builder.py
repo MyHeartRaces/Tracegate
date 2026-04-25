@@ -253,7 +253,8 @@ def _entry_transit_private_relay(
         "transit": endpoints.transit_host,
         "link_class": "entry-transit",
         "carrier": "mieru",
-        "preferred_outer": "mieru",
+        "preferred_outer": "wss-carrier",
+        "outer_carrier": "websocket-tls",
         "optional_packet_shaping": "zapret2-scoped",
         "managed_by": "link-crypto",
         "selected_profiles": ["V2", "V4", "V6"],
@@ -340,7 +341,7 @@ def build_effective_config(
                     "fixed_port_tcp": 443,
                     "entry_role_required": True,
                     "transit_role_required": True,
-                    "private_interconnect": "mieru-zapret2",
+                    "private_interconnect": "mieru-wss-zapret2",
                     "backhaul_outside_xray": True,
                 },
             }
@@ -480,7 +481,7 @@ def build_effective_config(
                 "fixed_port_udp": 443,
                 "masquerade_mode": "file",
                 "entry_role_required": is_chain,
-                "private_interconnect": "mieru-zapret2" if is_chain else None,
+                "private_interconnect": "mieru-wss-zapret2" if is_chain else None,
                 "backhaul_outside_xray": is_chain,
                 "udp_over_private_relay": is_chain,
             },
@@ -559,7 +560,7 @@ def build_effective_config(
                 "fixed_port_tcp": 443,
                 "shadowtls_version": 3,
                 "entry_role_required": is_chain,
-                "private_interconnect": "mieru-zapret2",
+                "private_interconnect": "mieru-wss-zapret2",
             },
             "chain": (
                 _entry_transit_private_relay(endpoints=endpoints, inner_transport="shadowsocks2022-shadowtls-v3")

@@ -677,6 +677,26 @@ def test_reconcile_runtime_contract_exposes_private_wrapper_state(tmp_path: Path
         "routerEntry": 0,
         "routerTransit": 0,
     }
+    assert runtime_contract["linkCrypto"]["outerCarrier"] == {
+        "enabled": True,
+        "mode": "wss",
+        "protocol": "websocket-tls",
+        "serverName": "bridge.example.com",
+        "publicPort": 443,
+        "publicPath": "/cdn-cgi/tracegate-link",
+        "url": "wss://bridge.example.com:443/cdn-cgi/tracegate-link",
+        "verifyTls": True,
+        "secretMaterial": False,
+        "localPorts": {
+            "entryClient": 14081,
+            "transitServer": 14082,
+        },
+        "endpoints": {
+            "entryClientListen": "127.0.0.1:14081",
+            "transitServerListen": "127.0.0.1:14082",
+            "transitTarget": "127.0.0.1:10882",
+        },
+    }
     assert runtime_contract["linkCrypto"]["localPorts"] == {"entry-transit": 10882}
     assert runtime_contract["linkCrypto"]["selectedProfiles"] == {"entry-transit": ["V2", "V4", "V6"]}
     assert runtime_contract["linkCrypto"]["zapret2"]["hostWideInterception"] is False
@@ -1040,7 +1060,8 @@ def _write_tracegate21_profile_artifacts(root: Path) -> None:
                         "transit": "transit.tracegate.test",
                         "link_class": "entry-transit",
                         "carrier": "mieru",
-                        "preferred_outer": "mieru",
+                        "preferred_outer": "wss-carrier",
+                        "outer_carrier": "websocket-tls",
                         "optional_packet_shaping": "zapret2-scoped",
                         "managed_by": "link-crypto",
                         "selected_profiles": ["V2", "V4", "V6"],
@@ -1133,7 +1154,8 @@ def test_reconcile_materializes_private_profile_handoff_for_transit(tmp_path: Pa
         "direct-transit-public",
         "transit-private-terminator",
     ]
-    assert state["shadowsocks2022ShadowTLS"][1]["chain"]["preferredOuter"] == "mieru"
+    assert state["shadowsocks2022ShadowTLS"][1]["chain"]["preferredOuter"] == "wss-carrier"
+    assert state["shadowsocks2022ShadowTLS"][1]["chain"]["outerCarrier"] == "websocket-tls"
     assert state["shadowsocks2022ShadowTLS"][1]["chain"]["managedBy"] == "link-crypto"
     assert state["shadowsocks2022ShadowTLS"][1]["chain"]["selectedProfiles"] == ["V2", "V4", "V6"]
     assert state["shadowsocks2022ShadowTLS"][1]["chain"]["xrayBackhaul"] is False
@@ -1195,7 +1217,7 @@ def test_reconcile_materializes_only_chain_profile_handoff_for_entry(tmp_path: P
     assert state["shadowsocks2022ShadowTLS"][0]["shadowtls"]["restartOnUserChange"] is False
     assert state["shadowsocks2022ShadowTLS"][0]["obfuscation"] == {
         "scope": "entry-transit-private-relay",
-        "outer": "mieru",
+        "outer": "wss-carrier",
         "packetShaping": "zapret2-scoped",
         "hostWideInterception": False,
     }
@@ -1271,6 +1293,22 @@ def test_reconcile_materializes_link_crypto_handoff_without_private_secrets(tmp_
     assert state["links"][0]["xrayBackhaul"] is False
     assert state["links"][0]["generation"] == 7
     assert state["links"][0]["remote"]["endpoint"] == "transit.tracegate.test:443"
+    assert state["links"][0]["outerCarrier"] == {
+        "enabled": True,
+        "mode": "wss",
+        "protocol": "websocket-tls",
+        "serverName": "bridge.example.com",
+        "publicPort": 443,
+        "publicPath": "/cdn-cgi/tracegate-link",
+        "url": "wss://bridge.example.com:443/cdn-cgi/tracegate-link",
+        "verifyTls": True,
+        "secretMaterial": False,
+        "side": "client",
+        "localEndpoint": "127.0.0.1:14081",
+        "entryClientListen": "127.0.0.1:14081",
+        "transitServerListen": "127.0.0.1:14082",
+        "transitTarget": "127.0.0.1:10882",
+    }
     assert state["links"][0]["profileRef"] == {
         "kind": "file",
         "path": "/etc/tracegate/private/mieru/client.json",
@@ -1283,6 +1321,8 @@ def test_reconcile_materializes_link_crypto_handoff_without_private_secrets(tmp_
     assert state["links"][0]["rotation"]["restartExisting"] is False
     assert "TRACEGATE_LINK_CRYPTO_SECRET_MATERIAL='false'" in env
     assert "TRACEGATE_LINK_CRYPTO_CLASSES='entry-transit'" in env
+    assert "TRACEGATE_LINK_CRYPTO_OUTER_CARRIER_MODE='wss'" in env
+    assert "TRACEGATE_LINK_CRYPTO_OUTER_WSS_PATH='/cdn-cgi/tracegate-link'" in env
 
     changed2 = reconcile_all(settings)
     assert changed2 == []
@@ -2003,6 +2043,8 @@ def test_reconcile_tracegate21_strips_legacy_xray_backhaul_from_runtime(tmp_path
     assert runtime_contract["linkCrypto"]["secretMaterial"] is False
     assert runtime_contract["linkCrypto"]["xrayBackhaul"] is False
     assert runtime_contract["linkCrypto"]["classes"] == ["entry-transit"]
+    assert runtime_contract["linkCrypto"]["outerCarrier"]["mode"] == "wss"
+    assert runtime_contract["linkCrypto"]["outerCarrier"]["url"] == "wss://bridge.example.com:443/cdn-cgi/tracegate-link"
     assert runtime_contract["rollout"]["gatewayStrategy"] == "RollingUpdate"
     assert runtime_contract["rollout"]["maxUnavailable"] == "0"
     assert runtime_contract["rollout"]["privatePreflightForbidPlaceholders"] is True

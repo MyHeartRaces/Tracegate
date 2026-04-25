@@ -101,6 +101,13 @@ interconnect:
     fallback: none
     chainBridgeOwner: link-crypto
     xrayBackhaul: false
+    outerCarrier:
+      enabled: true
+      mode: wss
+      serverName: bridge.example.com
+      publicPort: 443
+      publicPath: /cdn-cgi/tracegate-link
+      verifyTls: true
   mieru:
     enabled: true
     localSocks:

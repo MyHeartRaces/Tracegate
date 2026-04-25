@@ -28,6 +28,9 @@
 {{- $roleLinkCryptoClientEnabled := and $.Values.interconnect.mieru.enabled $.Values.interconnect.entryTransit.enabled (eq $roleName "entry") }}
 {{- $roleLinkCryptoServerEnabled := and $.Values.interconnect.mieru.enabled (or (and (eq $roleName "transit") $.Values.interconnect.entryTransit.enabled) (and (eq $roleName "entry") $.Values.interconnect.entryTransit.routerEntry.enabled) (and (eq $roleName "transit") $.Values.interconnect.entryTransit.routerTransit.enabled)) }}
 {{- $roleLinkCryptoEnabled := or $roleLinkCryptoClientEnabled $roleLinkCryptoServerEnabled }}
+{{- $linkOuterCarrier := $.Values.interconnect.entryTransit.outerCarrier }}
+{{- $linkWssCarrierEnabled := and $.Values.interconnect.entryTransit.enabled $linkOuterCarrier.enabled (eq (toString $linkOuterCarrier.mode) "wss") }}
+{{- $roleLinkWssCarrierEnabled := and $roleLinkCryptoEnabled $linkWssCarrierEnabled (or (eq $roleName "entry") (eq $roleName "transit")) }}
 {{- $linkZapretProfileEnabled := and $.Values.interconnect.zapret2.enabled $roleLinkCryptoEnabled }}
 {{- if $.Values.gateway.pdb.enabled }}
 apiVersion: policy/v1
@@ -436,6 +439,22 @@ spec:
               value: {{ $.Values.interconnect.mieru.localSocks.routerTransitPort | quote }}
             - name: PRIVATE_LINK_CRYPTO_REMOTE_PORT
               value: {{ $.Values.interconnect.entryTransit.remotePort | quote }}
+            - name: PRIVATE_LINK_CRYPTO_OUTER_CARRIER_ENABLED
+              value: {{ $linkOuterCarrier.enabled | quote }}
+            - name: PRIVATE_LINK_CRYPTO_OUTER_CARRIER_MODE
+              value: {{ $linkOuterCarrier.mode | quote }}
+            - name: PRIVATE_LINK_CRYPTO_OUTER_WSS_SERVER_NAME
+              value: {{ $linkOuterCarrier.serverName | quote }}
+            - name: PRIVATE_LINK_CRYPTO_OUTER_WSS_PUBLIC_PORT
+              value: {{ $linkOuterCarrier.publicPort | quote }}
+            - name: PRIVATE_LINK_CRYPTO_OUTER_WSS_PATH
+              value: {{ $linkOuterCarrier.publicPath | quote }}
+            - name: PRIVATE_LINK_CRYPTO_OUTER_WSS_CLIENT_PORT
+              value: {{ $linkOuterCarrier.clientLocalPort | quote }}
+            - name: PRIVATE_LINK_CRYPTO_OUTER_WSS_SERVER_PORT
+              value: {{ $linkOuterCarrier.serverLocalPort | quote }}
+            - name: PRIVATE_LINK_CRYPTO_OUTER_WSS_VERIFY_TLS
+              value: {{ $linkOuterCarrier.verifyTls | quote }}
             - name: PRIVATE_LINK_CRYPTO_ZAPRET2_ENABLED
               value: {{ $.Values.interconnect.zapret2.enabled | quote }}
             - name: MTPROTO_DOMAIN
@@ -647,6 +666,43 @@ spec:
             - name: private-profiles
               mountPath: {{ $.Values.privateProfiles.mountPath }}
               readOnly: true
+            - name: gateway-state
+              mountPath: /var/lib/tracegate
+              readOnly: true
+{{- end }}
+{{- if $roleLinkWssCarrierEnabled }}
+        - name: wstunnel-link-crypto
+          image: {{ include "tracegate.image" $.Values.gateway.images.wstunnel | quote }}
+          imagePullPolicy: {{ $.Values.gateway.images.wstunnel.pullPolicy }}
+          command:
+            - sh
+            - -lc
+            - |
+              set -eu
+              until {{ $roleLinkCryptoReadyTest }}; do sleep 2; done
+{{- if eq $roleName "entry" }}
+              exec wstunnel client -L "tcp://127.0.0.1:{{ int $linkOuterCarrier.clientLocalPort }}:127.0.0.1:{{ int $.Values.interconnect.mieru.localSocks.transitPort }}" "wss://{{ $linkOuterCarrier.serverName }}:{{ int $linkOuterCarrier.publicPort }}{{ $linkOuterCarrier.publicPath }}"
+{{- else }}
+              exec wstunnel server "ws://127.0.0.1:{{ int $linkOuterCarrier.serverLocalPort }}" --restrict-to "127.0.0.1:{{ int $.Values.interconnect.mieru.localSocks.transitPort }}"
+{{- end }}
+          env:
+            - name: TRACEGATE_LINK_CRYPTO_ROLE
+              value: {{ $role.role | quote }}
+            - name: TRACEGATE_LINK_CRYPTO_STATE_JSON
+              value: {{ $roleLinkCryptoState | quote }}
+            - name: TRACEGATE_LINK_CRYPTO_STATE_ENV
+              value: {{ $roleLinkCryptoEnv | quote }}
+            - name: TRACEGATE_LINK_CRYPTO_RELOAD_MARKER
+              value: {{ $roleLinkCryptoReloadMarker | quote }}
+            - name: TRACEGATE_LINK_CRYPTO_OUTER_CARRIER
+              value: "wss"
+            - name: TRACEGATE_LINK_CRYPTO_OUTER_WSS_URL
+              value: {{ printf "wss://%s:%d%s" (toString $linkOuterCarrier.serverName) (int $linkOuterCarrier.publicPort) (toString $linkOuterCarrier.publicPath) | quote }}
+{{- with $.Values.gateway.containerResources.wstunnel }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+{{- end }}
+          volumeMounts:
             - name: gateway-state
               mountPath: /var/lib/tracegate
               readOnly: true

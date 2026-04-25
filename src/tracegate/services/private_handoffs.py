@@ -241,6 +241,49 @@ def _link_crypto_remote_endpoint(host: object, *, fallback_host: str, remote_por
     return f"{remote_host}:{int(remote_port)}"
 
 
+def _normalize_link_wss_path(value: object) -> str:
+    raw = str(value or "").strip() or "/cdn-cgi/tracegate-link"
+    if not raw.startswith("/"):
+        raw = f"/{raw}"
+    return raw
+
+
+def _link_crypto_outer_wss_server_name(settings: Settings) -> str:
+    return str(settings.private_link_crypto_outer_wss_server_name or "").strip() or "bridge.example.com"
+
+
+def _link_crypto_outer_carrier(settings: Settings, *, link_class: str, side: str) -> dict[str, Any]:
+    if link_class != "entry-transit" or not bool(settings.private_link_crypto_outer_carrier_enabled):
+        return {
+            "enabled": False,
+            "mode": "direct",
+            "secretMaterial": False,
+        }
+
+    server_name = _link_crypto_outer_wss_server_name(settings)
+    public_port = int(settings.private_link_crypto_outer_wss_public_port or 443)
+    public_path = _normalize_link_wss_path(settings.private_link_crypto_outer_wss_path)
+    client_port = int(settings.private_link_crypto_outer_wss_client_port or 14081)
+    server_port = int(settings.private_link_crypto_outer_wss_server_port or 14082)
+    transit_port = int(settings.private_link_crypto_transit_port or 10882)
+    return {
+        "enabled": True,
+        "mode": str(settings.private_link_crypto_outer_carrier_mode or "wss").strip() or "wss",
+        "protocol": "websocket-tls",
+        "serverName": server_name,
+        "publicPort": public_port,
+        "publicPath": public_path,
+        "url": f"wss://{server_name}:{public_port}{public_path}",
+        "verifyTls": bool(settings.private_link_crypto_outer_wss_verify_tls),
+        "secretMaterial": False,
+        "side": side,
+        "localEndpoint": f"127.0.0.1:{client_port if side == 'client' else server_port}",
+        "entryClientListen": f"127.0.0.1:{client_port}",
+        "transitServerListen": f"127.0.0.1:{server_port}",
+        "transitTarget": f"127.0.0.1:{transit_port}",
+    }
+
+
 def _link_crypto_zapret2_policy(settings: Settings, *, profile_file: str) -> dict[str, Any]:
     return {
         "enabled": bool(settings.private_link_crypto_zapret2_enabled),
@@ -293,6 +336,7 @@ def _link_crypto_row(
             "role": remote_role,
             "endpoint": remote_endpoint,
         },
+        "outerCarrier": _link_crypto_outer_carrier(settings, link_class=link_class, side=side),
         "selectedProfiles": selected_profiles,
         "zapret2": _link_crypto_zapret2_policy(settings, profile_file=_interconnect_profile_path(settings)),
         "rotation": {
@@ -428,6 +472,7 @@ def _write_link_crypto_state(
     json_path = state_dir / "desired-state.json"
     env_path = state_dir / "desired-state.env"
     link_classes = [str(row.get("class") or "").strip() for row in payload["links"] if str(row.get("class") or "").strip()]
+    outer_carrier_enabled = "entry-transit" in link_classes and bool(settings.private_link_crypto_outer_carrier_enabled)
 
     env_lines = [
         f"TRACEGATE_LINK_CRYPTO_ROLE={_shell_quote(payload['role'])}",
@@ -437,6 +482,12 @@ def _write_link_crypto_state(
         f"TRACEGATE_LINK_CRYPTO_COUNT={_shell_quote(payload['counts']['total'])}",
         f"TRACEGATE_LINK_CRYPTO_CLASSES={_shell_quote(':'.join(link_classes))}",
         f"TRACEGATE_LINK_CRYPTO_CARRIER={_shell_quote('mieru')}",
+        f"TRACEGATE_LINK_CRYPTO_OUTER_CARRIER_ENABLED={_shell_quote(_bool_text(outer_carrier_enabled))}",
+        f"TRACEGATE_LINK_CRYPTO_OUTER_CARRIER_MODE={_shell_quote(str(settings.private_link_crypto_outer_carrier_mode or 'wss').strip() or 'wss')}",
+        f"TRACEGATE_LINK_CRYPTO_OUTER_WSS_SERVER_NAME={_shell_quote(_link_crypto_outer_wss_server_name(settings))}",
+        f"TRACEGATE_LINK_CRYPTO_OUTER_WSS_PUBLIC_PORT={_shell_quote(int(settings.private_link_crypto_outer_wss_public_port or 443))}",
+        f"TRACEGATE_LINK_CRYPTO_OUTER_WSS_PATH={_shell_quote(_normalize_link_wss_path(settings.private_link_crypto_outer_wss_path))}",
+        f"TRACEGATE_LINK_CRYPTO_OUTER_WSS_VERIFY_TLS={_shell_quote(_bool_text(bool(settings.private_link_crypto_outer_wss_verify_tls)))}",
         f"TRACEGATE_LINK_CRYPTO_GENERATION={_shell_quote(int(settings.private_link_crypto_generation or 1))}",
         f"TRACEGATE_LINK_CRYPTO_ZAPRET2_ENABLED={_shell_quote(_bool_text(bool(settings.private_link_crypto_zapret2_enabled)))}",
         f"TRACEGATE_LINK_CRYPTO_ZAPRET2_HOST_WIDE_INTERCEPTION={_shell_quote(_bool_text(False))}",
@@ -720,6 +771,7 @@ def _chain_state(config: dict[str, Any]) -> dict[str, Any] | None:
         "linkClass": str(chain.get("link_class") or "").strip(),
         "carrier": str(chain.get("carrier") or "").strip(),
         "preferredOuter": str(chain.get("preferred_outer") or "").strip(),
+        "outerCarrier": str(chain.get("outer_carrier") or "").strip(),
         "optionalPacketShaping": str(chain.get("optional_packet_shaping") or "").strip(),
         "managedBy": str(chain.get("managed_by") or "").strip(),
         "selectedProfiles": _string_list(chain.get("selected_profiles")),
@@ -732,7 +784,7 @@ def _obfuscation_policy(*, protocol: str, variant: str) -> dict[str, Any]:
     if variant == "V6":
         return {
             "scope": "entry-transit-private-relay",
-            "outer": "mieru",
+            "outer": "wss-carrier",
             "packetShaping": "zapret2-scoped",
             "hostWideInterception": False,
         }

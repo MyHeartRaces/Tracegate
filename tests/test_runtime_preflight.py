@@ -145,7 +145,7 @@ def _write_zapret_profile(tmp_path: Path, file_name: str, **overrides: str) -> P
             "TRACEGATE_ZAPRET_TARGET_TCP_PORTS": "443",
             "TRACEGATE_ZAPRET_TARGET_UDP_PORTS": "443",
             "TRACEGATE_ZAPRET_TARGET_PROTOCOLS": "v2,v4,v6",
-            "TRACEGATE_ZAPRET_TARGET_SURFACES": "entry_transit_private_relay,link_crypto_outer,mieru_outer",
+            "TRACEGATE_ZAPRET_TARGET_SURFACES": "entry_transit_private_relay,link_crypto_outer,mieru_outer,wss_carrier",
             "TRACEGATE_ZAPRET_TOUCH_UNRELATED_SYSTEM_TRAFFIC": "false",
             "TRACEGATE_ZAPRET_MAX_WORKERS": "1",
             "TRACEGATE_ZAPRET_NOTES": "Entry-Transit interconnect profile",
@@ -618,7 +618,8 @@ def _private_shadowtls_profile(*, role: str, variant: str = "V6", overrides: dic
                 "transit": "transit.tracegate.test",
                 "linkClass": "entry-transit",
                 "carrier": "mieru",
-                "preferredOuter": "mieru",
+                "preferredOuter": "wss-carrier",
+                "outerCarrier": "websocket-tls",
                 "optionalPacketShaping": "zapret2-scoped",
                 "managedBy": "link-crypto",
                 "selectedProfiles": ["V2", "V4", "V6"],
@@ -630,7 +631,7 @@ def _private_shadowtls_profile(*, role: str, variant: str = "V6", overrides: dic
         ),
         "obfuscation": {
             "scope": "entry-transit-private-relay" if variant_upper == "V6" else "public-tcp-443",
-            "outer": "mieru" if variant_upper == "V6" else "shadowtls-v3",
+            "outer": "wss-carrier" if variant_upper == "V6" else "shadowtls-v3",
             "packetShaping": "zapret2-scoped",
             "hostWideInterception": False,
         },
@@ -779,6 +780,22 @@ def _link_crypto_row(*, role: str, link_class: str = "entry-transit", overrides:
     role_upper = role.strip().upper()
     side = "client" if role_upper == "ENTRY" and link_class == "entry-transit" else "server"
     remote_role = "TRANSIT" if role_upper == "ENTRY" else "ENTRY"
+    outer_carrier = {
+        "enabled": link_class == "entry-transit",
+        "mode": "wss" if link_class == "entry-transit" else "direct",
+        "protocol": "websocket-tls" if link_class == "entry-transit" else "",
+        "serverName": "bridge.tracegate.test" if link_class == "entry-transit" else "",
+        "publicPort": 443 if link_class == "entry-transit" else 0,
+        "publicPath": "/cdn-cgi/tracegate-link" if link_class == "entry-transit" else "",
+        "url": "wss://bridge.tracegate.test:443/cdn-cgi/tracegate-link" if link_class == "entry-transit" else "",
+        "verifyTls": link_class == "entry-transit",
+        "secretMaterial": False,
+        "side": side,
+        "localEndpoint": f"127.0.0.1:{14081 if side == 'client' else 14082}" if link_class == "entry-transit" else "",
+        "entryClientListen": "127.0.0.1:14081" if link_class == "entry-transit" else "",
+        "transitServerListen": "127.0.0.1:14082" if link_class == "entry-transit" else "",
+        "transitTarget": "127.0.0.1:10882" if link_class == "entry-transit" else "",
+    }
     payload = {
         "class": link_class,
         "enabled": True,
@@ -804,6 +821,7 @@ def _link_crypto_row(*, role: str, link_class: str = "entry-transit", overrides:
             "role": remote_role,
             "endpoint": "transit.tracegate.test:443" if role_upper == "ENTRY" else "entry.tracegate.test:443",
         },
+        "outerCarrier": outer_carrier,
         "selectedProfiles": ["V2", "V4", "V6"],
         "zapret2": {
             "enabled": False,
@@ -827,6 +845,29 @@ def _link_crypto_row(*, role: str, link_class: str = "entry-transit", overrides:
     if overrides:
         payload.update(overrides)
     return payload
+
+
+def _link_crypto_outer_carrier_contract(*, enabled: bool = True) -> dict:
+    return {
+        "enabled": enabled,
+        "mode": "wss" if enabled else "direct",
+        "protocol": "websocket-tls" if enabled else "",
+        "serverName": "bridge.tracegate.test" if enabled else "",
+        "publicPort": 443 if enabled else 0,
+        "publicPath": "/cdn-cgi/tracegate-link" if enabled else "",
+        "url": "wss://bridge.tracegate.test:443/cdn-cgi/tracegate-link" if enabled else "",
+        "verifyTls": enabled,
+        "secretMaterial": False,
+        "localPorts": {
+            "entryClient": 14081,
+            "transitServer": 14082,
+        },
+        "endpoints": {
+            "entryClientListen": "127.0.0.1:14081",
+            "transitServerListen": "127.0.0.1:14082",
+            "transitTarget": "127.0.0.1:10882",
+        },
+    }
 
 
 def _write_link_crypto_state(
@@ -873,6 +914,7 @@ def _write_link_crypto_env(
     state_payload: dict,
     overrides: dict[str, object] | None = None,
 ) -> Path:
+    has_entry_transit = any(row.get("class") == "entry-transit" for row in state_payload["links"])
     payload: dict[str, object] = {
         "TRACEGATE_LINK_CRYPTO_ROLE": state_payload["role"],
         "TRACEGATE_LINK_CRYPTO_RUNTIME_PROFILE": state_payload["runtimeProfile"],
@@ -881,6 +923,12 @@ def _write_link_crypto_env(
         "TRACEGATE_LINK_CRYPTO_COUNT": state_payload["counts"]["total"],
         "TRACEGATE_LINK_CRYPTO_CLASSES": ":".join(row["class"] for row in state_payload["links"]),
         "TRACEGATE_LINK_CRYPTO_CARRIER": "mieru",
+        "TRACEGATE_LINK_CRYPTO_OUTER_CARRIER_ENABLED": "true" if has_entry_transit else "false",
+        "TRACEGATE_LINK_CRYPTO_OUTER_CARRIER_MODE": "wss" if has_entry_transit else "direct",
+        "TRACEGATE_LINK_CRYPTO_OUTER_WSS_SERVER_NAME": "bridge.tracegate.test",
+        "TRACEGATE_LINK_CRYPTO_OUTER_WSS_PUBLIC_PORT": "443",
+        "TRACEGATE_LINK_CRYPTO_OUTER_WSS_PATH": "/cdn-cgi/tracegate-link",
+        "TRACEGATE_LINK_CRYPTO_OUTER_WSS_VERIFY_TLS": "true",
         "TRACEGATE_LINK_CRYPTO_GENERATION": "1",
         "TRACEGATE_LINK_CRYPTO_ZAPRET2_ENABLED": "false",
         "TRACEGATE_LINK_CRYPTO_ZAPRET2_HOST_WIDE_INTERCEPTION": "false",
@@ -1737,6 +1785,7 @@ def test_validate_link_crypto_state_accepts_consistent_handoff(tmp_path: Path) -
         "xrayBackhaul": False,
         "generation": 1,
         "remotePort": 443,
+        "outerCarrier": _link_crypto_outer_carrier_contract(),
         "classes": ["entry-transit"],
         "counts": {
             "total": 1,
@@ -1800,6 +1849,7 @@ def test_validate_link_crypto_state_accepts_router_only_handoff(
         "xrayBackhaul": False,
         "generation": 1,
         "remotePort": 443,
+        "outerCarrier": _link_crypto_outer_carrier_contract(enabled=False),
         "classes": [link_class],
         "counts": {
             "total": 1,
@@ -1860,6 +1910,17 @@ def test_validate_link_crypto_state_detects_runtime_contract_alignment_drift(tmp
         "xrayBackhaul": True,
         "generation": 2,
         "remotePort": 8443,
+        "outerCarrier": {
+            "enabled": True,
+            "mode": "direct",
+            "protocol": "tcp",
+            "serverName": "",
+            "publicPort": 8443,
+            "publicPath": "bad path",
+            "url": "http://bridge.tracegate.test:8443/bad path?x=1",
+            "verifyTls": False,
+            "secretMaterial": True,
+        },
         "classes": ["entry-transit"],
         "counts": {
             "total": 1,
@@ -1937,6 +1998,7 @@ def test_validate_link_crypto_state_accepts_role_scoped_runtime_contract(tmp_pat
         "xrayBackhaul": False,
         "generation": 1,
         "remotePort": 443,
+        "outerCarrier": _link_crypto_outer_carrier_contract(enabled=False),
         "zapret2": {
             "enabled": False,
             "packetShaping": "zapret2-scoped",
@@ -2004,6 +2066,7 @@ def test_validate_link_crypto_state_uses_top_level_role_metadata_fallback(tmp_pa
         "xrayBackhaul": False,
         "generation": 1,
         "remotePort": 443,
+        "outerCarrier": _link_crypto_outer_carrier_contract(enabled=False),
         "localPorts": {"router-transit": 10999},
         "selectedProfiles": {"router-transit": ["V1"]},
         "zapret2": {
@@ -2196,6 +2259,11 @@ def test_validate_link_crypto_env_detects_divergence(tmp_path: Path) -> None:
             "TRACEGATE_LINK_CRYPTO_COUNT": 2,
             "TRACEGATE_LINK_CRYPTO_CLASSES": "entry-transit:router-entry",
             "TRACEGATE_LINK_CRYPTO_CARRIER": "direct",
+            "TRACEGATE_LINK_CRYPTO_OUTER_CARRIER_MODE": "direct",
+            "TRACEGATE_LINK_CRYPTO_OUTER_WSS_SERVER_NAME": "bridge.tracegate.test",
+            "TRACEGATE_LINK_CRYPTO_OUTER_WSS_PUBLIC_PORT": "8443",
+            "TRACEGATE_LINK_CRYPTO_OUTER_WSS_PATH": "bad path",
+            "TRACEGATE_LINK_CRYPTO_OUTER_WSS_VERIFY_TLS": "false",
             "TRACEGATE_LINK_CRYPTO_GENERATION": "0",
             "TRACEGATE_LINK_CRYPTO_ZAPRET2_HOST_WIDE_INTERCEPTION": "true",
             "TRACEGATE_LINK_CRYPTO_ZAPRET2_NFQUEUE": "true",
@@ -2213,6 +2281,10 @@ def test_validate_link_crypto_env_detects_divergence(tmp_path: Path) -> None:
     assert by_code["entry-link-crypto-env-role"].severity == "error"
     assert by_code["entry-link-crypto-env-secret-material"].severity == "error"
     assert by_code["entry-link-crypto-env-carrier"].severity == "error"
+    assert by_code["entry-link-crypto-env-outer-carrier-mode"].severity == "error"
+    assert by_code["entry-link-crypto-env-outer-wss-public-port"].severity == "error"
+    assert by_code["entry-link-crypto-env-outer-wss-path"].severity == "error"
+    assert by_code["entry-link-crypto-env-outer-wss-verify-tls"].severity == "error"
     assert by_code["entry-link-crypto-env-generation"].severity == "error"
     assert by_code["entry-link-crypto-env-zapret2-host-wide"].severity == "error"
     assert by_code["entry-link-crypto-env-zapret2-nfqueue"].severity == "error"

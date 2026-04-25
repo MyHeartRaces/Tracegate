@@ -71,7 +71,7 @@ def test_chain_reality_enters_via_entry_and_points_to_transit() -> None:
     assert cfg["chain"]["selected_profiles"] == ["V2", "V4", "V6"]
     assert cfg["chain"]["inner_transport"] == "vless-reality-xhttp"
     assert cfg["chain"]["xray_backhaul"] is False
-    assert cfg["design_constraints"]["private_interconnect"] == "mieru-zapret2"
+    assert cfg["design_constraints"]["private_interconnect"] == "mieru-wss-zapret2"
     assert cfg["design_constraints"]["backhaul_outside_xray"] is True
     assert cfg["local_socks"]["auth"]["required"] is True
     assert cfg["local_socks"]["auth"]["mode"] == "username_password"
@@ -347,7 +347,7 @@ def test_hysteria_chain_v4_enters_via_entry_and_marks_backhaul() -> None:
     assert cfg["chain"]["xray_backhaul"] is False
     assert cfg["chain"]["transit"] == "myheartraces.space"
     assert cfg["design_constraints"]["entry_role_required"] is True
-    assert cfg["design_constraints"]["private_interconnect"] == "mieru-zapret2"
+    assert cfg["design_constraints"]["private_interconnect"] == "mieru-wss-zapret2"
     assert cfg["design_constraints"]["backhaul_outside_xray"] is True
     assert cfg["design_constraints"]["udp_over_private_relay"] is True
 
@@ -659,13 +659,14 @@ def test_shadowsocks2022_shadowtls_chain_v6_marks_private_interconnect() -> None
     assert cfg["sni"] == "cdn.example.com"
     assert cfg["chain"]["type"] == "entry_transit_private_relay"
     assert cfg["chain"]["carrier"] == "mieru"
-    assert cfg["chain"]["preferred_outer"] == "mieru"
+    assert cfg["chain"]["preferred_outer"] == "wss-carrier"
+    assert cfg["chain"]["outer_carrier"] == "websocket-tls"
     assert cfg["chain"]["optional_packet_shaping"] == "zapret2-scoped"
     assert cfg["chain"]["managed_by"] == "link-crypto"
     assert cfg["chain"]["selected_profiles"] == ["V2", "V4", "V6"]
     assert cfg["chain"]["inner_transport"] == "shadowsocks2022-shadowtls-v3"
     assert cfg["chain"]["xray_backhaul"] is False
-    assert cfg["design_constraints"]["private_interconnect"] == "mieru-zapret2"
+    assert cfg["design_constraints"]["private_interconnect"] == "mieru-wss-zapret2"
     assert cfg["local_socks"]["auth"]["username"].startswith("tg_v6_")
 
 

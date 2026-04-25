@@ -46,6 +46,23 @@ data:
       xrayBackhaul: {{ .Values.interconnect.entryTransit.xrayBackhaul }}
       generation: {{ int .Values.interconnect.entryTransit.generation }}
       remotePort: {{ int .Values.interconnect.entryTransit.remotePort }}
+      outerCarrier:
+        enabled: {{ and .Values.interconnect.entryTransit.enabled .Values.interconnect.entryTransit.outerCarrier.enabled }}
+        mode: {{ .Values.interconnect.entryTransit.outerCarrier.mode }}
+        protocol: {{ .Values.interconnect.entryTransit.outerCarrier.protocol }}
+        serverName: {{ .Values.interconnect.entryTransit.outerCarrier.serverName }}
+        publicPort: {{ int .Values.interconnect.entryTransit.outerCarrier.publicPort }}
+        publicPath: {{ .Values.interconnect.entryTransit.outerCarrier.publicPath }}
+        url: {{ printf "wss://%s:%d%s" (toString .Values.interconnect.entryTransit.outerCarrier.serverName) (int .Values.interconnect.entryTransit.outerCarrier.publicPort) (toString .Values.interconnect.entryTransit.outerCarrier.publicPath) | quote }}
+        verifyTls: {{ .Values.interconnect.entryTransit.outerCarrier.verifyTls }}
+        secretMaterial: false
+        localPorts:
+          entryClient: {{ int .Values.interconnect.entryTransit.outerCarrier.clientLocalPort }}
+          transitServer: {{ int .Values.interconnect.entryTransit.outerCarrier.serverLocalPort }}
+        endpoints:
+          entryClientListen: {{ printf "127.0.0.1:%d" (int .Values.interconnect.entryTransit.outerCarrier.clientLocalPort) | quote }}
+          transitServerListen: {{ printf "127.0.0.1:%d" (int .Values.interconnect.entryTransit.outerCarrier.serverLocalPort) | quote }}
+          transitTarget: {{ printf "127.0.0.1:%d" (int .Values.interconnect.mieru.localSocks.transitPort) | quote }}
       classes:
 {{- if .Values.interconnect.entryTransit.enabled }}
         - entry-transit
@@ -152,6 +169,8 @@ data:
 {{ toYaml .Values.experimentalProfiles | nindent 6 }}
 {{- range $roleName, $role := .Values.gateway.roles }}
 {{- if and $.Values.gateway.enabled $role.enabled }}
+{{- $linkOuterCarrier := $.Values.interconnect.entryTransit.outerCarrier }}
+{{- $linkWssCarrierEnabled := and $.Values.interconnect.entryTransit.enabled $linkOuterCarrier.enabled (eq (toString $linkOuterCarrier.mode) "wss") }}
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -181,6 +200,10 @@ data:
       tcp-request inspect-delay 5s
       tcp-request content accept if { req.ssl_hello_type 1 }
       acl tls_adapter_sni req.ssl_sni -i {{ $role.tls.serverName }}
+{{- if and (eq $roleName "transit") $linkWssCarrierEnabled }}
+      acl bridge_wss_sni req.ssl_sni -i {{ $linkOuterCarrier.serverName }}
+      use_backend be_https_adapter if bridge_wss_sni
+{{- end }}
 {{- if and (eq $roleName "transit") $.Values.mtproto.enabled }}
 {{- $mtprotoDomain := $.Values.mtproto.domain | default $.Values.controlPlane.env.mtprotoDomain }}
 {{- if $mtprotoDomain }}
@@ -240,7 +263,7 @@ data:
 
       server {
         listen 127.0.0.1:{{ int $role.ports.httpsAdapter }} ssl http2;
-        server_name {{ $role.tls.serverName }};
+        server_name {{ $role.tls.serverName }}{{ if and (eq $roleName "transit") $linkWssCarrierEnabled }} {{ $linkOuterCarrier.serverName }}{{ end }};
 
         ssl_certificate /etc/tracegate/tls/tls.crt;
         ssl_certificate_key /etc/tracegate/tls/tls.key;
@@ -275,6 +298,21 @@ data:
 {{- if and (eq $roleName "transit") $.Values.wireguard.enabled $.Values.wireguard.wstunnel.enabled }}
         location {{ $.Values.wireguard.wstunnel.publicPath }} {
           proxy_pass http://127.0.0.1:{{ int $.Values.wireguard.wstunnel.websocketPort }};
+          proxy_http_version 1.1;
+          proxy_connect_timeout 5s;
+          proxy_read_timeout 1h;
+          proxy_send_timeout 1h;
+          proxy_set_header Upgrade $http_upgrade;
+          proxy_set_header Connection "upgrade";
+          proxy_set_header Host $host;
+          proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+          proxy_set_header X-Forwarded-Proto https;
+        }
+
+{{- end }}
+{{- if and (eq $roleName "transit") $linkWssCarrierEnabled }}
+        location {{ $linkOuterCarrier.publicPath }} {
+          proxy_pass http://127.0.0.1:{{ int $linkOuterCarrier.serverLocalPort }};
           proxy_http_version 1.1;
           proxy_connect_timeout 5s;
           proxy_read_timeout 1h;

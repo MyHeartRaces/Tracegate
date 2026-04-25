@@ -1,4 +1,21 @@
-# Tracegate 2.1
+<p align="center">
+  <img src="docs/assets/tracegate-wordmark.svg" alt="TRACEGATE" width="720">
+</p>
+
+## Connection Surfaces
+
+| Surface | Protocol | Public node | Default port | Notes |
+| --- | --- | --- | --- | --- |
+| `V1` | `VLESS + REALITY` | `Transit` | `443/tcp` | Main direct TCP profile |
+| `V1` | `VLESS + gRPC + TLS` | `Transit` | `443/tcp` | Main HTTPS carrier profile |
+| `V1` | `VLESS + WS + TLS` | `Transit` | `443/tcp` | Legacy WS/TLS fallback |
+| `V2` | `VLESS + REALITY` | `Entry` | `443/tcp` | Optional chain path to `Transit` |
+| `V3` | `Hysteria2` via `Xray` | `Transit` | `443/udp` | Main UDP profile |
+| `V4` | `Hysteria2` via `Xray` | `Entry` | `443/udp` | Optional chain path to `Transit` |
+| `V5` | `Shadowsocks-2022 + ShadowTLS V3` | `Transit` | `443/tcp` | Optional direct TCP profile |
+| `V6` | `Shadowsocks-2022 + ShadowTLS V3` | `Entry` | `443/tcp` | Optional chain path to `Transit` |
+| `V7` | `WireGuard over WebSocket` | `Transit` | `443/tcp` | Optional WireGuard profile |
+| `Telegram Proxy` | `MTProto` | `Transit` | `443/tcp` | Dedicated domain recommended |
 
 Tracegate 2.1 is a `k3s` + Helm managed control plane, node-agent and Telegram bot stack for a privacy gateway built around a primary `Transit` node and an optional `Entry -> Transit` chain.
 
@@ -22,7 +39,7 @@ Release notes live in [`CHANGELOG.md`](CHANGELOG.md).
 ### Included in Tracegate 2.1
 
 - `V1`: direct `VLESS + REALITY` on `Transit`
-- `V1`: `VLESS` over gRPC-first HTTPS carrier, with `WebSocket + TLS` compatibility fallback
+- `V1`: `VLESS` over gRPC-first HTTPS carrier, with `WebSocket + TLS` fallback
 - `V3`: direct `Hysteria2` on `Transit`, terminated by `Xray`
 - `V2`: chained `Entry -> Transit` `VLESS + REALITY`
 - `V4`: chained `Entry -> Transit` `Hysteria2`
@@ -30,14 +47,14 @@ Release notes live in [`CHANGELOG.md`](CHANGELOG.md).
 - `V6`: chained `Shadowsocks-2022 + ShadowTLS V3`
 - `V7`: `WireGuard over WebSocket`
 - persistent Telegram Proxy delivery through the bot
-- scoped `Mieru` and `zapret2` interconnect camouflage, with no host-wide NFQUEUE by default
+- scoped `Mieru` link encryption wrapped by a dedicated WSS bridge carrier, plus `zapret2` interconnect camouflage with no host-wide NFQUEUE by default
 - optional host-local static/auth surfaces on `Transit`, staged outside Git
 - host-local private handoff contracts for `zapret2`, Transit TCP/443 fronting and MTProto
 
 ### Explicitly not part of the active repository contract
 
 - separate standalone `hysteria` daemon path
-- temporary “burner” MTProto access
+- temporary "burner" MTProto access
 - client-side OpenWRT / desktop-local obfuscation bundles
 
 ## Design principles
@@ -49,21 +66,6 @@ Release notes live in [`CHANGELOG.md`](CHANGELOG.md).
 - All public-facing profiles stay on `443`.
 - On constrained `~1 GB RAM` hosts, keep the default rollout narrow: static public topology first, optional extra wrappers only when they are operationally justified.
 - Public repo files describe contracts and templates; secrets and private camouflage live in external Kubernetes Secrets or host-local `/etc/tracegate/private`.
-
-## Connection surfaces
-
-| Surface | Protocol | Public node | Default port | Notes |
-| --- | --- | --- | --- | --- |
-| `V1` | `VLESS + REALITY` | `Transit` | `443/tcp` | Main direct TCP profile |
-| `V1` | `VLESS + gRPC + TLS` | `Transit` | `443/tcp` | New compatibility surface |
-| `V1` compatibility | `VLESS + WS + TLS` | `Transit` | `443/tcp` | Legacy compatibility fallback |
-| `V2` | `VLESS + REALITY` | `Entry` | `443/tcp` | Optional chain path to `Transit` |
-| `V3` | `Hysteria2` via `Xray` | `Transit` | `443/udp` | Main UDP profile |
-| `V4` | `Hysteria2` via `Xray` | `Entry` | `443/udp` | Optional chain path to `Transit` |
-| `V5` | `Shadowsocks-2022 + ShadowTLS V3` | `Transit` | `443/tcp` | Optional direct TCP profile |
-| `V6` | `Shadowsocks-2022 + ShadowTLS V3` | `Entry` | `443/tcp` | Optional chain path to `Transit` |
-| `V7` | `WireGuard over WebSocket` | `Transit` | `443/tcp` | Optional WireGuard profile |
-| `Telegram Proxy` | `MTProto` | `Transit` | `443/tcp` | Dedicated domain recommended |
 
 ## Architecture
 
@@ -274,7 +276,7 @@ Useful operational rules:
 - keep k3s `profiles` and `linkCrypto` reload markers newer than their desired-state/env files before private sidecars are allowed to launch
 - keep WireGuard `wg-quick` hooks, DNS rewrites and default-route AllowedIPs out of k3s private Secrets
 - prefer dedicated real domains for Telegram Proxy surfaces
-- treat `VLESS + WS + TLS` as compatibility, not as the core architecture
+- treat `VLESS + WS + TLS` as a legacy fallback, not as the core architecture
 
 ## Security and private data
 
@@ -308,7 +310,7 @@ Do not commit:
 
 ## Current runtime note
 
-Tracegate 2.1 uses `tracegate-2.1` as the k3s production runtime profile. It keeps the public Xray/Hysteria surface but forbids Xray Entry-to-Transit backhaul; V2/V4/V6 chaining is handed to the private `link-crypto`/Mieru layer. The `xray-centric` profile remains only for the systemd migration surface.
+Tracegate 2.1 uses `tracegate-2.1` as the k3s production runtime profile. It keeps the public Xray/Hysteria surface but forbids Xray Entry-to-Transit backhaul; V2/V4/V6 chaining is handed to the private `link-crypto`/Mieru layer wrapped by the bridge WSS carrier. The `xray-centric` profile remains only for the systemd migration surface.
 
 ## License
 

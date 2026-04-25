@@ -343,6 +343,32 @@ def _build_link_crypto_contract_payload(settings: Settings) -> dict[str, object]
         if bool(settings.private_link_crypto_router_transit_enabled):
             add_link("router-transit", port=int(settings.private_link_crypto_router_transit_port), profiles=["V1", "V3", "V5", "V7"])
 
+    outer_wss_server_name = str(settings.private_link_crypto_outer_wss_server_name or "").strip() or "bridge.example.com"
+    outer_wss_public_port = int(settings.private_link_crypto_outer_wss_public_port or 443)
+    outer_wss_path = str(settings.private_link_crypto_outer_wss_path or "").strip() or "/cdn-cgi/tracegate-link"
+    if not outer_wss_path.startswith("/"):
+        outer_wss_path = f"/{outer_wss_path}"
+    outer_carrier = {
+        "enabled": bool("entry-transit" in classes and settings.private_link_crypto_outer_carrier_enabled),
+        "mode": str(settings.private_link_crypto_outer_carrier_mode or "").strip() or "wss",
+        "protocol": "websocket-tls",
+        "serverName": outer_wss_server_name,
+        "publicPort": outer_wss_public_port,
+        "publicPath": outer_wss_path,
+        "url": f"wss://{outer_wss_server_name}:{outer_wss_public_port}{outer_wss_path}",
+        "verifyTls": bool(settings.private_link_crypto_outer_wss_verify_tls),
+        "secretMaterial": False,
+        "localPorts": {
+            "entryClient": int(settings.private_link_crypto_outer_wss_client_port or 14081),
+            "transitServer": int(settings.private_link_crypto_outer_wss_server_port or 14082),
+        },
+        "endpoints": {
+            "entryClientListen": f"127.0.0.1:{int(settings.private_link_crypto_outer_wss_client_port or 14081)}",
+            "transitServerListen": f"127.0.0.1:{int(settings.private_link_crypto_outer_wss_server_port or 14082)}",
+            "transitTarget": f"127.0.0.1:{int(settings.private_link_crypto_transit_port or 10882)}",
+        },
+    }
+
     return {
         "enabled": bool(classes),
         "entryTransitEnabled": bool(settings.private_link_crypto_enabled),
@@ -356,6 +382,7 @@ def _build_link_crypto_contract_payload(settings: Settings) -> dict[str, object]
         "generation": int(settings.private_link_crypto_generation or 1),
         "bindHost": str(settings.private_link_crypto_bind_host or "").strip() or "127.0.0.1",
         "remotePort": int(settings.private_link_crypto_remote_port or 443),
+        "outerCarrier": outer_carrier,
         "classes": classes,
         "counts": {
             "total": len(classes),

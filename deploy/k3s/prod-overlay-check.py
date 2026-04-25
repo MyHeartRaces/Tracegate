@@ -68,6 +68,13 @@ def _has_value(value: Any) -> bool:
     return bool(_text(value))
 
 
+def _as_int(value: Any, *, default: int = 0) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
 def _is_mutable_tag(value: Any) -> bool:
     tag = _text(value).lower()
     return tag in MUTABLE_IMAGE_TAGS or tag.endswith("-latest")
@@ -88,6 +95,13 @@ def _image_label(path: str, image: Mapping[str, Any]) -> str:
     if digest:
         return f"{path} ({repo}@{digest})"
     return f"{path} ({repo}:{tag})"
+
+
+def _is_clean_http_path(value: Any) -> bool:
+    raw = _text(value)
+    return bool(raw) and raw.startswith("/") and not raw.startswith("//") and "://" not in raw and "?" not in raw and "#" not in raw and not any(
+        char.isspace() for char in raw
+    )
 
 
 def validate_prod_overlay(chart_values: Path, prod_values: Path, *, strict: bool) -> list[str]:
@@ -190,16 +204,38 @@ def validate_prod_overlay(chart_values: Path, prod_values: Path, *, strict: bool
 
     interconnect = _as_dict(merged.get("interconnect"))
     entry_transit = _as_dict(interconnect.get("entryTransit"))
+    outer_carrier = _as_dict(entry_transit.get("outerCarrier"))
     zapret2 = _as_dict(interconnect.get("zapret2"))
     require(not bool(entry_transit.get("xrayBackhaul", False)), "interconnect.entryTransit.xrayBackhaul must stay false")
     require(_text(entry_transit.get("chainBridgeOwner")) == "link-crypto", "interconnect.entryTransit.chainBridgeOwner must stay link-crypto")
     require(_text(entry_transit.get("fallback")) == "none", "interconnect.entryTransit.fallback must stay none")
+    require(bool(outer_carrier.get("enabled", False)), "interconnect.entryTransit.outerCarrier.enabled must stay true")
+    require(_text(outer_carrier.get("mode")) == "wss", "interconnect.entryTransit.outerCarrier.mode must stay wss")
+    require(_text(outer_carrier.get("protocol") or "websocket-tls") == "websocket-tls", "interconnect.entryTransit.outerCarrier.protocol must stay websocket-tls")
+    require(_has_value(outer_carrier.get("serverName")), "interconnect.entryTransit.outerCarrier.serverName must be set")
+    require(not _is_example_host(outer_carrier.get("serverName")), "interconnect.entryTransit.outerCarrier.serverName must not use example.com")
+    require(_as_int(outer_carrier.get("publicPort")) == 443, "interconnect.entryTransit.outerCarrier.publicPort must stay 443")
+    require(_is_clean_http_path(outer_carrier.get("publicPath")), "interconnect.entryTransit.outerCarrier.publicPath must be a clean absolute HTTP path")
+    require(bool(outer_carrier.get("verifyTls", False)), "interconnect.entryTransit.outerCarrier.verifyTls must stay true")
+    wireguard = _as_dict(merged.get("wireguard"))
+    wireguard_wstunnel = _as_dict(wireguard.get("wstunnel"))
+    bridge_path = _text(outer_carrier.get("publicPath"))
+    require(bridge_path != _text(wireguard_wstunnel.get("publicPath")), "bridge WSS publicPath must be separate from wireguard.wstunnel.publicPath")
+    require(
+        bridge_path not in {_text(env.get("vlessWsPath")), _text(env.get("vlessGrpcPath"))},
+        "bridge WSS publicPath must be separate from VLESS public paths",
+    )
     require(not bool(zapret2.get("hostWideInterception", False)), "interconnect.zapret2.hostWideInterception must stay false")
     require(not bool(zapret2.get("nfqueue", False)), "interconnect.zapret2.nfqueue must stay false")
 
     mtproto = _as_dict(merged.get("mtproto"))
     require(bool(mtproto.get("enabled", False)), "mtproto.enabled must stay true in core Tracegate 2.1")
     require(not _is_example_host(mtproto.get("domain")), "mtproto.domain must not use example.com")
+    bridge_server_name = _text(outer_carrier.get("serverName")).lower().rstrip(".")
+    transit_tls_server_name = _text(_as_dict(transit.get("tls")).get("serverName")).lower().rstrip(".")
+    mtproto_domain = _text(mtproto.get("domain") or env.get("mtprotoDomain")).lower().rstrip(".")
+    require(bridge_server_name != transit_tls_server_name, "bridge WSS serverName must be separate from gateway.roles.transit.tls.serverName")
+    require(bridge_server_name != mtproto_domain, "bridge WSS serverName must be separate from the MTProto domain")
 
     return errors
 

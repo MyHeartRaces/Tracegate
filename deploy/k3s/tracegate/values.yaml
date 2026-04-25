@@ -358,6 +358,16 @@ interconnect:
     xrayBackhaul: false
     generation: 1
     remotePort: 443
+    outerCarrier:
+      enabled: true
+      mode: wss
+      protocol: websocket-tls
+      serverName: bridge.example.com
+      publicPort: 443
+      publicPath: /cdn-cgi/tracegate-link
+      clientLocalPort: 14081
+      serverLocalPort: 14082
+      verifyTls: true
     scope:
       - V2
       - V4

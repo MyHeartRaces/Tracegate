@@ -96,14 +96,15 @@ def _shadowtls_profile(*, variant: str) -> dict:
     outer = "shadowtls-v3"
     if variant == "V6":
         stage = "transit-private-terminator"
-        outer = "mieru"
+        outer = "wss-carrier"
         chain = {
             "type": "entry_transit_private_relay",
             "entry": "entry.example.com",
             "transit": "transit.example.com",
             "linkClass": "entry-transit",
             "carrier": "mieru",
-            "preferredOuter": "mieru",
+            "preferredOuter": "wss-carrier",
+            "outerCarrier": "websocket-tls",
             "optionalPacketShaping": "zapret2-scoped",
             "managedBy": "link-crypto",
             "selectedProfiles": ["V2", "V4", "V6"],
@@ -246,6 +247,22 @@ def _write_link_crypto_handoff(
     }[link_class]
     remote_role = "ROUTER" if link_class in {"router-entry", "router-transit"} else ("TRANSIT" if role_upper == "ENTRY" else "ENTRY")
     selected_profiles = ["V1", "V3", "V5", "V7"] if link_class == "router-transit" else ["V2", "V4", "V6"]
+    outer_carrier = {
+        "enabled": link_class == "entry-transit",
+        "mode": "wss" if link_class == "entry-transit" else "direct",
+        "protocol": "websocket-tls" if link_class == "entry-transit" else "",
+        "serverName": "bridge.example.com" if link_class == "entry-transit" else "",
+        "publicPort": 443 if link_class == "entry-transit" else 0,
+        "publicPath": "/cdn-cgi/tracegate-link" if link_class == "entry-transit" else "",
+        "url": "wss://bridge.example.com:443/cdn-cgi/tracegate-link" if link_class == "entry-transit" else "",
+        "verifyTls": link_class == "entry-transit",
+        "secretMaterial": False,
+        "side": side,
+        "localEndpoint": f"127.0.0.1:{14081 if side == 'client' else 14082}" if link_class == "entry-transit" else "",
+        "entryClientListen": "127.0.0.1:14081" if link_class == "entry-transit" else "",
+        "transitServerListen": "127.0.0.1:14082" if link_class == "entry-transit" else "",
+        "transitTarget": "127.0.0.1:10882" if link_class == "entry-transit" else "",
+    }
     state_path = root / "link-crypto" / role_lower / "desired-state.json"
     state = {
         "schema": "tracegate.link-crypto.v1",
@@ -278,6 +295,7 @@ def _write_link_crypto_handoff(
                 },
                 "local": {"listen": f"127.0.0.1:{local_port}", "auth": {"required": True, "mode": "private-profile"}},
                 "remote": {"role": remote_role, "endpoint": "transit.example.com:443"},
+                "outerCarrier": outer_carrier,
                 "selectedProfiles": selected_profiles,
                 "zapret2": {
                     "enabled": False,
@@ -304,6 +322,12 @@ def _write_link_crypto_handoff(
             "TRACEGATE_LINK_CRYPTO_COUNT": 1,
             "TRACEGATE_LINK_CRYPTO_CLASSES": link_class,
             "TRACEGATE_LINK_CRYPTO_CARRIER": "mieru",
+            "TRACEGATE_LINK_CRYPTO_OUTER_CARRIER_ENABLED": "true" if link_class == "entry-transit" else "false",
+            "TRACEGATE_LINK_CRYPTO_OUTER_CARRIER_MODE": "wss" if link_class == "entry-transit" else "direct",
+            "TRACEGATE_LINK_CRYPTO_OUTER_WSS_SERVER_NAME": "bridge.example.com",
+            "TRACEGATE_LINK_CRYPTO_OUTER_WSS_PUBLIC_PORT": 443,
+            "TRACEGATE_LINK_CRYPTO_OUTER_WSS_PATH": "/cdn-cgi/tracegate-link",
+            "TRACEGATE_LINK_CRYPTO_OUTER_WSS_VERIFY_TLS": "true" if link_class == "entry-transit" else "false",
             "TRACEGATE_LINK_CRYPTO_GENERATION": 1,
             "TRACEGATE_LINK_CRYPTO_ZAPRET2_ENABLED": "false",
             "TRACEGATE_LINK_CRYPTO_ZAPRET2_HOST_WIDE_INTERCEPTION": "false",
@@ -365,7 +389,7 @@ def test_k3s_private_reload_profile_marker_summarizes_without_profile_secrets(tm
     assert summary["localSocks"]["authRequired"] == 3
     assert summary["localSocks"]["anonymous"] == 0
     assert summary["chain"]["managedBy"] == ["link-crypto"]
-    assert summary["obfuscation"]["outers"] == ["mieru", "shadowtls-v3", "wstunnel"]
+    assert summary["obfuscation"]["outers"] == ["shadowtls-v3", "wss-carrier", "wstunnel"]
     assert summary["shadowtlsOuter"] == {
         "total": 2,
         "credentialScopes": ["node-static"],
@@ -407,6 +431,13 @@ def test_k3s_private_reload_validates_link_crypto_and_writes_marker(tmp_path: Pa
     assert marker["summary"]["classes"]["entryTransit"] == 1
     assert marker["summary"]["carriers"] == ["mieru"]
     assert marker["summary"]["remote"] == {"roles": ["TRANSIT"], "endpointCount": 1}
+    assert marker["summary"]["outerCarrier"] == {
+        "enabled": 1,
+        "modes": ["wss"],
+        "protocols": ["websocket-tls"],
+        "verifyTls": 1,
+        "secretMaterial": 0,
+    }
     assert marker["summary"]["profileRefs"] == {
         "fileRefs": 1,
         "inlineRefs": 0,

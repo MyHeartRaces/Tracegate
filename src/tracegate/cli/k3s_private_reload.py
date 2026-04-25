@@ -274,6 +274,18 @@ def _link_crypto_remote_summary(rows: list[dict[str, Any]]) -> dict[str, object]
     }
 
 
+def _link_crypto_outer_carrier_summary(rows: list[dict[str, Any]]) -> dict[str, object]:
+    outer_rows = [_nested_dict(row, "outerCarrier") for row in rows]
+    enabled_rows = [row for row in outer_rows if bool(row.get("enabled", False))]
+    return {
+        "enabled": len(enabled_rows),
+        "modes": _sorted_unique([row.get("mode") for row in enabled_rows]),
+        "protocols": _sorted_unique([row.get("protocol") for row in enabled_rows]),
+        "verifyTls": len([row for row in enabled_rows if bool(row.get("verifyTls", False))]),
+        "secretMaterial": len([row for row in enabled_rows if bool(row.get("secretMaterial", False))]),
+    }
+
+
 def _link_crypto_summary(
     state: LinkCryptoState,
     env: LinkCryptoEnv,
@@ -297,6 +309,7 @@ def _link_crypto_summary(
         "generations": _safe_positive_ints([row.get("generation") for row in rows]),
         "xrayBackhaul": _count_true(rows, "xrayBackhaul", default=True),
         "remote": _link_crypto_remote_summary(rows),
+        "outerCarrier": _link_crypto_outer_carrier_summary(rows),
         "profileRefs": _link_crypto_profile_ref_summary(rows),
         "localAuth": _link_crypto_local_auth_summary(rows),
         "zapret2": _link_crypto_zapret2_summary(rows),

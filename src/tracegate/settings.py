@@ -205,6 +205,14 @@ class Settings(BaseSettings):
     private_link_crypto_router_entry_port: int = 10883
     private_link_crypto_router_transit_port: int = 10884
     private_link_crypto_remote_port: int = 443
+    private_link_crypto_outer_carrier_enabled: bool = True
+    private_link_crypto_outer_carrier_mode: str = "wss"
+    private_link_crypto_outer_wss_server_name: str = "bridge.example.com"
+    private_link_crypto_outer_wss_public_port: int = 443
+    private_link_crypto_outer_wss_path: str = "/cdn-cgi/tracegate-link"
+    private_link_crypto_outer_wss_client_port: int = 14081
+    private_link_crypto_outer_wss_server_port: int = 14082
+    private_link_crypto_outer_wss_verify_tls: bool = True
     private_link_crypto_zapret2_enabled: bool = False
     private_fronting_listen_addr: str = "127.0.0.1:10443"
     private_fronting_protocol: str = "tcp"

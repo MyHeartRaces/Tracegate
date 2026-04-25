@@ -238,6 +238,14 @@ def test_k3s_strict_prod_overlay_check_accepts_private_overlay(tmp_path: Path) -
                         "transit": {"tls": {"serverName": "transit.prod.test"}},
                     },
                 },
+                "interconnect": {
+                    "entryTransit": {
+                        "outerCarrier": {
+                            "serverName": "bridge.prod.test",
+                            "publicPath": "/cdn-cgi/tracegate-link",
+                        }
+                    }
+                },
                 "mtproto": {"domain": "mtproto.prod.test"},
             },
             sort_keys=True,
@@ -615,6 +623,13 @@ def test_tracegate21_chart_disables_hostwide_interception_by_default() -> None:
     assert entry_transit["fallback"] == "none"
     assert entry_transit["chainBridgeOwner"] == "link-crypto"
     assert entry_transit["xrayBackhaul"] is False
+    assert entry_transit["outerCarrier"]["enabled"] is True
+    assert entry_transit["outerCarrier"]["mode"] == "wss"
+    assert entry_transit["outerCarrier"]["protocol"] == "websocket-tls"
+    assert entry_transit["outerCarrier"]["serverName"] == "bridge.example.com"
+    assert entry_transit["outerCarrier"]["publicPort"] == 443
+    assert entry_transit["outerCarrier"]["publicPath"] == "/cdn-cgi/tracegate-link"
+    assert entry_transit["outerCarrier"]["verifyTls"] is True
     assert entry_transit["scope"] == ["V2", "V4", "V6"]
     assert values["interconnect"]["mieru"]["localSocks"]["routerEntryPort"] == 10883
     assert values["interconnect"]["mieru"]["localSocks"]["routerTransitPort"] == 10884
@@ -634,10 +649,17 @@ def test_tracegate21_chart_disables_hostwide_interception_by_default() -> None:
     assert "interconnect.entryTransit.fallback must stay none" in _chart_text()
     assert "interconnect.mieru.enabled=false is forbidden while entryTransit is enabled" in _chart_text()
     assert "interconnect.entryTransit.remotePort must stay 443" in _chart_text()
+    assert "interconnect.entryTransit.outerCarrier.enabled=false is forbidden" in _chart_text()
+    assert "interconnect.entryTransit.outerCarrier.mode must stay wss" in _chart_text()
+    assert "interconnect.entryTransit.outerCarrier.serverName must be separate" in _chart_text()
+    assert "interconnect.entryTransit.outerCarrier.publicPath must be a clean absolute HTTP path" in _chart_text()
+    assert "interconnect.entryTransit.outerCarrier.publicPath must be separate from wireguard.wstunnel.publicPath" in _chart_text()
+    assert "interconnect.entryTransit.outerCarrier.verifyTls=false is forbidden" in _chart_text()
     assert "containerResources.zapret2" in Path("deploy/k3s/README.md").read_text(encoding="utf-8")
     assert "fallback: none" in Path("deploy/k3s/values-prod.example.yaml").read_text(encoding="utf-8")
     assert "chainBridgeOwner: link-crypto" in Path("deploy/k3s/values-prod.example.yaml").read_text(encoding="utf-8")
     assert "xrayBackhaul: false" in Path("deploy/k3s/values-prod.example.yaml").read_text(encoding="utf-8")
+    assert "outerCarrier:" in Path("deploy/k3s/values-prod.example.yaml").read_text(encoding="utf-8")
 
 
 def test_tracegate21_zapret2_sidecar_runs_scoped_mtproto_profile_on_transit(tmp_path: Path) -> None:
@@ -736,6 +758,26 @@ def test_tracegate21_runtime_contract_renders_role_link_crypto_metadata(tmp_path
         "entryTransit": 1,
         "routerEntry": 1,
         "routerTransit": 1,
+    }
+    assert link_crypto["outerCarrier"] == {
+        "enabled": True,
+        "mode": "wss",
+        "protocol": "websocket-tls",
+        "serverName": "bridge.example.com",
+        "publicPort": 443,
+        "publicPath": "/cdn-cgi/tracegate-link",
+        "url": "wss://bridge.example.com:443/cdn-cgi/tracegate-link",
+        "verifyTls": True,
+        "secretMaterial": False,
+        "localPorts": {
+            "entryClient": 14081,
+            "transitServer": 14082,
+        },
+        "endpoints": {
+            "entryClientListen": "127.0.0.1:14081",
+            "transitServerListen": "127.0.0.1:14082",
+            "transitTarget": "127.0.0.1:10882",
+        },
     }
     assert link_crypto["roles"]["entry"]["classes"] == ["entry-transit", "router-entry"]
     assert link_crypto["roles"]["entry"]["counts"] == {
@@ -1295,6 +1337,8 @@ def test_tracegate21_templates_include_grpc_mtproto_and_mieru_surfaces() -> None
     assert "be_mtproto" in text
     assert "mieru run -c" in text
     assert "wstunnel server" in text
+    assert "wstunnel-link-crypto" in text
+    assert "wstunnel client -L" in text
 
 
 def test_tracegate21_gateway_projects_private_profile_secret_paths() -> None:
@@ -1337,9 +1381,15 @@ def test_tracegate21_gateway_projects_private_profile_secret_paths() -> None:
     assert "name: wireguard" in gateways
     assert "wg-quick up {{ $.Values.privateProfiles.mountPath }}/{{ $.Values.privateProfiles.keys.wireguard }}" in gateways
     assert "wstunnel-wireguard" in gateways
+    assert "wstunnel-link-crypto" in gateways
+    assert 'exec wstunnel client -L "tcp://127.0.0.1:{{ int $linkOuterCarrier.clientLocalPort }}:127.0.0.1:{{ int $.Values.interconnect.mieru.localSocks.transitPort }}"' in gateways
+    assert 'exec wstunnel server "ws://127.0.0.1:{{ int $linkOuterCarrier.serverLocalPort }}"' in gateways
     assert '(eq $roleName "transit") $.Values.wireguard.enabled $.Values.wireguard.wstunnel.enabled' in gateways
     assert "location {{ $.Values.wireguard.wstunnel.publicPath }}" in configmaps
     assert "proxy_pass http://127.0.0.1:{{ int $.Values.wireguard.wstunnel.websocketPort }}" in configmaps
+    assert "location {{ $linkOuterCarrier.publicPath }}" in configmaps
+    assert "proxy_pass http://127.0.0.1:{{ int $linkOuterCarrier.serverLocalPort }}" in configmaps
+    assert "bridge_wss_sni" in configmaps
     assert "until {{ $roleLinkCryptoReadyTest }}; do sleep 2; done" in gateways
     assert "start_mieru_profile" in gateways
     assert "until {{ $roleProfileReadyTest }}; do sleep 2; done; ssserver -c" in gateways
@@ -1349,6 +1399,9 @@ def test_tracegate21_gateway_projects_private_profile_secret_paths() -> None:
     assert "value: {{ $roleProfileReloadMarker | quote }}" in gateways
     assert "value: {{ $roleLinkCryptoState | quote }}" in gateways
     assert "value: {{ $roleLinkCryptoReloadMarker | quote }}" in gateways
+    assert "PRIVATE_LINK_CRYPTO_OUTER_WSS_SERVER_NAME" in gateways
+    assert "value: {{ $linkOuterCarrier.serverName | quote }}" in gateways
+    assert "PRIVATE_LINK_CRYPTO_OUTER_WSS_PATH" in gateways
     assert "mountPath: /var/lib/tracegate" in gateways
     assert "readOnly: true" in gateways
     assert "REALITY_PRIVATE_KEY" in gateways

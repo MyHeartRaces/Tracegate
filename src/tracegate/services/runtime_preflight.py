@@ -295,6 +295,12 @@ class LinkCryptoEnv:
     total_count: int
     classes: tuple[str, ...]
     carrier: str
+    outer_carrier_enabled: bool
+    outer_carrier_mode: str
+    outer_wss_server_name: str
+    outer_wss_public_port: int
+    outer_wss_path: str
+    outer_wss_verify_tls: bool
     generation: int
     zapret2_enabled: bool
     zapret2_host_wide_interception: bool
@@ -336,7 +342,7 @@ _ZAPRET_SCOPE_POLICIES: dict[str, ZapretScopePolicy] = {
     "interconnect": ZapretScopePolicy(
         expected_scope="entry-transit",
         recommended_protocols=("v2", "v4", "v6"),
-        allowed_surfaces=("entry_transit_private_relay", "link_crypto_outer", "mieru_outer"),
+        allowed_surfaces=("entry_transit_private_relay", "link_crypto_outer", "mieru_outer", "wss_carrier"),
         recommended_tcp_ports=(443,),
         recommended_udp_ports=(443,),
         allowed_cpu_budgets=("low",),
@@ -871,6 +877,57 @@ def load_link_crypto_env(path: str | Path) -> LinkCryptoEnv:
         ),
         classes=_colon_tokens(str(payload.get("TRACEGATE_LINK_CRYPTO_CLASSES") or "")),
         carrier=_require_env_field(payload, env_path, "TRACEGATE_LINK_CRYPTO_CARRIER", label="link-crypto desired-state env").lower(),
+        outer_carrier_enabled=_parse_bool(
+            _require_env_field(
+                payload,
+                env_path,
+                "TRACEGATE_LINK_CRYPTO_OUTER_CARRIER_ENABLED",
+                label="link-crypto desired-state env",
+            ),
+            path=env_path,
+            field_name="TRACEGATE_LINK_CRYPTO_OUTER_CARRIER_ENABLED",
+            label="link-crypto desired-state env",
+        ),
+        outer_carrier_mode=_require_env_field(
+            payload,
+            env_path,
+            "TRACEGATE_LINK_CRYPTO_OUTER_CARRIER_MODE",
+            label="link-crypto desired-state env",
+        ).lower(),
+        outer_wss_server_name=_require_env_field(
+            payload,
+            env_path,
+            "TRACEGATE_LINK_CRYPTO_OUTER_WSS_SERVER_NAME",
+            label="link-crypto desired-state env",
+        ),
+        outer_wss_public_port=_parse_int(
+            _require_env_field(
+                payload,
+                env_path,
+                "TRACEGATE_LINK_CRYPTO_OUTER_WSS_PUBLIC_PORT",
+                label="link-crypto desired-state env",
+            ),
+            path=env_path,
+            field_name="TRACEGATE_LINK_CRYPTO_OUTER_WSS_PUBLIC_PORT",
+            label="link-crypto desired-state env",
+        ),
+        outer_wss_path=_require_env_field(
+            payload,
+            env_path,
+            "TRACEGATE_LINK_CRYPTO_OUTER_WSS_PATH",
+            label="link-crypto desired-state env",
+        ),
+        outer_wss_verify_tls=_parse_bool(
+            _require_env_field(
+                payload,
+                env_path,
+                "TRACEGATE_LINK_CRYPTO_OUTER_WSS_VERIFY_TLS",
+                label="link-crypto desired-state env",
+            ),
+            path=env_path,
+            field_name="TRACEGATE_LINK_CRYPTO_OUTER_WSS_VERIFY_TLS",
+            label="link-crypto desired-state env",
+        ),
         generation=_parse_int(
             _require_env_field(payload, env_path, "TRACEGATE_LINK_CRYPTO_GENERATION", label="link-crypto desired-state env"),
             path=env_path,
@@ -1537,6 +1594,13 @@ def _validate_endpoint(
     if require_loopback and not _is_loopback_host(host):
         findings.append(_finding(loopback_severity, f"{code_prefix}-loopback", f"{label} is not loopback-bound: {raw_value}"))
     return findings
+
+
+def _is_clean_absolute_http_path(value: str) -> bool:
+    raw = str(value or "").strip()
+    return bool(raw) and raw.startswith("/") and not raw.startswith("//") and "://" not in raw and "?" not in raw and "#" not in raw and not any(
+        char.isspace() for char in raw
+    )
 
 
 def _validate_xray_api_surface(contract: dict[str, Any], *, role_prefix: str) -> list[RuntimePreflightFinding]:
@@ -2962,7 +3026,7 @@ def _validate_private_shadowtls_profile(
         findings.append(_finding("error", f"{code_prefix}-shadowtls-restart-on-user-change", f"{label} ShadowTLS must not restart on user change"))
 
     findings.extend(_validate_private_local_socks(row=row, code_prefix=code_prefix, label=label))
-    expected_outer = "mieru" if variant == "V6" else "shadowtls-v3"
+    expected_outer = "wss-carrier" if variant == "V6" else "shadowtls-v3"
     findings.extend(_validate_private_obfuscation(row=row, code_prefix=code_prefix, label=label, expected_outer=expected_outer))
 
     chain = _row_dict(row, "chain")
@@ -2976,8 +3040,10 @@ def _validate_private_shadowtls_profile(
                 findings.append(_finding("error", f"{code_prefix}-chain-class", f"{label} chain linkClass must be entry-transit"))
             if str(chain.get("carrier") or "").strip().lower() != "mieru":
                 findings.append(_finding("error", f"{code_prefix}-chain-carrier", f"{label} chain carrier must be mieru"))
-            if str(chain.get("preferredOuter") or "").strip().lower() != "mieru":
-                findings.append(_finding("error", f"{code_prefix}-chain-outer", f"{label} chain preferredOuter must be mieru"))
+            if str(chain.get("preferredOuter") or "").strip().lower() != "wss-carrier":
+                findings.append(_finding("error", f"{code_prefix}-chain-outer", f"{label} chain preferredOuter must be wss-carrier"))
+            if str(chain.get("outerCarrier") or "").strip().lower() != "websocket-tls":
+                findings.append(_finding("error", f"{code_prefix}-chain-outer-carrier", f"{label} chain outerCarrier must be websocket-tls"))
             if str(chain.get("optionalPacketShaping") or "").strip().lower() != "zapret2-scoped":
                 findings.append(_finding("error", f"{code_prefix}-chain-packet-shaping", f"{label} chain packet shaping must be zapret2-scoped"))
             if str(chain.get("managedBy") or "").strip() != "link-crypto":
@@ -3269,6 +3335,91 @@ def _validate_link_crypto_transport_profiles(
     return findings
 
 
+def _validate_link_crypto_outer_carrier(
+    *,
+    outer_carrier: dict[str, Any],
+    code_prefix: str,
+    label: str,
+    require_enabled: bool,
+    side: str = "",
+) -> list[RuntimePreflightFinding]:
+    findings: list[RuntimePreflightFinding] = []
+    enabled = bool(outer_carrier.get("enabled", False))
+    if require_enabled and not enabled:
+        findings.append(_finding("error", f"{code_prefix}-enabled", f"{label} must enable the WSS outer carrier"))
+        return findings
+    if not enabled:
+        return findings
+
+    mode = _row_string(outer_carrier, "mode").lower()
+    protocol = _row_string(outer_carrier, "protocol").lower()
+    if mode != "wss":
+        findings.append(_finding("error", f"{code_prefix}-mode", f"{label} outer carrier mode must be wss"))
+    if protocol != "websocket-tls":
+        findings.append(_finding("error", f"{code_prefix}-protocol", f"{label} outer carrier protocol must be websocket-tls"))
+    if bool(outer_carrier.get("secretMaterial", False)):
+        findings.append(_finding("error", f"{code_prefix}-secret-material", f"{label} outer carrier must not embed secret material"))
+    if not _row_string(outer_carrier, "serverName"):
+        findings.append(_finding("error", f"{code_prefix}-server-name", f"{label} outer carrier serverName is missing"))
+    if _row_int(outer_carrier, "publicPort") != 443:
+        findings.append(_finding("error", f"{code_prefix}-public-port", f"{label} outer carrier must stay on tcp/443"))
+
+    public_path = _row_string(outer_carrier, "publicPath")
+    if not _is_clean_absolute_http_path(public_path):
+        findings.append(_finding("error", f"{code_prefix}-public-path", f"{label} outer carrier publicPath must be a clean absolute HTTP path"))
+
+    parsed_url = urlparse(_row_string(outer_carrier, "url"))
+    parsed_port = 0
+    try:
+        parsed_port = int(parsed_url.port or 0)
+    except ValueError:
+        parsed_port = 0
+    if parsed_url.scheme != "wss" or not parsed_url.hostname or parsed_port != 443 or not parsed_url.path.startswith("/"):
+        findings.append(_finding("error", f"{code_prefix}-url", f"{label} outer carrier url must be wss://host:443/path"))
+    elif public_path and parsed_url.path != public_path:
+        findings.append(_finding("error", f"{code_prefix}-url-path", f"{label} outer carrier url path must match publicPath"))
+    if parsed_url.query or parsed_url.fragment:
+        findings.append(_finding("error", f"{code_prefix}-url-clean", f"{label} outer carrier url must not include query or fragment"))
+
+    if not bool(outer_carrier.get("verifyTls", False)):
+        findings.append(_finding("error", f"{code_prefix}-verify-tls", f"{label} outer carrier must verify TLS"))
+
+    local_endpoint = _row_string(outer_carrier, "localEndpoint")
+    if local_endpoint:
+        findings.extend(
+            _validate_endpoint(
+                raw_value=local_endpoint,
+                code_prefix=f"{code_prefix}-local-endpoint",
+                label=f"{label} outer carrier localEndpoint",
+                require_loopback=True,
+                loopback_severity="error",
+            )
+        )
+    elif side:
+        findings.append(_finding("error", f"{code_prefix}-local-endpoint", f"{label} outer carrier localEndpoint is missing"))
+
+    endpoints = _row_dict(outer_carrier, "endpoints")
+    for field_name, field_label in (
+        ("entryClientListen", "entryClientListen"),
+        ("transitServerListen", "transitServerListen"),
+        ("transitTarget", "transitTarget"),
+    ):
+        endpoint_value = _row_string(outer_carrier, field_name) or _row_string(endpoints, field_name)
+        if not endpoint_value:
+            continue
+        findings.extend(
+            _validate_endpoint(
+                raw_value=endpoint_value,
+                code_prefix=f"{code_prefix}-{field_label}",
+                label=f"{label} outer carrier {field_label}",
+                require_loopback=True,
+                loopback_severity="error",
+            )
+        )
+
+    return findings
+
+
 def _validate_link_crypto_contract_alignment(
     *,
     state: LinkCryptoState,
@@ -3373,6 +3524,16 @@ def _validate_link_crypto_contract_alignment(
     expected_remote_port = _row_int(role_link_crypto, "remotePort") or _row_int(link_crypto, "remotePort")
     expected_zapret = _row_dict(link_crypto, "zapret2")
     expected_zapret_enabled = bool(expected_zapret.get("enabled", False))
+    expected_outer_carrier = _row_dict(link_crypto, "outerCarrier")
+    if expected_outer_carrier:
+        findings.extend(
+            _validate_link_crypto_outer_carrier(
+                outer_carrier=expected_outer_carrier,
+                code_prefix=f"{prefix}-contract-outer-carrier",
+                label=f"{prefix.replace('-', ' ')} runtime-contract outer carrier",
+                require_enabled=state.entry_transit_count > 0,
+            )
+        )
     if expected_zapret:
         if "hostWideInterception" in expected_zapret and bool(expected_zapret.get("hostWideInterception", False)):
             findings.append(
@@ -3454,6 +3615,24 @@ def _validate_link_crypto_contract_alignment(
                         f"{prefix.replace('-', ' ')} {link_class} zapret2 enabled state diverges from runtime-contract",
                     )
                 )
+        if expected_outer_carrier and link_class == "entry-transit":
+            outer_carrier = _row_dict(row, "outerCarrier")
+            for field_name, code_suffix in (
+                ("enabled", "enabled"),
+                ("mode", "mode"),
+                ("serverName", "server-name"),
+                ("publicPort", "public-port"),
+                ("publicPath", "public-path"),
+                ("verifyTls", "verify-tls"),
+            ):
+                if outer_carrier.get(field_name) != expected_outer_carrier.get(field_name):
+                    findings.append(
+                        _finding(
+                            "error",
+                            f"{code_prefix}-contract-outer-carrier-{code_suffix}",
+                            f"{prefix.replace('-', ' ')} {link_class} outer carrier diverges from runtime-contract",
+                        )
+                    )
         expected_local_port = _row_int(expected_local_ports, link_class)
         if expected_local_port > 0:
             local = _row_dict(row, "local")
@@ -3582,6 +3761,16 @@ def _validate_link_crypto_row(
         )
     )
 
+    findings.extend(
+        _validate_link_crypto_outer_carrier(
+            outer_carrier=_row_dict(row, "outerCarrier"),
+            code_prefix=f"{code_prefix}-outer-carrier",
+            label=f"{label} outer carrier",
+            require_enabled=link_class == "entry-transit",
+            side=side,
+        )
+    )
+
     selected_profiles = row.get("selectedProfiles")
     if not isinstance(selected_profiles, list) or not [item for item in selected_profiles if str(item or "").strip()]:
         findings.append(_finding("error", f"{code_prefix}-selected-profiles", f"{label} must declare selected Tracegate profiles"))
@@ -3697,6 +3886,18 @@ def validate_link_crypto_env(
         findings.append(_finding("error", f"{prefix}-secret-material", f"{prefix.replace('-', ' ')} must not embed secrets"))
     if env.carrier != "mieru":
         findings.append(_finding("error", f"{prefix}-carrier", f"{prefix.replace('-', ' ')} carrier must be mieru"))
+    if "entry-transit" in env.classes and not env.outer_carrier_enabled:
+        findings.append(_finding("error", f"{prefix}-outer-carrier-enabled", f"{prefix.replace('-', ' ')} must enable WSS outer carrier for entry-transit"))
+    if env.outer_carrier_enabled and env.outer_carrier_mode != "wss":
+        findings.append(_finding("error", f"{prefix}-outer-carrier-mode", f"{prefix.replace('-', ' ')} outer carrier mode must be wss"))
+    if env.outer_carrier_enabled and not env.outer_wss_server_name:
+        findings.append(_finding("error", f"{prefix}-outer-wss-server-name", f"{prefix.replace('-', ' ')} outer WSS serverName is missing"))
+    if env.outer_carrier_enabled and env.outer_wss_public_port != 443:
+        findings.append(_finding("error", f"{prefix}-outer-wss-public-port", f"{prefix.replace('-', ' ')} outer WSS public port must stay 443"))
+    if env.outer_carrier_enabled and not _is_clean_absolute_http_path(env.outer_wss_path):
+        findings.append(_finding("error", f"{prefix}-outer-wss-path", f"{prefix.replace('-', ' ')} outer WSS path must be a clean absolute HTTP path"))
+    if env.outer_carrier_enabled and not env.outer_wss_verify_tls:
+        findings.append(_finding("error", f"{prefix}-outer-wss-verify-tls", f"{prefix.replace('-', ' ')} outer WSS must verify TLS"))
     if env.generation < 1:
         findings.append(_finding("error", f"{prefix}-generation", f"{prefix.replace('-', ' ')} generation must be positive"))
     if env.zapret2_host_wide_interception:
