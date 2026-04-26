@@ -85,7 +85,8 @@ def test_format_config_delivery_message_mentions_hysteria_fallbacks() -> None:
     )
 
     assert "raw-token fallback URI" in text
-    assert "локальный SOCKS5" in text
+    assert "дополнительные параметры транспорта" in text
+    assert "локальный SOCKS5" not in text
 
 
 def test_format_grafana_otp_message_uses_tracegate2_copy() -> None:
@@ -264,7 +265,7 @@ class _DummyMessage:
 
     async def answer(self, *_args, **_kwargs):
         self.answer_calls.append((_args, _kwargs))
-        return None
+        return SimpleNamespace(message_id=1000 + len(self.answer_calls))
 
     async def edit_text(self, *_args, **_kwargs):
         self.edit_text_calls.append((_args, _kwargs))
@@ -272,11 +273,11 @@ class _DummyMessage:
 
     async def answer_photo(self, *_args, **_kwargs):
         self.answer_photo_calls.append((_args, _kwargs))
-        return None
+        return SimpleNamespace(message_id=2000 + len(self.answer_photo_calls))
 
     async def answer_document(self, *_args, **_kwargs):
         self.answer_document_calls.append((_args, _kwargs))
-        return None
+        return SimpleNamespace(message_id=3000 + len(self.answer_document_calls))
 
 
 class _DummyCallback:
@@ -307,6 +308,118 @@ def test_guide_text_defaults_to_external_placeholder(monkeypatch: pytest.MonkeyP
     monkeypatch.setattr(main.settings, "bot_guide_message", "[test-private-guide-placeholder]")
 
     assert main._load_guide_text() == "[test-private-guide-placeholder]"
+
+
+def test_format_config_delivery_message_supports_attachment_only_flow() -> None:
+    text = main._format_config_delivery_message(
+        marker="V5 - 1 - dev-1 - conn-1",
+        title="Shadowsocks config",
+        revision={"id": "rev-1", "slot": 0},
+        context="created",
+        has_attachment=True,
+        has_primary_uri=False,
+        has_extra_messages=True,
+    )
+
+    assert "Скачайте приложенный `.json` файл" in text
+    assert "Скопируйте ссылку" not in text
+    assert "QR" not in text
+
+
+@pytest.mark.asyncio
+async def test_send_client_config_handles_attachment_only_export(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def _get_connection(_connection_id: str) -> dict:
+        return {
+            "id": "conn-1",
+            "user_id": 1,
+            "device_id": "dev-1",
+            "device_name": "Laptop",
+            "protocol": "shadowsocks2022_shadowtls",
+            "mode": "direct",
+            "variant": "V5",
+        }
+
+    exported = SimpleNamespace(
+        kind="attachment",
+        title="Shadowsocks-2022 + ShadowTLS config",
+        content="Use the attached sing-box config.",
+        alternate_title=None,
+        alternate_content=None,
+        extra_messages=(("Local SOCKS5 credentials", "Host: 127.0.0.1"),),
+        attachment_content=b'{"log":{"level":"warn"}}',
+        attachment_filename="v5.singbox.json",
+        attachment_mime="application/json",
+    )
+
+    monkeypatch.setattr(main.api, "get_connection", _get_connection)
+    monkeypatch.setattr(main, "export_client_config", lambda _effective: exported)
+
+    callback = _DummyCallback("send")
+    await main._send_client_config(
+        callback,
+        {
+            "id": "rev-1",
+            "slot": 0,
+            "connection_id": "conn-1",
+            "effective_config_json": {"protocol": "shadowsocks2022_shadowtls"},
+        },
+        context="created",
+    )
+
+    assert len(callback.message.answer_document_calls) == 1
+    assert len(callback.message.answer_photo_calls) == 0
+    assert not any("Неизвестный тип экспорта" in str(args[0]) for args, _kwargs in callback.message.answer_calls)
+    assert "Скачайте приложенный `.json` файл" in str(callback.message.answer_calls[0][0][0])
+    assert not any("Local SOCKS5 credentials" in str(args[0]) for args, _kwargs in callback.message.answer_calls)
+    assert not any("Host: 127.0.0.1" in str(args[0]) for args, _kwargs in callback.message.answer_calls)
+
+
+@pytest.mark.asyncio
+async def test_send_client_config_hides_local_socks_extra_message(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def _get_connection(_connection_id: str) -> dict:
+        return {
+            "id": "conn-1",
+            "user_id": 1,
+            "device_id": "dev-1",
+            "device_name": "Phone",
+            "protocol": "vless_reality",
+            "mode": "direct",
+            "variant": "V1",
+        }
+
+    exported = SimpleNamespace(
+        kind="uri",
+        title="VLESS Reality Direct",
+        content="vless://user@example.com:443?security=reality#Tracegate",
+        alternate_title=None,
+        alternate_content=None,
+        extra_messages=(("Local SOCKS5 credentials", "Host: 127.0.0.1\nPassword: local-pass"),),
+        attachment_content=None,
+        attachment_filename=None,
+        attachment_mime=None,
+    )
+
+    monkeypatch.setattr(main.api, "get_connection", _get_connection)
+    monkeypatch.setattr(main, "export_client_config", lambda _effective: exported)
+    monkeypatch.setattr(main, "_build_qr_png", lambda payload: payload.encode("utf-8"))
+
+    callback = _DummyCallback("send")
+    await main._send_client_config(
+        callback,
+        {
+            "id": "rev-1",
+            "slot": 0,
+            "connection_id": "conn-1",
+            "effective_config_json": {"protocol": "vless_reality"},
+        },
+        context="created",
+    )
+
+    assert len(callback.message.answer_calls) == 2
+    assert str(callback.message.answer_calls[1][0][0]).startswith("vless://")
+    assert len(callback.message.answer_photo_calls) == 1
+    assert not any("Local SOCKS5 credentials" in str(args[0]) for args, _kwargs in callback.message.answer_calls)
+    assert not any("Password: local-pass" in str(args[0]) for args, _kwargs in callback.message.answer_calls)
 
 
 @pytest.mark.asyncio

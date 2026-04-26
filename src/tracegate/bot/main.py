@@ -78,6 +78,23 @@ settings = get_settings()
 api = TracegateApiClient(settings.bot_api_base_url, settings.bot_api_token)
 router = Router()
 
+_HIDDEN_EXPORT_EXTRA_TITLES = {"local socks5 credentials"}
+
+
+def _visible_export_extra_messages(extra_messages: object) -> tuple[tuple[str, str], ...]:
+    visible: list[tuple[str, str]] = []
+    for item in extra_messages or ():
+        try:
+            title, content = item
+        except (TypeError, ValueError):
+            continue
+        normalized_title = str(title or "").strip()
+        if normalized_title.lower() in _HIDDEN_EXPORT_EXTRA_TITLES:
+            continue
+        visible.append((normalized_title, str(content or "")))
+    return tuple(visible)
+
+
 def _app_version() -> str:
     try:
         return pkg_version("tracegate")
@@ -673,23 +690,31 @@ def _format_config_delivery_message(
     revision: dict,
     context: str = "default",
     has_attachment: bool = False,
+    has_primary_uri: bool = True,
     has_alternate_uri: bool = False,
     has_extra_messages: bool = False,
 ) -> str:
-    next_steps = [
-        "1. Скопируйте ссылку из следующего сообщения и импортируйте её в клиент.",
-        "2. Или используйте QR из сообщения ниже.",
-    ]
-    if has_attachment:
-        next_steps.insert(1, "2. Если клиент плохо импортирует URI, используйте приложенный `.json` файл.")
-        next_steps[2] = "3. Или используйте QR из сообщения ниже."
-        next_steps.append("4. После импорта вернитесь к устройству или ревизиям по кнопкам.")
+    if has_primary_uri:
+        next_steps = [
+            "1. Скопируйте ссылку из следующего сообщения и импортируйте её в клиент.",
+            "2. Или используйте QR из сообщения ниже.",
+        ]
+        if has_attachment:
+            next_steps.insert(1, "2. Если клиент плохо импортирует URI, используйте приложенный `.json` файл.")
+            next_steps[2] = "3. Или используйте QR из сообщения ниже."
+            next_steps.append("4. После импорта вернитесь к устройству или ревизиям по кнопкам.")
+        else:
+            next_steps.append("3. После импорта вернитесь к устройству или ревизиям по кнопкам.")
     else:
-        next_steps.append("3. После импорта вернитесь к устройству или ревизиям по кнопкам.")
+        next_steps = [
+            "1. Скачайте приложенный `.json` файл.",
+            "2. Импортируйте файл в клиент.",
+            "3. После импорта вернитесь к устройству или ревизиям по кнопкам.",
+        ]
     if has_alternate_uri:
         next_steps.append("5. Ниже будет отдельный raw-token fallback URI.")
     if has_extra_messages:
-        next_steps.append("6. Ниже будут дополнительные параметры для ручного ввода, например локальный SOCKS5 или WSTunnel.")
+        next_steps.append("6. Ниже будут дополнительные параметры транспорта.")
     return (
         f"🔗 Конфигурация готова\n\n"
         f"{_config_delivery_context_label(context)}\n"
@@ -834,6 +859,7 @@ async def _send_client_config(callback: CallbackQuery, revision: dict, *, contex
     except V2RayNExportError as exc:
         await callback.message.answer(_msg_error(f"Не смог собрать конфиг для клиента: {exc}"))
         return
+    visible_extra_messages = _visible_export_extra_messages(exported.extra_messages)
 
     if exported.kind == "uri":
         summary_msg = await callback.message.answer(
@@ -844,7 +870,7 @@ async def _send_client_config(callback: CallbackQuery, revision: dict, *, contex
                 context=context,
                 has_attachment=bool(exported.attachment_content and exported.attachment_filename),
                 has_alternate_uri=bool(exported.alternate_content),
-                has_extra_messages=bool(exported.extra_messages),
+                has_extra_messages=bool(visible_extra_messages),
             ),
             reply_markup=(
                 config_delivery_keyboard(connection_id=connection_id, device_id=device_id)
@@ -879,7 +905,7 @@ async def _send_client_config(callback: CallbackQuery, revision: dict, *, contex
                 device_id=device_id or None,
                 revision_id=revision_id or None,
             )
-        for extra_title, extra_content in exported.extra_messages:
+        for extra_title, extra_content in visible_extra_messages:
             extra_msg = await callback.message.answer(
                 f"{extra_title}\n\n{extra_content}",
                 disable_web_page_preview=True,
@@ -915,6 +941,68 @@ async def _send_client_config(callback: CallbackQuery, revision: dict, *, contex
                 device_id=device_id or None,
                 revision_id=revision_id or None,
             )
+        return
+
+    if exported.kind == "attachment":
+        has_attachment = bool(exported.attachment_content and exported.attachment_filename)
+        summary_msg = await callback.message.answer(
+            _format_config_delivery_message(
+                marker=marker,
+                title=exported.title,
+                revision=revision,
+                context=context,
+                has_attachment=has_attachment,
+                has_primary_uri=False,
+                has_extra_messages=bool(visible_extra_messages),
+            ),
+            reply_markup=(
+                config_delivery_keyboard(connection_id=connection_id, device_id=device_id)
+                if connection_id and device_id
+                else None
+            ),
+        )
+        await _register_bot_message_ref(
+            callback,
+            message_id=summary_msg.message_id,
+            connection_id=connection_id or None,
+            device_id=device_id or None,
+            revision_id=revision_id or None,
+        )
+        if exported.content:
+            instructions_msg = await callback.message.answer(exported.content, disable_web_page_preview=True)
+            await _register_bot_message_ref(
+                callback,
+                message_id=instructions_msg.message_id,
+                connection_id=connection_id or None,
+                device_id=device_id or None,
+                revision_id=revision_id or None,
+            )
+        for extra_title, extra_content in visible_extra_messages:
+            extra_msg = await callback.message.answer(
+                f"{extra_title}\n\n{extra_content}",
+                disable_web_page_preview=True,
+            )
+            await _register_bot_message_ref(
+                callback,
+                message_id=extra_msg.message_id,
+                connection_id=connection_id or None,
+                device_id=device_id or None,
+                revision_id=revision_id or None,
+            )
+        if not has_attachment:
+            await callback.message.answer(_msg_error("Экспорт не содержит файла вложения."))
+            return
+        document_msg = await callback.message.answer_document(
+            BufferedInputFile(exported.attachment_content or b"", filename=exported.attachment_filename or "tracegate-config.json"),
+            caption=f"📎 Файл для импорта\n\n{marker}\n{exported.title}",
+        )
+        await _register_bot_message_ref(
+            callback,
+            message_id=document_msg.message_id,
+            connection_id=connection_id or None,
+            device_id=device_id or None,
+            revision_id=revision_id or None,
+        )
         return
 
     await callback.message.answer(_msg_error(f"Неизвестный тип экспорта: {exported.kind}"))
