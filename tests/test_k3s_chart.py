@@ -128,6 +128,18 @@ def test_tracegate21_chart_uses_entry_transit_roles() -> None:
     assert values["gateway"]["probes"]["enabled"] is True
     assert values["gateway"]["privatePreflight"]["enabled"] is True
     assert values["gateway"]["privatePreflight"]["forbidPlaceholders"] is True
+    assert values["network"]["egressIsolation"]["required"] is True
+    assert values["network"]["egressIsolation"]["mode"] == "dedicated-egress-ip"
+    assert values["network"]["egressIsolation"]["forbidIngressIpAsEgress"] is True
+    assert values["network"]["egressIsolation"]["requireTransitEgressPublicIP"] is True
+    assert values["network"]["egressIsolation"]["enforcement"]["snat"] == "required"
+    assert values["network"]["egressIsolation"]["enforcement"]["ingressPublicIpOutbound"] == "forbidden"
+    assert values["transportProfiles"]["clientExposure"] == {
+        "defaultMode": "vpn-tun",
+        "localProxyExports": "advanced-only",
+        "lanSharing": "forbidden",
+        "unauthenticatedLocalProxy": "forbidden",
+    }
     assert "tracegate-k3s-private-reload --component profiles" in values["gateway"]["agent"]["reloadCommands"]["profiles"]
     assert "tracegate-k3s-private-reload --component link-crypto" in values["gateway"]["agent"]["reloadCommands"]["linkCrypto"]
     assert set(values["gateway"]["agent"]["reloadCommands"]) == {
@@ -216,6 +228,13 @@ def test_k3s_strict_prod_overlay_check_accepts_private_overlay(tmp_path: Path) -
                     }
                 },
                 "decoy": {"hostPath": "/srv/tracegate/decoy"},
+                "network": {
+                    "egressIsolation": {
+                        "ingressPublicIPs": ["8.8.8.8"],
+                        "egressPublicIPs": ["1.1.1.1"],
+                        "nodeAnnotations": {"enabled": True},
+                    }
+                },
                 "gateway": {
                     "images": {
                         name: {"tag": "pinned-test"}
@@ -325,9 +344,9 @@ if args[:2] == ["get", "namespace"] and args[2] == "tracegate":
 if args[:2] == ["get", "nodes"]:
     selector = args[args.index("-l") + 1] if "-l" in args else ""
     if selector == "tracegate.io/role=entry":
-        emit({{"items": [{{"metadata": {{"name": "entry-node"}}}}]}})
+        emit({{"items": [{{"metadata": {{"name": "entry-node", "annotations": {{"tracegate.io/ingress-public-ip": "203.0.113.10"}}}}}}]}})
     if selector == "tracegate.io/role=transit":
-        emit({{"items": [{{"metadata": {{"name": "transit-node"}}}}]}})
+        emit({{"items": [{{"metadata": {{"name": "transit-node", "annotations": {{"tracegate.io/ingress-public-ip": "203.0.113.10", "tracegate.io/egress-public-ip": "198.51.100.20"}}}}}}]}})
     emit({{"items": []}})
 
 if args[:2] == ["get", "secret"]:
@@ -751,6 +770,16 @@ def test_tracegate21_runtime_contract_renders_role_link_crypto_metadata(tmp_path
     contract = _rendered_runtime_contract(rendered.stdout)
     link_crypto = contract["linkCrypto"]
 
+    assert contract["network"]["egressIsolation"]["required"] is True
+    assert contract["network"]["egressIsolation"]["mode"] == "dedicated-egress-ip"
+    assert contract["network"]["egressIsolation"]["forbidIngressIpAsEgress"] is True
+    assert contract["network"]["egressIsolation"]["enforcement"]["snat"] == "required"
+    assert contract["transportProfiles"]["clientExposure"] == {
+        "defaultMode": "vpn-tun",
+        "localProxyExports": "advanced-only",
+        "lanSharing": "forbidden",
+        "unauthenticatedLocalProxy": "forbidden",
+    }
     assert link_crypto["enabled"] is True
     assert link_crypto["classes"] == ["entry-transit", "router-entry", "router-transit"]
     assert link_crypto["counts"] == {
@@ -900,6 +929,9 @@ def test_tracegate21_chart_declares_required_client_profiles_and_socks_auth() ->
     assert "V9-TUICv5-QUIC-Direct" not in profiles
     assert "transportProfiles.socks5.required=false is forbidden" in _chart_text()
     assert "transportProfiles.socks5.allowAnonymousLocalhost=true is forbidden" in _chart_text()
+    assert "transportProfiles.clientExposure.defaultMode must stay vpn-tun" in _chart_text()
+    assert "network.egressIsolation.required=false is forbidden" in _chart_text()
+    assert "network.egressIsolation.enforcement.ingressPublicIpOutbound must stay forbidden" in _chart_text()
     assert "transportProfiles.clientNames must include %s" in _chart_text()
     assert "transportProfiles.clientNames must not include lab-only profile %s" in _chart_text()
     assert "MTProto-TCP443-Direct is legacy" in _chart_text()

@@ -2037,6 +2037,16 @@ def test_reconcile_tracegate21_strips_legacy_xray_backhaul_from_runtime(tmp_path
         "auth": "required",
         "allowAnonymousLocalhost": False,
     }
+    assert runtime_contract["transportProfiles"]["clientExposure"] == {
+        "defaultMode": "vpn-tun",
+        "localProxyExports": "advanced-only",
+        "lanSharing": "forbidden",
+        "unauthenticatedLocalProxy": "forbidden",
+    }
+    assert runtime_contract["network"]["egressIsolation"]["required"] is True
+    assert runtime_contract["network"]["egressIsolation"]["mode"] == "dedicated-egress-ip"
+    assert runtime_contract["network"]["egressIsolation"]["forbidIngressIpAsEgress"] is True
+    assert runtime_contract["network"]["egressIsolation"]["enforcement"]["ingressPublicIpOutbound"] == "forbidden"
     assert runtime_contract["linkCrypto"]["carrier"] == "mieru"
     assert runtime_contract["linkCrypto"]["manager"] == "link-crypto"
     assert runtime_contract["linkCrypto"]["profileSource"] == "private-file-reference"

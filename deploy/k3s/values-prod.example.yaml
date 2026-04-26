@@ -48,6 +48,19 @@ decoy:
   hostPathType: Directory
   mountPath: /var/www/decoy
 
+network:
+  egressIsolation:
+    # Replace with real node public IPs in the ignored production values file.
+    # User-facing ingress IPs must never be used for user traffic SNAT.
+    ingressPublicIPs:
+      - 203.0.113.10
+    egressPublicIPs:
+      - 198.51.100.20
+    nodeAnnotations:
+      enabled: true
+      ingressPublicIP: tracegate.io/ingress-public-ip
+      egressPublicIP: tracegate.io/egress-public-ip
+
 gateway:
   terminationGracePeriodSeconds: 60
   pdb:

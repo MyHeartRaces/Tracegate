@@ -145,6 +145,17 @@ class Settings(BaseSettings):
     agent_gateway_probes_enabled: bool = True
     agent_gateway_private_preflight_enabled: bool = True
     agent_gateway_private_preflight_forbid_placeholders: bool = True
+    agent_egress_isolation_required: bool = True
+    agent_egress_isolation_mode: str = "dedicated-egress-ip"
+    agent_egress_ingress_public_ips: str = ""
+    agent_egress_public_ips: str = ""
+    agent_egress_forbid_ingress_ip_as_egress: bool = True
+    agent_egress_require_transit_public_ip: bool = True
+    agent_egress_client_leak_mitigation: str = "egress-ip-only"
+    agent_egress_enforcement_mode: str = "operator-managed"
+    agent_egress_enforcement_managed_by: str = "/etc/tracegate/private/egress-isolation"
+    agent_egress_enforcement_snat: str = "required"
+    agent_egress_enforcement_ingress_public_ip_outbound: str = "forbidden"
     # When enabled, the agent uses Xray gRPC API (HandlerService) to add/remove users without restarting Xray.
     # This is required for true "zero-downtime" connection issuance/revocation.
     agent_xray_api_enabled: bool = False

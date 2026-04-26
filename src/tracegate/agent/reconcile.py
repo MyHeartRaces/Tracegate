@@ -403,6 +403,10 @@ def _build_link_crypto_contract_payload(settings: Settings) -> dict[str, object]
     }
 
 
+def _csv_values(value: str) -> list[str]:
+    return [item.strip() for item in str(value or "").split(",") if item.strip()]
+
+
 def _build_runtime_contract_payload(settings: Settings) -> dict[str, object]:
     paths = AgentPaths.from_settings(settings)
     contract = resolve_runtime_contract(settings.agent_runtime_profile)
@@ -435,6 +439,33 @@ def _build_runtime_contract_payload(settings: Settings) -> dict[str, object]:
             "localSocks": {
                 "auth": "required" if contract.local_socks_auth_required else "disabled",
                 "allowAnonymousLocalhost": bool(contract.allow_anonymous_local_socks),
+            },
+            "clientExposure": {
+                "defaultMode": "vpn-tun",
+                "localProxyExports": "advanced-only",
+                "lanSharing": "forbidden",
+                "unauthenticatedLocalProxy": "forbidden",
+            },
+        },
+        "network": {
+            "egressIsolation": {
+                "required": bool(settings.agent_egress_isolation_required),
+                "mode": str(settings.agent_egress_isolation_mode or "").strip() or "dedicated-egress-ip",
+                "ingressPublicIPs": _csv_values(settings.agent_egress_ingress_public_ips),
+                "egressPublicIPs": _csv_values(settings.agent_egress_public_ips),
+                "forbidIngressIpAsEgress": bool(settings.agent_egress_forbid_ingress_ip_as_egress),
+                "requireTransitEgressPublicIP": bool(settings.agent_egress_require_transit_public_ip),
+                "clientLeakMitigation": str(settings.agent_egress_client_leak_mitigation or "").strip() or "egress-ip-only",
+                "enforcement": {
+                    "mode": str(settings.agent_egress_enforcement_mode or "").strip() or "operator-managed",
+                    "managedBy": str(settings.agent_egress_enforcement_managed_by or "").strip()
+                    or "/etc/tracegate/private/egress-isolation",
+                    "snat": str(settings.agent_egress_enforcement_snat or "").strip() or "required",
+                    "ingressPublicIpOutbound": str(
+                        settings.agent_egress_enforcement_ingress_public_ip_outbound or ""
+                    ).strip()
+                    or "forbidden",
+                },
             },
         },
         "linkCrypto": link_crypto,

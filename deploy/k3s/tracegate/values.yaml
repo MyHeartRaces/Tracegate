@@ -150,6 +150,30 @@ transportProfiles:
   socks5:
     required: true
     allowAnonymousLocalhost: false
+  clientExposure:
+    defaultMode: vpn-tun
+    localProxyExports: advanced-only
+    lanSharing: forbidden
+    unauthenticatedLocalProxy: forbidden
+
+network:
+  egressIsolation:
+    required: true
+    mode: dedicated-egress-ip
+    ingressPublicIPs: []
+    egressPublicIPs: []
+    forbidIngressIpAsEgress: true
+    requireTransitEgressPublicIP: true
+    clientLeakMitigation: egress-ip-only
+    enforcement:
+      mode: operator-managed
+      managedBy: /etc/tracegate/private/egress-isolation
+      snat: required
+      ingressPublicIpOutbound: forbidden
+    nodeAnnotations:
+      enabled: false
+      ingressPublicIP: tracegate.io/ingress-public-ip
+      egressPublicIP: tracegate.io/egress-public-ip
 
 experimentalProfiles:
   enabled: false

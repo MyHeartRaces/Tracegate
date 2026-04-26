@@ -1384,6 +1384,11 @@ def _transport_profiles_block(contract: dict[str, Any]) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
 
 
+def _network_block(contract: dict[str, Any]) -> dict[str, Any]:
+    value = contract.get("network")
+    return value if isinstance(value, dict) else {}
+
+
 def _link_crypto_contract_block(contract: dict[str, Any]) -> dict[str, Any]:
     value = contract.get("linkCrypto")
     return value if isinstance(value, dict) else {}
@@ -1536,6 +1541,91 @@ def _validate_tracegate21_transport_profiles(contract: dict[str, Any], *, role_p
                 "error",
                 f"{role_prefix}-tracegate21-local-socks-anonymous",
                 f"{role_prefix} tracegate-2.1 must not allow anonymous localhost SOCKS5",
+            )
+        )
+
+    client_exposure = transport.get("clientExposure")
+    exposure_block = client_exposure if isinstance(client_exposure, dict) else {}
+    expected_exposure = {
+        "defaultMode": "vpn-tun",
+        "localProxyExports": "advanced-only",
+        "lanSharing": "forbidden",
+        "unauthenticatedLocalProxy": "forbidden",
+    }
+    for key, expected in expected_exposure.items():
+        if str(exposure_block.get(key) or "").strip() != expected:
+            findings.append(
+                _finding(
+                    "error",
+                    f"{role_prefix}-tracegate21-client-exposure-{key}",
+                    f"{role_prefix} tracegate-2.1 transportProfiles.clientExposure.{key} must stay {expected}",
+                )
+            )
+
+    return findings
+
+
+def _validate_tracegate21_network(contract: dict[str, Any], *, role_prefix: str) -> list[RuntimePreflightFinding]:
+    findings: list[RuntimePreflightFinding] = []
+    if _runtime_profile(contract) != "tracegate-2.1":
+        return findings
+
+    network = _network_block(contract)
+    egress = network.get("egressIsolation") if isinstance(network, dict) else {}
+    egress_block = egress if isinstance(egress, dict) else {}
+    enforcement = egress_block.get("enforcement")
+    enforcement_block = enforcement if isinstance(enforcement, dict) else {}
+
+    if not bool(egress_block.get("required", False)):
+        findings.append(_finding("error", f"{role_prefix}-tracegate21-egress-isolation-required", f"{role_prefix} egress isolation must stay required"))
+    if str(egress_block.get("mode") or "").strip() != "dedicated-egress-ip":
+        findings.append(
+            _finding("error", f"{role_prefix}-tracegate21-egress-isolation-mode", f"{role_prefix} egress isolation mode must stay dedicated-egress-ip")
+        )
+    if not bool(egress_block.get("forbidIngressIpAsEgress", False)):
+        findings.append(
+            _finding(
+                "error",
+                f"{role_prefix}-tracegate21-egress-isolation-forbid-ingress",
+                f"{role_prefix} ingress public IP must be forbidden for user traffic egress",
+            )
+        )
+    if not bool(egress_block.get("requireTransitEgressPublicIP", False)):
+        findings.append(
+            _finding(
+                "error",
+                f"{role_prefix}-tracegate21-egress-isolation-transit-egress",
+                f"{role_prefix} Transit must declare a dedicated egress public IP",
+            )
+        )
+    if str(enforcement_block.get("snat") or "").strip() != "required":
+        findings.append(_finding("error", f"{role_prefix}-tracegate21-egress-snat", f"{role_prefix} egress isolation SNAT must stay required"))
+    if str(enforcement_block.get("ingressPublicIpOutbound") or "").strip() != "forbidden":
+        findings.append(
+            _finding(
+                "error",
+                f"{role_prefix}-tracegate21-egress-ingress-ip-outbound",
+                f"{role_prefix} outbound through ingress public IP must stay forbidden",
+            )
+        )
+
+    ingress_ips = set(_string_list(egress_block.get("ingressPublicIPs")))
+    egress_ips = set(_string_list(egress_block.get("egressPublicIPs")))
+    if role_prefix == "transit" and not egress_ips:
+        findings.append(
+            _finding(
+                "error",
+                f"{role_prefix}-tracegate21-egress-public-ips",
+                f"{role_prefix} Transit contract must list dedicated egress public IPs",
+            )
+        )
+    overlap = sorted(ingress_ips.intersection(egress_ips))
+    if overlap:
+        findings.append(
+            _finding(
+                "error",
+                f"{role_prefix}-tracegate21-egress-ip-overlap",
+                f"{role_prefix} ingress and egress public IPs must be disjoint: {', '.join(overlap)}",
             )
         )
 
@@ -4415,6 +4505,7 @@ def validate_runtime_contract_single(
         findings.append(_finding("error", f"{role_prefix}-profile", f"{role_prefix} runtimeProfile is missing"))
     findings.extend(_validate_tracegate21_rollout(contract, role_prefix=role_prefix))
     findings.extend(_validate_tracegate21_transport_profiles(contract, role_prefix=role_prefix))
+    findings.extend(_validate_tracegate21_network(contract, role_prefix=role_prefix))
     findings.extend(_validate_xray_api_surface(contract, role_prefix=role_prefix))
 
     components = _managed_components(contract)
@@ -4552,6 +4643,7 @@ def validate_runtime_contract_pair(
             for role_name, contract in (("entry", entry_contract), ("transit", transit_contract)):
                 findings.extend(_validate_tracegate21_rollout(contract, role_prefix=role_name))
                 findings.extend(_validate_tracegate21_transport_profiles(contract, role_prefix=role_name))
+                findings.extend(_validate_tracegate21_network(contract, role_prefix=role_name))
                 if _xray_backhaul_allowed(contract):
                     findings.append(
                         _finding(

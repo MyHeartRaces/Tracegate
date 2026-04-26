@@ -25,6 +25,21 @@ data:
       source: external-secret
       inlineProfilesAllowed: {{ .Values.privateProfiles.inlineProfiles }}
       secretName: {{ include "tracegate.privateProfilesSecretName" . }}
+    network:
+      egressIsolation:
+        required: {{ .Values.network.egressIsolation.required }}
+        mode: {{ .Values.network.egressIsolation.mode }}
+        forbidIngressIpAsEgress: {{ .Values.network.egressIsolation.forbidIngressIpAsEgress }}
+        requireTransitEgressPublicIP: {{ .Values.network.egressIsolation.requireTransitEgressPublicIP }}
+        clientLeakMitigation: {{ .Values.network.egressIsolation.clientLeakMitigation }}
+        ingressPublicIPs:
+{{ toYaml .Values.network.egressIsolation.ingressPublicIPs | nindent 10 }}
+        egressPublicIPs:
+{{ toYaml .Values.network.egressIsolation.egressPublicIPs | nindent 10 }}
+        enforcement:
+{{ toYaml .Values.network.egressIsolation.enforcement | nindent 10 }}
+        nodeAnnotations:
+{{ toYaml .Values.network.egressIsolation.nodeAnnotations | nindent 10 }}
     decoy:
       preserveExisting: {{ .Values.decoy.preserveExisting }}
       source: {{ if .Values.decoy.hostPath }}hostPath{{ else if .Values.decoy.existingClaim }}existingClaim{{ else if .Values.decoy.existingConfigMap }}existingConfigMap{{ else }}externalSourceRequired{{ end }}
@@ -165,6 +180,9 @@ data:
         failOpen: true
     transports:
 {{ toYaml .Values.transportProfiles.clientNames | nindent 6 }}
+    transportProfiles:
+      clientExposure:
+{{ toYaml .Values.transportProfiles.clientExposure | nindent 8 }}
     experimentalProfiles:
 {{ toYaml .Values.experimentalProfiles | nindent 6 }}
 {{- range $roleName, $role := .Values.gateway.roles }}

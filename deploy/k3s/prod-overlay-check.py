@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 from collections.abc import Mapping
+import ipaddress
 from pathlib import Path
 import re
 import sys
@@ -104,6 +105,31 @@ def _is_clean_http_path(value: Any) -> bool:
     )
 
 
+def _ip_set(values: Any) -> set[str]:
+    result: set[str] = set()
+    for value in _as_list(values):
+        raw = _text(value)
+        if raw:
+            result.add(raw)
+    return result
+
+
+def _valid_public_ip_set(values: set[str]) -> tuple[set[str], list[str]]:
+    normalized: set[str] = set()
+    invalid: list[str] = []
+    for value in sorted(values):
+        try:
+            parsed = ipaddress.ip_address(value)
+        except ValueError:
+            invalid.append(value)
+            continue
+        if parsed.is_private or parsed.is_loopback or parsed.is_link_local or parsed.is_multicast or parsed.is_unspecified:
+            invalid.append(value)
+            continue
+        normalized.add(str(parsed))
+    return normalized, invalid
+
+
 def validate_prod_overlay(chart_values: Path, prod_values: Path, *, strict: bool) -> list[str]:
     merged = _merge_values(_read_yaml(chart_values), _read_yaml(prod_values))
     errors: list[str] = []
@@ -185,8 +211,52 @@ def validate_prod_overlay(chart_values: Path, prod_values: Path, *, strict: bool
 
     transport_profiles = _as_dict(merged.get("transportProfiles"))
     socks5 = _as_dict(transport_profiles.get("socks5"))
+    client_exposure = _as_dict(transport_profiles.get("clientExposure"))
     require(bool(socks5.get("required", False)), "transportProfiles.socks5.required must stay true")
     require(not bool(socks5.get("allowAnonymousLocalhost", False)), "transportProfiles.socks5.allowAnonymousLocalhost must stay false")
+    require(_text(client_exposure.get("defaultMode")) == "vpn-tun", "transportProfiles.clientExposure.defaultMode must stay vpn-tun")
+    require(
+        _text(client_exposure.get("localProxyExports")) == "advanced-only",
+        "transportProfiles.clientExposure.localProxyExports must stay advanced-only",
+    )
+    require(_text(client_exposure.get("lanSharing")) == "forbidden", "transportProfiles.clientExposure.lanSharing must stay forbidden")
+    require(
+        _text(client_exposure.get("unauthenticatedLocalProxy")) == "forbidden",
+        "transportProfiles.clientExposure.unauthenticatedLocalProxy must stay forbidden",
+    )
+
+    network = _as_dict(merged.get("network"))
+    egress_isolation = _as_dict(network.get("egressIsolation"))
+    enforcement = _as_dict(egress_isolation.get("enforcement"))
+    node_annotations = _as_dict(egress_isolation.get("nodeAnnotations"))
+    require(bool(egress_isolation.get("required", False)), "network.egressIsolation.required must stay true")
+    require(_text(egress_isolation.get("mode")) == "dedicated-egress-ip", "network.egressIsolation.mode must stay dedicated-egress-ip")
+    require(
+        bool(egress_isolation.get("forbidIngressIpAsEgress", False)),
+        "network.egressIsolation.forbidIngressIpAsEgress must stay true",
+    )
+    require(
+        bool(egress_isolation.get("requireTransitEgressPublicIP", False)),
+        "network.egressIsolation.requireTransitEgressPublicIP must stay true",
+    )
+    require(_text(enforcement.get("mode")) == "operator-managed", "network.egressIsolation.enforcement.mode must stay operator-managed")
+    require(_has_value(enforcement.get("managedBy")), "network.egressIsolation.enforcement.managedBy must be set")
+    require(_text(enforcement.get("snat")) == "required", "network.egressIsolation.enforcement.snat must stay required")
+    require(
+        _text(enforcement.get("ingressPublicIpOutbound")) == "forbidden",
+        "network.egressIsolation.enforcement.ingressPublicIpOutbound must stay forbidden",
+    )
+    require(bool(node_annotations.get("enabled", False)), "network.egressIsolation.nodeAnnotations.enabled must stay true in production")
+    require(_has_value(node_annotations.get("ingressPublicIP")), "network.egressIsolation.nodeAnnotations.ingressPublicIP must be set")
+    require(_has_value(node_annotations.get("egressPublicIP")), "network.egressIsolation.nodeAnnotations.egressPublicIP must be set")
+    ingress_public_ips, invalid_ingress_ips = _valid_public_ip_set(_ip_set(egress_isolation.get("ingressPublicIPs")))
+    egress_public_ips, invalid_egress_ips = _valid_public_ip_set(_ip_set(egress_isolation.get("egressPublicIPs")))
+    require(bool(ingress_public_ips), "network.egressIsolation.ingressPublicIPs must contain at least one public IP")
+    require(bool(egress_public_ips), "network.egressIsolation.egressPublicIPs must contain at least one public IP")
+    require(not invalid_ingress_ips, f"network.egressIsolation.ingressPublicIPs contains invalid/non-public IPs: {', '.join(invalid_ingress_ips)}")
+    require(not invalid_egress_ips, f"network.egressIsolation.egressPublicIPs contains invalid/non-public IPs: {', '.join(invalid_egress_ips)}")
+    overlap = sorted(ingress_public_ips.intersection(egress_public_ips))
+    require(not overlap, f"network.egressIsolation ingressPublicIPs and egressPublicIPs must be disjoint: {', '.join(overlap)}")
 
     rollout = _as_dict(gateway.get("rollingUpdate"))
     private_preflight = _as_dict(gateway.get("privatePreflight"))

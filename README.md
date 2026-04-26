@@ -291,8 +291,10 @@ The repository is designed so sensitive runtime logic can stay private:
 - generated V5/V6/V7 private desired-state files contain credentials and must stay under that private runtime root
 - profile adapter scaffolds emit only redacted manifests; real V5/V6/V7 process wiring stays in private runners
 - generated link-crypto handoffs contain only public pointers to private Mieru/zapret2 files; the referenced profiles still stay outside Git
+- production overlays must declare dedicated ingress and egress public IP sets; strict preflight rejects shared ingress/egress IPs before deploy
+- user traffic SNAT and any rule that forbids outbound through ingress IPs belongs to private host policy under `/etc/tracegate/private/egress-isolation`
 - preflight validation rejects profile handoffs that disable local SOCKS5 auth, expose local adapters outside loopback, or enable host-wide interception
-- generated client attachments use required SOCKS5 username/password and stable per-connection high local ports instead of common `1080` defaults
+- default client UX is VPN/TUN-first; local SOCKS/mixed exports are advanced-only and must use required username/password plus stable per-connection high local ports instead of common `1080` defaults
 - per-connection `local_socks_username` / `local_socks_password` overrides are allowed only as a non-empty pair and remain required-auth credentials, not an auth bypass
 - connection read responses redact sensitive override values such as passwords, private keys, preshared keys, secrets and tokens
 - runtime-contract preflight rejects public or widened Xray API surfaces; server-side API is limited to loopback `HandlerService`/`StatsService`

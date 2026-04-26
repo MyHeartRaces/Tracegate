@@ -78,6 +78,20 @@ def _label_selector(selector: Mapping[str, Any]) -> str:
     return ",".join(parts)
 
 
+def _csv_set(value: Any) -> set[str]:
+    raw = _text(value)
+    if not raw:
+        return set()
+    return {item.strip() for item in raw.split(",") if item.strip()}
+
+
+def _values_set(value: Any) -> set[str]:
+    if isinstance(value, list):
+        return {item for item in (_text(item) for item in value) if item}
+    text = _text(value)
+    return {text} if text else set()
+
+
 def _private_profile_secret_keys(values: dict[str, Any]) -> set[str]:
     private_profiles = _as_dict(values.get("privateProfiles"))
     secret_keys = _as_dict(private_profiles.get("secretKeys"))
@@ -203,6 +217,7 @@ def validate_cluster(
     errors: list[str] = []
     checked_secrets = 0
     checked_nodes = 0
+    checked_egress_nodes = 0
     checked_decoy_resources = 0
 
     try:
@@ -254,6 +269,13 @@ def validate_cluster(
 
     gateway = _as_dict(values.get("gateway"))
     roles = _as_dict(gateway.get("roles"))
+    egress_isolation = _as_dict(_as_dict(values.get("network")).get("egressIsolation"))
+    node_annotations = _as_dict(egress_isolation.get("nodeAnnotations"))
+    check_egress_annotations = _enabled(node_annotations.get("enabled"))
+    ingress_annotation_key = _text(node_annotations.get("ingressPublicIP")) or "tracegate.io/ingress-public-ip"
+    egress_annotation_key = _text(node_annotations.get("egressPublicIP")) or "tracegate.io/egress-public-ip"
+    expected_ingress_ips = _values_set(egress_isolation.get("ingressPublicIPs"))
+    expected_egress_ips = _values_set(egress_isolation.get("egressPublicIPs"))
     for role_name in ("entry", "transit"):
         role = _as_dict(roles.get(role_name))
         if not _enabled(role.get("enabled")):
@@ -282,6 +304,31 @@ def validate_cluster(
                 errors.append(f"nodeSelector for {role_name} matched 0 nodes: {label_selector}")
             else:
                 checked_nodes += len(items)
+                if check_egress_annotations:
+                    for item in items:
+                        metadata = _as_dict(item.get("metadata"))
+                        node_name = _text(metadata.get("name")) or "<unknown>"
+                        annotations = _as_dict(metadata.get("annotations"))
+                        ingress_ips = _csv_set(annotations.get(ingress_annotation_key))
+                        if not ingress_ips:
+                            errors.append(f"node {node_name} is missing {ingress_annotation_key} annotation")
+                        elif expected_ingress_ips and not ingress_ips.intersection(expected_ingress_ips):
+                            errors.append(
+                                f"node {node_name} {ingress_annotation_key}={','.join(sorted(ingress_ips))} "
+                                "does not match network.egressIsolation.ingressPublicIPs"
+                            )
+                        if role_name == "transit":
+                            egress_ips = _csv_set(annotations.get(egress_annotation_key))
+                            if not egress_ips:
+                                errors.append(f"node {node_name} is missing {egress_annotation_key} annotation")
+                            elif expected_egress_ips and not egress_ips.intersection(expected_egress_ips):
+                                errors.append(
+                                    f"node {node_name} {egress_annotation_key}={','.join(sorted(egress_ips))} "
+                                    "does not match network.egressIsolation.egressPublicIPs"
+                                )
+                            if ingress_ips and egress_ips and ingress_ips.intersection(egress_ips):
+                                errors.append(f"node {node_name} ingress and egress public IP annotations must be disjoint")
+                            checked_egress_nodes += 1
 
     decoy = _as_dict(values.get("decoy"))
     if _text(decoy.get("existingConfigMap")):
@@ -307,6 +354,7 @@ def validate_cluster(
         "namespace": namespace,
         "secrets": checked_secrets,
         "nodes": checked_nodes,
+        "egressNodes": checked_egress_nodes,
         "decoyResources": checked_decoy_resources,
     }
 
@@ -339,6 +387,7 @@ def main(argv: list[str] | None = None) -> int:
         f"namespace={summary['namespace']} "
         f"secrets={summary['secrets']} "
         f"nodes={summary['nodes']} "
+        f"egress_nodes={summary['egressNodes']} "
         f"decoy_resources={summary['decoyResources']}"
     )
     return 0

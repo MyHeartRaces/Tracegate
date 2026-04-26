@@ -60,6 +60,12 @@ def _runtime_contract(
         transport_profiles = {
             "clientNames": list(TRACEGATE21_CLIENT_PROFILES if runtime_profile == "tracegate-2.1" else XRAY_CENTRIC_CLIENT_PROFILES),
             "localSocks": {"auth": "required", "allowAnonymousLocalhost": False},
+            "clientExposure": {
+                "defaultMode": "vpn-tun",
+                "localProxyExports": "advanced-only",
+                "lanSharing": "forbidden",
+                "unauthenticatedLocalProxy": "forbidden",
+            },
         }
     local_socks = transport_profiles.get("localSocks") if isinstance(transport_profiles, dict) else {}
     local_socks_auth = str(local_socks.get("auth") or "").strip().lower() if isinstance(local_socks, dict) else ""
@@ -91,6 +97,23 @@ def _runtime_contract(
             "mtprotoFrontingMode": "dedicated-dns-only",
         },
         "transportProfiles": transport_profiles,
+        "network": {
+            "egressIsolation": {
+                "required": True,
+                "mode": "dedicated-egress-ip",
+                "ingressPublicIPs": ["203.0.113.10"],
+                "egressPublicIPs": ["198.51.100.20"],
+                "forbidIngressIpAsEgress": True,
+                "requireTransitEgressPublicIP": True,
+                "clientLeakMitigation": "egress-ip-only",
+                "enforcement": {
+                    "mode": "operator-managed",
+                    "managedBy": "/etc/tracegate/private/egress-isolation",
+                    "snat": "required",
+                    "ingressPublicIpOutbound": "forbidden",
+                },
+            }
+        },
         "decoy": {
             "nginxRoots": nginx_roots if nginx_roots is not None else ["/srv/decoy"],
             "splitHysteriaMasqueradeDirs": split_hysteria_dirs if split_hysteria_dirs is not None else [],
@@ -1037,6 +1060,7 @@ def test_validate_runtime_contract_pair_rejects_tracegate21_unsafe_transport_pro
     assert by_code["entry-tracegate21-local-socks-auth-metadata"].severity == "error"
     assert by_code["entry-tracegate21-local-socks-auth"].severity == "error"
     assert by_code["entry-tracegate21-local-socks-anonymous"].severity == "error"
+    assert by_code["entry-tracegate21-client-exposure-defaultMode"].severity == "error"
 
 
 def test_validate_runtime_contract_pair_rejects_tracegate21_local_socks_metadata_mismatch() -> None:
@@ -1050,6 +1074,31 @@ def test_validate_runtime_contract_pair_rejects_tracegate21_local_socks_metadata
     by_code = {finding.code: finding for finding in findings}
     assert by_code["entry-tracegate21-local-socks-auth-mismatch"].severity == "error"
     assert by_code["entry-tracegate21-local-socks-auth"].severity == "error"
+
+
+def test_validate_runtime_contract_pair_rejects_tracegate21_unsafe_egress_isolation() -> None:
+    entry = _runtime_contract(role="ENTRY", runtime_profile="tracegate-2.1")
+    transit = _runtime_contract(role="TRANSIT", runtime_profile="tracegate-2.1")
+    transit["network"]["egressIsolation"] = {
+        "required": False,
+        "mode": "shared-ingress-ip",
+        "ingressPublicIPs": ["198.51.100.20"],
+        "egressPublicIPs": ["198.51.100.20"],
+        "forbidIngressIpAsEgress": False,
+        "requireTransitEgressPublicIP": False,
+        "enforcement": {"snat": "optional", "ingressPublicIpOutbound": "allowed"},
+    }
+
+    findings = validate_runtime_contract_pair(entry, transit)
+
+    by_code = {finding.code: finding for finding in findings}
+    assert by_code["transit-tracegate21-egress-isolation-required"].severity == "error"
+    assert by_code["transit-tracegate21-egress-isolation-mode"].severity == "error"
+    assert by_code["transit-tracegate21-egress-isolation-forbid-ingress"].severity == "error"
+    assert by_code["transit-tracegate21-egress-isolation-transit-egress"].severity == "error"
+    assert by_code["transit-tracegate21-egress-snat"].severity == "error"
+    assert by_code["transit-tracegate21-egress-ingress-ip-outbound"].severity == "error"
+    assert by_code["transit-tracegate21-egress-ip-overlap"].severity == "error"
 
 
 def test_validate_runtime_contract_pair_requires_tracegate21_local_socks_metadata() -> None:

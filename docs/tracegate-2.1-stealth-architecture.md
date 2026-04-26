@@ -126,6 +126,24 @@ Recommended default:
 
 Local SOCKS auth protects the client host or router from other local/LAN processes abusing the proxy. It is not a replacement for VLESS/Hysteria/Shadowsocks/WireGuard server-side authentication.
 
+## Production ingress/egress isolation
+
+Tracegate 2.1 treats local-SOCKS client compromise as a server-side blast-radius problem, not a user-training problem.
+
+Production must separate public ingress from user egress:
+
+- `network.egressIsolation.ingressPublicIPs`: public IPs and domains used by clients to reach Entry/Transit.
+- `network.egressIsolation.egressPublicIPs`: public IPs used for user traffic SNAT/exit.
+- The two sets must be disjoint in strict production validation.
+- Transit must have at least one dedicated egress public IP.
+- `forbidIngressIpAsEgress=true` and `enforcement.ingressPublicIpOutbound=forbidden` are production invariants.
+- Actual SNAT, policy routing and firewall rules live in private host policy under `/etc/tracegate/private/egress-isolation`; public Helm values only declare the contract.
+- Gateway nodes should be annotated with `tracegate.io/ingress-public-ip` and `tracegate.io/egress-public-ip` so cluster preflight can catch obvious misplacement before Helm rollout.
+
+This does not make a compromised phone safe. It prevents a local proxy leak from revealing the user-facing ingress IP as the observed Internet egress IP.
+
+Default client UX is VPN/TUN-first. Local SOCKS/mixed exports are advanced-only, must bind to loopback, must require auth, and must never enable LAN sharing or anonymous localhost.
+
 ## Xray API surface
 
 Tracegate 2.1 must not ship client artifacts with Xray API access. Client-side `HandlerService`, `StatsService` or `ReflectionService` blocks are invalid profile material.
@@ -452,6 +470,7 @@ Gateway probes:
 - WireGuard peer add/remove changes live interface state without restarting WSTunnel or WireGuard.
 - ShadowTLS outer config remains stable during per-user Shadowsocks changes.
 - Private encrypted link profile bodies never appear in Helm values, ConfigMaps, rendered manifests, logs or Git-tracked files.
+- Strict production validation rejects shared ingress/egress public IPs and missing Transit egress isolation before deployment.
 - Rotating an `entry-transit` Mieru generation moves new chain flows without dropping unrelated host traffic.
 - Killing zapret2 wrapper does not drop existing non-zapret Tracegate connections and does not affect SSH/control-plane access.
 - Restarting or rotating MTProto obfuscation may interrupt Telegram Proxy sessions, but does not restart or degrade V1-V7.

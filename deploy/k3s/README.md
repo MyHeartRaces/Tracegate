@@ -29,6 +29,16 @@ surface until the Helm rollout is complete.
   `tag`.
 - Keep generated runtime desired state under `/var/lib/tracegate/private`; the
   `/etc/tracegate/private` Secret mount is read-only static material.
+- Keep ingress and egress public IPs separated. Production overlays must set
+  `network.egressIsolation.ingressPublicIPs` and
+  `network.egressIsolation.egressPublicIPs` to disjoint real public IPs, keep
+  `forbidIngressIpAsEgress=true`, and annotate gateway nodes with the configured
+  `tracegate.io/ingress-public-ip` / `tracegate.io/egress-public-ip` keys before
+  cluster preflight. The actual SNAT/firewall rules live in private host policy
+  under `/etc/tracegate/private/egress-isolation`.
+- Keep default client delivery VPN/TUN-first. Local SOCKS/mixed listener exports
+  are advanced-only; generated local proxy material must never enable LAN
+  sharing or anonymous localhost.
 - Keep `privateProfiles.defaultMode=256` (`0400`) unless a specific sidecar
   image is intentionally run as a non-root user and the Secret ACL model is
   changed with it.
@@ -192,11 +202,14 @@ deploy/k3s/deploy-ready-check.sh
 Strict mode runs `prod-overlay-check.py` and rejects example domains, the
 example image repository, mutable image tags, missing external auth/database
 Secrets, built-in decoy fallback, unsafe rollout switches, anonymous SOCKS5,
-host-wide zapret2/NFQUEUE and missing MTProto core settings before rendering
-the production manifests. `TRACEGATE_CLUSTER_PREFLIGHT=1` additionally runs
+shared ingress/egress public IPs, disabled egress isolation, host-wide
+zapret2/NFQUEUE and missing MTProto core settings before rendering the
+production manifests. `TRACEGATE_CLUSTER_PREFLIGHT=1` additionally runs
 `cluster-preflight-check.py` through `kubectl` and verifies that required
 external Secret keys, TLS Secrets, external decoy ConfigMap/PVC references and
-Entry/Transit node labels already exist in the target namespace. It only checks
+Entry/Transit node labels already exist in the target namespace. When
+`network.egressIsolation.nodeAnnotations.enabled=true`, it also checks the
+gateway node public-IP annotations against the production values. It only checks
 metadata and Secret key names; it does not print or decode Secret values. Use
 `TRACEGATE_KUBECTL` or `TRACEGATE_KUBE_CONTEXT` when targeting a non-default
 kubectl binary or context.

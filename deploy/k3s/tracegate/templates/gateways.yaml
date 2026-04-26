@@ -358,6 +358,28 @@ spec:
               value: {{ $.Values.gateway.privatePreflight.enabled | quote }}
             - name: AGENT_GATEWAY_PRIVATE_PREFLIGHT_FORBID_PLACEHOLDERS
               value: {{ $.Values.gateway.privatePreflight.forbidPlaceholders | quote }}
+            - name: AGENT_EGRESS_ISOLATION_REQUIRED
+              value: {{ $.Values.network.egressIsolation.required | quote }}
+            - name: AGENT_EGRESS_ISOLATION_MODE
+              value: {{ $.Values.network.egressIsolation.mode | quote }}
+            - name: AGENT_EGRESS_INGRESS_PUBLIC_IPS
+              value: {{ join "," $.Values.network.egressIsolation.ingressPublicIPs | quote }}
+            - name: AGENT_EGRESS_PUBLIC_IPS
+              value: {{ join "," $.Values.network.egressIsolation.egressPublicIPs | quote }}
+            - name: AGENT_EGRESS_FORBID_INGRESS_IP_AS_EGRESS
+              value: {{ $.Values.network.egressIsolation.forbidIngressIpAsEgress | quote }}
+            - name: AGENT_EGRESS_REQUIRE_TRANSIT_PUBLIC_IP
+              value: {{ $.Values.network.egressIsolation.requireTransitEgressPublicIP | quote }}
+            - name: AGENT_EGRESS_CLIENT_LEAK_MITIGATION
+              value: {{ $.Values.network.egressIsolation.clientLeakMitigation | quote }}
+            - name: AGENT_EGRESS_ENFORCEMENT_MODE
+              value: {{ $.Values.network.egressIsolation.enforcement.mode | quote }}
+            - name: AGENT_EGRESS_ENFORCEMENT_MANAGED_BY
+              value: {{ $.Values.network.egressIsolation.enforcement.managedBy | quote }}
+            - name: AGENT_EGRESS_ENFORCEMENT_SNAT
+              value: {{ $.Values.network.egressIsolation.enforcement.snat | quote }}
+            - name: AGENT_EGRESS_ENFORCEMENT_INGRESS_PUBLIC_IP_OUTBOUND
+              value: {{ $.Values.network.egressIsolation.enforcement.ingressPublicIpOutbound | quote }}
             - name: DEFAULT_ENTRY_HOST
               value: {{ $.Values.controlPlane.env.defaultEntryHost | quote }}
             - name: DEFAULT_TRANSIT_HOST
