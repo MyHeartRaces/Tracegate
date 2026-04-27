@@ -1,8 +1,8 @@
 # Copy this file to an ignored values file, for example:
 #   deploy/k3s/values-prod.yaml
 #
-# Never commit real tokens, keys, Mieru profiles, zapret2 profiles, ShadowTLS
-# passwords, WireGuard keys or MTProto secrets.
+# Never commit real tokens, keys, Hysteria Salamander/stat secrets, Mieru profiles,
+# zapret2 profiles, ShadowTLS passwords, WireGuard keys or MTProto secrets.
 
 namespace:
   name: tracegate
@@ -10,7 +10,7 @@ namespace:
 global:
   image:
     repository: ghcr.io/your-org/tracegate
-    tag: "2.1.0"
+    tag: "2.2.0"
   publicBaseUrl: "https://tracegate.example.com"
 
 controlPlane:
@@ -38,8 +38,10 @@ privateProfiles:
   secretKeys:
     realityPrivateKeyEntry: reality-entry-private-key
     realityPrivateKeyTransit: reality-transit-private-key
-    hysteriaAuthEntry: hysteria-entry-auth
-    hysteriaAuthTransit: hysteria-transit-auth
+    hysteriaSalamanderEntry: hysteria-entry-salamander-password
+    hysteriaSalamanderTransit: hysteria-transit-salamander-password
+    hysteriaStatsEntry: hysteria-entry-stats-secret
+    hysteriaStatsTransit: hysteria-transit-stats-secret
 
 decoy:
   # Mount the existing production decoy tree. The chart does not ship decoy

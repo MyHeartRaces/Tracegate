@@ -8,6 +8,11 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
+from tracegate.constants import (
+    TRACEGATE_FORBIDDEN_PUBLIC_TCP_PORT,
+    TRACEGATE_FORBIDDEN_PUBLIC_UDP_PORT,
+    TRACEGATE_PUBLIC_UDP_PORT,
+)
 from tracegate.services.mtproto import MTPROTO_FAKE_TLS_PROFILE_NAME
 from tracegate.services.runtime_contract import TRACEGATE21_CLIENT_PROFILES
 
@@ -282,7 +287,12 @@ class LinkCryptoState:
     entry_transit_count: int
     router_entry_count: int
     router_transit_count: int
+    udp_total_count: int
+    entry_transit_udp_count: int
+    router_entry_udp_count: int
+    router_transit_udp_count: int
     links: tuple[dict[str, Any], ...]
+    udp_links: tuple[dict[str, Any], ...]
 
 
 @dataclass(frozen=True)
@@ -301,10 +311,97 @@ class LinkCryptoEnv:
     outer_wss_public_port: int
     outer_wss_path: str
     outer_wss_verify_tls: bool
+    outer_wss_spki_pinning_required: bool
+    outer_wss_admission_required: bool
     generation: int
     zapret2_enabled: bool
+    zapret2_required: bool
     zapret2_host_wide_interception: bool
     zapret2_nfqueue: bool
+    tcp_dpi_resistance_required: bool
+    tcp_traffic_shaping_required: bool
+    promotion_preflight_required: bool
+
+
+@dataclass(frozen=True)
+class RouterHandoffState:
+    path: Path
+    schema: str
+    version: int
+    role: str
+    runtime_profile: str
+    runtime_contract_path: str
+    secret_material: bool
+    enabled: bool
+    placement: str
+    contract: dict[str, Any]
+    total_count: int
+    tcp_count: int
+    udp_count: int
+    tcp_classes: tuple[str, ...]
+    udp_classes: tuple[str, ...]
+    tcp_routes: tuple[dict[str, Any], ...]
+    udp_routes: tuple[dict[str, Any], ...]
+
+
+@dataclass(frozen=True)
+class RouterHandoffEnv:
+    path: Path
+    role: str
+    runtime_profile: str
+    state_json: str
+    secret_material: bool
+    enabled: bool
+    total_count: int
+    tcp_count: int
+    udp_count: int
+    tcp_classes: tuple[str, ...]
+    udp_classes: tuple[str, ...]
+    paired_obfs_enabled: bool
+    requires_private_profile: bool
+    router_is_entry_replacement: bool
+    no_host_wide_interception: bool
+    no_nfqueue: bool
+
+
+@dataclass(frozen=True)
+class RouterClientBundle:
+    path: Path
+    schema: str
+    version: int
+    role: str
+    runtime_profile: str
+    handoff_state_json: str
+    secret_material: bool
+    enabled: bool
+    placement: str
+    requirements: dict[str, Any]
+    total_count: int
+    tcp_count: int
+    udp_count: int
+    tcp_classes: tuple[str, ...]
+    udp_classes: tuple[str, ...]
+    components: tuple[dict[str, Any], ...]
+    tcp_routes: tuple[dict[str, Any], ...]
+    udp_routes: tuple[dict[str, Any], ...]
+
+
+@dataclass(frozen=True)
+class RouterClientBundleEnv:
+    path: Path
+    role: str
+    runtime_profile: str
+    bundle_json: str
+    handoff_json: str
+    secret_material: bool
+    enabled: bool
+    components: tuple[str, ...]
+    tcp_count: int
+    udp_count: int
+    requires_both_sides: bool
+    fail_closed: bool
+    no_host_wide_interception: bool
+    no_nfqueue: bool
 
 
 @dataclass(frozen=True)
@@ -330,21 +427,21 @@ _ZAPRET_SCOPE_POLICIES: dict[str, ZapretScopePolicy] = {
         recommended_protocols=("v2", "v4", "v6"),
         allowed_surfaces=("vless_reality", "hysteria2", "shadowtls_v3"),
         recommended_tcp_ports=(443,),
-        recommended_udp_ports=(443,),
+        recommended_udp_ports=(TRACEGATE_PUBLIC_UDP_PORT,),
     ),
     "transit": ZapretScopePolicy(
         expected_scope="transit",
         recommended_protocols=("v1", "v3", "v5", "v7"),
         allowed_surfaces=("vless_reality", "vless_ws_tls", "vless_grpc_tls", "hysteria2", "shadowtls_v3", "wstunnel"),
         recommended_tcp_ports=(443,),
-        recommended_udp_ports=(443,),
+        recommended_udp_ports=(TRACEGATE_PUBLIC_UDP_PORT,),
     ),
     "interconnect": ZapretScopePolicy(
         expected_scope="entry-transit",
         recommended_protocols=("v2", "v4", "v6"),
         allowed_surfaces=("entry_transit_private_relay", "link_crypto_outer", "mieru_outer", "wss_carrier"),
         recommended_tcp_ports=(443,),
-        recommended_udp_ports=(443,),
+        recommended_udp_ports=(TRACEGATE_PUBLIC_UDP_PORT,),
         allowed_cpu_budgets=("low",),
         max_workers_soft_limit=1,
     ),
@@ -417,7 +514,7 @@ def load_obfuscation_runtime_state(path: str | Path) -> ObfuscationRuntimeState:
         zapret_policy_dir=str(public.get("zapretPolicyDir") or "").strip(),
         zapret_state_dir=str(public.get("zapretStateDir") or "").strip(),
         fronting_tcp_owner=str(fronting.get("tcp443Owner") or "").strip(),
-        fronting_udp_owner=str(fronting.get("udp443Owner") or "").strip(),
+        fronting_udp_owner=str(fronting.get("publicUdpOwner") or fronting.get("udp443Owner") or "").strip(),
         touch_udp_443=bool(fronting.get("touchUdp443", False)),
         mtproto_domain=str(fronting.get("mtprotoDomain") or "").strip(),
         mtproto_public_port=mtproto_public_port,
@@ -516,7 +613,9 @@ def load_obfuscation_runtime_env(path: str | Path) -> ObfuscationRuntimeEnv:
             label="obfuscation runtime-state env",
         ),
         fronting_tcp_owner=str(payload.get("TRACEGATE_TCP_443_OWNER") or "").strip(),
-        fronting_udp_owner=str(payload.get("TRACEGATE_UDP_443_OWNER") or "").strip(),
+        fronting_udp_owner=str(
+            payload.get("TRACEGATE_PUBLIC_UDP_OWNER") or payload.get("TRACEGATE_UDP_443_OWNER") or ""
+        ).strip(),
         touch_udp_443=_parse_bool(
             _require_env_field(
                 payload,
@@ -607,7 +706,7 @@ def load_fronting_runtime_state(path: str | Path) -> FrontingRuntimeState:
         mtproto_domain=str(payload.get("mtprotoDomain") or "").strip(),
         mtproto_fronting_mode=str(payload.get("mtprotoFrontingMode") or "").strip().lower(),
         tcp_443_owner=str(payload.get("tcp443Owner") or "").strip(),
-        udp_443_owner=str(payload.get("udp443Owner") or "").strip(),
+        udp_443_owner=str(payload.get("publicUdpOwner") or payload.get("udp443Owner") or "").strip(),
         cfg_file=str(payload.get("cfgFile") or "").strip(),
         pid_file=str(payload.get("pidFile") or "").strip(),
         ws_sni=str(payload.get("wsSni") or "").strip(),
@@ -806,6 +905,8 @@ def load_link_crypto_state(path: str | Path) -> LinkCryptoState:
 
     counts = payload.get("counts")
     counts = counts if isinstance(counts, dict) else {}
+    udp_counts = payload.get("udpCounts")
+    udp_counts = udp_counts if isinstance(udp_counts, dict) else {}
 
     return LinkCryptoState(
         path=state_path,
@@ -835,7 +936,32 @@ def load_link_crypto_state(path: str | Path) -> LinkCryptoState:
             field_name="counts.routerTransit",
             label="link-crypto desired-state",
         ),
+        udp_total_count=_json_int(
+            udp_counts.get("total", 0),
+            path=state_path,
+            field_name="udpCounts.total",
+            label="link-crypto desired-state",
+        ),
+        entry_transit_udp_count=_json_int(
+            udp_counts.get("entryTransitUdp", 0),
+            path=state_path,
+            field_name="udpCounts.entryTransitUdp",
+            label="link-crypto desired-state",
+        ),
+        router_entry_udp_count=_json_int(
+            udp_counts.get("routerEntryUdp", 0),
+            path=state_path,
+            field_name="udpCounts.routerEntryUdp",
+            label="link-crypto desired-state",
+        ),
+        router_transit_udp_count=_json_int(
+            udp_counts.get("routerTransitUdp", 0),
+            path=state_path,
+            field_name="udpCounts.routerTransitUdp",
+            label="link-crypto desired-state",
+        ),
         links=tuple(_dict_list(payload.get("links"))),
+        udp_links=tuple(_dict_list(payload.get("udpLinks"))),
     )
 
 
@@ -928,6 +1054,28 @@ def load_link_crypto_env(path: str | Path) -> LinkCryptoEnv:
             field_name="TRACEGATE_LINK_CRYPTO_OUTER_WSS_VERIFY_TLS",
             label="link-crypto desired-state env",
         ),
+        outer_wss_spki_pinning_required=_parse_bool(
+            _require_env_field(
+                payload,
+                env_path,
+                "TRACEGATE_LINK_CRYPTO_OUTER_WSS_SPKI_PINNING_REQUIRED",
+                label="link-crypto desired-state env",
+            ),
+            path=env_path,
+            field_name="TRACEGATE_LINK_CRYPTO_OUTER_WSS_SPKI_PINNING_REQUIRED",
+            label="link-crypto desired-state env",
+        ),
+        outer_wss_admission_required=_parse_bool(
+            _require_env_field(
+                payload,
+                env_path,
+                "TRACEGATE_LINK_CRYPTO_OUTER_WSS_ADMISSION_REQUIRED",
+                label="link-crypto desired-state env",
+            ),
+            path=env_path,
+            field_name="TRACEGATE_LINK_CRYPTO_OUTER_WSS_ADMISSION_REQUIRED",
+            label="link-crypto desired-state env",
+        ),
         generation=_parse_int(
             _require_env_field(payload, env_path, "TRACEGATE_LINK_CRYPTO_GENERATION", label="link-crypto desired-state env"),
             path=env_path,
@@ -943,6 +1091,17 @@ def load_link_crypto_env(path: str | Path) -> LinkCryptoEnv:
             ),
             path=env_path,
             field_name="TRACEGATE_LINK_CRYPTO_ZAPRET2_ENABLED",
+            label="link-crypto desired-state env",
+        ),
+        zapret2_required=_parse_bool(
+            _require_env_field(
+                payload,
+                env_path,
+                "TRACEGATE_LINK_CRYPTO_ZAPRET2_REQUIRED",
+                label="link-crypto desired-state env",
+            ),
+            path=env_path,
+            field_name="TRACEGATE_LINK_CRYPTO_ZAPRET2_REQUIRED",
             label="link-crypto desired-state env",
         ),
         zapret2_host_wide_interception=_parse_bool(
@@ -967,6 +1126,198 @@ def load_link_crypto_env(path: str | Path) -> LinkCryptoEnv:
             field_name="TRACEGATE_LINK_CRYPTO_ZAPRET2_NFQUEUE",
             label="link-crypto desired-state env",
         ),
+        tcp_dpi_resistance_required=_parse_bool(
+            _require_env_field(
+                payload,
+                env_path,
+                "TRACEGATE_LINK_CRYPTO_TCP_DPI_RESISTANCE_REQUIRED",
+                label="link-crypto desired-state env",
+            ),
+            path=env_path,
+            field_name="TRACEGATE_LINK_CRYPTO_TCP_DPI_RESISTANCE_REQUIRED",
+            label="link-crypto desired-state env",
+        ),
+        tcp_traffic_shaping_required=_parse_bool(
+            _require_env_field(
+                payload,
+                env_path,
+                "TRACEGATE_LINK_CRYPTO_TCP_TRAFFIC_SHAPING_REQUIRED",
+                label="link-crypto desired-state env",
+            ),
+            path=env_path,
+            field_name="TRACEGATE_LINK_CRYPTO_TCP_TRAFFIC_SHAPING_REQUIRED",
+            label="link-crypto desired-state env",
+        ),
+        promotion_preflight_required=_parse_bool(
+            _require_env_field(
+                payload,
+                env_path,
+                "TRACEGATE_LINK_CRYPTO_PROMOTION_PREFLIGHT_REQUIRED",
+                label="link-crypto desired-state env",
+            ),
+            path=env_path,
+            field_name="TRACEGATE_LINK_CRYPTO_PROMOTION_PREFLIGHT_REQUIRED",
+            label="link-crypto desired-state env",
+        ),
+    )
+
+
+def load_router_handoff_state(path: str | Path) -> RouterHandoffState:
+    state_path = Path(path)
+    try:
+        payload = json.loads(state_path.read_text(encoding="utf-8"))
+    except FileNotFoundError as exc:
+        raise RuntimePreflightError(f"router handoff desired-state not found: {state_path}") from exc
+    except json.JSONDecodeError as exc:
+        raise RuntimePreflightError(f"router handoff desired-state is not valid JSON: {state_path}") from exc
+    if not isinstance(payload, dict):
+        raise RuntimePreflightError(f"router handoff desired-state must be a JSON object: {state_path}")
+
+    counts = payload.get("counts") if isinstance(payload.get("counts"), dict) else {}
+    classes = payload.get("classes") if isinstance(payload.get("classes"), dict) else {}
+    routes = payload.get("routes") if isinstance(payload.get("routes"), dict) else {}
+    return RouterHandoffState(
+        path=state_path,
+        schema=str(payload.get("schema") or "").strip(),
+        version=_json_int(payload.get("version"), path=state_path, field_name="version", label="router handoff desired-state"),
+        role=str(payload.get("role") or "").strip().upper(),
+        runtime_profile=str(payload.get("runtimeProfile") or "").strip().lower(),
+        runtime_contract_path=str(payload.get("runtimeContractPath") or "").strip(),
+        secret_material=bool(payload.get("secretMaterial", False)),
+        enabled=bool(payload.get("enabled", False)),
+        placement=str(payload.get("placement") or "").strip(),
+        contract=payload.get("contract") if isinstance(payload.get("contract"), dict) else {},
+        total_count=_json_int(counts.get("total"), path=state_path, field_name="counts.total", label="router handoff desired-state"),
+        tcp_count=_json_int(counts.get("tcp"), path=state_path, field_name="counts.tcp", label="router handoff desired-state"),
+        udp_count=_json_int(counts.get("udp"), path=state_path, field_name="counts.udp", label="router handoff desired-state"),
+        tcp_classes=tuple(_string_list(classes.get("tcp"))),
+        udp_classes=tuple(_string_list(classes.get("udp"))),
+        tcp_routes=tuple(_dict_list(routes.get("tcp"))),
+        udp_routes=tuple(_dict_list(routes.get("udp"))),
+    )
+
+
+def load_router_handoff_env(path: str | Path) -> RouterHandoffEnv:
+    env_path = Path(path)
+    payload = _load_env_file(env_path, label="router handoff desired-state env")
+
+    def bool_field(key: str) -> bool:
+        return _parse_bool(
+            _require_env_field(payload, env_path, key, label="router handoff desired-state env"),
+            path=env_path,
+            field_name=key,
+            label="router handoff desired-state env",
+        )
+
+    def int_field(key: str) -> int:
+        return _parse_int(
+            _require_env_field(payload, env_path, key, label="router handoff desired-state env"),
+            path=env_path,
+            field_name=key,
+            label="router handoff desired-state env",
+        )
+
+    return RouterHandoffEnv(
+        path=env_path,
+        role=_require_env_field(payload, env_path, "TRACEGATE_ROUTER_HANDOFF_ROLE", label="router handoff desired-state env").upper(),
+        runtime_profile=_require_env_field(
+            payload,
+            env_path,
+            "TRACEGATE_ROUTER_HANDOFF_RUNTIME_PROFILE",
+            label="router handoff desired-state env",
+        ).lower(),
+        state_json=_require_env_field(payload, env_path, "TRACEGATE_ROUTER_HANDOFF_STATE_JSON", label="router handoff desired-state env"),
+        secret_material=bool_field("TRACEGATE_ROUTER_HANDOFF_SECRET_MATERIAL"),
+        enabled=bool_field("TRACEGATE_ROUTER_HANDOFF_ENABLED"),
+        total_count=int_field("TRACEGATE_ROUTER_HANDOFF_COUNT"),
+        tcp_count=int_field("TRACEGATE_ROUTER_HANDOFF_TCP_COUNT"),
+        udp_count=int_field("TRACEGATE_ROUTER_HANDOFF_UDP_COUNT"),
+        tcp_classes=_colon_tokens(str(payload.get("TRACEGATE_ROUTER_HANDOFF_TCP_CLASSES") or "")),
+        udp_classes=_colon_tokens(str(payload.get("TRACEGATE_ROUTER_HANDOFF_UDP_CLASSES") or "")),
+        paired_obfs_enabled=bool_field("TRACEGATE_ROUTER_HANDOFF_PAIRED_OBFS_ENABLED"),
+        requires_private_profile=bool_field("TRACEGATE_ROUTER_HANDOFF_REQUIRES_PRIVATE_PROFILE"),
+        router_is_entry_replacement=bool_field("TRACEGATE_ROUTER_HANDOFF_ROUTER_IS_ENTRY_REPLACEMENT"),
+        no_host_wide_interception=bool_field("TRACEGATE_ROUTER_HANDOFF_NO_HOST_WIDE_INTERCEPTION"),
+        no_nfqueue=bool_field("TRACEGATE_ROUTER_HANDOFF_NO_NFQUEUE"),
+    )
+
+
+def load_router_client_bundle(path: str | Path) -> RouterClientBundle:
+    bundle_path = Path(path)
+    try:
+        payload = json.loads(bundle_path.read_text(encoding="utf-8"))
+    except FileNotFoundError as exc:
+        raise RuntimePreflightError(f"router client bundle not found: {bundle_path}") from exc
+    except json.JSONDecodeError as exc:
+        raise RuntimePreflightError(f"router client bundle is not valid JSON: {bundle_path}") from exc
+    if not isinstance(payload, dict):
+        raise RuntimePreflightError(f"router client bundle must be a JSON object: {bundle_path}")
+
+    counts = payload.get("counts") if isinstance(payload.get("counts"), dict) else {}
+    classes = payload.get("classes") if isinstance(payload.get("classes"), dict) else {}
+    routes = payload.get("routes") if isinstance(payload.get("routes"), dict) else {}
+    return RouterClientBundle(
+        path=bundle_path,
+        schema=str(payload.get("schema") or "").strip(),
+        version=_json_int(payload.get("version"), path=bundle_path, field_name="version", label="router client bundle"),
+        role=str(payload.get("role") or "").strip().upper(),
+        runtime_profile=str(payload.get("runtimeProfile") or "").strip().lower(),
+        handoff_state_json=str(payload.get("handoffStateJson") or "").strip(),
+        secret_material=bool(payload.get("secretMaterial", False)),
+        enabled=bool(payload.get("enabled", False)),
+        placement=str(payload.get("placement") or "").strip(),
+        requirements=payload.get("requirements") if isinstance(payload.get("requirements"), dict) else {},
+        total_count=_json_int(counts.get("total"), path=bundle_path, field_name="counts.total", label="router client bundle"),
+        tcp_count=_json_int(counts.get("tcp"), path=bundle_path, field_name="counts.tcp", label="router client bundle"),
+        udp_count=_json_int(counts.get("udp"), path=bundle_path, field_name="counts.udp", label="router client bundle"),
+        tcp_classes=tuple(_string_list(classes.get("tcp"))),
+        udp_classes=tuple(_string_list(classes.get("udp"))),
+        components=tuple(_dict_list(payload.get("components"))),
+        tcp_routes=tuple(_dict_list(routes.get("tcp"))),
+        udp_routes=tuple(_dict_list(routes.get("udp"))),
+    )
+
+
+def load_router_client_bundle_env(path: str | Path) -> RouterClientBundleEnv:
+    env_path = Path(path)
+    payload = _load_env_file(env_path, label="router client bundle env")
+
+    def bool_field(key: str) -> bool:
+        return _parse_bool(
+            _require_env_field(payload, env_path, key, label="router client bundle env"),
+            path=env_path,
+            field_name=key,
+            label="router client bundle env",
+        )
+
+    def int_field(key: str) -> int:
+        return _parse_int(
+            _require_env_field(payload, env_path, key, label="router client bundle env"),
+            path=env_path,
+            field_name=key,
+            label="router client bundle env",
+        )
+
+    return RouterClientBundleEnv(
+        path=env_path,
+        role=_require_env_field(payload, env_path, "TRACEGATE_ROUTER_CLIENT_BUNDLE_ROLE", label="router client bundle env").upper(),
+        runtime_profile=_require_env_field(
+            payload,
+            env_path,
+            "TRACEGATE_ROUTER_CLIENT_BUNDLE_RUNTIME_PROFILE",
+            label="router client bundle env",
+        ).lower(),
+        bundle_json=_require_env_field(payload, env_path, "TRACEGATE_ROUTER_CLIENT_BUNDLE_JSON", label="router client bundle env"),
+        handoff_json=_require_env_field(payload, env_path, "TRACEGATE_ROUTER_CLIENT_BUNDLE_HANDOFF_JSON", label="router client bundle env"),
+        secret_material=bool_field("TRACEGATE_ROUTER_CLIENT_BUNDLE_SECRET_MATERIAL"),
+        enabled=bool_field("TRACEGATE_ROUTER_CLIENT_BUNDLE_ENABLED"),
+        components=_colon_tokens(str(payload.get("TRACEGATE_ROUTER_CLIENT_BUNDLE_COMPONENTS") or "")),
+        tcp_count=int_field("TRACEGATE_ROUTER_CLIENT_BUNDLE_TCP_COUNT"),
+        udp_count=int_field("TRACEGATE_ROUTER_CLIENT_BUNDLE_UDP_COUNT"),
+        requires_both_sides=bool_field("TRACEGATE_ROUTER_CLIENT_BUNDLE_REQUIRES_BOTH_SIDES"),
+        fail_closed=bool_field("TRACEGATE_ROUTER_CLIENT_BUNDLE_FAIL_CLOSED"),
+        no_host_wide_interception=bool_field("TRACEGATE_ROUTER_CLIENT_BUNDLE_NO_HOST_WIDE_INTERCEPTION"),
+        no_nfqueue=bool_field("TRACEGATE_ROUTER_CLIENT_BUNDLE_NO_NFQUEUE"),
     )
 
 
@@ -1366,6 +1717,11 @@ def _decoy_roots(contract: dict[str, Any]) -> list[str]:
 
 def _xray_block(contract: dict[str, Any]) -> dict[str, Any]:
     value = contract.get("xray")
+    return value if isinstance(value, dict) else {}
+
+
+def _hysteria_block(contract: dict[str, Any]) -> dict[str, Any]:
+    value = contract.get("hysteria")
     return value if isinstance(value, dict) else {}
 
 
@@ -1783,6 +2139,174 @@ def _validate_xray_api_surface(contract: dict[str, Any], *, role_prefix: str) ->
     return findings
 
 
+def _validate_hysteria_runtime(contract: dict[str, Any], *, role_prefix: str) -> list[RuntimePreflightFinding]:
+    findings: list[RuntimePreflightFinding] = []
+    hysteria = _hysteria_block(contract)
+    if not bool(hysteria.get("configPresent", False)):
+        findings.append(
+            _finding(
+                "error",
+                f"{role_prefix}-hysteria-config",
+                f"{role_prefix} tracegate-2.2 Hysteria server config is missing from runtime-contract",
+            )
+        )
+        return findings
+
+    listen_port = _row_int(hysteria, "listenPort")
+    if listen_port != TRACEGATE_PUBLIC_UDP_PORT:
+        findings.append(
+            _finding(
+                "error",
+                f"{role_prefix}-hysteria-listen-port",
+                f"{role_prefix} Hysteria must listen on udp/{TRACEGATE_PUBLIC_UDP_PORT}, got {listen_port or 'missing'}",
+            )
+        )
+
+    fronting = _fronting_block(contract)
+    udp_owner = str(fronting.get("publicUdpOwner") or fronting.get("udp443Owner") or "").strip().lower()
+    if udp_owner != "hysteria":
+        findings.append(
+            _finding(
+                "error",
+                f"{role_prefix}-tracegate22-udp-owner",
+                f"{role_prefix} tracegate-2.2 public udp/{TRACEGATE_PUBLIC_UDP_PORT} owner must be hysteria",
+            )
+        )
+
+    decoy = contract.get("decoy")
+    decoy_block = decoy if isinstance(decoy, dict) else {}
+    split_dirs = _string_list(decoy_block.get("splitHysteriaMasqueradeDirs"))
+    xray_dirs = _string_list(decoy_block.get("xrayHysteriaMasqueradeDirs"))
+    if xray_dirs:
+        findings.append(
+            _finding(
+                "error",
+                f"{role_prefix}-tracegate22-xray-hysteria-dirs",
+                f"{role_prefix} tracegate-2.2 must not publish Xray-native Hysteria masquerade dirs: {', '.join(xray_dirs)}",
+            )
+        )
+    if not split_dirs:
+        findings.append(
+            _finding(
+                "warning",
+                f"{role_prefix}-tracegate22-split-hysteria-dirs",
+                f"{role_prefix} tracegate-2.2 has no standalone Hysteria masquerade dir in runtime-contract",
+            )
+        )
+
+    auth = _row_dict(hysteria, "auth")
+    if _row_string(auth, "type").lower() != "http":
+        findings.append(_finding("error", f"{role_prefix}-hysteria-auth-type", f"{role_prefix} Hysteria auth.type must be http"))
+    auth_url = _row_string(auth, "httpUrl")
+    parsed_auth_url = urlparse(auth_url)
+    if parsed_auth_url.scheme != "http" or not parsed_auth_url.netloc:
+        findings.append(
+            _finding(
+                "error",
+                f"{role_prefix}-hysteria-auth-url",
+                f"{role_prefix} Hysteria auth HTTP backend must be a loopback http URL",
+            )
+        )
+    elif not _is_loopback_host(parsed_auth_url.hostname or ""):
+        findings.append(
+            _finding(
+                "error",
+                f"{role_prefix}-hysteria-auth-loopback",
+                f"{role_prefix} Hysteria auth HTTP backend is not loopback-bound: {auth_url}",
+            )
+        )
+    if parsed_auth_url.path != "/v1/hysteria/auth" or parsed_auth_url.query or parsed_auth_url.fragment:
+        findings.append(
+            _finding(
+                "error",
+                f"{role_prefix}-hysteria-auth-path",
+                f"{role_prefix} Hysteria auth HTTP backend must use /v1/hysteria/auth without query or fragment",
+            )
+        )
+    if bool(auth.get("httpInsecure", False)):
+        findings.append(_finding("error", f"{role_prefix}-hysteria-auth-insecure", f"{role_prefix} Hysteria auth.http.insecure must stay false"))
+
+    obfs = _row_dict(hysteria, "obfs")
+    if _row_string(obfs, "type").lower() != "salamander":
+        findings.append(_finding("error", f"{role_prefix}-hysteria-obfs", f"{role_prefix} Hysteria obfs.type must stay salamander"))
+    if not bool(obfs.get("salamanderPasswordConfigured", False)):
+        findings.append(
+            _finding(
+                "error",
+                f"{role_prefix}-hysteria-salamander-password",
+                f"{role_prefix} Hysteria Salamander password must be configured and non-placeholder",
+            )
+        )
+
+    traffic_stats = _row_dict(hysteria, "trafficStats")
+    stats_listen = _row_string(traffic_stats, "listen")
+    if not stats_listen:
+        findings.append(_finding("error", f"{role_prefix}-hysteria-stats-listen", f"{role_prefix} Hysteria trafficStats.listen is missing"))
+    else:
+        findings.extend(
+            _validate_endpoint(
+                raw_value=stats_listen,
+                code_prefix=f"{role_prefix}-hysteria-stats-listen",
+                label=f"{role_prefix} Hysteria trafficStats.listen",
+                require_loopback=True,
+                loopback_severity="error",
+            )
+        )
+    if not bool(traffic_stats.get("secretConfigured", False)):
+        findings.append(
+            _finding(
+                "error",
+                f"{role_prefix}-hysteria-stats-secret",
+                f"{role_prefix} Hysteria trafficStats.secret must be configured and non-placeholder",
+            )
+        )
+
+    tls = _row_dict(hysteria, "tls")
+    if not bool(tls.get("certConfigured", False)):
+        findings.append(_finding("error", f"{role_prefix}-hysteria-tls-cert", f"{role_prefix} Hysteria TLS cert path is missing"))
+    if not bool(tls.get("keyConfigured", False)):
+        findings.append(_finding("error", f"{role_prefix}-hysteria-tls-key", f"{role_prefix} Hysteria TLS key path is missing"))
+    if _row_string(tls, "sniGuard") != "dns-san":
+        findings.append(_finding("error", f"{role_prefix}-hysteria-sni-guard", f"{role_prefix} Hysteria TLS sniGuard must stay dns-san"))
+
+    udp = _row_dict(hysteria, "udp")
+    if not bool(udp.get("enabled", False)):
+        findings.append(_finding("error", f"{role_prefix}-hysteria-udp-disabled", f"{role_prefix} Hysteria disableUDP must stay false"))
+    if _row_string(udp, "idleTimeout") != "60s":
+        findings.append(_finding("error", f"{role_prefix}-hysteria-udp-idle-timeout", f"{role_prefix} Hysteria udpIdleTimeout must stay 60s"))
+
+    quic = _row_dict(hysteria, "quic")
+    if bool(quic.get("disablePathMTUDiscovery", True)):
+        findings.append(
+            _finding(
+                "error",
+                f"{role_prefix}-hysteria-quic-pmtu",
+                f"{role_prefix} Hysteria QUIC path MTU discovery must stay enabled",
+            )
+        )
+    if _row_string(quic, "maxIdleTimeout") not in {"30s", ""}:
+        findings.append(
+            _finding(
+                "error",
+                f"{role_prefix}-hysteria-quic-idle-timeout",
+                f"{role_prefix} Hysteria QUIC maxIdleTimeout must stay 30s",
+            )
+        )
+
+    congestion = _row_dict(hysteria, "congestion")
+    if _row_string(congestion, "type") not in {"bbr", ""}:
+        findings.append(_finding("error", f"{role_prefix}-hysteria-congestion", f"{role_prefix} Hysteria congestion must stay bbr"))
+
+    sniff = _row_dict(hysteria, "sniff")
+    if not bool(sniff.get("enabled", False)):
+        findings.append(_finding("error", f"{role_prefix}-hysteria-sniff", f"{role_prefix} Hysteria sniff.enable must stay true"))
+
+    if not _string_list(hysteria.get("masqueradeDirs")):
+        findings.append(_finding("warning", f"{role_prefix}-hysteria-masquerade", f"{role_prefix} Hysteria masquerade dir is missing"))
+
+    return findings
+
+
 def _validate_https_url(*, raw_url: str, code: str, label: str) -> RuntimePreflightFinding | None:
     parsed = urlparse(str(raw_url or "").strip())
     if parsed.scheme != "https" or not parsed.netloc:
@@ -2098,7 +2622,8 @@ def validate_obfuscation_runtime_state(
                 f"{role_prefix} obfuscation runtime-state tcp443 owner diverges from runtime-contract",
             )
         )
-    if state.fronting_udp_owner != str(expected_fronting.get("udp443Owner") or "").strip():
+    expected_udp_owner = str(expected_fronting.get("publicUdpOwner") or expected_fronting.get("udp443Owner") or "").strip()
+    if state.fronting_udp_owner != expected_udp_owner:
         findings.append(
             _finding(
                 "error",
@@ -2360,7 +2885,8 @@ def validate_obfuscation_runtime_env(
                 f"{role_prefix} obfuscation runtime-state env tcp443 owner diverges from runtime-contract",
             )
         )
-    if env.fronting_udp_owner != str(expected_fronting.get("udp443Owner") or "").strip():
+    expected_udp_owner = str(expected_fronting.get("publicUdpOwner") or expected_fronting.get("udp443Owner") or "").strip()
+    if env.fronting_udp_owner != expected_udp_owner:
         findings.append(
             _finding(
                 "error",
@@ -3061,29 +3587,32 @@ def _validate_private_shadowtls_profile(
 ) -> list[RuntimePreflightFinding]:
     findings: list[RuntimePreflightFinding] = []
     variant = _row_string(row, "variant").upper()
+    mode = _row_string(row, "mode").lower()
+    chain = _row_dict(row, "chain")
+    is_chain = mode == "chain" or bool(chain)
     suffix = variant.lower() if variant else f"row-{index}"
     code_prefix = f"{prefix}-shadowtls-{suffix}"
     label = f"{role_upper.lower()} Shadowsocks2022/ShadowTLS {variant or index}"
 
     if _row_string(row, "protocol") != "shadowsocks2022_shadowtls":
         findings.append(_finding("error", f"{code_prefix}-protocol", f"{label} protocol must be shadowsocks2022_shadowtls"))
-    if variant not in {"V5", "V6"}:
-        findings.append(_finding("error", f"{code_prefix}-variant", f"{label} must use V5 or V6"))
+    if variant != "V3":
+        findings.append(_finding("error", f"{code_prefix}-variant", f"{label} must use V3"))
 
-    expected_profile = "V6-Shadowsocks2022-ShadowTLS-Chain" if variant == "V6" else "V5-Shadowsocks2022-ShadowTLS-Direct"
+    expected_profile = "v3-chain-shadowtls-shadowsocks" if is_chain else "v3-direct-shadowtls-shadowsocks"
     if _row_string(row, "profile") != expected_profile:
         findings.append(_finding("error", f"{code_prefix}-profile", f"{label} profile name must be {expected_profile}"))
 
     expected_stage = "direct-transit-public"
-    if variant == "V6":
+    if is_chain:
         expected_stage = "entry-public-to-transit-relay" if role_upper == "ENTRY" else "transit-private-terminator"
     if _row_string(row, "stage") != expected_stage:
         findings.append(_finding("error", f"{code_prefix}-stage", f"{label} stage must be {expected_stage}"))
 
-    if role_upper == "ENTRY" and variant != "V6":
-        findings.append(_finding("error", f"{code_prefix}-entry-variant", "Entry private profile handoff must only receive V6 chain relays"))
-    if role_upper == "TRANSIT" and variant not in {"V5", "V6"}:
-        findings.append(_finding("error", f"{code_prefix}-transit-variant", "Transit private profile handoff only supports V5/V6 ShadowTLS entries"))
+    if role_upper == "ENTRY" and not is_chain:
+        findings.append(_finding("error", f"{code_prefix}-entry-mode", "Entry private profile handoff must only receive V3 chain relays"))
+    if role_upper == "TRANSIT" and variant != "V3":
+        findings.append(_finding("error", f"{code_prefix}-transit-variant", "Transit private profile handoff only supports V3 ShadowTLS entries"))
 
     if _row_int(row, "port") != 443:
         findings.append(_finding("error", f"{code_prefix}-port", f"{label} must stay on tcp/443"))
@@ -3116,11 +3645,10 @@ def _validate_private_shadowtls_profile(
         findings.append(_finding("error", f"{code_prefix}-shadowtls-restart-on-user-change", f"{label} ShadowTLS must not restart on user change"))
 
     findings.extend(_validate_private_local_socks(row=row, code_prefix=code_prefix, label=label))
-    expected_outer = "wss-carrier" if variant == "V6" else "shadowtls-v3"
+    expected_outer = "wss-carrier" if is_chain else "shadowtls-v3"
     findings.extend(_validate_private_obfuscation(row=row, code_prefix=code_prefix, label=label, expected_outer=expected_outer))
 
-    chain = _row_dict(row, "chain")
-    if variant == "V6":
+    if is_chain:
         if not chain:
             findings.append(_finding("error", f"{code_prefix}-chain", f"{label} must include Entry-Transit chain metadata"))
         else:
@@ -3139,14 +3667,14 @@ def _validate_private_shadowtls_profile(
             if str(chain.get("managedBy") or "").strip() != "link-crypto":
                 findings.append(_finding("error", f"{code_prefix}-chain-managed-by", f"{label} chain must be managed by link-crypto"))
             selected_profiles = chain.get("selectedProfiles")
-            if not isinstance(selected_profiles, list) or not {"V2", "V4", "V6"}.issubset(
+            if not isinstance(selected_profiles, list) or not {"V1", "V3"}.issubset(
                 {str(item).strip() for item in selected_profiles}
             ):
-                findings.append(_finding("error", f"{code_prefix}-chain-selected-profiles", f"{label} chain must cover V2/V4/V6"))
+                findings.append(_finding("error", f"{code_prefix}-chain-selected-profiles", f"{label} chain must cover V1/V3"))
             if bool(chain.get("xrayBackhaul", True)):
                 findings.append(_finding("error", f"{code_prefix}-chain-xray-backhaul", f"{label} chain must stay outside Xray backhaul"))
     elif chain:
-        findings.append(_finding("warning", f"{code_prefix}-chain", f"{label} direct V5 profile should not carry chain metadata"))
+        findings.append(_finding("warning", f"{code_prefix}-chain", f"{label} direct V3 profile should not carry chain metadata"))
 
     return findings
 
@@ -3164,13 +3692,13 @@ def _validate_private_wireguard_profile(
     label = f"{role_upper.lower()} WireGuard/WSTunnel {_row_string(row, 'variant') or index}"
 
     if role_upper != "TRANSIT":
-        findings.append(_finding("error", f"{prefix}-wireguard-entry", "Entry private profile handoff must not receive V7 WireGuard/WSTunnel entries"))
+        findings.append(_finding("error", f"{prefix}-wireguard-entry", "Entry private profile handoff must not receive V0 WireGuard/WSTunnel entries"))
     if _row_string(row, "protocol") != "wireguard_wstunnel":
         findings.append(_finding("error", f"{code_prefix}-protocol", f"{label} protocol must be wireguard_wstunnel"))
-    if _row_string(row, "variant").upper() != "V7":
-        findings.append(_finding("error", f"{code_prefix}-variant", f"{label} must use V7"))
-    if _row_string(row, "profile") != "V7-WireGuard-WSTunnel-Direct":
-        findings.append(_finding("error", f"{code_prefix}-profile", f"{label} profile name must be V7-WireGuard-WSTunnel-Direct"))
+    if _row_string(row, "variant").upper() != "V0":
+        findings.append(_finding("error", f"{code_prefix}-variant", f"{label} must use V0"))
+    if _row_string(row, "profile") != "v0-wgws-wireguard":
+        findings.append(_finding("error", f"{code_prefix}-profile", f"{label} profile name must be v0-wgws-wireguard"))
     if _row_string(row, "stage") != "direct-transit-public":
         findings.append(_finding("error", f"{code_prefix}-stage", f"{label} stage must be direct-transit-public"))
     if _row_int(row, "port") != 443:
@@ -3347,10 +3875,16 @@ def validate_private_profile_env(
 
 _LINK_CRYPTO_SCHEMA = "tracegate.link-crypto.v1"
 _LINK_CRYPTO_CLASSES = {"entry-transit", "router-entry", "router-transit"}
+_LINK_CRYPTO_UDP_CLASSES = {"entry-transit-udp", "router-entry-udp", "router-transit-udp"}
 _LINK_CRYPTO_REQUIRED_PROFILES = {
-    "entry-transit": {"V2", "V4", "V6"},
-    "router-entry": {"V2", "V4", "V6"},
-    "router-transit": {"V1", "V3", "V5", "V7"},
+    "entry-transit": {"V1", "V3"},
+    "router-entry": {"V1", "V3"},
+    "router-transit": {"V0", "V1", "V3"},
+}
+_LINK_CRYPTO_UDP_REQUIRED_PROFILES = {
+    "entry-transit-udp": {"V2"},
+    "router-entry-udp": {"V2"},
+    "router-transit-udp": {"V2"},
 }
 
 
@@ -3425,6 +3959,22 @@ def _validate_link_crypto_transport_profiles(
     return findings
 
 
+def _validate_private_file_ref(
+    ref: dict[str, Any],
+    *,
+    code_prefix: str,
+    label: str,
+) -> list[RuntimePreflightFinding]:
+    findings: list[RuntimePreflightFinding] = []
+    if _row_string(ref, "kind") != "file":
+        findings.append(_finding("error", f"{code_prefix}-kind", f"{label} must be file-based"))
+    if not _row_string(ref, "path"):
+        findings.append(_finding("error", f"{code_prefix}-path", f"{label} path is missing"))
+    if not bool(ref.get("secretMaterial", False)):
+        findings.append(_finding("error", f"{code_prefix}-secret", f"{label} must point at private secret material"))
+    return findings
+
+
 def _validate_link_crypto_outer_carrier(
     *,
     outer_carrier: dict[str, Any],
@@ -3474,6 +4024,40 @@ def _validate_link_crypto_outer_carrier(
     if not bool(outer_carrier.get("verifyTls", False)):
         findings.append(_finding("error", f"{code_prefix}-verify-tls", f"{label} outer carrier must verify TLS"))
 
+    tls_pinning = _row_dict(outer_carrier, "tlsPinning")
+    if not bool(tls_pinning.get("required", False)):
+        findings.append(_finding("error", f"{code_prefix}-spki-required", f"{label} outer carrier must require SPKI pinning"))
+    if _row_string(tls_pinning, "mode") != "spki-sha256":
+        findings.append(_finding("error", f"{code_prefix}-spki-mode", f"{label} outer carrier SPKI mode must be spki-sha256"))
+    if bool(tls_pinning.get("secretMaterial", False)):
+        findings.append(_finding("error", f"{code_prefix}-spki-secret-material", f"{label} outer carrier must not embed SPKI material"))
+    findings.extend(
+        _validate_private_file_ref(
+            _row_dict(tls_pinning, "profileRef"),
+            code_prefix=f"{code_prefix}-spki-profile",
+            label=f"{label} outer carrier SPKI profileRef",
+        )
+    )
+
+    admission = _row_dict(outer_carrier, "admission")
+    if not bool(admission.get("required", False)):
+        findings.append(_finding("error", f"{code_prefix}-admission-required", f"{label} outer carrier must require HMAC admission"))
+    if _row_string(admission, "mode") != "hmac-sha256-generation-bound":
+        findings.append(_finding("error", f"{code_prefix}-admission-mode", f"{label} outer carrier admission mode must be hmac-sha256-generation-bound"))
+    if _row_string(admission, "header") != "Sec-WebSocket-Protocol":
+        findings.append(_finding("error", f"{code_prefix}-admission-header", f"{label} outer carrier admission header must stay Sec-WebSocket-Protocol"))
+    if not bool(admission.get("rejectUnauthenticated", False)):
+        findings.append(_finding("error", f"{code_prefix}-admission-reject", f"{label} outer carrier must reject unauthenticated bridge attempts"))
+    if bool(admission.get("secretMaterial", False)):
+        findings.append(_finding("error", f"{code_prefix}-admission-secret-material", f"{label} outer carrier must not embed admission secrets"))
+    findings.extend(
+        _validate_private_file_ref(
+            _row_dict(admission, "profileRef"),
+            code_prefix=f"{code_prefix}-admission-profile",
+            label=f"{label} outer carrier admission profileRef",
+        )
+    )
+
     local_endpoint = _row_string(outer_carrier, "localEndpoint")
     if local_endpoint:
         findings.extend(
@@ -3510,6 +4094,139 @@ def _validate_link_crypto_outer_carrier(
     return findings
 
 
+def _validate_link_crypto_tcp_dpi_resistance(
+    *,
+    dpi: dict[str, Any],
+    zapret2: dict[str, Any],
+    outer_carrier: dict[str, Any],
+    code_prefix: str,
+    label: str,
+    require_outer_carrier: bool,
+) -> list[RuntimePreflightFinding]:
+    findings: list[RuntimePreflightFinding] = []
+    if not dpi:
+        findings.append(_finding("error", f"{code_prefix}-dpi-resistance", f"{label} TCP DPI resistance policy is missing"))
+        return findings
+    if not bool(dpi.get("enabled", False)):
+        findings.append(_finding("error", f"{code_prefix}-dpi-resistance-enabled", f"{label} TCP DPI resistance must stay enabled"))
+    expected_mode = "mieru-wss-spki-hmac-zapret2-scoped" if require_outer_carrier else "mieru-zapret2-scoped"
+    if _row_string(dpi, "mode") != expected_mode:
+        findings.append(_finding("error", f"{code_prefix}-dpi-resistance-mode", f"{label} TCP DPI resistance mode must stay {expected_mode}"))
+
+    required_layers = set(_string_list(dpi.get("requiredLayers")))
+    required = {
+        "mieru-private-auth",
+        "scoped-zapret2",
+        "private-zapret2-profile",
+        "loopback-only",
+        "generation-drain",
+        "no-direct-backhaul",
+    }
+    if require_outer_carrier:
+        required.update({"outer-wss-tls", "spki-sha256-pin", "hmac-admission"})
+    missing_layers = sorted(required - required_layers)
+    if missing_layers:
+        findings.append(
+            _finding(
+                "error",
+                f"{code_prefix}-dpi-resistance-layers",
+                f"{label} TCP DPI resistance missing required layers: {', '.join(missing_layers)}",
+            )
+        )
+
+    dpi_outer = _row_dict(dpi, "outerCarrier")
+    if bool(dpi_outer.get("required", False)) != require_outer_carrier:
+        findings.append(_finding("error", f"{code_prefix}-dpi-resistance-outer-required", f"{label} outerCarrier.required diverges from link class"))
+    if require_outer_carrier:
+        if not bool(dpi_outer.get("spkiPinningRequired", False)):
+            findings.append(_finding("error", f"{code_prefix}-dpi-resistance-spki", f"{label} must require SPKI pinning"))
+        if not bool(dpi_outer.get("hmacAdmissionRequired", False)):
+            findings.append(_finding("error", f"{code_prefix}-dpi-resistance-admission", f"{label} must require HMAC admission"))
+        if not bool(outer_carrier.get("enabled", False)):
+            findings.append(_finding("error", f"{code_prefix}-dpi-resistance-outer-carrier", f"{label} must keep outer WSS carrier enabled"))
+
+    if not bool(zapret2.get("required", False)):
+        findings.append(_finding("error", f"{code_prefix}-zapret2-required", f"{label} zapret2 must be required"))
+    if not bool(zapret2.get("enabled", False)):
+        findings.append(_finding("error", f"{code_prefix}-zapret2-enabled", f"{label} zapret2 must be enabled for TCP DPI resistance"))
+    if bool(zapret2.get("hostWideInterception", False)):
+        findings.append(_finding("error", f"{code_prefix}-zapret2-host-wide", f"{label} zapret2 must not use host-wide interception"))
+    if bool(zapret2.get("nfqueue", False)):
+        findings.append(_finding("error", f"{code_prefix}-zapret2-nfqueue", f"{label} zapret2 must not use broad NFQUEUE"))
+    if _row_string(zapret2, "packetShaping") != "zapret2-scoped":
+        findings.append(_finding("error", f"{code_prefix}-zapret2-packet-shaping", f"{label} zapret2 packetShaping must be zapret2-scoped"))
+    if _row_string(zapret2, "applyMode") != "marked-flow-only":
+        findings.append(_finding("error", f"{code_prefix}-zapret2-apply-mode", f"{label} zapret2 applyMode must be marked-flow-only"))
+    findings.extend(
+        _validate_private_file_ref(
+            _row_dict(zapret2, "profileRef"),
+            code_prefix=f"{code_prefix}-zapret2-profile",
+            label=f"{label} zapret2 profileRef",
+        )
+    )
+
+    dpi_zapret = _row_dict(dpi, "zapret2")
+    if not bool(dpi_zapret.get("required", False)):
+        findings.append(_finding("error", f"{code_prefix}-dpi-resistance-zapret-required", f"{label} DPI policy must require zapret2"))
+    if not bool(dpi_zapret.get("enabled", False)):
+        findings.append(_finding("error", f"{code_prefix}-dpi-resistance-zapret-enabled", f"{label} DPI policy must enable zapret2"))
+    if _row_string(dpi_zapret, "packetShaping") != "zapret2-scoped":
+        findings.append(_finding("error", f"{code_prefix}-dpi-resistance-zapret-shaping", f"{label} DPI zapret2 packetShaping must be zapret2-scoped"))
+    findings.extend(
+        _validate_private_file_ref(
+            _row_dict(dpi_zapret, "profileRef"),
+            code_prefix=f"{code_prefix}-dpi-resistance-zapret-profile",
+            label=f"{label} DPI zapret2 profileRef",
+        )
+    )
+
+    traffic_shape = _row_dict(dpi, "trafficShaping")
+    if not bool(traffic_shape.get("required", False)):
+        findings.append(_finding("error", f"{code_prefix}-traffic-shaping-required", f"{label} TCP traffic shaping must be required"))
+    if _row_string(traffic_shape, "strategy") != "private-zapret2-profile":
+        findings.append(_finding("error", f"{code_prefix}-traffic-shaping-strategy", f"{label} TCP traffic shaping must use private-zapret2-profile"))
+    if _row_string(traffic_shape, "scope") != "marked-flow-only":
+        findings.append(_finding("error", f"{code_prefix}-traffic-shaping-scope", f"{label} TCP traffic shaping must stay marked-flow-only"))
+    if bool(traffic_shape.get("secretMaterial", False)):
+        findings.append(_finding("error", f"{code_prefix}-traffic-shaping-secret-material", f"{label} TCP traffic shaping must not embed private material"))
+    findings.extend(
+        _validate_private_file_ref(
+            _row_dict(traffic_shape, "profileRef"),
+            code_prefix=f"{code_prefix}-traffic-shaping-profile",
+            label=f"{label} TCP traffic shaping profileRef",
+        )
+    )
+
+    promotion = _row_dict(dpi, "promotionPreflight")
+    if not bool(promotion.get("required", False)):
+        findings.append(_finding("error", f"{code_prefix}-promotion-preflight-required", f"{label} promotion preflight must be required"))
+    if not bool(promotion.get("failClosed", False)):
+        findings.append(_finding("error", f"{code_prefix}-promotion-preflight-fail-closed", f"{label} promotion preflight must fail closed"))
+    checks = set(_string_list(promotion.get("checks")))
+    required_checks = {"mieru-private-auth", "zapret2-scoped-profile", "no-direct-backhaul"}
+    if require_outer_carrier:
+        required_checks.update({"spki-pin", "hmac-admission"})
+    missing_checks = sorted(required_checks - checks)
+    if missing_checks:
+        findings.append(
+            _finding(
+                "error",
+                f"{code_prefix}-promotion-preflight-checks",
+                f"{label} promotion preflight missing checks: {', '.join(missing_checks)}",
+            )
+        )
+    if bool(promotion.get("secretMaterial", False)):
+        findings.append(_finding("error", f"{code_prefix}-promotion-preflight-secret-material", f"{label} promotion preflight must not embed private material"))
+    findings.extend(
+        _validate_private_file_ref(
+            _row_dict(promotion, "profileRef"),
+            code_prefix=f"{code_prefix}-promotion-preflight-profile",
+            label=f"{label} promotion preflight profileRef",
+        )
+    )
+    return findings
+
+
 def _validate_link_crypto_contract_alignment(
     *,
     state: LinkCryptoState,
@@ -3535,7 +4252,7 @@ def _validate_link_crypto_contract_alignment(
         )
 
     contract_enabled = bool(role_link_crypto.get("enabled", link_crypto.get("enabled", False)))
-    if contract_enabled != bool(state.total_count):
+    if contract_enabled != bool(state.total_count or state.udp_total_count):
         findings.append(
             _finding(
                 "error",
@@ -3615,6 +4332,7 @@ def _validate_link_crypto_contract_alignment(
     expected_zapret = _row_dict(link_crypto, "zapret2")
     expected_zapret_enabled = bool(expected_zapret.get("enabled", False))
     expected_outer_carrier = _row_dict(link_crypto, "outerCarrier")
+    expected_tcp_dpi = _row_dict(link_crypto, "dpiResistance")
     if expected_outer_carrier:
         findings.extend(
             _validate_link_crypto_outer_carrier(
@@ -3667,6 +4385,18 @@ def _validate_link_crypto_contract_alignment(
                     f"{prefix.replace('-', ' ')} runtime-contract zapret2 policy must fail open",
                 )
             )
+
+    if expected_tcp_dpi or state.total_count:
+        findings.extend(
+            _validate_link_crypto_tcp_dpi_resistance(
+                dpi=expected_tcp_dpi,
+                zapret2=expected_zapret,
+                outer_carrier=expected_outer_carrier,
+                code_prefix=f"{prefix}-contract",
+                label=f"{prefix.replace('-', ' ')} runtime-contract",
+                require_outer_carrier=state.entry_transit_count > 0,
+            )
+        )
 
     expected_local_ports = _row_dict(role_link_crypto, "localPorts") or _row_dict(link_crypto, "localPorts")
     expected_selected_profiles = _row_dict(role_link_crypto, "selectedProfiles") or _row_dict(link_crypto, "selectedProfiles")
@@ -3750,6 +4480,138 @@ def _validate_link_crypto_contract_alignment(
                     )
                 )
 
+    udp_contract = _row_dict(link_crypto, "udp")
+    role_udp_contract = _row_dict(_row_dict(udp_contract, "roles"), role_upper.lower())
+    if udp_contract or role_udp_contract:
+        udp_enabled = bool(role_udp_contract.get("enabled", udp_contract.get("enabled", False)))
+        if udp_enabled != bool(state.udp_total_count):
+            findings.append(
+                _finding(
+                    "error",
+                    f"{prefix}-udp-contract-enabled",
+                    f"{prefix.replace('-', ' ')} UDP enabled state diverges from runtime-contract linkCrypto.udp",
+                )
+            )
+        if _row_string(udp_contract, "carrier").lower() not in {"", "hysteria2"}:
+            findings.append(_finding("error", f"{prefix}-udp-contract-carrier", f"{prefix.replace('-', ' ')} UDP carrier must stay hysteria2"))
+        if _row_string(udp_contract, "transport").lower() not in {"", "udp-quic"}:
+            findings.append(_finding("error", f"{prefix}-udp-contract-transport", f"{prefix.replace('-', ' ')} UDP transport must stay udp-quic"))
+        if _row_string(udp_contract, "manager") not in {"", "link-crypto"}:
+            findings.append(_finding("error", f"{prefix}-udp-contract-manager", f"{prefix.replace('-', ' ')} UDP manager must stay link-crypto"))
+        if bool(udp_contract.get("secretMaterial", False)):
+            findings.append(_finding("error", f"{prefix}-udp-contract-secret-material", f"{prefix.replace('-', ' ')} UDP runtime-contract must not embed secret material"))
+        if bool(udp_contract.get("xrayBackhaul", False)):
+            findings.append(_finding("error", f"{prefix}-udp-contract-xray-backhaul", f"{prefix.replace('-', ' ')} UDP runtime-contract must stay outside Xray backhaul"))
+        if _row_int(udp_contract, "remotePort") not in {0, 8443}:
+            findings.append(_finding("error", f"{prefix}-udp-contract-remote-port", f"{prefix.replace('-', ' ')} UDP remotePort must stay 8443"))
+        udp_obfs = _row_dict(udp_contract, "obfs")
+        if udp_obfs and (_row_string(udp_obfs, "type").lower() != "salamander" or not bool(udp_obfs.get("required", False))):
+            findings.append(_finding("error", f"{prefix}-udp-contract-salamander", f"{prefix.replace('-', ' ')} UDP contract must require Salamander"))
+        udp_paired_obfs = _row_dict(udp_contract, "pairedObfs")
+        if bool(udp_paired_obfs.get("enabled", False)):
+            if _row_string(udp_paired_obfs, "backend") != "udp2raw":
+                findings.append(_finding("error", f"{prefix}-udp-contract-paired-obfs-backend", f"{prefix.replace('-', ' ')} UDP pairedObfs backend must stay udp2raw"))
+            if not bool(udp_paired_obfs.get("requiresBothSides", False)):
+                findings.append(_finding("error", f"{prefix}-udp-contract-paired-obfs", f"{prefix.replace('-', ' ')} UDP pairedObfs must require both sides"))
+            if not bool(udp_paired_obfs.get("failClosed", False)):
+                findings.append(_finding("error", f"{prefix}-udp-contract-paired-obfs-fail-closed", f"{prefix.replace('-', ' ')} UDP pairedObfs must fail closed"))
+            if not bool(udp_paired_obfs.get("noHostWideInterception", False)):
+                findings.append(_finding("error", f"{prefix}-udp-contract-paired-obfs-host-wide", f"{prefix.replace('-', ' ')} UDP pairedObfs must not use host-wide interception"))
+            if not bool(udp_paired_obfs.get("noNfqueue", False)):
+                findings.append(_finding("error", f"{prefix}-udp-contract-paired-obfs-nfqueue", f"{prefix.replace('-', ' ')} UDP pairedObfs must not use broad NFQUEUE"))
+        if udp_enabled or state.udp_total_count:
+            findings.extend(
+                _validate_link_crypto_udp_hardening(
+                    hardening=_row_dict(udp_contract, "hardening"),
+                    code_prefix=f"{prefix}-udp-contract",
+                    label=f"{prefix.replace('-', ' ')} UDP runtime-contract",
+                )
+            )
+            findings.extend(
+                _validate_link_crypto_udp_dpi_resistance(
+                    dpi=_row_dict(udp_contract, "dpiResistance"),
+                    code_prefix=f"{prefix}-udp-contract",
+                    label=f"{prefix.replace('-', ' ')} UDP runtime-contract",
+                )
+            )
+
+        udp_state_classes = [_row_string(row, "class") for row in state.udp_links if _row_string(row, "class")]
+        udp_contract_classes = _string_list(role_udp_contract.get("classes") or udp_contract.get("classes"))
+        if udp_contract_classes and udp_state_classes != udp_contract_classes:
+            findings.append(
+                _finding(
+                    "error",
+                    f"{prefix}-udp-contract-classes",
+                    f"{prefix.replace('-', ' ')} UDP link classes diverge from runtime-contract linkCrypto.udp.classes",
+                )
+            )
+
+        udp_counts = _row_dict(role_udp_contract, "counts") or _row_dict(udp_contract, "counts")
+        expected_udp_counts = {
+            "total": _row_int(udp_counts, "total"),
+            "entryTransitUdp": _row_int(udp_counts, "entryTransitUdp"),
+            "routerEntryUdp": _row_int(udp_counts, "routerEntryUdp"),
+            "routerTransitUdp": _row_int(udp_counts, "routerTransitUdp"),
+        }
+        actual_udp_counts = {
+            "total": state.udp_total_count,
+            "entryTransitUdp": state.entry_transit_udp_count,
+            "routerEntryUdp": state.router_entry_udp_count,
+            "routerTransitUdp": state.router_transit_udp_count,
+        }
+        if udp_counts and expected_udp_counts != actual_udp_counts:
+            findings.append(
+                _finding(
+                    "error",
+                    f"{prefix}-udp-contract-counts",
+                    f"{prefix.replace('-', ' ')} UDP link counts diverge from runtime-contract linkCrypto.udp.counts",
+                )
+            )
+
+        expected_udp_local_ports = _row_dict(role_udp_contract, "localPorts") or _row_dict(udp_contract, "localPorts")
+        expected_udp_profiles = _row_dict(role_udp_contract, "selectedProfiles") or _row_dict(udp_contract, "selectedProfiles")
+        for row in state.udp_links:
+            link_class = _row_string(row, "class") or "udp-row"
+            code_prefix = f"{prefix}-{link_class}"
+            if _row_int(udp_contract, "remotePort") > 0:
+                remote = _row_dict(row, "remote")
+                try:
+                    _host, remote_port = _parse_endpoint(_row_string(remote, "endpoint"))
+                except ValueError:
+                    remote_port = 0
+                if remote_port != _row_int(udp_contract, "remotePort"):
+                    findings.append(
+                        _finding(
+                            "error",
+                            f"{code_prefix}-udp-contract-remote-port",
+                            f"{prefix.replace('-', ' ')} {link_class} remote port diverges from runtime-contract",
+                        )
+                    )
+            expected_local_port = _row_int(expected_udp_local_ports, link_class)
+            if expected_local_port > 0:
+                local = _row_dict(row, "local")
+                try:
+                    _host, local_port = _parse_endpoint(_row_string(local, "listen"))
+                except ValueError:
+                    local_port = 0
+                if local_port != expected_local_port:
+                    findings.append(
+                        _finding(
+                            "error",
+                            f"{code_prefix}-udp-contract-local-port",
+                            f"{prefix.replace('-', ' ')} {link_class} local port diverges from runtime-contract",
+                        )
+                    )
+            expected_profiles = _string_list(expected_udp_profiles.get(link_class))
+            if expected_profiles and _string_list(row.get("selectedProfiles")) != expected_profiles:
+                findings.append(
+                    _finding(
+                        "error",
+                        f"{code_prefix}-udp-contract-selected-profiles",
+                        f"{prefix.replace('-', ' ')} {link_class} selectedProfiles diverge from runtime-contract",
+                    )
+                )
+
     return findings
 
 
@@ -3760,6 +4622,10 @@ def _validate_link_crypto_counts(
 ) -> list[RuntimePreflightFinding]:
     findings: list[RuntimePreflightFinding] = []
     by_class = {link_class: len([row for row in state.links if _row_string(row, "class") == link_class]) for link_class in _LINK_CRYPTO_CLASSES}
+    udp_by_class = {
+        link_class: len([row for row in state.udp_links if _row_string(row, "class") == link_class])
+        for link_class in _LINK_CRYPTO_UDP_CLASSES
+    }
     if state.total_count != len(state.links):
         findings.append(_finding("error", f"{prefix}-count-total", f"{prefix.replace('-', ' ')} total count diverges from links"))
     if state.entry_transit_count != by_class["entry-transit"]:
@@ -3768,6 +4634,14 @@ def _validate_link_crypto_counts(
         findings.append(_finding("error", f"{prefix}-count-router-entry", f"{prefix.replace('-', ' ')} router-entry count diverges from links"))
     if state.router_transit_count != by_class["router-transit"]:
         findings.append(_finding("error", f"{prefix}-count-router-transit", f"{prefix.replace('-', ' ')} router-transit count diverges from links"))
+    if state.udp_total_count != len(state.udp_links):
+        findings.append(_finding("error", f"{prefix}-udp-count-total", f"{prefix.replace('-', ' ')} UDP total count diverges from udpLinks"))
+    if state.entry_transit_udp_count != udp_by_class["entry-transit-udp"]:
+        findings.append(_finding("error", f"{prefix}-udp-count-entry-transit", f"{prefix.replace('-', ' ')} entry-transit-udp count diverges from udpLinks"))
+    if state.router_entry_udp_count != udp_by_class["router-entry-udp"]:
+        findings.append(_finding("error", f"{prefix}-udp-count-router-entry", f"{prefix.replace('-', ' ')} router-entry-udp count diverges from udpLinks"))
+    if state.router_transit_udp_count != udp_by_class["router-transit-udp"]:
+        findings.append(_finding("error", f"{prefix}-udp-count-router-transit", f"{prefix.replace('-', ' ')} router-transit-udp count diverges from udpLinks"))
     return findings
 
 
@@ -3877,12 +4751,12 @@ def _validate_link_crypto_row(
                     )
                 )
         required_profiles = _LINK_CRYPTO_REQUIRED_PROFILES.get(link_class, set())
-        if required_profiles and not required_profiles.issubset(selected_profile_set):
+        if required_profiles and selected_profile_set != required_profiles:
             findings.append(
                 _finding(
                     "error",
                     f"{code_prefix}-selected-profiles",
-                    f"{label} must cover {'/'.join(sorted(required_profiles))} profiles",
+                    f"{label} must select exactly {'/'.join(sorted(required_profiles))} profiles",
                 )
             )
 
@@ -3899,6 +4773,16 @@ def _validate_link_crypto_row(
         findings.append(_finding("error", f"{code_prefix}-zapret2-profile-file", f"{label} enabled zapret2 needs profileFile"))
     if not bool(zapret2.get("failOpen", False)):
         findings.append(_finding("error", f"{code_prefix}-zapret2-fail-open", f"{label} zapret2 layer must fail open"))
+    findings.extend(
+        _validate_link_crypto_tcp_dpi_resistance(
+            dpi=_row_dict(row, "dpiResistance"),
+            zapret2=zapret2,
+            outer_carrier=_row_dict(row, "outerCarrier"),
+            code_prefix=code_prefix,
+            label=label,
+            require_outer_carrier=link_class == "entry-transit",
+        )
+    )
 
     rotation = _row_dict(row, "rotation")
     if str(rotation.get("strategy") or "").strip().lower() != "generation-drain":
@@ -3909,6 +4793,379 @@ def _validate_link_crypto_row(
     stability = _row_dict(row, "stability")
     if not bool(stability.get("failOpen", False)):
         findings.append(_finding("error", f"{code_prefix}-fail-open", f"{label} must fail open"))
+    if bool(stability.get("dropUnrelatedTraffic", True)):
+        findings.append(_finding("error", f"{code_prefix}-drop-unrelated", f"{label} must not drop unrelated traffic"))
+
+    return findings
+
+
+def _validate_link_crypto_udp_hardening(
+    *,
+    hardening: dict[str, Any],
+    code_prefix: str,
+    label: str,
+) -> list[RuntimePreflightFinding]:
+    findings: list[RuntimePreflightFinding] = []
+
+    if not hardening:
+        findings.append(_finding("error", f"{code_prefix}-hardening", f"{label} hardening policy is missing"))
+        return findings
+    if not bool(hardening.get("enabled", False)):
+        findings.append(_finding("error", f"{code_prefix}-hardening-enabled", f"{label} hardening must stay enabled"))
+    if not bool(hardening.get("failClosed", False)):
+        findings.append(_finding("error", f"{code_prefix}-hardening-fail-closed", f"{label} must fail closed"))
+    if not bool(hardening.get("requirePrivateAuth", False)):
+        findings.append(_finding("error", f"{code_prefix}-hardening-private-auth", f"{label} must require private auth"))
+    if not bool(hardening.get("rejectAnonymous", False)):
+        findings.append(_finding("error", f"{code_prefix}-hardening-reject-anonymous", f"{label} must reject anonymous UDP sessions"))
+
+    anti_replay = _row_dict(hardening, "antiReplay")
+    if not bool(anti_replay.get("enabled", False)):
+        findings.append(_finding("error", f"{code_prefix}-hardening-anti-replay", f"{label} antiReplay must stay enabled"))
+    if _row_int(anti_replay, "windowPackets") < 1024:
+        findings.append(
+            _finding(
+                "error",
+                f"{code_prefix}-hardening-replay-window",
+                f"{label} antiReplay windowPackets must be at least 1024",
+            )
+        )
+
+    anti_amplification = _row_dict(hardening, "antiAmplification")
+    if not bool(anti_amplification.get("enabled", False)):
+        findings.append(_finding("error", f"{code_prefix}-hardening-anti-amplification", f"{label} antiAmplification must stay enabled"))
+    max_unvalidated_bytes = _row_int(anti_amplification, "maxUnvalidatedBytes")
+    if max_unvalidated_bytes < 1 or max_unvalidated_bytes > 4096:
+        findings.append(
+            _finding(
+                "error",
+                f"{code_prefix}-hardening-unvalidated-bytes",
+                f"{label} antiAmplification maxUnvalidatedBytes must stay in 1..4096",
+            )
+        )
+
+    rate_limit = _row_dict(hardening, "rateLimit")
+    if not bool(rate_limit.get("enabled", False)):
+        findings.append(_finding("error", f"{code_prefix}-hardening-rate-limit", f"{label} rateLimit must stay enabled"))
+    handshake_per_minute = _row_int(rate_limit, "handshakePerMinute")
+    new_session_per_minute = _row_int(rate_limit, "newSessionPerMinute")
+    if handshake_per_minute < 1 or handshake_per_minute > 600:
+        findings.append(
+            _finding(
+                "error",
+                f"{code_prefix}-hardening-handshake-rate",
+                f"{label} handshakePerMinute must stay in 1..600",
+            )
+        )
+    if new_session_per_minute < 1 or new_session_per_minute > handshake_per_minute:
+        findings.append(
+            _finding(
+                "error",
+                f"{code_prefix}-hardening-session-rate",
+                f"{label} newSessionPerMinute must stay in 1..handshakePerMinute",
+            )
+        )
+
+    mtu = _row_dict(hardening, "mtu")
+    if _row_string(mtu, "mode") != "clamp":
+        findings.append(_finding("error", f"{code_prefix}-hardening-mtu-mode", f"{label} MTU mode must stay clamp"))
+    max_packet_size = _row_int(mtu, "maxPacketSize")
+    if max_packet_size < 1000 or max_packet_size > 1350:
+        findings.append(
+            _finding(
+                "error",
+                f"{code_prefix}-hardening-mtu-size",
+                f"{label} maxPacketSize must stay in 1000..1350",
+            )
+        )
+
+    key_rotation = _row_dict(hardening, "keyRotation")
+    if not bool(key_rotation.get("enabled", False)):
+        findings.append(_finding("error", f"{code_prefix}-hardening-key-rotation", f"{label} keyRotation must stay enabled"))
+    if _row_string(key_rotation, "strategy") != "generation-drain":
+        findings.append(
+            _finding(
+                "error",
+                f"{code_prefix}-hardening-key-rotation-strategy",
+                f"{label} keyRotation strategy must stay generation-drain",
+            )
+        )
+    max_age_seconds = _row_int(key_rotation, "maxAgeSeconds")
+    overlap_seconds = _row_int(key_rotation, "overlapSeconds")
+    if max_age_seconds < 300 or max_age_seconds > 86400:
+        findings.append(
+            _finding(
+                "error",
+                f"{code_prefix}-hardening-key-rotation-age",
+                f"{label} keyRotation maxAgeSeconds must stay in 300..86400",
+            )
+        )
+    if overlap_seconds < 30 or overlap_seconds > 600 or overlap_seconds >= max_age_seconds:
+        findings.append(
+            _finding(
+                "error",
+                f"{code_prefix}-hardening-key-rotation-overlap",
+                f"{label} keyRotation overlapSeconds must stay in 30..600 and below maxAgeSeconds",
+            )
+        )
+
+    source_validation = _row_dict(hardening, "sourceValidation")
+    if not bool(source_validation.get("enabled", False)):
+        findings.append(_finding("error", f"{code_prefix}-hardening-source-validation", f"{label} sourceValidation must stay enabled"))
+    if _row_string(source_validation, "mode") != "profile-bound-remote":
+        findings.append(
+            _finding(
+                "error",
+                f"{code_prefix}-hardening-source-validation-mode",
+                f"{label} sourceValidation mode must stay profile-bound-remote",
+            )
+        )
+
+    return findings
+
+
+def _validate_link_crypto_udp_dpi_resistance(
+    *,
+    dpi: dict[str, Any],
+    code_prefix: str,
+    label: str,
+) -> list[RuntimePreflightFinding]:
+    findings: list[RuntimePreflightFinding] = []
+    if not dpi:
+        findings.append(_finding("error", f"{code_prefix}-dpi-resistance", f"{label} DPI resistance policy is missing"))
+        return findings
+    if not bool(dpi.get("enabled", False)):
+        findings.append(_finding("error", f"{code_prefix}-dpi-resistance-enabled", f"{label} DPI resistance must stay enabled"))
+    if _row_string(dpi, "mode") != "salamander-plus-scoped-paired-obfs":
+        findings.append(
+            _finding(
+                "error",
+                f"{code_prefix}-dpi-resistance-mode",
+                f"{label} DPI resistance mode must stay salamander-plus-scoped-paired-obfs",
+            )
+        )
+
+    port_split = _row_dict(dpi, "portSplit")
+    if _row_int(port_split, "publicUdpPort") != TRACEGATE_PUBLIC_UDP_PORT:
+        findings.append(
+            _finding(
+                "error",
+                f"{code_prefix}-dpi-resistance-public-udp",
+                f"{label} DPI resistance public UDP port must stay {TRACEGATE_PUBLIC_UDP_PORT}",
+            )
+        )
+    if not bool(port_split.get("forbidUdp443", False)):
+        findings.append(_finding("error", f"{code_prefix}-dpi-resistance-udp443", f"{label} must forbid UDP/443"))
+    if not bool(port_split.get("forbidTcp8443", False)):
+        findings.append(_finding("error", f"{code_prefix}-dpi-resistance-tcp8443", f"{label} must forbid TCP/8443"))
+
+    required_layers = set(_string_list(dpi.get("requiredLayers")))
+    missing_layers = sorted(
+        {
+            "hysteria2-quic",
+            "salamander",
+            "private-auth",
+            "anti-replay",
+            "anti-amplification",
+            "mtu-clamp",
+            "source-validation",
+        }
+        - required_layers
+    )
+    if missing_layers:
+        findings.append(
+            _finding(
+                "error",
+                f"{code_prefix}-dpi-resistance-layers",
+                f"{label} DPI resistance missing required layers: {', '.join(missing_layers)}",
+            )
+        )
+
+    paired_obfs = _row_dict(dpi, "pairedObfs")
+    if not bool(paired_obfs.get("supported", False)):
+        findings.append(_finding("error", f"{code_prefix}-dpi-resistance-paired-supported", f"{label} must support paired UDP obfs"))
+    if _row_string(paired_obfs, "backend") != "udp2raw":
+        findings.append(_finding("error", f"{code_prefix}-dpi-resistance-paired-backend", f"{label} paired UDP obfs backend must stay udp2raw"))
+    if not bool(paired_obfs.get("requiresBothSides", False)):
+        findings.append(_finding("error", f"{code_prefix}-dpi-resistance-paired-both-sides", f"{label} paired UDP obfs must require both sides"))
+    if not bool(paired_obfs.get("failClosed", False)):
+        findings.append(_finding("error", f"{code_prefix}-dpi-resistance-paired-fail-closed", f"{label} paired UDP obfs must fail closed"))
+
+    packet_shape = _row_dict(dpi, "packetShape")
+    if _row_string(packet_shape, "mtuMode") != "clamp":
+        findings.append(_finding("error", f"{code_prefix}-dpi-resistance-mtu", f"{label} packetShape.mtuMode must stay clamp"))
+    packet_size = _row_int(packet_shape, "maxPacketSize")
+    if packet_size < 1000 or packet_size > 1350:
+        findings.append(
+            _finding(
+                "error",
+                f"{code_prefix}-dpi-resistance-packet-size",
+                f"{label} packetShape.maxPacketSize must stay in 1000..1350",
+            )
+        )
+
+    return findings
+
+
+def _validate_link_crypto_udp_row(
+    *,
+    row: dict[str, Any],
+    role_upper: str,
+    index: int,
+    prefix: str,
+    known_profile_variants: set[str],
+) -> list[RuntimePreflightFinding]:
+    findings: list[RuntimePreflightFinding] = []
+    link_class = _row_string(row, "class")
+    suffix = link_class or f"udp-row-{index}"
+    code_prefix = f"{prefix}-{suffix}"
+    label = f"{role_upper.lower()} UDP link-crypto {link_class or index}"
+
+    if link_class not in _LINK_CRYPTO_UDP_CLASSES:
+        findings.append(_finding("error", f"{code_prefix}-class", f"{label} has unsupported UDP class"))
+
+    allowed_by_role = {
+        "ENTRY": {"entry-transit-udp", "router-entry-udp"},
+        "TRANSIT": {"entry-transit-udp", "router-transit-udp"},
+    }.get(role_upper, set())
+    if link_class and link_class not in allowed_by_role:
+        findings.append(_finding("error", f"{code_prefix}-role-class", f"{label} is not valid for {role_upper}"))
+
+    expected_side = ""
+    if link_class == "entry-transit-udp":
+        expected_side = "client" if role_upper == "ENTRY" else "server"
+    elif link_class in {"router-entry-udp", "router-transit-udp"}:
+        expected_side = "server"
+    side = _row_string(row, "side").lower()
+    if expected_side and side != expected_side:
+        findings.append(_finding("error", f"{code_prefix}-side", f"{label} side must be {expected_side}"))
+
+    if _row_string(row, "carrier").lower() != "hysteria2":
+        findings.append(_finding("error", f"{code_prefix}-carrier", f"{label} carrier must be hysteria2"))
+    if _row_string(row, "transport").lower() != "udp-quic":
+        findings.append(_finding("error", f"{code_prefix}-transport", f"{label} transport must be udp-quic"))
+    if _row_string(row, "managedBy") != "link-crypto":
+        findings.append(_finding("error", f"{code_prefix}-managed-by", f"{label} must be managed by link-crypto"))
+    if bool(row.get("xrayBackhaul", True)):
+        findings.append(_finding("error", f"{code_prefix}-xray-backhaul", f"{label} must stay outside Xray backhaul"))
+    if _row_int(row, "generation") < 1:
+        findings.append(_finding("error", f"{code_prefix}-generation", f"{label} generation must be positive"))
+
+    profile_ref = _row_dict(row, "profileRef")
+    if _row_string(profile_ref, "kind") != "file" or not _row_string(profile_ref, "path"):
+        findings.append(_finding("error", f"{code_prefix}-profile-ref", f"{label} profileRef must be a private file"))
+    if not bool(profile_ref.get("secretMaterial", False)):
+        findings.append(_finding("error", f"{code_prefix}-profile-ref-secret", f"{label} profileRef must point at secret material"))
+
+    local = _row_dict(row, "local")
+    findings.extend(
+        _validate_endpoint(
+            raw_value=_row_string(local, "listen"),
+            code_prefix=f"{code_prefix}-local-listen",
+            label=f"{label} local listen endpoint",
+            require_loopback=True,
+            loopback_severity="error",
+        )
+    )
+    if _row_string(local, "protocol").lower() != "udp":
+        findings.append(_finding("error", f"{code_prefix}-local-protocol", f"{label} local protocol must be udp"))
+    auth = _row_dict(local, "auth")
+    if not bool(auth.get("required", False)) or _row_string(auth, "mode") != "private-profile":
+        findings.append(_finding("error", f"{code_prefix}-local-auth", f"{label} local auth must be required private-profile"))
+
+    remote = _row_dict(row, "remote")
+    if not _row_string(remote, "role"):
+        findings.append(_finding("error", f"{code_prefix}-remote-role", f"{label} remote role is missing"))
+    if _row_string(remote, "protocol").lower() != "udp-quic":
+        findings.append(_finding("error", f"{code_prefix}-remote-protocol", f"{label} remote protocol must be udp-quic"))
+    findings.extend(
+        _validate_endpoint(
+            raw_value=_row_string(remote, "endpoint"),
+            code_prefix=f"{code_prefix}-remote-endpoint",
+            label=f"{label} remote endpoint",
+            require_loopback=False,
+        )
+    )
+
+    datagram = _row_dict(row, "datagram")
+    if not bool(datagram.get("udpCapable", False)):
+        findings.append(_finding("error", f"{code_prefix}-udp-capable", f"{label} must declare udpCapable=true"))
+
+    obfs = _row_dict(row, "obfs")
+    if _row_string(obfs, "type").lower() != "salamander" or not bool(obfs.get("required", False)):
+        findings.append(_finding("error", f"{code_prefix}-salamander", f"{label} must require Salamander obfs"))
+    obfs_ref = _row_dict(obfs, "profileRef")
+    if _row_string(obfs_ref, "kind") != "file" or not _row_string(obfs_ref, "path"):
+        findings.append(_finding("error", f"{code_prefix}-salamander-profile", f"{label} Salamander profileRef must be a private file"))
+    if not bool(obfs_ref.get("secretMaterial", False)):
+        findings.append(_finding("error", f"{code_prefix}-salamander-secret", f"{label} Salamander profileRef must point at secret material"))
+
+    paired_obfs = _row_dict(row, "pairedObfs")
+    if bool(paired_obfs.get("enabled", False)):
+        if _row_string(paired_obfs, "backend") != "udp2raw":
+            findings.append(_finding("error", f"{code_prefix}-paired-obfs-backend", f"{label} pairedObfs backend must stay udp2raw"))
+        mode = _row_string(paired_obfs, "mode")
+        if mode not in {"udp2raw-faketcp", "udp2raw-icmp"}:
+            findings.append(_finding("error", f"{code_prefix}-paired-obfs-mode", f"{label} pairedObfs mode is unsupported"))
+        if not bool(paired_obfs.get("requiresBothSides", False)):
+            findings.append(_finding("error", f"{code_prefix}-paired-obfs-both-sides", f"{label} pairedObfs must require both sides"))
+        if not bool(paired_obfs.get("failClosed", False)):
+            findings.append(_finding("error", f"{code_prefix}-paired-obfs-fail-closed", f"{label} pairedObfs must fail closed"))
+        if not bool(paired_obfs.get("noHostWideInterception", False)):
+            findings.append(_finding("error", f"{code_prefix}-paired-obfs-host-wide", f"{label} pairedObfs must not use host-wide interception"))
+        if not bool(paired_obfs.get("noNfqueue", False)):
+            findings.append(_finding("error", f"{code_prefix}-paired-obfs-nfqueue", f"{label} pairedObfs must not use broad NFQUEUE"))
+        paired_ref = _row_dict(paired_obfs, "profileRef")
+        if _row_string(paired_ref, "kind") != "file" or not _row_string(paired_ref, "path"):
+            findings.append(_finding("error", f"{code_prefix}-paired-obfs-profile", f"{label} pairedObfs profileRef must be a private file"))
+        if not bool(paired_ref.get("secretMaterial", False)):
+            findings.append(_finding("error", f"{code_prefix}-paired-obfs-secret", f"{label} pairedObfs profileRef must point at secret material"))
+
+    findings.extend(
+        _validate_link_crypto_udp_hardening(
+            hardening=_row_dict(row, "hardening"),
+            code_prefix=code_prefix,
+            label=label,
+        )
+    )
+    findings.extend(
+        _validate_link_crypto_udp_dpi_resistance(
+            dpi=_row_dict(row, "dpiResistance"),
+            code_prefix=code_prefix,
+            label=label,
+        )
+    )
+
+    selected_profiles = row.get("selectedProfiles")
+    if not isinstance(selected_profiles, list) or not [item for item in selected_profiles if str(item or "").strip()]:
+        findings.append(_finding("error", f"{code_prefix}-selected-profiles", f"{label} must declare selected Tracegate profiles"))
+    else:
+        selected_profile_set = {str(item).strip().upper() for item in selected_profiles if str(item or "").strip()}
+        if known_profile_variants:
+            unknown_profiles = sorted(selected_profile_set - known_profile_variants)
+            if unknown_profiles:
+                findings.append(
+                    _finding(
+                        "error",
+                        f"{code_prefix}-selected-profiles-contract",
+                        f"{label} selectedProfiles are not present in runtime-contract: {', '.join(unknown_profiles)}",
+                    )
+                )
+        required_profiles = _LINK_CRYPTO_UDP_REQUIRED_PROFILES.get(link_class, set())
+        if required_profiles and selected_profile_set != required_profiles:
+            findings.append(
+                _finding(
+                    "error",
+                    f"{code_prefix}-selected-profiles",
+                    f"{label} must select exactly {'/'.join(sorted(required_profiles))} profiles",
+                )
+            )
+
+    stability = _row_dict(row, "stability")
+    if bool(stability.get("failOpen", True)):
+        findings.append(_finding("error", f"{code_prefix}-fail-open", f"{label} must fail closed"))
+    if bool(stability.get("bypassOnFailure", True)):
+        findings.append(_finding("error", f"{code_prefix}-bypass", f"{label} must not bypass on failure"))
     if bool(stability.get("dropUnrelatedTraffic", True)):
         findings.append(_finding("error", f"{code_prefix}-drop-unrelated", f"{label} must not drop unrelated traffic"))
 
@@ -3955,6 +5212,16 @@ def validate_link_crypto_state(
                 known_profile_variants=known_profile_variants,
             )
         )
+    for index, row in enumerate(state.udp_links):
+        findings.extend(
+            _validate_link_crypto_udp_row(
+                row=row,
+                role_upper=role_upper,
+                index=index,
+                prefix=prefix,
+                known_profile_variants=known_profile_variants,
+            )
+        )
 
     return findings
 
@@ -3988,12 +5255,26 @@ def validate_link_crypto_env(
         findings.append(_finding("error", f"{prefix}-outer-wss-path", f"{prefix.replace('-', ' ')} outer WSS path must be a clean absolute HTTP path"))
     if env.outer_carrier_enabled and not env.outer_wss_verify_tls:
         findings.append(_finding("error", f"{prefix}-outer-wss-verify-tls", f"{prefix.replace('-', ' ')} outer WSS must verify TLS"))
+    if env.outer_carrier_enabled and not env.outer_wss_spki_pinning_required:
+        findings.append(_finding("error", f"{prefix}-outer-wss-spki", f"{prefix.replace('-', ' ')} outer WSS must require SPKI pinning"))
+    if env.outer_carrier_enabled and not env.outer_wss_admission_required:
+        findings.append(_finding("error", f"{prefix}-outer-wss-admission", f"{prefix.replace('-', ' ')} outer WSS must require HMAC admission"))
     if env.generation < 1:
         findings.append(_finding("error", f"{prefix}-generation", f"{prefix.replace('-', ' ')} generation must be positive"))
+    if env.total_count > 0 and not env.zapret2_required:
+        findings.append(_finding("error", f"{prefix}-zapret2-required", f"{prefix.replace('-', ' ')} zapret2 must be required"))
+    if env.total_count > 0 and not env.zapret2_enabled:
+        findings.append(_finding("error", f"{prefix}-zapret2-enabled", f"{prefix.replace('-', ' ')} zapret2 must be enabled for TCP link-crypto"))
     if env.zapret2_host_wide_interception:
         findings.append(_finding("error", f"{prefix}-zapret2-host-wide", f"{prefix.replace('-', ' ')} must not enable host-wide interception"))
     if env.zapret2_nfqueue:
         findings.append(_finding("error", f"{prefix}-zapret2-nfqueue", f"{prefix.replace('-', ' ')} must not enable broad NFQUEUE"))
+    if env.total_count > 0 and not env.tcp_dpi_resistance_required:
+        findings.append(_finding("error", f"{prefix}-tcp-dpi-resistance", f"{prefix.replace('-', ' ')} TCP DPI resistance must be required"))
+    if env.total_count > 0 and not env.tcp_traffic_shaping_required:
+        findings.append(_finding("error", f"{prefix}-tcp-traffic-shaping", f"{prefix.replace('-', ' ')} TCP traffic shaping must be required"))
+    if env.total_count > 0 and not env.promotion_preflight_required:
+        findings.append(_finding("error", f"{prefix}-promotion-preflight", f"{prefix.replace('-', ' ')} promotion preflight must be required"))
 
     if contract is not None and env.runtime_profile != _runtime_profile(contract):
         findings.append(_finding("error", f"{prefix}-contract-runtime-profile", f"{prefix.replace('-', ' ')} runtimeProfile diverges from runtime-contract"))
@@ -4009,6 +5290,740 @@ def validate_link_crypto_env(
             findings.append(_finding("warning", f"{prefix}-classes", f"{prefix.replace('-', ' ')} classes diverge from desired-state.json"))
     elif env.total_count != len(env.classes):
         findings.append(_finding("error", f"{prefix}-count-classes", f"{prefix.replace('-', ' ')} count diverges from class list"))
+
+    return findings
+
+
+_ROUTER_HANDOFF_SCHEMA = "tracegate.router-handoff.v1"
+_ROUTER_CLIENT_BUNDLE_SCHEMA = "tracegate.router-client-bundle.v1"
+
+
+def _router_expected_classes(
+    *,
+    contract: dict[str, Any],
+    role_upper: str,
+    transport: str,
+    link_crypto_state: LinkCryptoState | None,
+) -> tuple[str, ...]:
+    if link_crypto_state is not None:
+        rows = link_crypto_state.udp_links if transport == "udp" else link_crypto_state.links
+        return tuple(
+            _row_string(row, "class")
+            for row in rows
+            if _row_string(row, "class") in ({"router-entry-udp", "router-transit-udp"} if transport == "udp" else {"router-entry", "router-transit"})
+        )
+    link_crypto = _link_crypto_contract_block_for_role(contract, role_upper=role_upper)
+    if transport == "udp":
+        udp_contract = _row_dict(_link_crypto_contract_block(contract), "udp")
+        role_udp_contract = _row_dict(_row_dict(udp_contract, "roles"), role_upper.lower())
+        classes = _string_list(role_udp_contract.get("classes") or udp_contract.get("classes"))
+        allowed = {"router-entry-udp", "router-transit-udp"}
+    else:
+        classes = _string_list(link_crypto.get("classes"))
+        allowed = {"router-entry", "router-transit"}
+    return tuple(link_class for link_class in classes if link_class in allowed)
+
+
+def _validate_router_client_profile_ref(
+    *,
+    refs: dict[str, Any],
+    key: str,
+    code_prefix: str,
+    label: str,
+) -> list[RuntimePreflightFinding]:
+    ref = _row_dict(refs, key)
+    if _row_string(ref, "kind") != "file" or not _row_string(ref, "path"):
+        return [_finding("error", f"{code_prefix}-router-client-profile-{key}", f"{label} router client {key} profileRef must be a private file")]
+    if not bool(ref.get("secretMaterial", False)):
+        return [
+            _finding(
+                "error",
+                f"{code_prefix}-router-client-profile-{key}-secret",
+                f"{label} router client {key} profileRef must point at secret material",
+            )
+        ]
+    return []
+
+
+def _validate_router_route(
+    *,
+    row: dict[str, Any],
+    role_upper: str,
+    index: int,
+    prefix: str,
+    transport: str,
+) -> list[RuntimePreflightFinding]:
+    findings: list[RuntimePreflightFinding] = []
+    link_class = _row_string(row, "class")
+    code_prefix = f"{prefix}-{link_class or f'{transport}-route-{index}'}"
+    label = f"{role_upper.lower()} router handoff {link_class or index}"
+    allowed = {
+        "ENTRY": {"router-entry", "router-entry-udp"},
+        "TRANSIT": {"router-transit", "router-transit-udp"},
+    }.get(role_upper, set())
+
+    if link_class not in allowed:
+        findings.append(_finding("error", f"{code_prefix}-class", f"{label} is not valid for {role_upper}"))
+    if not bool(row.get("enabled", False)):
+        findings.append(_finding("error", f"{code_prefix}-enabled", f"{label} route must be enabled"))
+    if _row_string(row, "serverRole") != role_upper:
+        findings.append(_finding("error", f"{code_prefix}-server-role", f"{label} serverRole must be {role_upper}"))
+    if _row_string(row, "serverSide") != "server":
+        findings.append(_finding("error", f"{code_prefix}-server-side", f"{label} serverSide must be server"))
+    if _row_string(row, "remoteRole") != "ROUTER":
+        findings.append(_finding("error", f"{code_prefix}-remote-role", f"{label} remoteRole must be ROUTER"))
+    if _row_string(row, "managedBy") != "link-crypto":
+        findings.append(_finding("error", f"{code_prefix}-managed-by", f"{label} must be managed by link-crypto"))
+    if bool(row.get("xrayBackhaul", True)):
+        findings.append(_finding("error", f"{code_prefix}-xray-backhaul", f"{label} must stay outside Xray backhaul"))
+    if _row_int(row, "generation") < 1:
+        findings.append(_finding("error", f"{code_prefix}-generation", f"{label} generation must be positive"))
+
+    findings.extend(
+        _validate_endpoint(
+            raw_value=_row_string(row, "serverListen"),
+            code_prefix=f"{code_prefix}-server-listen",
+            label=f"{label} serverListen",
+            require_loopback=True,
+            loopback_severity="error",
+        )
+    )
+    findings.extend(
+        _validate_endpoint(
+            raw_value=_row_string(row, "publicEndpoint"),
+            code_prefix=f"{code_prefix}-public-endpoint",
+            label=f"{label} publicEndpoint",
+            require_loopback=False,
+        )
+    )
+    try:
+        public_host, _public_port = _parse_endpoint(_row_string(row, "publicEndpoint"))
+    except ValueError:
+        public_host = ""
+    if public_host and _is_loopback_host(public_host):
+        findings.append(_finding("error", f"{code_prefix}-public-endpoint-loopback", f"{label} publicEndpoint must not be loopback"))
+
+    auth = _row_dict(row, "auth")
+    if not bool(auth.get("required", False)) or _row_string(auth, "mode") != "private-profile":
+        findings.append(_finding("error", f"{code_prefix}-auth", f"{label} server auth must be required private-profile"))
+    profile_ref = _row_dict(row, "profileRef")
+    if _row_string(profile_ref, "kind") != "file" or not _row_string(profile_ref, "path"):
+        findings.append(_finding("error", f"{code_prefix}-profile-ref", f"{label} profileRef must be a private file"))
+    if not bool(profile_ref.get("secretMaterial", False)):
+        findings.append(_finding("error", f"{code_prefix}-profile-ref-secret", f"{label} profileRef must point at secret material"))
+
+    router_client = _row_dict(row, "routerClient")
+    if not bool(router_client.get("requiresPrivateProfile", False)):
+        findings.append(_finding("error", f"{code_prefix}-router-client-private-profile", f"{label} router client must require a private profile"))
+    if bool(router_client.get("hostWideInterception", True)):
+        findings.append(_finding("error", f"{code_prefix}-router-client-host-wide", f"{label} router client must not request host-wide interception"))
+    if bool(router_client.get("nfqueue", True)):
+        findings.append(_finding("error", f"{code_prefix}-router-client-nfqueue", f"{label} router client must not request broad NFQUEUE"))
+    router_client_profile_refs = _row_dict(router_client, "profileRefs")
+    if transport == "tcp":
+        findings.extend(
+            _validate_router_client_profile_ref(
+                refs=router_client_profile_refs,
+                key="mieruClient",
+                code_prefix=code_prefix,
+                label=label,
+            )
+        )
+    else:
+        for key in ("hysteriaClient", "salamander"):
+            findings.extend(
+                _validate_router_client_profile_ref(
+                    refs=router_client_profile_refs,
+                    key=key,
+                    code_prefix=code_prefix,
+                    label=label,
+                )
+            )
+        if bool(_row_dict(row, "pairedObfs").get("enabled", False)):
+            findings.extend(
+                _validate_router_client_profile_ref(
+                    refs=router_client_profile_refs,
+                    key="pairedObfs",
+                    code_prefix=code_prefix,
+                    label=label,
+                )
+            )
+
+    selected_profile_set = {value.upper() for value in _string_list(row.get("selectedProfiles"))}
+    required_profiles = _LINK_CRYPTO_UDP_REQUIRED_PROFILES.get(link_class) if transport == "udp" else _LINK_CRYPTO_REQUIRED_PROFILES.get(link_class)
+    if required_profiles and selected_profile_set != required_profiles:
+        findings.append(_finding("error", f"{code_prefix}-selected-profiles", f"{label} selectedProfiles diverge from required router class profile set"))
+
+    if transport == "tcp":
+        if _row_string(row, "carrier") != "mieru":
+            findings.append(_finding("error", f"{code_prefix}-carrier", f"{label} TCP carrier must be mieru"))
+        if _row_string(row, "transport") != "tcp":
+            findings.append(_finding("error", f"{code_prefix}-transport", f"{label} TCP transport must be tcp"))
+        zapret2 = _row_dict(row, "zapret2")
+        if bool(zapret2.get("hostWideInterception", False)):
+            findings.append(_finding("error", f"{code_prefix}-zapret2-host-wide", f"{label} zapret2 must not use host-wide interception"))
+        if bool(zapret2.get("nfqueue", False)):
+            findings.append(_finding("error", f"{code_prefix}-zapret2-nfqueue", f"{label} zapret2 must not use broad NFQUEUE"))
+    else:
+        if _row_string(row, "carrier") != "hysteria2":
+            findings.append(_finding("error", f"{code_prefix}-carrier", f"{label} UDP carrier must be hysteria2"))
+        if _row_string(row, "transport") != "udp-quic":
+            findings.append(_finding("error", f"{code_prefix}-transport", f"{label} UDP transport must be udp-quic"))
+        obfs = _row_dict(row, "obfs")
+        if _row_string(obfs, "type") != "salamander" or not bool(obfs.get("required", False)):
+            findings.append(_finding("error", f"{code_prefix}-salamander", f"{label} must require Salamander"))
+        paired_obfs = _row_dict(row, "pairedObfs")
+        if bool(paired_obfs.get("enabled", False)):
+            if _row_string(paired_obfs, "backend") != "udp2raw":
+                findings.append(_finding("error", f"{code_prefix}-paired-obfs-backend", f"{label} pairedObfs backend must stay udp2raw"))
+            if not bool(paired_obfs.get("requiresBothSides", False)):
+                findings.append(_finding("error", f"{code_prefix}-paired-obfs-both-sides", f"{label} pairedObfs must require both sides"))
+            if not bool(paired_obfs.get("failClosed", False)):
+                findings.append(_finding("error", f"{code_prefix}-paired-obfs-fail-closed", f"{label} pairedObfs must fail closed"))
+            if not bool(paired_obfs.get("noHostWideInterception", False)):
+                findings.append(_finding("error", f"{code_prefix}-paired-obfs-host-wide", f"{label} pairedObfs must not use host-wide interception"))
+            if not bool(paired_obfs.get("noNfqueue", False)):
+                findings.append(_finding("error", f"{code_prefix}-paired-obfs-nfqueue", f"{label} pairedObfs must not use broad NFQUEUE"))
+        findings.extend(
+            _validate_link_crypto_udp_hardening(
+                hardening=_row_dict(row, "hardening"),
+                code_prefix=code_prefix,
+                label=label,
+            )
+        )
+        findings.extend(
+            _validate_link_crypto_udp_dpi_resistance(
+                dpi=_row_dict(row, "dpiResistance"),
+                code_prefix=code_prefix,
+                label=label,
+            )
+        )
+        stability = _row_dict(row, "stability")
+        if bool(stability.get("failOpen", True)):
+            findings.append(_finding("error", f"{code_prefix}-fail-open", f"{label} must fail closed"))
+        if bool(stability.get("bypassOnFailure", True)):
+            findings.append(_finding("error", f"{code_prefix}-bypass", f"{label} must not bypass on failure"))
+
+    return findings
+
+
+def validate_router_handoff_state(
+    *,
+    state: RouterHandoffState,
+    contract: dict[str, Any],
+    expected_role: str,
+    contract_path: str | Path | None = None,
+    link_crypto_state: LinkCryptoState | None = None,
+) -> list[RuntimePreflightFinding]:
+    findings: list[RuntimePreflightFinding] = []
+    role_upper = str(expected_role or "").strip().upper()
+    prefix = f"{role_upper.lower() or 'unknown'}-router-handoff"
+
+    if state.schema != _ROUTER_HANDOFF_SCHEMA:
+        findings.append(_finding("error", f"{prefix}-schema", f"{prefix.replace('-', ' ')} schema must be {_ROUTER_HANDOFF_SCHEMA}"))
+    if state.version != 1:
+        findings.append(_finding("error", f"{prefix}-version", f"{prefix.replace('-', ' ')} version must be 1"))
+    if state.role != role_upper:
+        findings.append(_finding("error", f"{prefix}-role", f"{prefix.replace('-', ' ')} role must be {role_upper}, got {state.role or 'missing'}"))
+    if state.runtime_profile != _runtime_profile(contract):
+        findings.append(_finding("error", f"{prefix}-runtime-profile", f"{prefix.replace('-', ' ')} runtimeProfile diverges from runtime-contract"))
+    if contract_path is not None and state.runtime_contract_path != str(Path(contract_path)):
+        findings.append(_finding("warning", f"{prefix}-contract-path", f"{prefix.replace('-', ' ')} runtimeContractPath diverges from preflight input"))
+    if state.secret_material:
+        findings.append(_finding("error", f"{prefix}-secret-material", f"{prefix.replace('-', ' ')} must not embed router secret material"))
+
+    expected_placement = "personal-router-before-entry" if role_upper == "ENTRY" else "personal-router-before-transit"
+    if state.placement != expected_placement:
+        findings.append(_finding("error", f"{prefix}-placement", f"{prefix.replace('-', ' ')} placement must be {expected_placement}"))
+    if state.enabled != bool(state.tcp_count or state.udp_count):
+        findings.append(_finding("error", f"{prefix}-enabled", f"{prefix.replace('-', ' ')} enabled flag diverges from route counts"))
+    if state.total_count != state.tcp_count + state.udp_count:
+        findings.append(_finding("error", f"{prefix}-count-total", f"{prefix.replace('-', ' ')} total count diverges from route counts"))
+    if state.tcp_count != len(state.tcp_routes):
+        findings.append(_finding("error", f"{prefix}-count-tcp", f"{prefix.replace('-', ' ')} tcp count diverges from routes"))
+    if state.udp_count != len(state.udp_routes):
+        findings.append(_finding("error", f"{prefix}-count-udp", f"{prefix.replace('-', ' ')} udp count diverges from routes"))
+
+    actual_tcp_classes = tuple(_row_string(row, "class") for row in state.tcp_routes if _row_string(row, "class"))
+    actual_udp_classes = tuple(_row_string(row, "class") for row in state.udp_routes if _row_string(row, "class"))
+    if state.tcp_classes != actual_tcp_classes:
+        findings.append(_finding("error", f"{prefix}-tcp-classes", f"{prefix.replace('-', ' ')} tcp classes diverge from routes"))
+    if state.udp_classes != actual_udp_classes:
+        findings.append(_finding("error", f"{prefix}-udp-classes", f"{prefix.replace('-', ' ')} udp classes diverge from routes"))
+
+    expected_tcp_classes = _router_expected_classes(contract=contract, role_upper=role_upper, transport="tcp", link_crypto_state=link_crypto_state)
+    expected_udp_classes = _router_expected_classes(contract=contract, role_upper=role_upper, transport="udp", link_crypto_state=link_crypto_state)
+    if actual_tcp_classes != expected_tcp_classes:
+        findings.append(_finding("error", f"{prefix}-tcp-contract-classes", f"{prefix.replace('-', ' ')} tcp classes diverge from link-crypto router classes"))
+    if actual_udp_classes != expected_udp_classes:
+        findings.append(_finding("error", f"{prefix}-udp-contract-classes", f"{prefix.replace('-', ' ')} udp classes diverge from link-crypto router classes"))
+
+    handoff_contract = state.contract
+    if bool(handoff_contract.get("routerIsEntryReplacement", True)):
+        findings.append(_finding("error", f"{prefix}-entry-replacement", f"{prefix.replace('-', ' ')} router must not be marked as an Entry replacement"))
+    if state.enabled and not bool(handoff_contract.get("requiresServerSideLinkCrypto", False)):
+        findings.append(_finding("error", f"{prefix}-server-link-crypto", f"{prefix.replace('-', ' ')} enabled router handoff must require server-side link-crypto"))
+    if state.enabled and not bool(handoff_contract.get("requiresPrivateRouterProfile", False)):
+        findings.append(_finding("error", f"{prefix}-private-router-profile", f"{prefix.replace('-', ' ')} enabled router handoff must require a private router profile"))
+    if not bool(handoff_contract.get("noHostWideInterception", False)):
+        findings.append(_finding("error", f"{prefix}-host-wide", f"{prefix.replace('-', ' ')} must forbid host-wide interception"))
+    if not bool(handoff_contract.get("noNfqueue", False)):
+        findings.append(_finding("error", f"{prefix}-nfqueue", f"{prefix.replace('-', ' ')} must forbid broad NFQUEUE"))
+
+    for index, row in enumerate(state.tcp_routes):
+        findings.extend(_validate_router_route(row=row, role_upper=role_upper, index=index, prefix=prefix, transport="tcp"))
+    for index, row in enumerate(state.udp_routes):
+        findings.extend(_validate_router_route(row=row, role_upper=role_upper, index=index, prefix=prefix, transport="udp"))
+
+    return findings
+
+
+def validate_router_handoff_env(
+    *,
+    env: RouterHandoffEnv,
+    expected_role: str,
+    contract: dict[str, Any] | None = None,
+    state: RouterHandoffState | None = None,
+) -> list[RuntimePreflightFinding]:
+    findings: list[RuntimePreflightFinding] = []
+    role_upper = str(expected_role or "").strip().upper()
+    prefix = f"{role_upper.lower() or 'unknown'}-router-handoff-env"
+
+    if env.role != role_upper:
+        findings.append(_finding("error", f"{prefix}-role", f"{prefix.replace('-', ' ')} role must be {role_upper}, got {env.role or 'missing'}"))
+    if env.secret_material:
+        findings.append(_finding("error", f"{prefix}-secret-material", f"{prefix.replace('-', ' ')} must not embed secrets"))
+    if env.router_is_entry_replacement:
+        findings.append(_finding("error", f"{prefix}-entry-replacement", f"{prefix.replace('-', ' ')} router must not be marked as an Entry replacement"))
+    if not env.no_host_wide_interception:
+        findings.append(_finding("error", f"{prefix}-host-wide", f"{prefix.replace('-', ' ')} must forbid host-wide interception"))
+    if not env.no_nfqueue:
+        findings.append(_finding("error", f"{prefix}-nfqueue", f"{prefix.replace('-', ' ')} must forbid broad NFQUEUE"))
+    if env.enabled and not env.requires_private_profile:
+        findings.append(_finding("error", f"{prefix}-private-profile", f"{prefix.replace('-', ' ')} enabled router handoff must require a private profile"))
+    if env.total_count != env.tcp_count + env.udp_count:
+        findings.append(_finding("error", f"{prefix}-count-total", f"{prefix.replace('-', ' ')} total count diverges from tcp/udp counts"))
+
+    if contract is not None and env.runtime_profile != _runtime_profile(contract):
+        findings.append(_finding("error", f"{prefix}-contract-runtime-profile", f"{prefix.replace('-', ' ')} runtimeProfile diverges from runtime-contract"))
+    if state is not None:
+        if env.state_json != str(state.path):
+            findings.append(_finding("warning", f"{prefix}-state-json", f"{prefix.replace('-', ' ')} points at a different desired-state.json"))
+        if env.runtime_profile != state.runtime_profile:
+            findings.append(_finding("error", f"{prefix}-runtime-profile", f"{prefix.replace('-', ' ')} runtimeProfile diverges from desired-state.json"))
+        if env.enabled != state.enabled:
+            findings.append(_finding("error", f"{prefix}-enabled", f"{prefix.replace('-', ' ')} enabled flag diverges from desired-state.json"))
+        if env.total_count != state.total_count or env.tcp_count != state.tcp_count or env.udp_count != state.udp_count:
+            findings.append(_finding("error", f"{prefix}-counts", f"{prefix.replace('-', ' ')} counts diverge from desired-state.json"))
+        if env.tcp_classes != state.tcp_classes:
+            findings.append(_finding("error", f"{prefix}-tcp-classes", f"{prefix.replace('-', ' ')} tcp classes diverge from desired-state.json"))
+        if env.udp_classes != state.udp_classes:
+            findings.append(_finding("error", f"{prefix}-udp-classes", f"{prefix.replace('-', ' ')} udp classes diverge from desired-state.json"))
+        paired_enabled = any(bool(_row_dict(row, "pairedObfs").get("enabled", False)) for row in state.udp_routes)
+        if env.paired_obfs_enabled != paired_enabled:
+            findings.append(_finding("error", f"{prefix}-paired-obfs", f"{prefix.replace('-', ' ')} paired-obfs flag diverges from desired-state.json"))
+    elif env.total_count != len(env.tcp_classes) + len(env.udp_classes):
+        findings.append(_finding("error", f"{prefix}-count-classes", f"{prefix.replace('-', ' ')} count diverges from class lists"))
+
+    return findings
+
+
+def _router_component_map(bundle: RouterClientBundle) -> dict[str, dict[str, Any]]:
+    return {_row_string(row, "name"): row for row in bundle.components if _row_string(row, "name")}
+
+
+def _validate_router_client_component(
+    *,
+    component: dict[str, Any],
+    name: str,
+    required: bool,
+    transport: str,
+    prefix: str,
+    paired_obfs: bool = False,
+) -> list[RuntimePreflightFinding]:
+    findings: list[RuntimePreflightFinding] = []
+    label = f"{prefix.replace('-', ' ')} component {name}"
+    if not component:
+        findings.append(_finding("error", f"{prefix}-component-{name}", f"{label} is missing"))
+        return findings
+    if bool(component.get("required", False)) != required:
+        findings.append(_finding("error", f"{prefix}-component-{name}-required", f"{label} required flag diverges from routes"))
+    transports = set(_string_list(component.get("transports")))
+    if transport and transport not in transports:
+        findings.append(_finding("error", f"{prefix}-component-{name}-transport", f"{label} must declare {transport} transport"))
+    if name == "hysteria2-client" and _row_string(component, "obfs") != "salamander":
+        findings.append(_finding("error", f"{prefix}-component-{name}-salamander", f"{label} must require Salamander"))
+    if name == "paired-udp-obfs":
+        if bool(component.get("required", False)) != paired_obfs:
+            findings.append(_finding("error", f"{prefix}-component-{name}-paired", f"{label} required flag must follow UDP paired-obfs routes"))
+        if _row_string(component, "backend") != "udp2raw":
+            findings.append(_finding("error", f"{prefix}-component-{name}-backend", f"{label} backend must stay udp2raw"))
+        if not bool(component.get("requiresBothSides", False)):
+            findings.append(_finding("error", f"{prefix}-component-{name}-both-sides", f"{label} must require both sides"))
+    if not bool(component.get("failClosed", False)):
+        findings.append(_finding("error", f"{prefix}-component-{name}-fail-closed", f"{label} must fail closed"))
+    if not bool(component.get("noHostWideInterception", False)):
+        findings.append(_finding("error", f"{prefix}-component-{name}-host-wide", f"{label} must forbid host-wide interception"))
+    if not bool(component.get("noNfqueue", False)):
+        findings.append(_finding("error", f"{prefix}-component-{name}-nfqueue", f"{label} must forbid broad NFQUEUE"))
+    return findings
+
+
+def _handoff_route_by_class(state: RouterHandoffState | None, *, transport: str) -> dict[str, dict[str, Any]]:
+    if state is None:
+        return {}
+    routes = state.udp_routes if transport == "udp-quic" else state.tcp_routes
+    return {_row_string(row, "class"): row for row in routes if _row_string(row, "class")}
+
+
+def _validate_router_client_route(
+    *,
+    row: dict[str, Any],
+    role_upper: str,
+    index: int,
+    prefix: str,
+    transport: str,
+    handoff_routes: dict[str, dict[str, Any]],
+) -> list[RuntimePreflightFinding]:
+    findings: list[RuntimePreflightFinding] = []
+    link_class = _row_string(row, "class")
+    code_prefix = f"{prefix}-{link_class or f'{transport}-route-{index}'}"
+    label = f"{role_upper.lower()} router client bundle {link_class or index}"
+    allowed = {
+        "ENTRY": {"router-entry", "router-entry-udp"},
+        "TRANSIT": {"router-transit", "router-transit-udp"},
+    }.get(role_upper, set())
+
+    if link_class not in allowed:
+        findings.append(_finding("error", f"{code_prefix}-class", f"{label} is not valid for {role_upper}"))
+    if not bool(row.get("enabled", False)):
+        findings.append(_finding("error", f"{code_prefix}-enabled", f"{label} route must be enabled"))
+    if _row_string(row, "serverRole") != role_upper:
+        findings.append(_finding("error", f"{code_prefix}-server-role", f"{label} serverRole must be {role_upper}"))
+    if _row_string(row, "routerRole") != "ROUTER":
+        findings.append(_finding("error", f"{code_prefix}-router-role", f"{label} routerRole must be ROUTER"))
+
+    findings.extend(
+        _validate_endpoint(
+            raw_value=_row_string(row, "serverEndpoint"),
+            code_prefix=f"{code_prefix}-server-endpoint",
+            label=f"{label} serverEndpoint",
+            require_loopback=False,
+        )
+    )
+    try:
+        endpoint_host, _endpoint_port = _parse_endpoint(_row_string(row, "serverEndpoint"))
+    except ValueError:
+        endpoint_host = ""
+    if endpoint_host and _is_loopback_host(endpoint_host):
+        findings.append(_finding("error", f"{code_prefix}-server-endpoint-loopback", f"{label} serverEndpoint must not be loopback"))
+
+    router_side = _row_dict(row, "routerSide")
+    if _row_string(router_side, "mode") != "client":
+        findings.append(_finding("error", f"{code_prefix}-router-mode", f"{label} routerSide mode must be client"))
+    if not bool(router_side.get("requiresPrivateProfile", False)):
+        findings.append(_finding("error", f"{code_prefix}-router-private-profile", f"{label} routerSide must require a private profile"))
+    if not bool(router_side.get("failClosed", False)):
+        findings.append(_finding("error", f"{code_prefix}-router-fail-closed", f"{label} routerSide must fail closed"))
+    if bool(router_side.get("hostWideInterception", True)):
+        findings.append(_finding("error", f"{code_prefix}-router-host-wide", f"{label} routerSide must not request host-wide interception"))
+    if bool(router_side.get("nfqueue", True)):
+        findings.append(_finding("error", f"{code_prefix}-router-nfqueue", f"{label} routerSide must not request broad NFQUEUE"))
+
+    profile_refs = _row_dict(router_side, "profileRefs")
+    if transport == "tcp":
+        findings.extend(
+            _validate_router_client_profile_ref(
+                refs=profile_refs,
+                key="mieruClient",
+                code_prefix=code_prefix,
+                label=label,
+            )
+        )
+    else:
+        for key in ("hysteriaClient", "salamander"):
+            findings.extend(
+                _validate_router_client_profile_ref(
+                    refs=profile_refs,
+                    key=key,
+                    code_prefix=code_prefix,
+                    label=label,
+                )
+            )
+        if bool(_row_dict(row, "pairedObfs").get("enabled", False)):
+            findings.extend(
+                _validate_router_client_profile_ref(
+                    refs=profile_refs,
+                    key="pairedObfs",
+                    code_prefix=code_prefix,
+                    label=label,
+                )
+            )
+
+    server_side = _row_dict(row, "serverSide")
+    if _row_string(server_side, "mode") != "server":
+        findings.append(_finding("error", f"{code_prefix}-server-mode", f"{label} serverSide mode must be server"))
+    findings.extend(
+        _validate_endpoint(
+            raw_value=_row_string(server_side, "listen"),
+            code_prefix=f"{code_prefix}-server-listen",
+            label=f"{label} serverSide listen",
+            require_loopback=True,
+            loopback_severity="error",
+        )
+    )
+    auth = _row_dict(server_side, "auth")
+    if not bool(auth.get("required", False)) or _row_string(auth, "mode") != "private-profile":
+        findings.append(_finding("error", f"{code_prefix}-server-auth", f"{label} serverSide auth must be required private-profile"))
+
+    selected_profile_set = {value.upper() for value in _string_list(row.get("selectedProfiles"))}
+    required_profiles = _LINK_CRYPTO_UDP_REQUIRED_PROFILES.get(link_class) if transport == "udp-quic" else _LINK_CRYPTO_REQUIRED_PROFILES.get(link_class)
+    if required_profiles and selected_profile_set != required_profiles:
+        findings.append(_finding("error", f"{code_prefix}-selected-profiles", f"{label} selectedProfiles diverge from required router class profile set"))
+
+    if transport == "tcp":
+        if _row_string(row, "transport") != "tcp":
+            findings.append(_finding("error", f"{code_prefix}-transport", f"{label} transport must be tcp"))
+        if _row_string(row, "carrier") != "mieru":
+            findings.append(_finding("error", f"{code_prefix}-carrier", f"{label} carrier must be mieru"))
+    else:
+        if _row_string(row, "transport") != "udp-quic":
+            findings.append(_finding("error", f"{code_prefix}-transport", f"{label} transport must be udp-quic"))
+        if _row_string(row, "carrier") != "hysteria2":
+            findings.append(_finding("error", f"{code_prefix}-carrier", f"{label} carrier must be hysteria2"))
+        obfs = _row_dict(row, "obfs")
+        if _row_string(obfs, "type") != "salamander" or not bool(obfs.get("required", False)):
+            findings.append(_finding("error", f"{code_prefix}-salamander", f"{label} must require Salamander"))
+        paired_obfs = _row_dict(row, "pairedObfs")
+        if bool(paired_obfs.get("enabled", False)):
+            if _row_string(paired_obfs, "backend") != "udp2raw":
+                findings.append(_finding("error", f"{code_prefix}-paired-obfs-backend", f"{label} pairedObfs backend must stay udp2raw"))
+            if not bool(paired_obfs.get("requiresBothSides", False)):
+                findings.append(_finding("error", f"{code_prefix}-paired-obfs-both-sides", f"{label} pairedObfs must require both sides"))
+            if not bool(paired_obfs.get("failClosed", False)):
+                findings.append(_finding("error", f"{code_prefix}-paired-obfs-fail-closed", f"{label} pairedObfs must fail closed"))
+            if not bool(paired_obfs.get("noHostWideInterception", False)):
+                findings.append(_finding("error", f"{code_prefix}-paired-obfs-host-wide", f"{label} pairedObfs must not use host-wide interception"))
+            if not bool(paired_obfs.get("noNfqueue", False)):
+                findings.append(_finding("error", f"{code_prefix}-paired-obfs-nfqueue", f"{label} pairedObfs must not use broad NFQUEUE"))
+        findings.extend(
+            _validate_link_crypto_udp_hardening(
+                hardening=_row_dict(row, "hardening"),
+                code_prefix=code_prefix,
+                label=label,
+            )
+        )
+        findings.extend(
+            _validate_link_crypto_udp_dpi_resistance(
+                dpi=_row_dict(row, "dpiResistance"),
+                code_prefix=code_prefix,
+                label=label,
+            )
+        )
+
+    handoff_route = handoff_routes.get(link_class)
+    if handoff_route:
+        if _row_string(row, "serverEndpoint") != _row_string(handoff_route, "publicEndpoint"):
+            findings.append(_finding("error", f"{code_prefix}-handoff-endpoint", f"{label} serverEndpoint diverges from router handoff"))
+        if _row_string(server_side, "listen") != _row_string(handoff_route, "serverListen"):
+            findings.append(_finding("error", f"{code_prefix}-handoff-listen", f"{label} serverSide listen diverges from router handoff"))
+        if _string_list(row.get("selectedProfiles")) != _string_list(handoff_route.get("selectedProfiles")):
+            findings.append(_finding("error", f"{code_prefix}-handoff-profiles", f"{label} selectedProfiles diverge from router handoff"))
+        if profile_refs != _row_dict(_row_dict(handoff_route, "routerClient"), "profileRefs"):
+            findings.append(_finding("error", f"{code_prefix}-handoff-profile-refs", f"{label} profileRefs diverge from router handoff"))
+    elif handoff_routes:
+        findings.append(_finding("error", f"{code_prefix}-handoff-route", f"{label} has no matching router handoff route"))
+
+    return findings
+
+
+def validate_router_client_bundle(
+    *,
+    bundle: RouterClientBundle,
+    expected_role: str,
+    contract: dict[str, Any] | None = None,
+    handoff_state: RouterHandoffState | None = None,
+) -> list[RuntimePreflightFinding]:
+    findings: list[RuntimePreflightFinding] = []
+    role_upper = str(expected_role or "").strip().upper()
+    prefix = f"{role_upper.lower() or 'unknown'}-router-client-bundle"
+
+    if bundle.schema != _ROUTER_CLIENT_BUNDLE_SCHEMA:
+        findings.append(_finding("error", f"{prefix}-schema", f"{prefix.replace('-', ' ')} schema must be {_ROUTER_CLIENT_BUNDLE_SCHEMA}"))
+    if bundle.version != 1:
+        findings.append(_finding("error", f"{prefix}-version", f"{prefix.replace('-', ' ')} version must be 1"))
+    if bundle.role != role_upper:
+        findings.append(_finding("error", f"{prefix}-role", f"{prefix.replace('-', ' ')} role must be {role_upper}, got {bundle.role or 'missing'}"))
+    if contract is not None and bundle.runtime_profile != _runtime_profile(contract):
+        findings.append(_finding("error", f"{prefix}-runtime-profile", f"{prefix.replace('-', ' ')} runtimeProfile diverges from runtime-contract"))
+    if bundle.secret_material:
+        findings.append(_finding("error", f"{prefix}-secret-material", f"{prefix.replace('-', ' ')} must not embed router secret material"))
+
+    expected_placement = "personal-router-before-entry" if role_upper == "ENTRY" else "personal-router-before-transit"
+    if bundle.placement != expected_placement:
+        findings.append(_finding("error", f"{prefix}-placement", f"{prefix.replace('-', ' ')} placement must be {expected_placement}"))
+    if bundle.enabled != bool(bundle.tcp_count or bundle.udp_count):
+        findings.append(_finding("error", f"{prefix}-enabled", f"{prefix.replace('-', ' ')} enabled flag diverges from route counts"))
+    if bundle.total_count != bundle.tcp_count + bundle.udp_count:
+        findings.append(_finding("error", f"{prefix}-count-total", f"{prefix.replace('-', ' ')} total count diverges from route counts"))
+    if bundle.tcp_count != len(bundle.tcp_routes):
+        findings.append(_finding("error", f"{prefix}-count-tcp", f"{prefix.replace('-', ' ')} tcp count diverges from routes"))
+    if bundle.udp_count != len(bundle.udp_routes):
+        findings.append(_finding("error", f"{prefix}-count-udp", f"{prefix.replace('-', ' ')} udp count diverges from routes"))
+
+    actual_tcp_classes = tuple(_row_string(row, "class") for row in bundle.tcp_routes if _row_string(row, "class"))
+    actual_udp_classes = tuple(_row_string(row, "class") for row in bundle.udp_routes if _row_string(row, "class"))
+    if bundle.tcp_classes != actual_tcp_classes:
+        findings.append(_finding("error", f"{prefix}-tcp-classes", f"{prefix.replace('-', ' ')} tcp classes diverge from routes"))
+    if bundle.udp_classes != actual_udp_classes:
+        findings.append(_finding("error", f"{prefix}-udp-classes", f"{prefix.replace('-', ' ')} udp classes diverge from routes"))
+
+    requirements = bundle.requirements
+    if bool(requirements.get("routerIsEntryReplacement", True)):
+        findings.append(_finding("error", f"{prefix}-entry-replacement", f"{prefix.replace('-', ' ')} router must not be marked as an Entry replacement"))
+    routes_present = bool(bundle.tcp_routes or bundle.udp_routes)
+    if routes_present and not bool(requirements.get("requiresPrivateProfile", False)):
+        findings.append(_finding("error", f"{prefix}-private-profile", f"{prefix.replace('-', ' ')} router routes must require private profiles"))
+    if routes_present and not bool(requirements.get("requiresServerSideLinkCrypto", False)):
+        findings.append(_finding("error", f"{prefix}-server-link-crypto", f"{prefix.replace('-', ' ')} router routes must require server-side link-crypto"))
+    if bool(requirements.get("requiresBothSides", False)) != routes_present:
+        findings.append(_finding("error", f"{prefix}-both-sides", f"{prefix.replace('-', ' ')} requiresBothSides flag diverges from routes"))
+    if not bool(requirements.get("failClosed", False)):
+        findings.append(_finding("error", f"{prefix}-fail-closed", f"{prefix.replace('-', ' ')} router bundle must fail closed"))
+    if not bool(requirements.get("noHostWideInterception", False)):
+        findings.append(_finding("error", f"{prefix}-host-wide", f"{prefix.replace('-', ' ')} router bundle must forbid host-wide interception"))
+    if not bool(requirements.get("noNfqueue", False)):
+        findings.append(_finding("error", f"{prefix}-nfqueue", f"{prefix.replace('-', ' ')} router bundle must forbid broad NFQUEUE"))
+    if _row_string(requirements, "profileDistribution") != "external-private-files":
+        findings.append(_finding("error", f"{prefix}-profile-distribution", f"{prefix.replace('-', ' ')} profileDistribution must be external-private-files"))
+
+    paired_obfs_enabled = any(bool(_row_dict(row, "pairedObfs").get("enabled", False)) for row in bundle.udp_routes)
+    components = _router_component_map(bundle)
+    findings.extend(
+        _validate_router_client_component(
+            component=components.get("mieru-client", {}),
+            name="mieru-client",
+            required=bool(bundle.tcp_routes),
+            transport="tcp",
+            prefix=prefix,
+        )
+    )
+    findings.extend(
+        _validate_router_client_component(
+            component=components.get("hysteria2-client", {}),
+            name="hysteria2-client",
+            required=bool(bundle.udp_routes),
+            transport="udp-quic",
+            prefix=prefix,
+        )
+    )
+    findings.extend(
+        _validate_router_client_component(
+            component=components.get("paired-udp-obfs", {}),
+            name="paired-udp-obfs",
+            required=paired_obfs_enabled,
+            transport="",
+            prefix=prefix,
+            paired_obfs=paired_obfs_enabled,
+        )
+    )
+
+    tcp_handoff_routes = _handoff_route_by_class(handoff_state, transport="tcp")
+    udp_handoff_routes = _handoff_route_by_class(handoff_state, transport="udp-quic")
+    for index, row in enumerate(bundle.tcp_routes):
+        findings.extend(
+            _validate_router_client_route(
+                row=row,
+                role_upper=role_upper,
+                index=index,
+                prefix=prefix,
+                transport="tcp",
+                handoff_routes=tcp_handoff_routes,
+            )
+        )
+    for index, row in enumerate(bundle.udp_routes):
+        findings.extend(
+            _validate_router_client_route(
+                row=row,
+                role_upper=role_upper,
+                index=index,
+                prefix=prefix,
+                transport="udp-quic",
+                handoff_routes=udp_handoff_routes,
+            )
+        )
+
+    if handoff_state is not None:
+        if bundle.handoff_state_json != str(handoff_state.path):
+            findings.append(_finding("warning", f"{prefix}-handoff-json", f"{prefix.replace('-', ' ')} points at a different desired-state.json"))
+        if bundle.runtime_profile != handoff_state.runtime_profile:
+            findings.append(_finding("error", f"{prefix}-handoff-runtime-profile", f"{prefix.replace('-', ' ')} runtimeProfile diverges from router handoff"))
+        if bundle.enabled != handoff_state.enabled:
+            findings.append(_finding("error", f"{prefix}-handoff-enabled", f"{prefix.replace('-', ' ')} enabled flag diverges from router handoff"))
+        if bundle.total_count != handoff_state.total_count or bundle.tcp_count != handoff_state.tcp_count or bundle.udp_count != handoff_state.udp_count:
+            findings.append(_finding("error", f"{prefix}-handoff-counts", f"{prefix.replace('-', ' ')} counts diverge from router handoff"))
+        if bundle.tcp_classes != handoff_state.tcp_classes:
+            findings.append(_finding("error", f"{prefix}-handoff-tcp-classes", f"{prefix.replace('-', ' ')} tcp classes diverge from router handoff"))
+        if bundle.udp_classes != handoff_state.udp_classes:
+            findings.append(_finding("error", f"{prefix}-handoff-udp-classes", f"{prefix.replace('-', ' ')} udp classes diverge from router handoff"))
+
+    return findings
+
+
+def validate_router_client_bundle_env(
+    *,
+    env: RouterClientBundleEnv,
+    expected_role: str,
+    contract: dict[str, Any] | None = None,
+    bundle: RouterClientBundle | None = None,
+    handoff_state: RouterHandoffState | None = None,
+) -> list[RuntimePreflightFinding]:
+    findings: list[RuntimePreflightFinding] = []
+    role_upper = str(expected_role or "").strip().upper()
+    prefix = f"{role_upper.lower() or 'unknown'}-router-client-bundle-env"
+
+    if env.role != role_upper:
+        findings.append(_finding("error", f"{prefix}-role", f"{prefix.replace('-', ' ')} role must be {role_upper}, got {env.role or 'missing'}"))
+    if env.secret_material:
+        findings.append(_finding("error", f"{prefix}-secret-material", f"{prefix.replace('-', ' ')} must not embed secrets"))
+    if not env.fail_closed:
+        findings.append(_finding("error", f"{prefix}-fail-closed", f"{prefix.replace('-', ' ')} must fail closed"))
+    if not env.no_host_wide_interception:
+        findings.append(_finding("error", f"{prefix}-host-wide", f"{prefix.replace('-', ' ')} must forbid host-wide interception"))
+    if not env.no_nfqueue:
+        findings.append(_finding("error", f"{prefix}-nfqueue", f"{prefix.replace('-', ' ')} must forbid broad NFQUEUE"))
+    if env.tcp_count < 0 or env.udp_count < 0:
+        findings.append(_finding("error", f"{prefix}-counts", f"{prefix.replace('-', ' ')} route counts must be non-negative"))
+    if env.enabled != bool(env.tcp_count or env.udp_count):
+        findings.append(_finding("error", f"{prefix}-enabled", f"{prefix.replace('-', ' ')} enabled flag diverges from route counts"))
+    if env.requires_both_sides != bool(env.tcp_count or env.udp_count):
+        findings.append(_finding("error", f"{prefix}-both-sides", f"{prefix.replace('-', ' ')} requiresBothSides flag diverges from route counts"))
+    if contract is not None and env.runtime_profile != _runtime_profile(contract):
+        findings.append(_finding("error", f"{prefix}-contract-runtime-profile", f"{prefix.replace('-', ' ')} runtimeProfile diverges from runtime-contract"))
+
+    if bundle is not None:
+        required_components = tuple(
+            sorted(
+                _row_string(row, "name") for row in bundle.components if bool(row.get("required", False)) and _row_string(row, "name")
+            )
+        )
+        if env.bundle_json != str(bundle.path):
+            findings.append(_finding("warning", f"{prefix}-bundle-json", f"{prefix.replace('-', ' ')} points at a different client-bundle.json"))
+        if env.handoff_json != bundle.handoff_state_json:
+            findings.append(_finding("warning", f"{prefix}-handoff-json", f"{prefix.replace('-', ' ')} handoff path diverges from client-bundle.json"))
+        if env.runtime_profile != bundle.runtime_profile:
+            findings.append(_finding("error", f"{prefix}-runtime-profile", f"{prefix.replace('-', ' ')} runtimeProfile diverges from client-bundle.json"))
+        if env.enabled != bundle.enabled:
+            findings.append(_finding("error", f"{prefix}-bundle-enabled", f"{prefix.replace('-', ' ')} enabled flag diverges from client-bundle.json"))
+        if env.tcp_count != bundle.tcp_count or env.udp_count != bundle.udp_count:
+            findings.append(_finding("error", f"{prefix}-bundle-counts", f"{prefix.replace('-', ' ')} counts diverge from client-bundle.json"))
+        if env.components != required_components:
+            findings.append(_finding("error", f"{prefix}-components", f"{prefix.replace('-', ' ')} components diverge from required client-bundle components"))
+        if env.requires_both_sides != bool(bundle.requirements.get("requiresBothSides", False)):
+            findings.append(_finding("error", f"{prefix}-bundle-both-sides", f"{prefix.replace('-', ' ')} requiresBothSides diverges from client-bundle.json"))
+
+    if handoff_state is not None and env.handoff_json != str(handoff_state.path):
+        findings.append(_finding("warning", f"{prefix}-state-json", f"{prefix.replace('-', ' ')} points at a different router handoff state"))
 
     return findings
 
@@ -4052,7 +6067,7 @@ def validate_fronting_runtime_state(
     if state.protocol != "tcp":
         findings.append(_finding("error", "fronting-protocol", f"fronting runtime-state must keep TCP-only demux, got {state.protocol or 'missing'}"))
     if state.touch_udp_443:
-        findings.append(_finding("error", "fronting-touch-udp-443", "fronting runtime-state must not claim udp/443"))
+        findings.append(_finding("error", "fronting-touch-udp-443", "fronting runtime-state must not claim public udp/8443"))
 
     fronting = _fronting_block(transit_contract)
     if state.mtproto_domain != str(fronting.get("mtprotoDomain") or "").strip():
@@ -4105,7 +6120,7 @@ def validate_fronting_env_contract(
     if env.protocol != "tcp":
         findings.append(_finding("error", "fronting-env-protocol", f"fronting env must keep tcp demux, got {env.protocol or 'missing'}"))
     if env.touch_udp_443:
-        findings.append(_finding("error", "fronting-env-touch-udp-443", "fronting env must not claim udp/443"))
+        findings.append(_finding("error", "fronting-env-touch-udp-443", "fronting env must not claim public udp/8443"))
     if not env.backend:
         findings.append(_finding("warning", "fronting-env-backend", "fronting env does not advertise a backend"))
     elif env.backend != "private":
@@ -4481,6 +6496,66 @@ def validate_private_helper_unit_contract(
     return findings
 
 
+def _validate_forbidden_public_ports(contract: dict[str, Any], *, role_prefix: str) -> list[RuntimePreflightFinding]:
+    findings: list[RuntimePreflightFinding] = []
+    contract_block = contract.get("contract")
+    contract_block = contract_block if isinstance(contract_block, dict) else {}
+    fronting = _fronting_block(contract)
+    rows = _dict_list(contract_block.get("forbiddenPorts"))
+    actual = {
+        (_row_string(row, "protocol").lower(), _row_int(row, "port")): _row_string(row, "name")
+        for row in rows
+    }
+    required = {
+        ("udp", TRACEGATE_FORBIDDEN_PUBLIC_UDP_PORT): "blocked udp/443",
+        ("tcp", TRACEGATE_FORBIDDEN_PUBLIC_TCP_PORT): "blocked tcp/8443",
+    }
+    for (protocol, port), expected_name in required.items():
+        actual_name = actual.get((protocol, port))
+        if actual_name != expected_name:
+            findings.append(
+                _finding(
+                    "error",
+                    f"{role_prefix}-forbidden-{protocol}-{port}",
+                    f"{role_prefix} runtime-contract must declare {expected_name} as a forbidden public surface",
+                )
+            )
+
+    forbidden_public_ports = _dict_list(fronting.get("forbiddenPublicPorts"))
+    fronting_actual = {
+        (_row_string(row, "protocol").lower(), _row_int(row, "port")): _row_string(row, "action").lower()
+        for row in forbidden_public_ports
+    }
+    for protocol, port in required:
+        if fronting_actual.get((protocol, port)) != "drop":
+            findings.append(
+                _finding(
+                    "error",
+                    f"{role_prefix}-fronting-forbidden-{protocol}-{port}",
+                    f"{role_prefix} fronting contract must mark {protocol}/{port} as drop-only",
+                )
+            )
+
+    if not bool(fronting.get("forbiddenUdp443", False)):
+        findings.append(
+            _finding(
+                "error",
+                f"{role_prefix}-fronting-forbidden-udp-443-flag",
+                f"{role_prefix} fronting contract must keep forbiddenUdp443=true",
+            )
+        )
+    if not bool(fronting.get("forbiddenTcp8443", False)):
+        findings.append(
+            _finding(
+                "error",
+                f"{role_prefix}-fronting-forbidden-tcp-8443-flag",
+                f"{role_prefix} fronting contract must keep forbiddenTcp8443=true",
+            )
+        )
+
+    return findings
+
+
 def validate_runtime_contract_single(
     contract: dict[str, Any],
     *,
@@ -4507,6 +6582,7 @@ def validate_runtime_contract_single(
     findings.extend(_validate_tracegate21_transport_profiles(contract, role_prefix=role_prefix))
     findings.extend(_validate_tracegate21_network(contract, role_prefix=role_prefix))
     findings.extend(_validate_xray_api_surface(contract, role_prefix=role_prefix))
+    findings.extend(_validate_forbidden_public_ports(contract, role_prefix=role_prefix))
 
     components = _managed_components(contract)
     if "xray" not in components:
@@ -4529,7 +6605,7 @@ def validate_runtime_contract_single(
             _finding(
                 "error",
                 f"{role_prefix}-fronting-touch-udp-443",
-                f"{role_prefix} private fronting must not claim udp/443; keep udp/443 on the runtime owner",
+                f"{role_prefix} private fronting must not claim public udp/8443; keep udp/8443 on the runtime owner",
             )
         )
 
@@ -4570,6 +6646,34 @@ def validate_runtime_contract_single(
                 )
             )
 
+    if profile == "tracegate-2.2":
+        findings.extend(_validate_hysteria_runtime(contract, role_prefix=role_prefix))
+        if "hysteria" not in components:
+            findings.append(
+                _finding(
+                    "error",
+                    f"{role_prefix}-tracegate22-hysteria-component",
+                    "tracegate-2.2 contracts must declare hysteria as the public UDP runtime component",
+                )
+            )
+        if _xray_backhaul_allowed(contract):
+            findings.append(
+                _finding(
+                    "error",
+                    f"{role_prefix}-tracegate22-xray-backhaul",
+                    "tracegate-2.2 contracts must keep xrayBackhaulAllowed=false",
+                )
+            )
+        xray_tags = _string_list(_xray_block(contract).get("hysteriaInboundTags"))
+        if xray_tags:
+            findings.append(
+                _finding(
+                    "error",
+                    f"{role_prefix}-tracegate22-xray-hysteria",
+                    f"{role_prefix} tracegate-2.2 Xray config must not expose Hysteria inbound tags: {', '.join(xray_tags)}",
+                )
+            )
+
     return findings
 
 
@@ -4605,6 +6709,7 @@ def validate_runtime_contract_pair(
 
     for role_name, contract in (("entry", entry_contract), ("transit", transit_contract)):
         findings.extend(_validate_xray_api_surface(contract, role_prefix=role_name))
+        findings.extend(_validate_forbidden_public_ports(contract, role_prefix=role_name))
         components = _managed_components(contract)
         if "xray" not in components:
             findings.append(_finding("error", f"{role_name}-xray", f"{role_name} managedComponents must include xray"))
@@ -4626,7 +6731,7 @@ def validate_runtime_contract_pair(
                 _finding(
                     "error",
                     f"{role_name}-fronting-touch-udp-443",
-                    f"{role_name} private fronting must not claim udp/443; keep udp/443 on the runtime owner",
+                    f"{role_name} private fronting must not claim public udp/8443; keep udp/8443 on the runtime owner",
                 )
             )
 
@@ -4671,6 +6776,35 @@ def validate_runtime_contract_pair(
                         "error",
                         f"{role_name}-hy2-inbound-missing",
                         f"{role_name} is {profile} but has no Xray-native Hysteria inbound tags",
+                    )
+                )
+    if profile == "tracegate-2.2":
+        for role_name, contract in (("entry", entry_contract), ("transit", transit_contract)):
+            findings.extend(_validate_hysteria_runtime(contract, role_prefix=role_name))
+            components = _managed_components(contract)
+            if "hysteria" not in components:
+                findings.append(
+                    _finding(
+                        "error",
+                        f"{role_name}-tracegate22-hysteria-component",
+                        f"{role_name} tracegate-2.2 contract must declare hysteria as the public UDP runtime component",
+                    )
+                )
+            if _xray_backhaul_allowed(contract):
+                findings.append(
+                    _finding(
+                        "error",
+                        f"{role_name}-tracegate22-xray-backhaul",
+                        f"{role_name} tracegate-2.2 contract must keep xrayBackhaulAllowed=false",
+                    )
+                )
+            xray_tags = _string_list(_xray_block(contract).get("hysteriaInboundTags"))
+            if xray_tags:
+                findings.append(
+                    _finding(
+                        "error",
+                        f"{role_name}-tracegate22-xray-hysteria",
+                        f"{role_name} tracegate-2.2 Xray config must not expose Hysteria inbound tags: {', '.join(xray_tags)}",
                     )
                 )
     entry_finalmask = bool(entry_xray.get("finalMaskEnabled"))

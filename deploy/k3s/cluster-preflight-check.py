@@ -115,7 +115,8 @@ def _private_profile_secret_keys(values: dict[str, Any]) -> set[str]:
             continue
         suffix = "Entry" if role_name == "entry" else "Transit"
         required.add(_text(secret_keys.get(f"realityPrivateKey{suffix}")))
-        required.add(_text(secret_keys.get(f"hysteriaAuth{suffix}")))
+        required.add(_text(secret_keys.get(f"hysteriaSalamander{suffix}")))
+        required.add(_text(secret_keys.get(f"hysteriaStats{suffix}")))
 
         link_client_enabled = (
             _enabled(mieru.get("enabled")) and _enabled(entry_transit.get("enabled")) and role_name == "entry"

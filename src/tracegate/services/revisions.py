@@ -11,6 +11,7 @@ from tracegate.enums import ConnectionProtocol, NodeRole, OutboxEventType, Recor
 from tracegate.models import Connection, ConnectionRevision, NodeEndpoint, User
 from tracegate.services.aliases import connection_alias, user_display
 from tracegate.services.config_builder import EndpointSet, build_effective_config
+from tracegate.services.connection_profiles import MAX_ACTIVE_REVISIONS_PER_CONNECTION, RESERVE_REVISION_SLOT
 from tracegate.services.grace import ensure_can_issue_new_config
 from tracegate.services.outbox import create_outbox_event
 from tracegate.services.overrides import validate_overrides
@@ -126,6 +127,9 @@ async def _resolve_endpoints(session: AsyncSession) -> EndpointSet:
             else settings.default_entry_host
         ),
         hysteria_auth_mode=runtime_contract.hysteria_auth_mode,
+        hysteria_udp_port=settings.hysteria_udp_port,
+        hysteria_salamander_password_entry=settings.hysteria_salamander_password_entry,
+        hysteria_salamander_password_transit=settings.hysteria_salamander_password_transit,
         transit_proxy_host=(
             None if _is_placeholder_host(transit.proxy_fqdn) else _normalize_optional_host(transit.proxy_fqdn)
         )
@@ -205,13 +209,14 @@ async def _emit_apply_for_revision(
         "revision_id": str(revision.id),
         "op_ts": event_ts.isoformat(),
         "protocol": connection.protocol.value,
+        "mode": connection.mode.value,
         "variant": connection.variant.value,
         "config": cfg,
     }
     if connection.protocol == ConnectionProtocol.VLESS_REALITY:
         payload["camouflage_sni"] = cfg.get("sni")
 
-    for role in target_roles_for_connection(connection.protocol, connection.variant):
+    for role in target_roles_for_connection(connection.protocol, connection.variant, connection.mode):
         await create_outbox_event(
             session,
             event_type=OutboxEventType.UPSERT_USER,
@@ -225,11 +230,11 @@ async def _emit_apply_for_revision(
 async def _compact_slots(connection: Connection) -> None:
     active = [rev for rev in connection.revisions if rev.status == RecordStatus.ACTIVE]
     active.sort(key=lambda r: (r.slot, r.created_at))
-    for idx, rev in enumerate(active[:3]):
+    for idx, rev in enumerate(active[:MAX_ACTIVE_REVISIONS_PER_CONNECTION]):
         rev.slot = idx
-    for rev in active[3:]:
+    for rev in active[MAX_ACTIVE_REVISIONS_PER_CONNECTION:]:
         rev.status = RecordStatus.REVOKED
-        rev.slot = 2
+        rev.slot = RESERVE_REVISION_SLOT
 
 
 async def create_revision(
@@ -262,9 +267,9 @@ async def create_revision(
     for rev in active_revisions:
         prev_slot = rev.slot - 10
         next_slot = prev_slot + 1
-        if next_slot > 2:
+        if next_slot > RESERVE_REVISION_SLOT:
             rev.status = RecordStatus.REVOKED
-            rev.slot = 2
+            rev.slot = RESERVE_REVISION_SLOT
         else:
             rev.slot = next_slot
     await session.flush()
@@ -319,9 +324,9 @@ async def activate_revision(session: AsyncSession, revision_id: UUID) -> Connect
 
     others.sort(key=lambda r: (r.slot, r.created_at))
     for idx, rev in enumerate(others, start=1):
-        if idx > 2:
+        if idx > RESERVE_REVISION_SLOT:
             rev.status = RecordStatus.REVOKED
-            rev.slot = 2
+            rev.slot = RESERVE_REVISION_SLOT
         else:
             rev.slot = idx
 
@@ -367,7 +372,7 @@ async def revoke_revision(session: AsyncSession, revision_id: UUID) -> Connectio
             "op_ts": op_ts,
         }
         connection.status = RecordStatus.REVOKED
-        for role in target_roles_for_connection(connection.protocol, connection.variant):
+        for role in target_roles_for_connection(connection.protocol, connection.variant, connection.mode):
             await create_outbox_event(
                 session,
                 event_type=OutboxEventType.REVOKE_CONNECTION,

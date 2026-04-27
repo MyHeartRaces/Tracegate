@@ -25,7 +25,7 @@ def _marker_variant(marker: str) -> str:
 
 
 def _marker_belongs_to_hysteria(marker: str) -> bool:
-    return _marker_variant(marker) in {"V3", "V4"}
+    return _marker_variant(marker) in {"V2", "V3", "V4"}
 
 
 def _inbound_belongs_to_hysteria(inbound_tag: str) -> bool:
@@ -245,11 +245,11 @@ class AgentMetricsCollector:
 
         fronting_owner = GaugeMetricFamily(
             "tracegate_fronting_owner_info",
-            "Advertised TCP/UDP owner for public 443 in runtime-contract.json",
+            "Advertised TCP/UDP owner for public runtime ports in runtime-contract.json",
             labels=["role", "protocol", "owner"],
         )
         tcp_owner = str(fronting_block.get("tcp443Owner") or "").strip()
-        udp_owner = str(fronting_block.get("udp443Owner") or "").strip()
+        udp_owner = str(fronting_block.get("publicUdpOwner") or fronting_block.get("udp443Owner") or "").strip()
         if tcp_owner:
             fronting_owner.add_metric([role_label, "tcp", tcp_owner], 1)
         if udp_owner:

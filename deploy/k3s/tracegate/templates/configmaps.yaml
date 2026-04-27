@@ -6,8 +6,8 @@ metadata:
   labels:
     {{- include "tracegate.labels" . | nindent 4 }}
 data:
-  tracegate-2.1-runtime.yaml: |
-    architecture: Tracegate 2.1
+  tracegate-2.2-runtime.yaml: |
+    architecture: Tracegate 2.2
     runtimeProfile: {{ .Values.global.runtimeProfile }}
     zeroRestartRule: "user and connection mutations must use live APIs or narrow reload hooks"
     localSocksAuth: {{ .Values.transportProfiles.socks5.required | ternary "required" "disabled" }}
@@ -53,7 +53,7 @@ data:
     interconnect:
 {{ toYaml .Values.interconnect.entryTransit | nindent 6 }}
     linkCrypto:
-      enabled: {{ or .Values.interconnect.entryTransit.enabled .Values.interconnect.entryTransit.routerEntry.enabled .Values.interconnect.entryTransit.routerTransit.enabled }}
+      enabled: {{ or .Values.interconnect.entryTransit.enabled .Values.interconnect.entryTransit.routerEntry.enabled .Values.interconnect.entryTransit.routerTransit.enabled (and .Values.interconnect.entryTransit.enabled .Values.interconnect.entryTransit.udp.enabled) (and .Values.interconnect.entryTransit.routerEntry.enabled .Values.interconnect.entryTransit.udp.enabled) (and .Values.interconnect.entryTransit.routerTransit.enabled .Values.interconnect.entryTransit.udp.enabled) }}
       carrier: mieru
       manager: link-crypto
       profileSource: external-secret-file-reference
@@ -71,6 +71,27 @@ data:
         url: {{ printf "wss://%s:%d%s" (toString .Values.interconnect.entryTransit.outerCarrier.serverName) (int .Values.interconnect.entryTransit.outerCarrier.publicPort) (toString .Values.interconnect.entryTransit.outerCarrier.publicPath) | quote }}
         verifyTls: {{ .Values.interconnect.entryTransit.outerCarrier.verifyTls }}
         secretMaterial: false
+        tlsPinning:
+          required: {{ .Values.interconnect.entryTransit.outerCarrier.spkiPinning.required }}
+          mode: spki-sha256
+          profileSource: private-file-reference
+          profileRef:
+            kind: file
+            path: {{ .Values.interconnect.entryTransit.outerCarrier.spkiPinning.profileFile | quote }}
+            secretMaterial: true
+          secretMaterial: false
+        admission:
+          required: {{ .Values.interconnect.entryTransit.outerCarrier.admission.required }}
+          mode: {{ .Values.interconnect.entryTransit.outerCarrier.admission.mode }}
+          carrier: websocket-subprotocol
+          header: {{ .Values.interconnect.entryTransit.outerCarrier.admission.header }}
+          profileSource: private-file-reference
+          profileRef:
+            kind: file
+            path: {{ .Values.interconnect.entryTransit.outerCarrier.admission.profileFile | quote }}
+            secretMaterial: true
+          rejectUnauthenticated: true
+          secretMaterial: false
         localPorts:
           entryClient: {{ int .Values.interconnect.entryTransit.outerCarrier.clientLocalPort }}
           transitServer: {{ int .Values.interconnect.entryTransit.outerCarrier.serverLocalPort }}
@@ -78,6 +99,66 @@ data:
           entryClientListen: {{ printf "127.0.0.1:%d" (int .Values.interconnect.entryTransit.outerCarrier.clientLocalPort) | quote }}
           transitServerListen: {{ printf "127.0.0.1:%d" (int .Values.interconnect.entryTransit.outerCarrier.serverLocalPort) | quote }}
           transitTarget: {{ printf "127.0.0.1:%d" (int .Values.interconnect.mieru.localSocks.transitPort) | quote }}
+      dpiResistance:
+        enabled: true
+        mode: {{ if and .Values.interconnect.entryTransit.enabled .Values.interconnect.entryTransit.outerCarrier.enabled }}mieru-wss-spki-hmac-zapret2-scoped{{ else }}mieru-zapret2-scoped{{ end }}
+        requiredLayers:
+          - mieru-private-auth
+          - scoped-zapret2
+          - private-zapret2-profile
+          - loopback-only
+          - generation-drain
+          - no-direct-backhaul
+{{ if and .Values.interconnect.entryTransit.enabled .Values.interconnect.entryTransit.outerCarrier.enabled }}
+          - outer-wss-tls
+          - spki-sha256-pin
+          - hmac-admission
+{{ end }}
+        outerCarrier:
+          required: {{ and .Values.interconnect.entryTransit.enabled .Values.interconnect.entryTransit.outerCarrier.enabled }}
+          spkiPinningRequired: {{ and .Values.interconnect.entryTransit.enabled .Values.interconnect.entryTransit.outerCarrier.enabled .Values.interconnect.entryTransit.outerCarrier.spkiPinning.required }}
+          hmacAdmissionRequired: {{ and .Values.interconnect.entryTransit.enabled .Values.interconnect.entryTransit.outerCarrier.enabled .Values.interconnect.entryTransit.outerCarrier.admission.required }}
+        zapret2:
+          required: true
+          enabled: {{ .Values.interconnect.zapret2.enabled }}
+          profileSource: private-file-reference
+          profileRef:
+            kind: file
+            path: {{ printf "%s/%s" .Values.privateProfiles.mountPath .Values.privateProfiles.keys.zapretInterconnect | quote }}
+            secretMaterial: true
+          packetShaping: zapret2-scoped
+          applyMode: marked-flow-only
+          scope: link-crypto-flow-only
+          hostWideInterception: false
+          nfqueue: false
+        trafficShaping:
+          required: true
+          strategy: private-zapret2-profile
+          profileSource: private-file-reference
+          profileRef:
+            kind: file
+            path: {{ .Values.interconnect.entryTransit.outerCarrier.tcpShapingProfileFile | quote }}
+            secretMaterial: true
+          scope: marked-flow-only
+          target: {{ if and .Values.interconnect.entryTransit.enabled .Values.interconnect.entryTransit.outerCarrier.enabled }}tcp/443-outer-wss{{ else }}tcp/443-link-crypto{{ end }}
+          secretMaterial: false
+        promotionPreflight:
+          required: true
+          failClosed: true
+          profileSource: private-file-reference
+          profileRef:
+            kind: file
+            path: {{ .Values.interconnect.entryTransit.outerCarrier.promotionPreflightProfileFile | quote }}
+            secretMaterial: true
+          checks:
+            - mieru-private-auth
+            - zapret2-scoped-profile
+            - no-direct-backhaul
+{{ if and .Values.interconnect.entryTransit.enabled .Values.interconnect.entryTransit.outerCarrier.enabled }}
+            - spki-pin
+            - hmac-admission
+{{ end }}
+          secretMaterial: false
       classes:
 {{- if .Values.interconnect.entryTransit.enabled }}
         - entry-transit
@@ -126,10 +207,10 @@ data:
 {{- end }}
           selectedProfiles:
 {{- if .Values.interconnect.entryTransit.enabled }}
-            entry-transit: ["V2", "V4", "V6"]
+            entry-transit: ["V1", "V3"]
 {{- end }}
 {{- if .Values.interconnect.entryTransit.routerEntry.enabled }}
-            router-entry: ["V2", "V4", "V6"]
+            router-entry: ["V1", "V3"]
 {{- end }}
 {{- if not (or .Values.interconnect.entryTransit.enabled .Values.interconnect.entryTransit.routerEntry.enabled) }}
             {}
@@ -163,18 +244,184 @@ data:
 {{- end }}
           selectedProfiles:
 {{- if .Values.interconnect.entryTransit.enabled }}
-            entry-transit: ["V2", "V4", "V6"]
+            entry-transit: ["V1", "V3"]
 {{- end }}
 {{- if .Values.interconnect.entryTransit.routerTransit.enabled }}
-            router-transit: ["V1", "V3", "V5", "V7"]
+            router-transit: ["V0", "V1", "V3"]
 {{- end }}
 {{- if not (or .Values.interconnect.entryTransit.enabled .Values.interconnect.entryTransit.routerTransit.enabled) }}
             {}
 {{- end }}
+      udp:
+        enabled: {{ and .Values.interconnect.entryTransit.udp.enabled (or .Values.interconnect.entryTransit.enabled .Values.interconnect.entryTransit.routerEntry.enabled .Values.interconnect.entryTransit.routerTransit.enabled) }}
+        carrier: {{ .Values.interconnect.entryTransit.udp.carrier }}
+        transport: {{ .Values.interconnect.entryTransit.udp.transport }}
+        manager: link-crypto
+        profileSource: external-secret-file-reference
+        secretMaterial: false
+        xrayBackhaul: false
+        remotePort: {{ int .Values.interconnect.entryTransit.udp.remotePort }}
+        obfs:
+          type: salamander
+          required: {{ .Values.interconnect.entryTransit.udp.salamanderRequired }}
+        pairedObfs:
+          enabled: {{ .Values.interconnect.entryTransit.udp.pairedObfs.enabled }}
+          backend: {{ .Values.interconnect.entryTransit.udp.pairedObfs.backend }}
+          mode: {{ .Values.interconnect.entryTransit.udp.pairedObfs.mode }}
+          requiresBothSides: {{ .Values.interconnect.entryTransit.udp.pairedObfs.requiresBothSides }}
+          failClosed: {{ .Values.interconnect.entryTransit.udp.pairedObfs.failClosed }}
+          noHostWideInterception: {{ .Values.interconnect.entryTransit.udp.pairedObfs.noHostWideInterception }}
+          noNfqueue: {{ .Values.interconnect.entryTransit.udp.pairedObfs.noNfqueue }}
+        hardening:
+          enabled: {{ .Values.interconnect.entryTransit.udp.hardening.enabled }}
+          failClosed: {{ .Values.interconnect.entryTransit.udp.hardening.failClosed }}
+          requirePrivateAuth: {{ .Values.interconnect.entryTransit.udp.hardening.requirePrivateAuth }}
+          rejectAnonymous: {{ .Values.interconnect.entryTransit.udp.hardening.rejectAnonymous }}
+          antiReplay:
+            enabled: {{ .Values.interconnect.entryTransit.udp.hardening.antiReplay.enabled }}
+            windowPackets: {{ int .Values.interconnect.entryTransit.udp.hardening.antiReplay.windowPackets }}
+          antiAmplification:
+            enabled: {{ .Values.interconnect.entryTransit.udp.hardening.antiAmplification.enabled }}
+            maxUnvalidatedBytes: {{ int .Values.interconnect.entryTransit.udp.hardening.antiAmplification.maxUnvalidatedBytes }}
+          rateLimit:
+            enabled: {{ .Values.interconnect.entryTransit.udp.hardening.rateLimit.enabled }}
+            handshakePerMinute: {{ int .Values.interconnect.entryTransit.udp.hardening.rateLimit.handshakePerMinute }}
+            newSessionPerMinute: {{ int .Values.interconnect.entryTransit.udp.hardening.rateLimit.newSessionPerMinute }}
+          mtu:
+            mode: {{ .Values.interconnect.entryTransit.udp.hardening.mtu.mode }}
+            maxPacketSize: {{ int .Values.interconnect.entryTransit.udp.hardening.mtu.maxPacketSize }}
+          keyRotation:
+            enabled: {{ .Values.interconnect.entryTransit.udp.hardening.keyRotation.enabled }}
+            strategy: {{ .Values.interconnect.entryTransit.udp.hardening.keyRotation.strategy }}
+            maxAgeSeconds: {{ int .Values.interconnect.entryTransit.udp.hardening.keyRotation.maxAgeSeconds }}
+            overlapSeconds: {{ int .Values.interconnect.entryTransit.udp.hardening.keyRotation.overlapSeconds }}
+          sourceValidation:
+            enabled: {{ .Values.interconnect.entryTransit.udp.hardening.sourceValidation.enabled }}
+            mode: {{ .Values.interconnect.entryTransit.udp.hardening.sourceValidation.mode }}
+        dpiResistance:
+          enabled: true
+          mode: salamander-plus-scoped-paired-obfs
+          portSplit:
+            publicUdpPort: 8443
+            forbidUdp443: true
+            forbidTcp8443: true
+          requiredLayers:
+            - hysteria2-quic
+            - salamander
+            - private-auth
+            - anti-replay
+            - anti-amplification
+            - mtu-clamp
+            - source-validation
+          pairedObfs:
+            supported: true
+            enabled: {{ .Values.interconnect.entryTransit.udp.pairedObfs.enabled }}
+            backend: {{ .Values.interconnect.entryTransit.udp.pairedObfs.backend }}
+            requiresBothSides: {{ .Values.interconnect.entryTransit.udp.pairedObfs.requiresBothSides }}
+            failClosed: {{ .Values.interconnect.entryTransit.udp.pairedObfs.failClosed }}
+          packetShape:
+            strategy: bounded-profile
+            mtuMode: {{ .Values.interconnect.entryTransit.udp.hardening.mtu.mode }}
+            maxPacketSize: {{ int .Values.interconnect.entryTransit.udp.hardening.mtu.maxPacketSize }}
+        classes:
+{{- if and .Values.interconnect.entryTransit.enabled .Values.interconnect.entryTransit.udp.enabled }}
+          - entry-transit-udp
+{{- end }}
+{{- if and .Values.interconnect.entryTransit.routerEntry.enabled .Values.interconnect.entryTransit.udp.enabled }}
+          - router-entry-udp
+{{- end }}
+{{- if and .Values.interconnect.entryTransit.routerTransit.enabled .Values.interconnect.entryTransit.udp.enabled }}
+          - router-transit-udp
+{{- end }}
+{{- if not (and .Values.interconnect.entryTransit.udp.enabled (or .Values.interconnect.entryTransit.enabled .Values.interconnect.entryTransit.routerEntry.enabled .Values.interconnect.entryTransit.routerTransit.enabled)) }}
+          []
+{{- end }}
+        counts:
+          total: {{ add (ternary 1 0 (and .Values.interconnect.entryTransit.enabled .Values.interconnect.entryTransit.udp.enabled)) (ternary 1 0 (and .Values.interconnect.entryTransit.routerEntry.enabled .Values.interconnect.entryTransit.udp.enabled)) (ternary 1 0 (and .Values.interconnect.entryTransit.routerTransit.enabled .Values.interconnect.entryTransit.udp.enabled)) }}
+          entryTransitUdp: {{ ternary 1 0 (and .Values.interconnect.entryTransit.enabled .Values.interconnect.entryTransit.udp.enabled) }}
+          routerEntryUdp: {{ ternary 1 0 (and .Values.interconnect.entryTransit.routerEntry.enabled .Values.interconnect.entryTransit.udp.enabled) }}
+          routerTransitUdp: {{ ternary 1 0 (and .Values.interconnect.entryTransit.routerTransit.enabled .Values.interconnect.entryTransit.udp.enabled) }}
+        roles:
+          entry:
+            enabled: {{ and .Values.interconnect.entryTransit.udp.enabled (or .Values.interconnect.entryTransit.enabled .Values.interconnect.entryTransit.routerEntry.enabled) }}
+            classes:
+{{- if and .Values.interconnect.entryTransit.enabled .Values.interconnect.entryTransit.udp.enabled }}
+              - entry-transit-udp
+{{- end }}
+{{- if and .Values.interconnect.entryTransit.routerEntry.enabled .Values.interconnect.entryTransit.udp.enabled }}
+              - router-entry-udp
+{{- end }}
+{{- if not (and .Values.interconnect.entryTransit.udp.enabled (or .Values.interconnect.entryTransit.enabled .Values.interconnect.entryTransit.routerEntry.enabled)) }}
+              []
+{{- end }}
+            localPorts:
+{{- if and .Values.interconnect.entryTransit.enabled .Values.interconnect.entryTransit.udp.enabled }}
+              entry-transit-udp: {{ int .Values.interconnect.entryTransit.udp.entryPort }}
+{{- end }}
+{{- if and .Values.interconnect.entryTransit.routerEntry.enabled .Values.interconnect.entryTransit.udp.enabled }}
+              router-entry-udp: {{ int .Values.interconnect.entryTransit.udp.routerEntryPort }}
+{{- end }}
+{{- if not (and .Values.interconnect.entryTransit.udp.enabled (or .Values.interconnect.entryTransit.enabled .Values.interconnect.entryTransit.routerEntry.enabled)) }}
+              {}
+{{- end }}
+            selectedProfiles:
+{{- if and .Values.interconnect.entryTransit.enabled .Values.interconnect.entryTransit.udp.enabled }}
+              entry-transit-udp: ["V2"]
+{{- end }}
+{{- if and .Values.interconnect.entryTransit.routerEntry.enabled .Values.interconnect.entryTransit.udp.enabled }}
+              router-entry-udp: ["V2"]
+{{- end }}
+{{- if not (and .Values.interconnect.entryTransit.udp.enabled (or .Values.interconnect.entryTransit.enabled .Values.interconnect.entryTransit.routerEntry.enabled)) }}
+              {}
+{{- end }}
+          transit:
+            enabled: {{ and .Values.interconnect.entryTransit.udp.enabled (or .Values.interconnect.entryTransit.enabled .Values.interconnect.entryTransit.routerTransit.enabled) }}
+            classes:
+{{- if and .Values.interconnect.entryTransit.enabled .Values.interconnect.entryTransit.udp.enabled }}
+              - entry-transit-udp
+{{- end }}
+{{- if and .Values.interconnect.entryTransit.routerTransit.enabled .Values.interconnect.entryTransit.udp.enabled }}
+              - router-transit-udp
+{{- end }}
+{{- if not (and .Values.interconnect.entryTransit.udp.enabled (or .Values.interconnect.entryTransit.enabled .Values.interconnect.entryTransit.routerTransit.enabled)) }}
+              []
+{{- end }}
+            localPorts:
+{{- if and .Values.interconnect.entryTransit.enabled .Values.interconnect.entryTransit.udp.enabled }}
+              entry-transit-udp: {{ int .Values.interconnect.entryTransit.udp.transitPort }}
+{{- end }}
+{{- if and .Values.interconnect.entryTransit.routerTransit.enabled .Values.interconnect.entryTransit.udp.enabled }}
+              router-transit-udp: {{ int .Values.interconnect.entryTransit.udp.routerTransitPort }}
+{{- end }}
+{{- if not (and .Values.interconnect.entryTransit.udp.enabled (or .Values.interconnect.entryTransit.enabled .Values.interconnect.entryTransit.routerTransit.enabled)) }}
+              {}
+{{- end }}
+            selectedProfiles:
+{{- if and .Values.interconnect.entryTransit.enabled .Values.interconnect.entryTransit.udp.enabled }}
+              entry-transit-udp: ["V2"]
+{{- end }}
+{{- if and .Values.interconnect.entryTransit.routerTransit.enabled .Values.interconnect.entryTransit.udp.enabled }}
+              router-transit-udp: ["V2"]
+{{- end }}
+{{- if not (and .Values.interconnect.entryTransit.udp.enabled (or .Values.interconnect.entryTransit.enabled .Values.interconnect.entryTransit.routerTransit.enabled)) }}
+              {}
+{{- end }}
       zapret2:
         enabled: {{ .Values.interconnect.zapret2.enabled }}
+        required: true
+        profileFile: {{ printf "%s/%s" .Values.privateProfiles.mountPath .Values.privateProfiles.keys.zapretInterconnect | quote }}
+        profileSource: private-file-reference
+        profileRef:
+          kind: file
+          path: {{ printf "%s/%s" .Values.privateProfiles.mountPath .Values.privateProfiles.keys.zapretInterconnect | quote }}
+          secretMaterial: true
         packetShaping: zapret2-scoped
         applyMode: marked-flow-only
+        scope: link-crypto-flow-only
+        targetSurfaces:
+          - tcp/443
+          - entry-transit
+          - router-link-crypto
         hostWideInterception: {{ .Values.interconnect.zapret2.hostWideInterception }}
         nfqueue: {{ .Values.interconnect.zapret2.nfqueue }}
         failOpen: true
@@ -358,6 +605,48 @@ data:
 apiVersion: v1
 kind: ConfigMap
 metadata:
+  name: {{ include "tracegate.roleName" (dict "root" $ "role" $roleName) }}-hysteria
+  namespace: {{ include "tracegate.namespace" $ }}
+  labels:
+    {{- include "tracegate.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: gateway-{{ $roleName }}
+data:
+  server.yaml: |
+    listen: :{{ int $role.ports.publicUdp }}
+    tls:
+      cert: /etc/tracegate/tls/tls.crt
+      key: /etc/tracegate/tls/tls.key
+      sniGuard: dns-san
+    auth:
+      type: http
+      http:
+        url: {{ printf "http://127.0.0.1:%d/v1/hysteria/auth" (int $.Values.gateway.agent.port) | quote }}
+        insecure: false
+    obfs:
+      type: salamander
+      salamander:
+        password: REPLACE_HYSTERIA_SALAMANDER_PASSWORD
+    masquerade:
+      type: file
+      file:
+        dir: {{ $.Values.decoy.mountPath | quote }}
+    trafficStats:
+      listen: 127.0.0.1:9999
+      secret: REPLACE_HYSTERIA_STATS_SECRET
+    quic:
+      maxIdleTimeout: 30s
+      disablePathMTUDiscovery: false
+    congestion:
+      type: bbr
+    disableUDP: false
+    udpIdleTimeout: 60s
+    sniff:
+      enable: true
+      timeout: 2s
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
   name: {{ include "tracegate.roleName" (dict "root" $ "role" $roleName) }}-xray
   namespace: {{ include "tracegate.namespace" $ }}
   labels:
@@ -427,20 +716,6 @@ data:
           "settings": {"clients": [], "decryption": "none"},
           "streamSettings": {"network": "grpc", "security": "none", "grpcSettings": {"serviceName": {{ $.Values.controlPlane.env.vlessGrpcServiceName | quote }}}},
           "sniffing": {"enabled": true, "destOverride": ["http", "tls", "quic"]}
-        },
-        {
-          "tag": "hy2-in",
-          "listen": "0.0.0.0",
-          "port": {{ int $role.ports.publicUdp }},
-          "protocol": "hysteria",
-          "settings": {"version": 2, "clients": []},
-          "streamSettings": {
-            "network": "hysteria",
-            "security": "tls",
-            "tlsSettings": {"alpn": ["h3"], "certificates": [{"certificateFile": "/etc/tracegate/tls/tls.crt", "keyFile": "/etc/tracegate/tls/tls.key"}]},
-            "hysteriaSettings": {"version": 2, "auth": "REPLACE_HYSTERIA_AUTH", "udpIdleTimeout": 60, "masquerade": {"type": "file", "dir": {{ $.Values.decoy.mountPath | quote }}}}
-          },
-          "sniffing": {"enabled": true, "destOverride": ["http", "tls", "quic"]}
         }
       ],
       "outbounds": [
@@ -452,7 +727,7 @@ data:
         "domainStrategy": "IPIfNonMatch",
         "rules": [
           {"type": "field", "inboundTag": ["api"], "outboundTag": "api"},
-          {"type": "field", "inboundTag": ["entry-in", "vless-reality-in", "vless-ws-in", "vless-grpc-in", "hy2-in"], "protocol": ["bittorrent"], "outboundTag": "block"},
+          {"type": "field", "inboundTag": ["entry-in", "vless-reality-in", "vless-ws-in", "vless-grpc-in"], "protocol": ["bittorrent"], "outboundTag": "block"},
           {"type": "field", "ip": ["geoip:private"], "outboundTag": "block"}
         ]
       }

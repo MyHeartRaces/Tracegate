@@ -1,4 +1,4 @@
-Tracegate 2.1 chart rendered.
+Tracegate 2.2 chart rendered.
 
 Runtime profile: {{ .Values.global.runtimeProfile }}
 Private profiles: {{ include "tracegate.privateProfilesSecretName" . }}
@@ -7,5 +7,5 @@ Do not put production Mieru, zapret2, ShadowTLS, WireGuard or MTProto profiles
 in values committed to Git. Use an external Secret and ignored private values.
 
 V8 Mieru/RESTLS and V9 TUIC v5 surfaces are lab-only unless explicitly enabled.
-TUIC v5 replacement of V3/V4 Hysteria2 is blocked for the Tracegate 2.1
+TUIC v5 replacement of V3/V4 Hysteria2 is blocked for the Tracegate 2.2
 production cut.

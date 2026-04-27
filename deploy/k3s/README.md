@@ -1,8 +1,8 @@
-# Tracegate 2.1 k3s deployment
+# Tracegate 2.2 k3s deployment
 
-Tracegate 2.1 is deployed as one Helm chart from `deploy/k3s/tracegate`.
+Tracegate 2.2 is deployed as one Helm chart from `deploy/k3s/tracegate`.
 
-This chart is the production target for the 2.1 runtime. The old plain-host
+This chart is the production target for the 2.2 runtime. The old plain-host
 `deploy/systemd` kit remains in the repository only as the Tracegate 2 migration
 surface until the Helm rollout is complete.
 
@@ -49,9 +49,12 @@ surface until the Helm rollout is complete.
   `maxSurge` non-zero, `progressDeadlineSeconds>=300`, probes enabled, and the
   gateway PDB at `minAvailable=1`.
 - Do not use host-wide NFQUEUE or broad userspace interception for all traffic.
-- Keep Entry-to-Transit chaining outside Xray. In the k3s chart the V2/V4/V6
+- Keep Entry-to-Transit chaining outside Xray. In the k3s chart the V2/V6 TCP
   chain bridge is owned by `link-crypto`, encrypted by Mieru, and wrapped in a
-  required WSS carrier on `tcp/443`; Xray backhaul is rejected at render time.
+  required WSS carrier on `tcp/443`; V4 uses the separate Hysteria2/Salamander
+  UDP link on `udp/8443`. Xray backhaul is rejected at render time.
+  Keep `udp/443` and `tcp/8443` blocked; the chart rejects role port overrides
+  that would cross the TCP and UDP public surfaces.
   Direct backhaul fallback is also rejected; the
   `interconnect.entryTransit.fallback` value must stay `none`.
   `interconnect.entryTransit.primary`, `chainBridgeOwner`, `remotePort` and
@@ -153,7 +156,7 @@ without making it part of the production client list:
 - `V8-Mieru-TCP-Direct` / `V8-Mieru-RESTLS-Direct` are direct Transit
   obfuscation candidates backed only by external private profile files.
 - `V9-TUICv5-QUIC-Direct` / `V9-TUICv5-QUIC-Chain` are TUIC v5 evaluation
-  profiles. They must not replace V3/V4 Hysteria2 in the Tracegate 2.1
+  profiles. They must not replace V3/V4 Hysteria2 in the Tracegate 2.2
   production cut.
 
 When a lab surface is enabled, the chart mounts only the required Secret keys
@@ -177,7 +180,7 @@ For production, copy `values-prod.example.yaml` outside tracked Git as
 
 ## Deploy-ready check
 
-Before promoting a Tracegate 2.1 chart build, run the repository release gate:
+Before promoting a Tracegate 2.2 chart build, run the repository release gate:
 
 ```sh
 deploy/k3s/deploy-ready-check.sh

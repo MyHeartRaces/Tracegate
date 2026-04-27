@@ -27,6 +27,7 @@ class ConnectionMode(str, Enum):
 
 
 class ConnectionVariant(str, Enum):
+    V0 = "V0"
     V1 = "V1"
     V2 = "V2"
     V3 = "V3"

@@ -2,8 +2,10 @@
 {{- if and $.Values.gateway.enabled $role.enabled }}
 {{- $roleRealityKey := ternary $.Values.privateProfiles.keys.realityPrivateKeyEntry $.Values.privateProfiles.keys.realityPrivateKeyTransit (eq $roleName "entry") }}
 {{- $roleRealitySecretKey := ternary $.Values.privateProfiles.secretKeys.realityPrivateKeyEntry $.Values.privateProfiles.secretKeys.realityPrivateKeyTransit (eq $roleName "entry") }}
-{{- $roleHysteriaKey := ternary $.Values.privateProfiles.keys.hysteriaAuthEntry $.Values.privateProfiles.keys.hysteriaAuthTransit (eq $roleName "entry") }}
-{{- $roleHysteriaSecretKey := ternary $.Values.privateProfiles.secretKeys.hysteriaAuthEntry $.Values.privateProfiles.secretKeys.hysteriaAuthTransit (eq $roleName "entry") }}
+{{- $roleHysteriaSalamanderKey := ternary $.Values.privateProfiles.keys.hysteriaSalamanderEntry $.Values.privateProfiles.keys.hysteriaSalamanderTransit (eq $roleName "entry") }}
+{{- $roleHysteriaSalamanderSecretKey := ternary $.Values.privateProfiles.secretKeys.hysteriaSalamanderEntry $.Values.privateProfiles.secretKeys.hysteriaSalamanderTransit (eq $roleName "entry") }}
+{{- $roleHysteriaStatsKey := ternary $.Values.privateProfiles.keys.hysteriaStatsEntry $.Values.privateProfiles.keys.hysteriaStatsTransit (eq $roleName "entry") }}
+{{- $roleHysteriaStatsSecretKey := ternary $.Values.privateProfiles.secretKeys.hysteriaStatsEntry $.Values.privateProfiles.secretKeys.hysteriaStatsTransit (eq $roleName "entry") }}
 {{- $roleZapretKey := ternary $.Values.privateProfiles.keys.zapretEntry $.Values.privateProfiles.keys.zapretTransit (eq $roleName "entry") }}
 {{- $roleZapretSecretKey := ternary $.Values.privateProfiles.secretKeys.zapretEntry $.Values.privateProfiles.secretKeys.zapretTransit (eq $roleName "entry") }}
 {{- $roleShadowsocks2022Key := ternary $.Values.privateProfiles.keys.shadowsocks2022Entry $.Values.privateProfiles.keys.shadowsocks2022Transit (eq $roleName "entry") }}
@@ -16,12 +18,20 @@
 {{- $roleProfileEnv := printf "/var/lib/tracegate/private/profiles/%s/desired-state.env" $roleName }}
 {{- $roleLinkCryptoState := printf "/var/lib/tracegate/private/link-crypto/%s/desired-state.json" $roleName }}
 {{- $roleLinkCryptoEnv := printf "/var/lib/tracegate/private/link-crypto/%s/desired-state.env" $roleName }}
+{{- $roleRouterState := printf "/var/lib/tracegate/private/router/%s/desired-state.json" $roleName }}
+{{- $roleRouterEnv := printf "/var/lib/tracegate/private/router/%s/desired-state.env" $roleName }}
+{{- $roleRouterClientBundle := printf "/var/lib/tracegate/private/router/%s/client-bundle.json" $roleName }}
+{{- $roleRouterClientEnv := printf "/var/lib/tracegate/private/router/%s/client-bundle.env" $roleName }}
+{{- $roleRouterRequired := or (and (eq $roleName "entry") $.Values.interconnect.entryTransit.routerEntry.enabled) (and (eq $roleName "transit") $.Values.interconnect.entryTransit.routerTransit.enabled) }}
 {{- $roleProfileReloadMarker := printf "/var/lib/tracegate/private/runtime/profiles-%s-last-reload.json" $roleName }}
 {{- $roleLinkCryptoReloadMarker := printf "/var/lib/tracegate/private/runtime/link-crypto-%s-last-reload.json" $roleName }}
 {{- $roleProfileMarkerTest := printf "grep -q '\\\"schema\\\": \\\"tracegate.k3s-private-reload.v1\\\"' %s && grep -q '\\\"summarySchema\\\": \\\"tracegate.k3s-private-reload-summary.v1\\\"' %s && grep -q '\\\"component\\\": \\\"profiles\\\"' %s && grep -q '\\\"role\\\": \\\"%s\\\"' %s && grep -q '\\\"auth\\\": \\\"required\\\"' %s && grep -q '\\\"allowAnonymousLocalhost\\\": false' %s" $roleProfileReloadMarker $roleProfileReloadMarker $roleProfileReloadMarker $role.role $roleProfileReloadMarker $roleProfileReloadMarker $roleProfileReloadMarker }}
 {{- $roleLinkCryptoMarkerTest := printf "grep -q '\\\"schema\\\": \\\"tracegate.k3s-private-reload.v1\\\"' %s && grep -q '\\\"summarySchema\\\": \\\"tracegate.k3s-private-reload-summary.v1\\\"' %s && grep -q '\\\"component\\\": \\\"link-crypto\\\"' %s && grep -q '\\\"role\\\": \\\"%s\\\"' %s && grep -q '\\\"private-profile\\\"' %s" $roleLinkCryptoReloadMarker $roleLinkCryptoReloadMarker $roleLinkCryptoReloadMarker $role.role $roleLinkCryptoReloadMarker $roleLinkCryptoReloadMarker }}
+{{- $roleRouterAbsentTest := printf "[ ! -e %s ] && [ ! -e %s ] && [ ! -e %s ] && [ ! -e %s ]" $roleRouterState $roleRouterEnv $roleRouterClientBundle $roleRouterClientEnv }}
+{{- $roleRouterValidatedTest := printf "[ -s %s ] && [ -s %s ] && [ -s %s ] && [ -s %s ] && [ ! %s -nt %s ] && [ ! %s -nt %s ] && [ ! %s -nt %s ] && [ ! %s -nt %s ] && grep -q '\\\"router\\\"' %s && grep -q '\\\"clientBundle\\\"' %s && grep -q '\\\"clientEnv\\\"' %s" $roleRouterState $roleRouterEnv $roleRouterClientBundle $roleRouterClientEnv $roleRouterState $roleLinkCryptoReloadMarker $roleRouterEnv $roleLinkCryptoReloadMarker $roleRouterClientBundle $roleLinkCryptoReloadMarker $roleRouterClientEnv $roleLinkCryptoReloadMarker $roleLinkCryptoReloadMarker $roleLinkCryptoReloadMarker $roleLinkCryptoReloadMarker }}
+{{- $roleRouterReadyTest := ternary $roleRouterValidatedTest (printf "(%s) || (%s)" $roleRouterAbsentTest $roleRouterValidatedTest) $roleRouterRequired }}
 {{- $roleProfileReadyTest := printf "[ -s %s ] && [ -s %s ] && [ -s %s ] && [ ! %s -nt %s ] && [ ! %s -nt %s ] && %s" $roleProfileState $roleProfileEnv $roleProfileReloadMarker $roleProfileState $roleProfileReloadMarker $roleProfileEnv $roleProfileReloadMarker $roleProfileMarkerTest }}
-{{- $roleLinkCryptoReadyTest := printf "[ -s %s ] && [ -s %s ] && [ -s %s ] && [ ! %s -nt %s ] && [ ! %s -nt %s ] && %s" $roleLinkCryptoState $roleLinkCryptoEnv $roleLinkCryptoReloadMarker $roleLinkCryptoState $roleLinkCryptoReloadMarker $roleLinkCryptoEnv $roleLinkCryptoReloadMarker $roleLinkCryptoMarkerTest }}
+{{- $roleLinkCryptoReadyTest := printf "[ -s %s ] && [ -s %s ] && [ -s %s ] && [ ! %s -nt %s ] && [ ! %s -nt %s ] && %s && ( %s )" $roleLinkCryptoState $roleLinkCryptoEnv $roleLinkCryptoReloadMarker $roleLinkCryptoState $roleLinkCryptoReloadMarker $roleLinkCryptoEnv $roleLinkCryptoReloadMarker $roleLinkCryptoMarkerTest $roleRouterReadyTest }}
 {{- $labDirectMieruEnabled := and (eq $roleName "transit") $.Values.experimentalProfiles.enabled $.Values.experimentalProfiles.directTransitObfuscation.enabled $.Values.experimentalProfiles.directTransitObfuscation.mieru.enabled }}
 {{- $labDirectRestlsEnabled := and (eq $roleName "transit") $.Values.experimentalProfiles.enabled $.Values.experimentalProfiles.directTransitObfuscation.enabled $.Values.experimentalProfiles.directTransitObfuscation.restls.enabled }}
 {{- $labTuicRoleEnabled := and $.Values.experimentalProfiles.enabled $.Values.experimentalProfiles.tuicV5.enabled (or (and (eq $roleName "transit") $.Values.experimentalProfiles.tuicV5.directEnabled) $.Values.experimentalProfiles.tuicV5.chainEnabled) }}
@@ -109,6 +119,9 @@ spec:
         - name: xray-config
           configMap:
             name: {{ include "tracegate.roleName" (dict "root" $ "role" $roleName) }}-xray
+        - name: hysteria-config
+          configMap:
+            name: {{ include "tracegate.roleName" (dict "root" $ "role" $roleName) }}-hysteria
         - name: decoy
 {{- if $.Values.decoy.hostPath }}
           hostPath:
@@ -135,8 +148,10 @@ spec:
             items:
               - key: {{ $roleRealitySecretKey }}
                 path: {{ $roleRealityKey }}
-              - key: {{ $roleHysteriaSecretKey }}
-                path: {{ $roleHysteriaKey }}
+              - key: {{ $roleHysteriaSalamanderSecretKey }}
+                path: {{ $roleHysteriaSalamanderKey }}
+              - key: {{ $roleHysteriaStatsSecretKey }}
+                path: {{ $roleHysteriaStatsKey }}
 {{- if $roleLinkCryptoClientEnabled }}
               - key: {{ $.Values.privateProfiles.secretKeys.mieruClient }}
                 path: {{ $.Values.privateProfiles.keys.mieruClient }}
@@ -201,7 +216,9 @@ spec:
             - --required-file
             - {{ $roleRealityKey | quote }}
             - --required-file
-            - {{ $roleHysteriaKey | quote }}
+            - {{ $roleHysteriaSalamanderKey | quote }}
+            - --required-file
+            - {{ $roleHysteriaStatsKey | quote }}
 {{- if $roleLinkCryptoClientEnabled }}
             - --required-file
             - {{ $.Values.privateProfiles.keys.mieruClient | quote }}
@@ -261,21 +278,43 @@ spec:
             - -ec
             - |
               set -eu
-              mkdir -p /state/base/xray /state/base/haproxy /state/base/nginx /state/runtime/xray /state/runtime/haproxy /state/runtime/nginx
+              mkdir -p /state/base/xray /state/base/haproxy /state/base/nginx /state/base/hysteria /state/runtime/xray /state/runtime/haproxy /state/runtime/nginx /state/runtime/hysteria
               cp /base/xray/config.json /state/base/xray/config.json
+              cp /base/hysteria/server.yaml /state/base/hysteria/server.yaml
               escape_sed_replacement() {
                 printf '%s' "$1" | sed 's/[\/&|\\]/\\&/g'
               }
-              replace_literal() {
-                marker="$1"
-                value="$(escape_sed_replacement "$2")"
-                sed -i "s|${marker}|${value}|g" /state/base/xray/config.json
+              replace_literal_in_file() {
+                target="$1"
+                marker="$2"
+                value="$(escape_sed_replacement "$3")"
+                sed -i "s|${marker}|${value}|g" "${target}"
               }
-              replace_literal REPLACE_REALITY_PRIVATE_KEY "${REALITY_PRIVATE_KEY}"
-              replace_literal REPLACE_HYSTERIA_AUTH "${HYSTERIA_AUTH}"
+              replace_xray_literal() {
+                marker="$1"
+                value="$2"
+                replace_literal_in_file /state/base/xray/config.json "${marker}" "${value}"
+              }
+              replace_hysteria_literal() {
+                marker="$1"
+                value="$2"
+                replace_literal_in_file /state/base/hysteria/server.yaml "${marker}" "${value}"
+              }
+              read_secret_file() {
+                path="$1"
+                if [ ! -s "${path}" ]; then
+                  echo "missing private profile secret: ${path}" >&2
+                  exit 1
+                fi
+                tr -d '\r\n' < "${path}"
+              }
+              replace_xray_literal REPLACE_REALITY_PRIVATE_KEY "${REALITY_PRIVATE_KEY}"
+              replace_hysteria_literal REPLACE_HYSTERIA_SALAMANDER_PASSWORD "$(read_secret_file "{{ $.Values.privateProfiles.mountPath }}/{{ $roleHysteriaSalamanderKey }}")"
+              replace_hysteria_literal REPLACE_HYSTERIA_STATS_SECRET "$(read_secret_file "{{ $.Values.privateProfiles.mountPath }}/{{ $roleHysteriaStatsKey }}")"
               cp /base/haproxy/haproxy.cfg /state/base/haproxy/haproxy.cfg
               cp /base/nginx/nginx.conf /state/base/nginx/nginx.conf
               [ -f /state/runtime/xray/config.json ] || cp /state/base/xray/config.json /state/runtime/xray/config.json
+              [ -f /state/runtime/hysteria/server.yaml ] || cp /state/base/hysteria/server.yaml /state/runtime/hysteria/server.yaml
               [ -f /state/runtime/haproxy/haproxy.cfg ] || cp /state/base/haproxy/haproxy.cfg /state/runtime/haproxy/haproxy.cfg
               [ -f /state/runtime/nginx/nginx.conf ] || cp /state/base/nginx/nginx.conf /state/runtime/nginx/nginx.conf
           env:
@@ -284,20 +323,20 @@ spec:
                 secretKeyRef:
                   name: {{ include "tracegate.privateProfilesSecretName" $ }}
                   key: {{ ternary $.Values.privateProfiles.secretKeys.realityPrivateKeyEntry $.Values.privateProfiles.secretKeys.realityPrivateKeyTransit (eq $roleName "entry") }}
-            - name: HYSTERIA_AUTH
-              valueFrom:
-                secretKeyRef:
-                  name: {{ include "tracegate.privateProfilesSecretName" $ }}
-                  key: {{ ternary $.Values.privateProfiles.secretKeys.hysteriaAuthEntry $.Values.privateProfiles.secretKeys.hysteriaAuthTransit (eq $roleName "entry") }}
           volumeMounts:
             - name: gateway-state
               mountPath: /state
             - name: xray-config
               mountPath: /base/xray
+            - name: hysteria-config
+              mountPath: /base/hysteria
             - name: haproxy-config
               mountPath: /base/haproxy
             - name: nginx-config
               mountPath: /base/nginx
+            - name: private-profiles
+              mountPath: {{ $.Values.privateProfiles.mountPath }}
+              readOnly: true
       containers:
         - name: agent
           image: {{ include "tracegate.image" $.Values.global.image | quote }}
@@ -392,6 +431,13 @@ spec:
               value: "true"
             - name: AGENT_XRAY_API_SERVER
               value: {{ printf "127.0.0.1:%d" (int $role.ports.xrayApi) | quote }}
+            - name: AGENT_STATS_URL
+              value: "http://127.0.0.1:9999/traffic"
+            - name: AGENT_STATS_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "tracegate.privateProfilesSecretName" $ }}
+                  key: {{ $roleHysteriaStatsSecretKey }}
             - name: AGENT_RELOAD_XRAY_CMD
               value: {{ $.Values.gateway.agent.reloadCommands.xray | quote }}
             - name: AGENT_RELOAD_HAPROXY_CMD
@@ -583,9 +629,6 @@ spec:
             - name: reality
               containerPort: {{ int $role.ports.reality }}
               protocol: TCP
-            - name: hy2
-              containerPort: {{ int $role.ports.publicUdp }}
-              protocol: UDP
 {{- if $.Values.gateway.probes.enabled }}
           startupProbe:
             exec:
@@ -610,6 +653,48 @@ spec:
             - name: gateway-state
               mountPath: /etc/xray
               subPath: runtime/xray
+            - name: decoy
+              mountPath: {{ $.Values.decoy.mountPath }}
+              readOnly: true
+            - name: tls
+              mountPath: /etc/tracegate/tls
+              readOnly: true
+        - name: hysteria
+          image: {{ include "tracegate.image" $.Values.gateway.images.hysteria | quote }}
+          imagePullPolicy: {{ $.Values.gateway.images.hysteria.pullPolicy }}
+          command: ["hysteria", "server", "-c", "/etc/hysteria/server.yaml"]
+{{- with $.Values.gateway.containerResources.hysteria }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+{{- end }}
+          ports:
+            - name: hy2
+              containerPort: {{ int $role.ports.publicUdp }}
+              protocol: UDP
+{{- if $.Values.gateway.probes.enabled }}
+          startupProbe:
+            exec:
+              command: ["sh", "-lc", "test -s /etc/hysteria/server.yaml"]
+            periodSeconds: {{ int $.Values.gateway.probes.startup.periodSeconds }}
+            failureThreshold: {{ int $.Values.gateway.probes.startup.failureThreshold }}
+            timeoutSeconds: {{ int $.Values.gateway.probes.startup.timeoutSeconds }}
+          readinessProbe:
+            exec:
+              command: ["sh", "-lc", "test -s /etc/hysteria/server.yaml"]
+            periodSeconds: {{ int $.Values.gateway.probes.readiness.periodSeconds }}
+            failureThreshold: {{ int $.Values.gateway.probes.readiness.failureThreshold }}
+            timeoutSeconds: {{ int $.Values.gateway.probes.readiness.timeoutSeconds }}
+          livenessProbe:
+            exec:
+              command: ["sh", "-lc", "test -s /etc/hysteria/server.yaml"]
+            periodSeconds: {{ int $.Values.gateway.probes.liveness.periodSeconds }}
+            failureThreshold: {{ int $.Values.gateway.probes.liveness.failureThreshold }}
+            timeoutSeconds: {{ int $.Values.gateway.probes.liveness.timeoutSeconds }}
+{{- end }}
+          volumeMounts:
+            - name: gateway-state
+              mountPath: /etc/hysteria
+              subPath: runtime/hysteria
             - name: decoy
               mountPath: {{ $.Values.decoy.mountPath }}
               readOnly: true

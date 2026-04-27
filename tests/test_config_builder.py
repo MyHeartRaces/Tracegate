@@ -33,8 +33,8 @@ def test_chain_reality_enters_via_entry_and_points_to_transit() -> None:
         device_id=device.id,
         protocol=ConnectionProtocol.VLESS_REALITY,
         mode=ConnectionMode.CHAIN,
-        variant=ConnectionVariant.V2,
-        profile_name="V2",
+        variant=ConnectionVariant.V1,
+        profile_name="v1-chain-reality-vless",
         custom_overrides_json={"local_socks_port": 1080},
         status=RecordStatus.ACTIVE,
     )
@@ -56,7 +56,7 @@ def test_chain_reality_enters_via_entry_and_points_to_transit() -> None:
     )
 
     assert cfg["sni"] == "google.com"
-    assert cfg["profile"] == "V2-VLESS-Reality-Chain"
+    assert cfg["profile"] == "v1-chain-reality-vless"
     assert cfg["server"] == "entry.example.com"
     assert cfg["reality"]["public_key"] == "pub-e"
     assert cfg["reality"]["short_id"] == "sid-e"
@@ -68,14 +68,14 @@ def test_chain_reality_enters_via_entry_and_points_to_transit() -> None:
     assert cfg["chain"]["carrier"] == "mieru"
     assert cfg["chain"]["optional_packet_shaping"] == "zapret2-scoped"
     assert cfg["chain"]["managed_by"] == "link-crypto"
-    assert cfg["chain"]["selected_profiles"] == ["V2", "V4", "V6"]
+    assert cfg["chain"]["selected_profiles"] == ["V1", "V3"]
     assert cfg["chain"]["inner_transport"] == "vless-reality-xhttp"
     assert cfg["chain"]["xray_backhaul"] is False
     assert cfg["design_constraints"]["private_interconnect"] == "mieru-wss-zapret2"
     assert cfg["design_constraints"]["backhaul_outside_xray"] is True
     assert cfg["local_socks"]["auth"]["required"] is True
     assert cfg["local_socks"]["auth"]["mode"] == "username_password"
-    assert cfg["local_socks"]["auth"]["username"].startswith("tg_v2_")
+    assert cfg["local_socks"]["auth"]["username"].startswith("tg_v1_")
     assert cfg["local_socks"]["auth"]["password"]
 
 
@@ -89,7 +89,7 @@ def test_direct_reality_uses_transit_reality_keys() -> None:
         protocol=ConnectionProtocol.VLESS_REALITY,
         mode=ConnectionMode.DIRECT,
         variant=ConnectionVariant.V1,
-        profile_name="V1",
+        profile_name="v1-direct-reality-vless",
         custom_overrides_json={"local_socks_port": 1080},
         status=RecordStatus.ACTIVE,
     )
@@ -111,7 +111,7 @@ def test_direct_reality_uses_transit_reality_keys() -> None:
     )
 
     assert cfg["server"] == "transit.example.com"
-    assert cfg["profile"] == "V1-VLESS-Reality-Direct"
+    assert cfg["profile"] == "v1-direct-reality-vless"
     assert cfg["reality"]["public_key"] == "pub-t"
     assert cfg["reality"]["short_id"] == "sid-t"
     assert cfg["local_socks"]["auth"]["required"] is True
@@ -128,7 +128,7 @@ def test_local_socks_credentials_can_be_connection_scoped_overrides() -> None:
         protocol=ConnectionProtocol.VLESS_REALITY,
         mode=ConnectionMode.DIRECT,
         variant=ConnectionVariant.V1,
-        profile_name="V1",
+        profile_name="v1-direct-reality-vless",
         custom_overrides_json={
             "local_socks_port": 18081,
             "local_socks_username": "incy-user",
@@ -170,7 +170,7 @@ def test_local_socks_credential_override_pair_is_required_in_builder() -> None:
         protocol=ConnectionProtocol.VLESS_REALITY,
         mode=ConnectionMode.DIRECT,
         variant=ConnectionVariant.V1,
-        profile_name="V1",
+        profile_name="v1-direct-reality-vless",
         custom_overrides_json={"local_socks_username": "incy-user"},
         status=RecordStatus.ACTIVE,
     )
@@ -200,8 +200,8 @@ def test_default_local_socks_port_is_stable_high_port() -> None:
         device_id=device.id,
         protocol=ConnectionProtocol.VLESS_GRPC_TLS,
         mode=ConnectionMode.DIRECT,
-        variant=ConnectionVariant.V1,
-        profile_name="V1",
+        variant=ConnectionVariant.V0,
+        profile_name="v0-grpc-vless",
         custom_overrides_json={},
         status=RecordStatus.ACTIVE,
     )
@@ -228,7 +228,7 @@ def test_default_local_socks_port_is_stable_high_port() -> None:
     assert port != 1080
 
 
-def test_hysteria_uses_fixed_port_443() -> None:
+def test_hysteria_uses_fixed_port_8443_and_salamander() -> None:
     user = _user()
     device = _device(user.telegram_id)
     conn = Connection(
@@ -237,8 +237,8 @@ def test_hysteria_uses_fixed_port_443() -> None:
         device_id=device.id,
         protocol=ConnectionProtocol.HYSTERIA2,
         mode=ConnectionMode.DIRECT,
-        variant=ConnectionVariant.V3,
-        profile_name="V3",
+        variant=ConnectionVariant.V2,
+        profile_name="v2-direct-quic-hysteria",
         custom_overrides_json={},
         status=RecordStatus.ACTIVE,
     )
@@ -251,10 +251,77 @@ def test_hysteria_uses_fixed_port_443() -> None:
         endpoints=EndpointSet(transit_host="transit.example.com", entry_host="entry.example.com"),
     )
 
-    assert cfg["port"] == 443
-    assert cfg["profile"] == "V3-Hysteria2-QUIC-Direct"
+    assert cfg["port"] == 8443
+    assert cfg["profile"] == "v2-direct-quic-hysteria"
+    assert cfg["tls"]["insecure"] is False
+    assert cfg["obfs"] == {
+        "type": "salamander",
+        "password": "REPLACE_HYSTERIA2_SALAMANDER_PASSWORD",
+        "required": True,
+    }
+    assert cfg["design_constraints"]["fixed_port_udp"] == 8443
+    assert cfg["design_constraints"]["salamander_required"] is True
     assert cfg["local_socks"]["auth"]["required"] is True
-    assert cfg["local_socks"]["auth"]["username"].startswith("tg_v3_")
+    assert cfg["local_socks"]["auth"]["username"].startswith("tg_v2_")
+
+
+def test_hysteria_uses_role_specific_salamander_passwords() -> None:
+    user = _user()
+    device = _device(user.telegram_id)
+    conn = Connection(
+        id=uuid4(),
+        user_id=user.telegram_id,
+        device_id=device.id,
+        protocol=ConnectionProtocol.HYSTERIA2,
+        mode=ConnectionMode.CHAIN,
+        variant=ConnectionVariant.V2,
+        profile_name="v2-chain-quic-hysteria",
+        custom_overrides_json={},
+        status=RecordStatus.ACTIVE,
+    )
+
+    cfg = build_effective_config(
+        user=user,
+        device=device,
+        connection=conn,
+        selected_sni=None,
+        endpoints=EndpointSet(
+            transit_host="transit.example.com",
+            entry_host="entry.example.com",
+            hysteria_salamander_password_entry="entry-obfs-secret",
+            hysteria_salamander_password_transit="transit-obfs-secret",
+        ),
+    )
+
+    assert cfg["server"] == "entry.example.com"
+    assert cfg["obfs"]["password"] == "entry-obfs-secret"
+
+
+def test_hysteria_ip_endpoint_defaults_to_insecure_tls() -> None:
+    user = _user()
+    device = _device(user.telegram_id)
+    conn = Connection(
+        id=uuid4(),
+        user_id=user.telegram_id,
+        device_id=device.id,
+        protocol=ConnectionProtocol.HYSTERIA2,
+        mode=ConnectionMode.DIRECT,
+        variant=ConnectionVariant.V2,
+        profile_name="v2-direct-quic-hysteria",
+        custom_overrides_json={},
+        status=RecordStatus.ACTIVE,
+    )
+
+    cfg = build_effective_config(
+        user=user,
+        device=device,
+        connection=conn,
+        selected_sni=None,
+        endpoints=EndpointSet(transit_host="138.124.29.105", entry_host="entry.example.com"),
+    )
+
+    assert cfg["sni"] == "138.124.29.105"
+    assert cfg["tls"]["insecure"] is True
 
 
 def test_hysteria_rejects_non_loopback_local_socks_listener() -> None:
@@ -266,8 +333,8 @@ def test_hysteria_rejects_non_loopback_local_socks_listener() -> None:
         device_id=device.id,
         protocol=ConnectionProtocol.HYSTERIA2,
         mode=ConnectionMode.DIRECT,
-        variant=ConnectionVariant.V3,
-        profile_name="V3",
+        variant=ConnectionVariant.V2,
+        profile_name="v2-direct-quic-hysteria",
         custom_overrides_json={"socks_listen": "0.0.0.0:1080"},
         status=RecordStatus.ACTIVE,
     )
@@ -291,8 +358,8 @@ def test_hysteria_rejects_non_socks_client_mode() -> None:
         device_id=device.id,
         protocol=ConnectionProtocol.HYSTERIA2,
         mode=ConnectionMode.DIRECT,
-        variant=ConnectionVariant.V3,
-        profile_name="V3",
+        variant=ConnectionVariant.V2,
+        profile_name="v2-direct-quic-hysteria",
         custom_overrides_json={"client_mode": "tun"},
         status=RecordStatus.ACTIVE,
     )
@@ -316,8 +383,8 @@ def test_hysteria_chain_v4_enters_via_entry_and_marks_backhaul() -> None:
         device_id=device.id,
         protocol=ConnectionProtocol.HYSTERIA2,
         mode=ConnectionMode.CHAIN,
-        variant=ConnectionVariant.V4,
-        profile_name="V4",
+        variant=ConnectionVariant.V2,
+        profile_name="v2-chain-quic-hysteria",
         custom_overrides_json={},
         status=RecordStatus.ACTIVE,
     )
@@ -331,23 +398,38 @@ def test_hysteria_chain_v4_enters_via_entry_and_marks_backhaul() -> None:
     )
 
     assert cfg["protocol"] == "hysteria2"
-    assert cfg["profile"] == "V4-Hysteria2-QUIC-Chain"
+    assert cfg["profile"] == "v2-chain-quic-hysteria"
     assert cfg["server"] == "entry.myheartraces.space"
     assert cfg["sni"] == "entry.myheartraces.space"
     assert cfg["auth"]["type"] == "userpass"
-    assert cfg["auth"]["username"].startswith("v4_1_")
+    assert cfg["auth"]["username"].startswith("v2_1_")
     assert " " not in cfg["auth"]["username"]
     assert cfg["auth"]["token"].startswith(cfg["auth"]["username"] + ":")
+    assert cfg["port"] == 8443
+    assert cfg["obfs"]["type"] == "salamander"
+    assert cfg["obfs"]["required"] is True
     assert cfg["chain"]["type"] == "entry_transit_private_relay"
-    assert cfg["chain"]["carrier"] == "mieru"
-    assert cfg["chain"]["optional_packet_shaping"] == "zapret2-scoped"
+    assert cfg["chain"]["link_class"] == "entry-transit-udp"
+    assert cfg["chain"]["carrier"] == "hysteria2-salamander"
+    assert cfg["chain"]["preferred_outer"] == "udp-quic-salamander"
+    assert cfg["chain"]["outer_carrier"] == "udp-quic"
+    assert cfg["chain"]["optional_packet_shaping"] == "paired-udp-obfs"
     assert cfg["chain"]["managed_by"] == "link-crypto"
-    assert cfg["chain"]["selected_profiles"] == ["V2", "V4", "V6"]
+    assert cfg["chain"]["selected_profiles"] == ["V2"]
     assert cfg["chain"]["inner_transport"] == "hysteria2-quic"
     assert cfg["chain"]["xray_backhaul"] is False
+    assert cfg["chain"]["udp_capable"] is True
+    assert cfg["chain"]["salamander_required"] is True
+    assert cfg["chain"]["paired_obfs_supported"] is True
+    assert cfg["chain"]["dpi_resistance"] == {
+        "required": True,
+        "mode": "salamander-plus-scoped-paired-obfs",
+        "forbid_udp_443": True,
+        "forbid_tcp_8443": True,
+    }
     assert cfg["chain"]["transit"] == "myheartraces.space"
     assert cfg["design_constraints"]["entry_role_required"] is True
-    assert cfg["design_constraints"]["private_interconnect"] == "mieru-wss-zapret2"
+    assert cfg["design_constraints"]["private_interconnect"] == "hysteria2-salamander-udp-link"
     assert cfg["design_constraints"]["backhaul_outside_xray"] is True
     assert cfg["design_constraints"]["udp_over_private_relay"] is True
 
@@ -361,8 +443,8 @@ def test_hysteria_can_emit_token_auth_payload_for_future_runtime() -> None:
         device_id=device.id,
         protocol=ConnectionProtocol.HYSTERIA2,
         mode=ConnectionMode.DIRECT,
-        variant=ConnectionVariant.V3,
-        profile_name="V3",
+        variant=ConnectionVariant.V2,
+        profile_name="v2-direct-quic-hysteria",
         custom_overrides_json={},
         status=RecordStatus.ACTIVE,
     )
@@ -380,7 +462,7 @@ def test_hysteria_can_emit_token_auth_payload_for_future_runtime() -> None:
     )
 
     assert cfg["auth"]["type"] == "token"
-    assert cfg["auth"]["client_id"].startswith("v3_1_")
+    assert cfg["auth"]["client_id"].startswith("v2_1_")
     assert cfg["auth"]["token"].startswith(cfg["auth"]["client_id"] + "-")
     assert ":" not in cfg["auth"]["token"]
 
@@ -394,8 +476,8 @@ def test_hysteria_direct_uses_transit_ech_hints() -> None:
         device_id=device.id,
         protocol=ConnectionProtocol.HYSTERIA2,
         mode=ConnectionMode.DIRECT,
-        variant=ConnectionVariant.V3,
-        profile_name="V3",
+        variant=ConnectionVariant.V2,
+        profile_name="v2-direct-quic-hysteria",
         custom_overrides_json={},
         status=RecordStatus.ACTIVE,
     )
@@ -431,8 +513,8 @@ def test_hysteria_chain_uses_entry_ech_hints() -> None:
         device_id=device.id,
         protocol=ConnectionProtocol.HYSTERIA2,
         mode=ConnectionMode.CHAIN,
-        variant=ConnectionVariant.V4,
-        profile_name="V4",
+        variant=ConnectionVariant.V2,
+        profile_name="v2-chain-quic-hysteria",
         custom_overrides_json={},
         status=RecordStatus.ACTIVE,
     )
@@ -468,13 +550,13 @@ def test_ws_tls_chain_is_rejected() -> None:
         device_id=device.id,
         protocol=ConnectionProtocol.VLESS_WS_TLS,
         mode=ConnectionMode.CHAIN,
-        variant=ConnectionVariant.V2,
-        profile_name="V2",
+        variant=ConnectionVariant.V0,
+        profile_name="v0-ws-vless",
         custom_overrides_json={},
         status=RecordStatus.ACTIVE,
     )
 
-    with pytest.raises(ValueError, match="VLESS TLS compatibility profiles support only V1 direct"):
+    with pytest.raises(ValueError, match="VLESS TLS compatibility profiles support only V0 direct"):
         build_effective_config(
             user=user,
             device=device,
@@ -496,8 +578,8 @@ def test_ws_tls_direct_ignores_proxy_host_and_uses_transit_host() -> None:
         device_id=device.id,
         protocol=ConnectionProtocol.VLESS_WS_TLS,
         mode=ConnectionMode.DIRECT,
-        variant=ConnectionVariant.V1,
-        profile_name="V1",
+        variant=ConnectionVariant.V0,
+        profile_name="v0-ws-vless",
         custom_overrides_json={},
         status=RecordStatus.ACTIVE,
     )
@@ -515,7 +597,7 @@ def test_ws_tls_direct_ignores_proxy_host_and_uses_transit_host() -> None:
     )
 
     assert cfg["server"] == "transit.example.com"
-    assert cfg["profile"] == "V1-VLESS-WS-TLS-Direct"
+    assert cfg["profile"] == "v0-ws-vless"
     assert cfg["sni"] == "transit.example.com"
     assert cfg["ws"]["host"] == "transit.example.com"
 
@@ -529,8 +611,8 @@ def test_ws_tls_direct_uses_transit_host_without_proxy() -> None:
         device_id=device.id,
         protocol=ConnectionProtocol.VLESS_WS_TLS,
         mode=ConnectionMode.DIRECT,
-        variant=ConnectionVariant.V1,
-        profile_name="V1",
+        variant=ConnectionVariant.V0,
+        profile_name="v0-ws-vless",
         custom_overrides_json={},
         status=RecordStatus.ACTIVE,
     )
@@ -547,7 +629,7 @@ def test_ws_tls_direct_uses_transit_host_without_proxy() -> None:
     )
 
     assert cfg["server"] == "myheartraces.space"
-    assert cfg["profile"] == "V1-VLESS-WS-TLS-Direct"
+    assert cfg["profile"] == "v0-ws-vless"
     assert cfg["sni"] == "myheartraces.space"
     assert cfg["ws"]["host"] == "myheartraces.space"
 
@@ -561,8 +643,8 @@ def test_grpc_tls_direct_uses_transit_host_and_service_name() -> None:
         device_id=device.id,
         protocol=ConnectionProtocol.VLESS_GRPC_TLS,
         mode=ConnectionMode.DIRECT,
-        variant=ConnectionVariant.V1,
-        profile_name="V1",
+        variant=ConnectionVariant.V0,
+        profile_name="v0-grpc-vless",
         custom_overrides_json={"grpc_service_name": "tracegate.custom.Edge"},
         status=RecordStatus.ACTIVE,
     )
@@ -581,7 +663,7 @@ def test_grpc_tls_direct_uses_transit_host_and_service_name() -> None:
 
     assert cfg["protocol"] == "vless"
     assert cfg["transport"] == "grpc_tls"
-    assert cfg["profile"] == "V1-VLESS-gRPC-TLS-Direct"
+    assert cfg["profile"] == "v0-grpc-vless"
     assert cfg["server"] == "transit.example.com"
     assert cfg["sni"] == "transit.example.com"
     assert cfg["grpc"] == {
@@ -600,8 +682,8 @@ def test_shadowsocks2022_shadowtls_direct_v5_config_requires_local_socks_auth() 
         device_id=device.id,
         protocol=ConnectionProtocol.SHADOWSOCKS2022_SHADOWTLS,
         mode=ConnectionMode.DIRECT,
-        variant=ConnectionVariant.V5,
-        profile_name="V5",
+        variant=ConnectionVariant.V3,
+        profile_name="v3-direct-shadowtls-shadowsocks",
         custom_overrides_json={"local_socks_port": 18081},
         status=RecordStatus.ACTIVE,
     )
@@ -617,14 +699,14 @@ def test_shadowsocks2022_shadowtls_direct_v5_config_requires_local_socks_auth() 
 
     assert cfg["protocol"] == "shadowsocks2022"
     assert cfg["transport"] == "shadowtls_v3"
-    assert cfg["profile"] == "V5-Shadowsocks2022-ShadowTLS-Direct"
+    assert cfg["profile"] == "v3-direct-shadowtls-shadowsocks"
     assert cfg["server"] == "transit.example.com"
     assert cfg["sni"] == "www.microsoft.com"
     assert cfg["shadowtls"]["version"] == 3
     assert cfg["password"]
     assert cfg["local_socks"]["listen"] == "127.0.0.1:18081"
     assert cfg["local_socks"]["auth"]["required"] is True
-    assert cfg["local_socks"]["auth"]["username"].startswith("tg_v5_")
+    assert cfg["local_socks"]["auth"]["username"].startswith("tg_v3_")
 
 
 def test_shadowsocks2022_shadowtls_chain_v6_marks_private_interconnect() -> None:
@@ -636,8 +718,8 @@ def test_shadowsocks2022_shadowtls_chain_v6_marks_private_interconnect() -> None
         device_id=device.id,
         protocol=ConnectionProtocol.SHADOWSOCKS2022_SHADOWTLS,
         mode=ConnectionMode.CHAIN,
-        variant=ConnectionVariant.V6,
-        profile_name="V6",
+        variant=ConnectionVariant.V3,
+        profile_name="v3-chain-shadowtls-shadowsocks",
         custom_overrides_json={},
         status=RecordStatus.ACTIVE,
     )
@@ -654,7 +736,7 @@ def test_shadowsocks2022_shadowtls_chain_v6_marks_private_interconnect() -> None
         ),
     )
 
-    assert cfg["profile"] == "V6-Shadowsocks2022-ShadowTLS-Chain"
+    assert cfg["profile"] == "v3-chain-shadowtls-shadowsocks"
     assert cfg["server"] == "entry.example.com"
     assert cfg["sni"] == "cdn.example.com"
     assert cfg["chain"]["type"] == "entry_transit_private_relay"
@@ -663,11 +745,11 @@ def test_shadowsocks2022_shadowtls_chain_v6_marks_private_interconnect() -> None
     assert cfg["chain"]["outer_carrier"] == "websocket-tls"
     assert cfg["chain"]["optional_packet_shaping"] == "zapret2-scoped"
     assert cfg["chain"]["managed_by"] == "link-crypto"
-    assert cfg["chain"]["selected_profiles"] == ["V2", "V4", "V6"]
+    assert cfg["chain"]["selected_profiles"] == ["V1", "V3"]
     assert cfg["chain"]["inner_transport"] == "shadowsocks2022-shadowtls-v3"
     assert cfg["chain"]["xray_backhaul"] is False
     assert cfg["design_constraints"]["private_interconnect"] == "mieru-wss-zapret2"
-    assert cfg["local_socks"]["auth"]["username"].startswith("tg_v6_")
+    assert cfg["local_socks"]["auth"]["username"].startswith("tg_v3_")
 
 
 def test_wireguard_wstunnel_v7_config_requires_local_socks_auth() -> None:
@@ -679,8 +761,8 @@ def test_wireguard_wstunnel_v7_config_requires_local_socks_auth() -> None:
         device_id=device.id,
         protocol=ConnectionProtocol.WIREGUARD_WSTUNNEL,
         mode=ConnectionMode.DIRECT,
-        variant=ConnectionVariant.V7,
-        profile_name="V7",
+        variant=ConnectionVariant.V0,
+        profile_name="v0-wgws-wireguard",
         custom_overrides_json={
             "wireguard_private_key": "client-private",
             "wireguard_public_key": "client-public",
@@ -706,7 +788,7 @@ def test_wireguard_wstunnel_v7_config_requires_local_socks_auth() -> None:
 
     assert cfg["protocol"] == "wireguard"
     assert cfg["transport"] == "wstunnel"
-    assert cfg["profile"] == "V7-WireGuard-WSTunnel-Direct"
+    assert cfg["profile"] == "v0-wgws-wireguard"
     assert cfg["server"] == "edge.example.com"
     assert cfg["wstunnel"]["url"] == "wss://edge.example.com:443/cdn/ws"
     assert cfg["wireguard"]["private_key"] == "client-private"
@@ -715,7 +797,7 @@ def test_wireguard_wstunnel_v7_config_requires_local_socks_auth() -> None:
     assert cfg["wireguard"]["server_public_key"] == "server-public"
     assert cfg["wireguard"]["address"] == "10.70.0.2/32"
     assert cfg["local_socks"]["auth"]["required"] is True
-    assert cfg["local_socks"]["auth"]["username"].startswith("tg_v7_")
+    assert cfg["local_socks"]["auth"]["username"].startswith("tg_v0_")
 
 
 def test_wireguard_rejects_non_loopback_local_udp_listener() -> None:
@@ -727,8 +809,8 @@ def test_wireguard_rejects_non_loopback_local_udp_listener() -> None:
         device_id=device.id,
         protocol=ConnectionProtocol.WIREGUARD_WSTUNNEL,
         mode=ConnectionMode.DIRECT,
-        variant=ConnectionVariant.V7,
-        profile_name="V7",
+        variant=ConnectionVariant.V0,
+        profile_name="v0-wgws-wireguard",
         custom_overrides_json={
             "wireguard_private_key": "client-private",
             "wireguard_public_key": "client-public",
@@ -761,8 +843,8 @@ def test_wireguard_rejects_non_absolute_wstunnel_path() -> None:
         device_id=device.id,
         protocol=ConnectionProtocol.WIREGUARD_WSTUNNEL,
         mode=ConnectionMode.DIRECT,
-        variant=ConnectionVariant.V7,
-        profile_name="V7",
+        variant=ConnectionVariant.V0,
+        profile_name="v0-wgws-wireguard",
         custom_overrides_json={
             "wireguard_private_key": "client-private",
             "wireguard_public_key": "client-public",
@@ -795,8 +877,8 @@ def test_wireguard_rejects_unsafe_mtu_override() -> None:
         device_id=device.id,
         protocol=ConnectionProtocol.WIREGUARD_WSTUNNEL,
         mode=ConnectionMode.DIRECT,
-        variant=ConnectionVariant.V7,
-        profile_name="V7",
+        variant=ConnectionVariant.V0,
+        profile_name="v0-wgws-wireguard",
         custom_overrides_json={
             "wireguard_private_key": "client-private",
             "wireguard_public_key": "client-public",

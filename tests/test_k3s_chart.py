@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from tracegate.services.runtime_contract import TRACEGATE21_CLIENT_PROFILES
+from tracegate.services.runtime_contract import TRACEGATE22_CLIENT_PROFILES
 
 
 CHART_ROOT = Path("deploy/k3s/tracegate")
@@ -68,7 +68,7 @@ def _rendered_runtime_contract(rendered: str) -> dict:
         data = doc.get("data")
         if not isinstance(data, dict):
             continue
-        raw = data.get("tracegate-2.1-runtime.yaml")
+        raw = data.get("tracegate-2.2-runtime.yaml")
         if isinstance(raw, str):
             return yaml.safe_load(raw)
     raise AssertionError("rendered runtime contract ConfigMap was not found")
@@ -108,7 +108,7 @@ def _helm_template_with_values(tmp_path: Path, values: dict) -> subprocess.Compl
 def test_tracegate21_chart_uses_entry_transit_roles() -> None:
     values = _values()
 
-    assert values["global"]["runtimeProfile"] == "tracegate-2.1"
+    assert values["global"]["runtimeProfile"] == "tracegate-2.2"
     assert values["controlPlane"]["auth"]["existingSecretName"] == "tracegate-control-plane-auth"
     assert values["controlPlane"]["database"]["embedded"]["enabled"] is False
     assert values["controlPlane"]["database"]["externalUrlSecret"]["name"] == "tracegate-database-url"
@@ -210,67 +210,66 @@ def test_k3s_deploy_ready_check_covers_release_gate() -> None:
     assert "rendered chart namespace matches `TRACEGATE_NAMESPACE`" in readme
 
 
+def _prod_overlay_values() -> dict:
+    tracegate_digest = "sha256:" + ("a" * 64)
+    return {
+        "global": {
+            "publicBaseUrl": "https://tracegate.prod.test",
+            "image": {"repository": "ghcr.io/acme/tracegate", "digest": tracegate_digest},
+        },
+        "controlPlane": {
+            "env": {
+                "defaultEntryHost": "entry.prod.test",
+                "defaultTransitHost": "transit.prod.test",
+                "mtprotoDomain": "mtproto.prod.test",
+            }
+        },
+        "decoy": {"hostPath": "/srv/tracegate/decoy"},
+        "network": {
+            "egressIsolation": {
+                "ingressPublicIPs": ["8.8.8.8"],
+                "egressPublicIPs": ["1.1.1.1"],
+                "nodeAnnotations": {"enabled": True},
+            }
+        },
+        "gateway": {
+            "images": {
+                name: {"tag": "pinned-test"}
+                for name in (
+                    "haproxy",
+                    "nginx",
+                    "xray",
+                    "hysteria",
+                    "mieru",
+                    "zapret2",
+                    "wstunnel",
+                    "wireguard",
+                    "shadowtls",
+                    "shadowsocks",
+                    "singbox",
+                    "mtproto",
+                )
+            },
+            "roles": {
+                "entry": {"tls": {"serverName": "entry.prod.test"}},
+                "transit": {"tls": {"serverName": "transit.prod.test"}},
+            },
+        },
+        "interconnect": {
+            "entryTransit": {
+                "outerCarrier": {
+                    "serverName": "bridge.prod.test",
+                    "publicPath": "/cdn-cgi/tracegate-link",
+                }
+            }
+        },
+        "mtproto": {"domain": "mtproto.prod.test"},
+    }
+
+
 def test_k3s_strict_prod_overlay_check_accepts_private_overlay(tmp_path: Path) -> None:
     values_path = tmp_path / "values-prod.yaml"
-    tracegate_digest = "sha256:" + ("a" * 64)
-    values_path.write_text(
-        yaml.safe_dump(
-            {
-                "global": {
-                    "publicBaseUrl": "https://tracegate.prod.test",
-                    "image": {"repository": "ghcr.io/acme/tracegate", "digest": tracegate_digest},
-                },
-                "controlPlane": {
-                    "env": {
-                        "defaultEntryHost": "entry.prod.test",
-                        "defaultTransitHost": "transit.prod.test",
-                        "mtprotoDomain": "mtproto.prod.test",
-                    }
-                },
-                "decoy": {"hostPath": "/srv/tracegate/decoy"},
-                "network": {
-                    "egressIsolation": {
-                        "ingressPublicIPs": ["8.8.8.8"],
-                        "egressPublicIPs": ["1.1.1.1"],
-                        "nodeAnnotations": {"enabled": True},
-                    }
-                },
-                "gateway": {
-                    "images": {
-                        name: {"tag": "pinned-test"}
-                        for name in (
-                            "haproxy",
-                            "nginx",
-                            "xray",
-                            "mieru",
-                            "zapret2",
-                            "wstunnel",
-                            "wireguard",
-                            "shadowtls",
-                            "shadowsocks",
-                            "singbox",
-                            "mtproto",
-                        )
-                    },
-                    "roles": {
-                        "entry": {"tls": {"serverName": "entry.prod.test"}},
-                        "transit": {"tls": {"serverName": "transit.prod.test"}},
-                    },
-                },
-                "interconnect": {
-                    "entryTransit": {
-                        "outerCarrier": {
-                            "serverName": "bridge.prod.test",
-                            "publicPath": "/cdn-cgi/tracegate-link",
-                        }
-                    }
-                },
-                "mtproto": {"domain": "mtproto.prod.test"},
-            },
-            sort_keys=True,
-        ),
-        encoding="utf-8",
-    )
+    values_path.write_text(yaml.safe_dump(_prod_overlay_values(), sort_keys=True), encoding="utf-8")
 
     result = subprocess.run(
         [
@@ -289,6 +288,33 @@ def test_k3s_strict_prod_overlay_check_accepts_private_overlay(tmp_path: Path) -
 
     assert result.returncode == 0, result.stderr
     assert "prod-overlay-check: OK" in result.stdout
+
+
+def test_k3s_strict_prod_overlay_check_rejects_noop_private_reload(tmp_path: Path) -> None:
+    values = _prod_overlay_values()
+    values["gateway"]["agent"] = {"reloadCommands": {"profiles": "sh -lc 'true'", "linkCrypto": "sh -lc 'true'"}}
+    values_path = tmp_path / "values-prod.yaml"
+    values_path.write_text(yaml.safe_dump(values, sort_keys=True), encoding="utf-8")
+
+    result = subprocess.run(
+        [
+            "python3",
+            "deploy/k3s/prod-overlay-check.py",
+            "--strict",
+            "--chart-values",
+            str(CHART_ROOT / "values.yaml"),
+            "--values",
+            str(values_path),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    output = f"{result.stdout}\n{result.stderr}"
+    assert result.returncode != 0
+    assert "gateway.agent.reloadCommands.profiles must run tracegate-k3s-private-reload --component profiles" in output
+    assert "gateway.agent.reloadCommands.linkCrypto must run tracegate-k3s-private-reload --component link-crypto" in output
 
 
 def test_tracegate21_image_helper_supports_digest_pins(tmp_path: Path) -> None:
@@ -312,8 +338,10 @@ def _fake_kubectl(tmp_path: Path, *, omit_private_key: str = "") -> Path:
     private_keys = {
         "reality-entry-private-key",
         "reality-transit-private-key",
-        "hysteria-entry-auth",
-        "hysteria-transit-auth",
+        "hysteria-entry-salamander-password",
+        "hysteria-transit-salamander-password",
+        "hysteria-entry-stats-secret",
+        "hysteria-transit-stats-secret",
         "mieru-client-json",
         "mieru-server-json",
         "mtproto-secret-txt",
@@ -483,12 +511,20 @@ def test_tracegate21_chart_externalizes_private_profiles() -> None:
     assert values["privateProfiles"]["defaultMode"] == 256
     assert values["privateProfiles"]["secretKeys"]["mieruClient"] == "mieru-client-json"
     assert values["privateProfiles"]["secretKeys"]["realityPrivateKeyEntry"] == "reality-entry-private-key"
+    assert values["privateProfiles"]["secretKeys"]["hysteriaSalamanderEntry"] == "hysteria-entry-salamander-password"
+    assert values["privateProfiles"]["secretKeys"]["hysteriaSalamanderTransit"] == "hysteria-transit-salamander-password"
+    assert values["privateProfiles"]["secretKeys"]["hysteriaStatsEntry"] == "hysteria-entry-stats-secret"
+    assert values["privateProfiles"]["secretKeys"]["hysteriaStatsTransit"] == "hysteria-transit-stats-secret"
     assert values["privateProfiles"]["secretKeys"]["shadowsocks2022Entry"] == "shadowsocks2022-entry-server-json"
     assert values["privateProfiles"]["secretKeys"]["shadowsocks2022Transit"] == "shadowsocks2022-transit-server-json"
     assert values["privateProfiles"]["secretKeys"]["shadowtlsEntry"] == "shadowtls-entry-config-yaml"
     assert values["privateProfiles"]["secretKeys"]["shadowtlsTransit"] == "shadowtls-transit-config-yaml"
     assert values["privateProfiles"]["keys"]["mieruClient"] == "mieru/client.json"
     assert values["privateProfiles"]["keys"]["realityPrivateKeyEntry"] == "reality/entry-private-key"
+    assert values["privateProfiles"]["keys"]["hysteriaSalamanderEntry"] == "hysteria/entry-salamander-password"
+    assert values["privateProfiles"]["keys"]["hysteriaSalamanderTransit"] == "hysteria/transit-salamander-password"
+    assert values["privateProfiles"]["keys"]["hysteriaStatsEntry"] == "hysteria/entry-stats-secret"
+    assert values["privateProfiles"]["keys"]["hysteriaStatsTransit"] == "hysteria/transit-stats-secret"
     assert values["privateProfiles"]["keys"]["shadowsocks2022Entry"] == "shadowsocks2022/entry-server.json"
     assert values["privateProfiles"]["keys"]["shadowsocks2022Transit"] == "shadowsocks2022/transit-server.json"
     assert values["privateProfiles"]["keys"]["shadowtlsEntry"] == "shadowtls/entry-config.yaml"
@@ -513,7 +549,7 @@ def test_tracegate21_chart_externalizes_private_profiles() -> None:
     assert "gateway.probes.enabled=false is forbidden" in _chart_text()
     assert "gateway.privatePreflight.enabled=false is forbidden" in _chart_text()
     assert "gateway.privatePreflight.forbidPlaceholders=false is forbidden" in _chart_text()
-    assert "at least one gateway role must be enabled in Tracegate 2.1" in _chart_text()
+    assert "at least one gateway role must be enabled in Tracegate 2.2" in _chart_text()
     assert "interconnect.entryTransit.enabled=true requires both Entry and Transit gateway roles" in _chart_text()
     assert "wireguard.enabled=true requires the Transit gateway role" in _chart_text()
     assert "mtproto.enabled=true requires the Transit gateway role" in _chart_text()
@@ -522,7 +558,7 @@ def test_tracegate21_chart_externalizes_private_profiles() -> None:
     assert "interconnect.entryTransit.routerTransit.enabled=true requires the Transit gateway role" in _chart_text()
     assert "router link-crypto profiles require interconnect.mieru.enabled=true" in _chart_text()
     assert values["controlPlane"]["env"]["botWelcomeRequired"] is True
-    assert values["controlPlane"]["env"]["botWelcomeVersion"] == "tracegate-2.1-client-safety-v2"
+    assert values["controlPlane"]["env"]["botWelcomeVersion"] == "tracegate-2.2-ui-v3"
     assert values["controlPlane"]["env"]["botWelcomeMessageSecret"] == {
         "name": "tracegate-bot-welcome",
         "key": "message",
@@ -569,7 +605,7 @@ def test_tracegate21_bot_welcome_message_is_secret_backed(tmp_path: Path) -> Non
     container = bot["spec"]["template"]["spec"]["containers"][0]
     env_by_name = {row["name"]: row for row in container["env"]}
     assert env_by_name["BOT_WELCOME_REQUIRED"]["value"] == "true"
-    assert env_by_name["BOT_WELCOME_VERSION"]["value"] == "tracegate-2.1-client-safety-v2"
+    assert env_by_name["BOT_WELCOME_VERSION"]["value"] == "tracegate-2.2-ui-v3"
     assert env_by_name["BOT_WELCOME_MESSAGE"]["valueFrom"]["secretKeyRef"] == {
         "name": "tracegate-bot-welcome",
         "key": "message",
@@ -649,10 +685,15 @@ def test_tracegate21_chart_disables_hostwide_interception_by_default() -> None:
     assert entry_transit["outerCarrier"]["publicPort"] == 443
     assert entry_transit["outerCarrier"]["publicPath"] == "/cdn-cgi/tracegate-link"
     assert entry_transit["outerCarrier"]["verifyTls"] is True
-    assert entry_transit["scope"] == ["V2", "V4", "V6"]
+    assert entry_transit["outerCarrier"]["spkiPinning"]["required"] is True
+    assert entry_transit["outerCarrier"]["admission"]["mode"] == "hmac-sha256-generation-bound"
+    assert entry_transit["outerCarrier"]["admission"]["header"] == "Sec-WebSocket-Protocol"
+    assert entry_transit["outerCarrier"]["tcpShapingProfileFile"].endswith("/tcp-shaping.env")
+    assert entry_transit["outerCarrier"]["promotionPreflightProfileFile"].endswith("/promotion-preflight.env")
+    assert entry_transit["scope"] == ["V1", "V3"]
     assert values["interconnect"]["mieru"]["localSocks"]["routerEntryPort"] == 10883
     assert values["interconnect"]["mieru"]["localSocks"]["routerTransitPort"] == 10884
-    assert zapret2["enabled"] is False
+    assert zapret2["enabled"] is True
     assert zapret2["nfqueue"] is False
     assert zapret2["hostWideInterception"] is False
     assert zapret2["scope"] == "scoped-egress"
@@ -674,6 +715,16 @@ def test_tracegate21_chart_disables_hostwide_interception_by_default() -> None:
     assert "interconnect.entryTransit.outerCarrier.publicPath must be a clean absolute HTTP path" in _chart_text()
     assert "interconnect.entryTransit.outerCarrier.publicPath must be separate from wireguard.wstunnel.publicPath" in _chart_text()
     assert "interconnect.entryTransit.outerCarrier.verifyTls=false is forbidden" in _chart_text()
+    assert "interconnect.entryTransit.outerCarrier.spkiPinning.required=false is forbidden" in _chart_text()
+    assert "interconnect.entryTransit.outerCarrier.admission.mode must stay hmac-sha256-generation-bound" in _chart_text()
+    assert "interconnect.zapret2.enabled=false is forbidden for TCP link-crypto DPI resistance" in _chart_text()
+    assert "interconnect.entryTransit.udp.hardening.enabled=false is forbidden" in _chart_text()
+    assert "interconnect.entryTransit.udp.hardening.antiReplay.enabled=false is forbidden" in _chart_text()
+    assert "interconnect.entryTransit.udp.hardening.antiAmplification.enabled=false is forbidden" in _chart_text()
+    assert "interconnect.entryTransit.udp.hardening.mtu.mode must stay clamp" in _chart_text()
+    assert "interconnect.entryTransit.udp.hardening.sourceValidation.mode must stay profile-bound-remote" in _chart_text()
+    assert "gateway.roles.%s.ports.publicTcp must stay 443; TCP/8443 is forbidden" in _chart_text()
+    assert "gateway.roles.%s.ports.publicUdp must stay 8443; UDP/443 is forbidden" in _chart_text()
     assert "containerResources.zapret2" in Path("deploy/k3s/README.md").read_text(encoding="utf-8")
     assert "fallback: none" in Path("deploy/k3s/values-prod.example.yaml").read_text(encoding="utf-8")
     assert "chainBridgeOwner: link-crypto" in Path("deploy/k3s/values-prod.example.yaml").read_text(encoding="utf-8")
@@ -753,6 +804,25 @@ def test_tracegate21_chart_forbids_xray_entry_transit_backhaul() -> None:
     assert "Keep Entry-to-Transit chaining outside Xray" in readme
 
 
+def test_tracegate22_k3s_runs_hysteria2_outside_xray(tmp_path: Path) -> None:
+    rendered = _helm_template_with_values(tmp_path, {})
+
+    assert rendered.returncode == 0, rendered.stderr
+    assert '"hy2-in"' not in rendered.stdout
+    assert "REPLACE_HYSTERIA_AUTH" not in rendered.stdout
+    assert "REPLACE_HYSTERIA_SALAMANDER_PASSWORD" in rendered.stdout
+    assert "REPLACE_HYSTERIA_STATS_SECRET" in rendered.stdout
+
+    for component, template in _gateway_deployment_templates(rendered.stdout).items():
+        containers = _containers_by_name(template)
+        assert "xray" in containers
+        assert "hysteria" in containers
+        assert "hy2" not in {port["name"] for port in containers["xray"].get("ports", [])}
+        hysteria_ports = {port["name"]: port for port in containers["hysteria"].get("ports", [])}
+        assert hysteria_ports["hy2"]["protocol"] == "UDP", component
+        assert containers["hysteria"]["command"] == ["hysteria", "server", "-c", "/etc/hysteria/server.yaml"]
+
+
 def test_tracegate21_runtime_contract_renders_role_link_crypto_metadata(tmp_path: Path) -> None:
     rendered = _helm_template_with_values(
         tmp_path,
@@ -798,6 +868,31 @@ def test_tracegate21_runtime_contract_renders_role_link_crypto_metadata(tmp_path
         "url": "wss://bridge.example.com:443/cdn-cgi/tracegate-link",
         "verifyTls": True,
         "secretMaterial": False,
+        "tlsPinning": {
+            "required": True,
+            "mode": "spki-sha256",
+            "profileSource": "private-file-reference",
+            "profileRef": {
+                "kind": "file",
+                "path": "/etc/tracegate/private/link-crypto/outer-wss-spki.env",
+                "secretMaterial": True,
+            },
+            "secretMaterial": False,
+        },
+        "admission": {
+            "required": True,
+            "mode": "hmac-sha256-generation-bound",
+            "carrier": "websocket-subprotocol",
+            "header": "Sec-WebSocket-Protocol",
+            "profileSource": "private-file-reference",
+            "profileRef": {
+                "kind": "file",
+                "path": "/etc/tracegate/private/link-crypto/outer-wss-admission.env",
+                "secretMaterial": True,
+            },
+            "rejectUnauthenticated": True,
+            "secretMaterial": False,
+        },
         "localPorts": {
             "entryClient": 14081,
             "transitServer": 14082,
@@ -808,6 +903,17 @@ def test_tracegate21_runtime_contract_renders_role_link_crypto_metadata(tmp_path
             "transitTarget": "127.0.0.1:10882",
         },
     }
+    assert link_crypto["dpiResistance"]["mode"] == "mieru-wss-spki-hmac-zapret2-scoped"
+    assert link_crypto["dpiResistance"]["outerCarrier"] == {
+        "required": True,
+        "spkiPinningRequired": True,
+        "hmacAdmissionRequired": True,
+    }
+    assert "scoped-zapret2" in link_crypto["dpiResistance"]["requiredLayers"]
+    assert "spki-sha256-pin" in link_crypto["dpiResistance"]["requiredLayers"]
+    assert link_crypto["dpiResistance"]["trafficShaping"]["required"] is True
+    assert link_crypto["dpiResistance"]["trafficShaping"]["profileRef"]["path"].endswith("/tcp-shaping.env")
+    assert link_crypto["dpiResistance"]["promotionPreflight"]["failClosed"] is True
     assert link_crypto["roles"]["entry"]["classes"] == ["entry-transit", "router-entry"]
     assert link_crypto["roles"]["entry"]["counts"] == {
         "total": 2,
@@ -820,8 +926,8 @@ def test_tracegate21_runtime_contract_renders_role_link_crypto_metadata(tmp_path
         "router-entry": 10883,
     }
     assert link_crypto["roles"]["entry"]["selectedProfiles"] == {
-        "entry-transit": ["V2", "V4", "V6"],
-        "router-entry": ["V2", "V4", "V6"],
+        "entry-transit": ["V1", "V3"],
+        "router-entry": ["V1", "V3"],
     }
     assert link_crypto["roles"]["transit"]["classes"] == ["entry-transit", "router-transit"]
     assert link_crypto["roles"]["transit"]["counts"] == {
@@ -835,11 +941,83 @@ def test_tracegate21_runtime_contract_renders_role_link_crypto_metadata(tmp_path
         "router-transit": 10884,
     }
     assert link_crypto["roles"]["transit"]["selectedProfiles"] == {
-        "entry-transit": ["V2", "V4", "V6"],
-        "router-transit": ["V1", "V3", "V5", "V7"],
+        "entry-transit": ["V1", "V3"],
+        "router-transit": ["V0", "V1", "V3"],
+    }
+    assert link_crypto["udp"]["enabled"] is True
+    assert link_crypto["udp"]["carrier"] == "hysteria2"
+    assert link_crypto["udp"]["transport"] == "udp-quic"
+    assert link_crypto["udp"]["manager"] == "link-crypto"
+    assert link_crypto["udp"]["profileSource"] == "external-secret-file-reference"
+    assert link_crypto["udp"]["secretMaterial"] is False
+    assert link_crypto["udp"]["xrayBackhaul"] is False
+    assert link_crypto["udp"]["remotePort"] == 8443
+    assert link_crypto["udp"]["obfs"] == {"type": "salamander", "required": True}
+    assert link_crypto["udp"]["pairedObfs"] == {
+        "enabled": False,
+        "backend": "udp2raw",
+        "mode": "udp2raw-faketcp",
+        "requiresBothSides": True,
+        "failClosed": True,
+        "noHostWideInterception": True,
+        "noNfqueue": True,
+    }
+    assert link_crypto["udp"]["hardening"] == {
+        "enabled": True,
+        "failClosed": True,
+        "requirePrivateAuth": True,
+        "rejectAnonymous": True,
+        "antiReplay": {"enabled": True, "windowPackets": 4096},
+        "antiAmplification": {"enabled": True, "maxUnvalidatedBytes": 1200},
+        "rateLimit": {"enabled": True, "handshakePerMinute": 120, "newSessionPerMinute": 60},
+        "mtu": {"mode": "clamp", "maxPacketSize": 1252},
+        "keyRotation": {
+            "enabled": True,
+            "strategy": "generation-drain",
+            "maxAgeSeconds": 3600,
+            "overlapSeconds": 120,
+        },
+        "sourceValidation": {"enabled": True, "mode": "profile-bound-remote"},
+    }
+    assert link_crypto["udp"]["dpiResistance"]["enabled"] is True
+    assert link_crypto["udp"]["dpiResistance"]["mode"] == "salamander-plus-scoped-paired-obfs"
+    assert link_crypto["udp"]["dpiResistance"]["portSplit"] == {
+        "publicUdpPort": 8443,
+        "forbidUdp443": True,
+        "forbidTcp8443": True,
+    }
+    assert "salamander" in link_crypto["udp"]["dpiResistance"]["requiredLayers"]
+    assert link_crypto["udp"]["classes"] == ["entry-transit-udp", "router-entry-udp", "router-transit-udp"]
+    assert link_crypto["udp"]["counts"] == {
+        "total": 3,
+        "entryTransitUdp": 1,
+        "routerEntryUdp": 1,
+        "routerTransitUdp": 1,
+    }
+    assert link_crypto["udp"]["roles"]["entry"]["classes"] == ["entry-transit-udp", "router-entry-udp"]
+    assert link_crypto["udp"]["roles"]["entry"]["localPorts"] == {
+        "entry-transit-udp": 14481,
+        "router-entry-udp": 14483,
+    }
+    assert link_crypto["udp"]["roles"]["entry"]["selectedProfiles"] == {
+        "entry-transit-udp": ["V2"],
+        "router-entry-udp": ["V2"],
+    }
+    assert link_crypto["udp"]["roles"]["transit"]["classes"] == ["entry-transit-udp", "router-transit-udp"]
+    assert link_crypto["udp"]["roles"]["transit"]["localPorts"] == {
+        "entry-transit-udp": 14482,
+        "router-transit-udp": 14484,
+    }
+    assert link_crypto["udp"]["roles"]["transit"]["selectedProfiles"] == {
+        "entry-transit-udp": ["V2"],
+        "router-transit-udp": ["V2"],
     }
     assert link_crypto["zapret2"]["hostWideInterception"] is False
     assert link_crypto["zapret2"]["nfqueue"] is False
+    assert link_crypto["zapret2"]["enabled"] is True
+    assert link_crypto["zapret2"]["required"] is True
+    assert link_crypto["zapret2"]["scope"] == "link-crypto-flow-only"
+    assert link_crypto["zapret2"]["profileRef"]["secretMaterial"] is True
 
 
 def test_tracegate21_chart_omits_mieru_sidecar_when_entry_transit_bridge_is_disabled(tmp_path: Path) -> None:
@@ -917,12 +1095,12 @@ def test_tracegate21_chart_declares_required_client_profiles_and_socks_auth() ->
 
     assert values["transportProfiles"]["socks5"]["required"] is True
     assert values["transportProfiles"]["socks5"]["allowAnonymousLocalhost"] is False
-    assert tuple(values["transportProfiles"]["clientNames"]) == TRACEGATE21_CLIENT_PROFILES
-    assert "V1-VLESS-Reality-Direct" in profiles
-    assert "V1-VLESS-gRPC-TLS-Direct" in profiles
-    assert "V5-Shadowsocks2022-ShadowTLS-Direct" in profiles
-    assert "V6-Shadowsocks2022-ShadowTLS-Chain" in profiles
-    assert "V7-WireGuard-WSTunnel-Direct" in profiles
+    assert tuple(values["transportProfiles"]["clientNames"]) == TRACEGATE22_CLIENT_PROFILES
+    assert "v1-direct-reality-vless" in profiles
+    assert "v0-grpc-vless" in profiles
+    assert "v3-direct-shadowtls-shadowsocks" in profiles
+    assert "v3-chain-shadowtls-shadowsocks" in profiles
+    assert "v0-wgws-wireguard" in profiles
     assert "MTProto-FakeTLS-Direct" in profiles
     assert "MTProto-TCP443-Direct" not in profiles
     assert "V8-Mieru-TCP-Direct" not in profiles
@@ -987,19 +1165,19 @@ def test_tracegate21_chart_guards_v5_v6_v7_transport_shape() -> None:
     values = _values()
     text = _chart_text()
 
-    assert values["shadowsocks2022"]["variants"]["direct"] == "V5"
-    assert values["shadowsocks2022"]["variants"]["chain"] == "V6"
+    assert values["shadowsocks2022"]["variants"]["direct"] == "V3"
+    assert values["shadowsocks2022"]["variants"]["chain"] == "V3"
     assert values["shadowsocks2022"]["shadowtls"]["enabled"] is True
     assert values["shadowsocks2022"]["shadowtls"]["version"] == 3
-    assert values["wireguard"]["variant"] == "V7"
+    assert values["wireguard"]["variant"] == "V0"
     assert values["wireguard"]["wstunnel"]["enabled"] is True
     assert values["wireguard"]["wstunnel"]["mode"] == "wireguard-over-websocket"
     assert values["wireguard"]["wstunnel"]["publicPath"].startswith("/")
-    assert "shadowsocks2022.variants.direct must stay V5" in text
-    assert "shadowsocks2022.variants.chain must stay V6" in text
+    assert "shadowsocks2022.variants.direct must stay V3" in text
+    assert "shadowsocks2022.variants.chain must stay V3" in text
     assert "shadowsocks2022.shadowtls.enabled=false is forbidden" in text
     assert "shadowsocks2022.shadowtls.version must stay 3" in text
-    assert "wireguard.variant must stay V7" in text
+    assert "wireguard.variant must stay V0" in text
     assert "wireguard.wstunnel.enabled=false is forbidden" in text
     assert "wireguard.wstunnel.mode must stay wireguard-over-websocket" in text
     assert "wireguard.wstunnel.publicPath must be an absolute HTTP path" in text
@@ -1126,7 +1304,7 @@ def test_tracegate21_wireguard_sidecar_uses_portable_lifecycle_script(tmp_path: 
                 "interconnect": {"entryTransit": {"enabled": False}},
                 "mtproto": {"enabled": False},
             },
-            "at least one gateway role must be enabled in Tracegate 2.1",
+            "at least one gateway role must be enabled in Tracegate 2.2",
         ),
         (
             {
@@ -1198,22 +1376,22 @@ def test_tracegate21_wireguard_sidecar_uses_portable_lifecycle_script(tmp_path: 
             "experimentalProfiles.tuicV5.enabled=true requires directEnabled or chainEnabled",
         ),
         (
-            {"transportProfiles": {"clientNames": ["V1-VLESS-Reality-Direct", "MTProto-TCP443-Direct"]}},
-            "transportProfiles.clientNames must include V1-VLESS-gRPC-TLS-Direct",
+            {"transportProfiles": {"clientNames": ["v1-direct-reality-vless", "MTProto-TCP443-Direct"]}},
+            "transportProfiles.clientNames must include v1-chain-reality-vless",
         ),
         (
             {
                 "transportProfiles": {
                     "clientNames": [
-                        "V1-VLESS-Reality-Direct",
-                        "V1-VLESS-gRPC-TLS-Direct",
-                        "V1-VLESS-WS-TLS-Direct",
-                        "V2-VLESS-Reality-Chain",
-                        "V3-Hysteria2-QUIC-Direct",
-                        "V4-Hysteria2-QUIC-Chain",
-                        "V5-Shadowsocks2022-ShadowTLS-Direct",
-                        "V6-Shadowsocks2022-ShadowTLS-Chain",
-                        "V7-WireGuard-WSTunnel-Direct",
+                        "v1-direct-reality-vless",
+                        "v1-chain-reality-vless",
+                        "v2-direct-quic-hysteria",
+                        "v2-chain-quic-hysteria",
+                        "v3-direct-shadowtls-shadowsocks",
+                        "v3-chain-shadowtls-shadowsocks",
+                        "v0-ws-vless",
+                        "v0-grpc-vless",
+                        "v0-wgws-wireguard",
                     ]
                 }
             },
@@ -1223,7 +1401,7 @@ def test_tracegate21_wireguard_sidecar_uses_portable_lifecycle_script(tmp_path: 
             {
                 "transportProfiles": {
                     "clientNames": [
-                        *TRACEGATE21_CLIENT_PROFILES,
+                        *TRACEGATE22_CLIENT_PROFILES,
                         "V8-Mieru-TCP-Direct",
                     ]
                 }
@@ -1325,6 +1503,14 @@ def test_tracegate21_templates_keep_user_state_out_of_rollout_checksums() -> Non
     assert "roleLinkCryptoReloadMarker" in gateways
     assert "roleProfileEnv" in gateways
     assert "roleLinkCryptoEnv" in gateways
+    assert "roleRouterState" in gateways
+    assert "roleRouterEnv" in gateways
+    assert "roleRouterClientBundle" in gateways
+    assert "roleRouterClientEnv" in gateways
+    assert "roleRouterRequired" in gateways
+    assert "roleRouterAbsentTest" in gateways
+    assert "roleRouterValidatedTest" in gateways
+    assert "roleRouterReadyTest" in gateways
     assert "roleProfileReadyTest" in gateways
     assert "roleLinkCryptoReadyTest" in gateways
     assert "roleProfileMarkerTest" in gateways
@@ -1340,6 +1526,9 @@ def test_tracegate21_templates_keep_user_state_out_of_rollout_checksums() -> Non
     assert "tracegate.k3s-private-reload.v1" in gateways
     assert '\\\\\\"component\\\\\\": \\\\\\"profiles\\\\\\"' in gateways
     assert '\\\\\\"component\\\\\\": \\\\\\"link-crypto\\\\\\"' in gateways
+    assert '\\\\\\"router\\\\\\"' in gateways
+    assert '\\\\\\"clientBundle\\\\\\"' in gateways
+    assert '\\\\\\"clientEnv\\\\\\"' in gateways
 
 
 def test_tracegate21_gateway_probes_are_local_only() -> None:
@@ -1386,8 +1575,10 @@ def test_tracegate21_gateway_projects_private_profile_secret_paths() -> None:
     assert "--zapret-file" in gateways
     assert "keys.realityPrivateKeyEntry" in gateways
     assert "keys.realityPrivateKeyTransit" in gateways
-    assert "keys.hysteriaAuthEntry" in gateways
-    assert "keys.hysteriaAuthTransit" in gateways
+    assert "keys.hysteriaSalamanderEntry" in gateways
+    assert "keys.hysteriaSalamanderTransit" in gateways
+    assert "keys.hysteriaStatsEntry" in gateways
+    assert "keys.hysteriaStatsTransit" in gateways
     assert "keys.shadowsocks2022Entry" in gateways
     assert "keys.shadowsocks2022Transit" in gateways
     assert "secretKeys.shadowsocks2022Entry" in gateways
@@ -1441,10 +1632,16 @@ def test_tracegate21_gateway_projects_private_profile_secret_paths() -> None:
     assert "mountPath: /var/lib/tracegate" in gateways
     assert "readOnly: true" in gateways
     assert "REALITY_PRIVATE_KEY" in gateways
-    assert "HYSTERIA_AUTH" in gateways
+    assert "AGENT_STATS_SECRET" in gateways
+    assert "HYSTERIA_SALAMANDER_PASSWORD_ENTRY" in (CHART_ROOT / "templates" / "control-plane.yaml").read_text(encoding="utf-8")
     assert "escape_sed_replacement()" in gateways
-    assert "replace_literal REPLACE_REALITY_PRIVATE_KEY" in gateways
-    assert "replace_literal REPLACE_HYSTERIA_AUTH" in gateways
+    assert "replace_xray_literal REPLACE_REALITY_PRIVATE_KEY" in gateways
+    assert "replace_hysteria_literal REPLACE_HYSTERIA_SALAMANDER_PASSWORD" in gateways
+    assert "replace_hysteria_literal REPLACE_HYSTERIA_STATS_SECRET" in gateways
     assert "REPLACE_REALITY_PRIVATE_KEY" in configmaps
-    assert "REPLACE_HYSTERIA_AUTH" in configmaps
+    assert "REPLACE_HYSTERIA_AUTH" not in configmaps
+    assert "REPLACE_HYSTERIA_SALAMANDER_PASSWORD" in configmaps
+    assert "REPLACE_HYSTERIA_STATS_SECRET" in configmaps
+    assert '"hy2-in"' not in configmaps
+    assert 'protocol": "hysteria"' not in configmaps
     assert "REPLACE_FROM_PRIVATE_SECRET" not in configmaps

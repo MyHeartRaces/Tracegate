@@ -26,10 +26,18 @@ finally:
 
 
 class _FakeSession:
-    def __init__(self, *, user: User, device: Device, connection: Connection | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        user: User,
+        device: Device,
+        connection: Connection | None = None,
+        active_connection_count: int = 0,
+    ) -> None:
         self.user = user
         self.device = device
         self.connection = connection
+        self.active_connection_count = active_connection_count
         self.added: list[object] = []
         self.commits = 0
 
@@ -41,6 +49,9 @@ class _FakeSession:
         if model is Connection and self.connection is not None and str(key) == str(self.connection.id):
             return self.connection
         return None
+
+    async def scalar(self, _query):  # noqa: ANN001
+        return self.active_connection_count
 
     def add(self, row: object) -> None:
         if isinstance(row, Connection):
@@ -86,8 +97,8 @@ async def test_create_connection_accepts_required_local_socks_credential_pair() 
             device_id=device.id,
             protocol=ConnectionProtocol.VLESS_GRPC_TLS,
             mode=ConnectionMode.DIRECT,
-            variant=ConnectionVariant.V1,
-            profile_name="V1-VLESS-gRPC-TLS-Direct",
+            variant=ConnectionVariant.V0,
+            profile_name="v0-grpc-vless",
             custom_overrides_json={
                 "local_socks_username": "incy-user",
                 "local_socks_password": "incy-pass_01",
@@ -109,6 +120,31 @@ async def test_create_connection_accepts_required_local_socks_credential_pair() 
 
 
 @pytest.mark.asyncio
+async def test_create_connection_rejects_device_connection_limit() -> None:
+    user = _user()
+    device = _device(user)
+    session = _FakeSession(user=user, device=device, active_connection_count=4)
+
+    with pytest.raises(HTTPException) as exc_info:
+        await create_connection(
+            ConnectionCreate(
+                user_id=user.telegram_id,
+                device_id=device.id,
+                protocol=ConnectionProtocol.VLESS_REALITY,
+                mode=ConnectionMode.DIRECT,
+                variant=ConnectionVariant.V1,
+                profile_name="v1-direct-reality-vless",
+                custom_overrides_json={},
+            ),
+            session=session,  # type: ignore[arg-type]
+        )
+
+    assert exc_info.value.status_code == 400
+    assert "Connection limit reached for device (4)" in str(exc_info.value.detail)
+    assert session.commits == 0
+
+
+@pytest.mark.asyncio
 async def test_create_connection_rejects_incomplete_local_socks_credentials() -> None:
     user = _user()
     device = _device(user)
@@ -122,7 +158,7 @@ async def test_create_connection_rejects_incomplete_local_socks_credentials() ->
                 protocol=ConnectionProtocol.VLESS_REALITY,
                 mode=ConnectionMode.DIRECT,
                 variant=ConnectionVariant.V1,
-                profile_name="V1-VLESS-Reality-Direct",
+                profile_name="v1-direct-reality-vless",
                 custom_overrides_json={"local_socks_username": "incy-user"},
             ),
             session=session,  # type: ignore[arg-type]
@@ -147,7 +183,7 @@ async def test_create_connection_rejects_redacted_sensitive_override_values() ->
                 protocol=ConnectionProtocol.VLESS_REALITY,
                 mode=ConnectionMode.DIRECT,
                 variant=ConnectionVariant.V1,
-                profile_name="V1-VLESS-Reality-Direct",
+                profile_name="v1-direct-reality-vless",
                 custom_overrides_json={
                     "local_socks_username": "incy-user",
                     "local_socks_password": "REDACTED",
@@ -171,8 +207,8 @@ async def test_update_connection_rejects_incomplete_local_socks_credentials() ->
         device_id=device.id,
         protocol=ConnectionProtocol.HYSTERIA2,
         mode=ConnectionMode.DIRECT,
-        variant=ConnectionVariant.V3,
-        profile_name="V3-Hysteria2-QUIC-Direct",
+        variant=ConnectionVariant.V2,
+        profile_name="v2-direct-quic-hysteria",
         custom_overrides_json={},
         status=RecordStatus.ACTIVE,
     )
@@ -200,8 +236,8 @@ async def test_update_connection_redacts_sensitive_override_values_in_response()
         device_id=device.id,
         protocol=ConnectionProtocol.WIREGUARD_WSTUNNEL,
         mode=ConnectionMode.DIRECT,
-        variant=ConnectionVariant.V7,
-        profile_name="V7-WireGuard-WSTunnel-Direct",
+        variant=ConnectionVariant.V0,
+        profile_name="v0-wgws-wireguard",
         custom_overrides_json={},
         status=RecordStatus.ACTIVE,
     )
@@ -240,8 +276,8 @@ async def test_update_connection_preserves_existing_secret_when_patch_returns_re
         device_id=device.id,
         protocol=ConnectionProtocol.WIREGUARD_WSTUNNEL,
         mode=ConnectionMode.DIRECT,
-        variant=ConnectionVariant.V7,
-        profile_name="V7-WireGuard-WSTunnel-Direct",
+        variant=ConnectionVariant.V0,
+        profile_name="v0-wgws-wireguard",
         custom_overrides_json={
             "wireguard_private_key": "client-private",
             "wireguard_preshared_key": "wg-psk",
@@ -290,8 +326,8 @@ async def test_update_connection_rejects_redacted_secret_without_existing_value(
         device_id=device.id,
         protocol=ConnectionProtocol.WIREGUARD_WSTUNNEL,
         mode=ConnectionMode.DIRECT,
-        variant=ConnectionVariant.V7,
-        profile_name="V7-WireGuard-WSTunnel-Direct",
+        variant=ConnectionVariant.V0,
+        profile_name="v0-wgws-wireguard",
         custom_overrides_json={},
         status=RecordStatus.ACTIVE,
     )

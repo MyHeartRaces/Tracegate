@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import and_, func, select
+from sqlalchemy import and_, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracegate.api.deps import db_session
@@ -10,6 +10,7 @@ from tracegate.models import Connection, Device, User
 from tracegate.schemas import DeviceCreate, DeviceRead, DeviceRename
 from tracegate.security import require_api_scope
 from tracegate.services.connections import revoke_connection
+from tracegate.services.connection_profiles import MAX_DEVICES_PER_USER
 
 router = APIRouter(prefix="/devices", tags=["devices"], dependencies=[Depends(require_api_scope(ApiScope.DEVICES_RW))])
 
@@ -52,11 +53,29 @@ async def create_device(payload: DeviceCreate, session: AsyncSession = Depends(d
     count = await session.scalar(
         select(func.count(Device.id)).where(and_(Device.user_id == user.telegram_id, Device.status == RecordStatus.ACTIVE))
     )
-    if count >= user.devices_max:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Device limit reached ({user.devices_max})")
+    device_limit = min(int(user.devices_max or MAX_DEVICES_PER_USER), MAX_DEVICES_PER_USER)
+    if count >= device_limit:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Device limit reached ({device_limit})")
 
-    row = Device(user_id=user.telegram_id, name=payload.name)
+    row = Device(user_id=user.telegram_id, name=payload.name, is_active=int(count or 0) == 0)
     session.add(row)
+    await session.commit()
+    await session.refresh(row)
+    return DeviceRead.model_validate(row, from_attributes=True)
+
+
+@router.post("/{device_id}/activate", response_model=DeviceRead)
+async def activate_device(device_id: str, session: AsyncSession = Depends(db_session)) -> DeviceRead:
+    row = await session.get(Device, device_id)
+    if row is None or row.status != RecordStatus.ACTIVE:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Device not found")
+
+    await session.execute(
+        update(Device)
+        .where(and_(Device.user_id == row.user_id, Device.status == RecordStatus.ACTIVE, Device.id != row.id))
+        .values(is_active=False)
+    )
+    row.is_active = True
     await session.commit()
     await session.refresh(row)
     return DeviceRead.model_validate(row, from_attributes=True)
@@ -89,5 +108,17 @@ async def delete_device(device_id: str, session: AsyncSession = Depends(db_sessi
     for conn in connections:
         await revoke_connection(session, connection_id=conn.id)
 
+    was_active = bool(row.is_active)
+    row.is_active = False
     row.status = RecordStatus.REVOKED
+    if was_active:
+        replacement = (
+            await session.execute(
+                select(Device)
+                .where(and_(Device.user_id == row.user_id, Device.id != row.id, Device.status == RecordStatus.ACTIVE))
+                .order_by(Device.created_at.asc())
+            )
+        ).scalars().first()
+        if replacement is not None:
+            replacement.is_active = True
     await session.commit()

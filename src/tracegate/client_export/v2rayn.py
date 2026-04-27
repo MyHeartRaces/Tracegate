@@ -8,6 +8,7 @@ from ipaddress import ip_address
 from typing import Any
 from urllib.parse import quote, urlencode, urlparse
 
+from tracegate.constants import TRACEGATE_PUBLIC_UDP_PORT
 from tracegate.services.mtproto import MTPROTO_FAKE_TLS_PROFILE_NAME, MTProtoConfigError, build_mtproto_share_links
 
 _LOCAL_SOCKS_PORT_BASE = 20000
@@ -54,6 +55,17 @@ def _is_loopback_host(host: str) -> bool:
         return True
     try:
         return ip_address(normalized).is_loopback
+    except ValueError:
+        return False
+
+
+def _is_ip_literal(host: str) -> bool:
+    normalized = str(host or "").strip().strip("[]")
+    if not normalized:
+        return False
+    try:
+        ip_address(normalized)
+        return True
     except ValueError:
         return False
 
@@ -495,7 +507,7 @@ def _export_vless_grpc_tls(effective: dict[str, Any]) -> ExportResult:
     if insecure:
         params["allowInsecure"] = "1"
 
-    name = effective.get("profile") or "V1-VLESS-gRPC-TLS-Direct"
+    name = effective.get("profile") or "v0-grpc-vless"
     uri = f"vless://{uuid}@{server}:{port}?{_encode_query(params, safe='/,')}#{_q(str(name))}"
     tls_settings: dict[str, Any] = {
         "serverName": sni,
@@ -542,7 +554,7 @@ def _export_vless_grpc_tls(effective: dict[str, Any]) -> ExportResult:
 
 def _export_hysteria2(effective: dict[str, Any]) -> ExportResult:
     server = effective.get("server")
-    port = int(effective.get("port") or 443)
+    port = int(effective.get("port") or TRACEGATE_PUBLIC_UDP_PORT)
     auth = effective.get("auth") or {}
     auth_type = str(auth.get("type") or "").strip().lower()
     username = (auth.get("username") or auth.get("client_id") or "").strip()
@@ -550,7 +562,7 @@ def _export_hysteria2(effective: dict[str, Any]) -> ExportResult:
     token = (auth.get("token") or auth.get("value") or "").strip()
     sni = str(effective.get("sni") or server or "").strip()
     tls = effective.get("tls") or {}
-    insecure = bool(tls.get("insecure", False))
+    insecure = bool(tls.get("insecure", False)) or _is_ip_literal(sni)
     alpn = tls.get("alpn") or ["h3"]
     if isinstance(alpn, str):
         alpn_values = [alpn]
@@ -558,13 +570,24 @@ def _export_hysteria2(effective: dict[str, Any]) -> ExportResult:
         alpn_values = [str(item).strip() for item in alpn if str(item).strip()]
     if not alpn_values:
         alpn_values = ["h3"]
+    obfs = effective.get("obfs") or {}
+    if not isinstance(obfs, dict):
+        obfs = {}
+    obfs_type = str(obfs.get("type") or "").strip().lower()
+    obfs_password = str(obfs.get("password") or obfs.get("obfs_password") or "").strip()
 
     if not server:
         raise V2RayNExportError("Missing fields for Hysteria2 export")
+    if obfs_type != "salamander" or not obfs_password:
+        raise V2RayNExportError("Hysteria2 export requires Salamander obfs with a password")
 
     # Keep the URI aligned with the official Hysteria 2 scheme:
     # token auth is a single opaque auth component, percent-encoded as needed.
-    params = {"insecure": "1" if insecure else "0"}
+    params = {
+        "insecure": "1" if insecure else "0",
+        "obfs": "salamander",
+        "obfs-password": obfs_password,
+    }
     if sni:
         params["sni"] = sni
         params["peer"] = sni
@@ -599,6 +622,10 @@ def _export_hysteria2(effective: dict[str, Any]) -> ExportResult:
             "server": server,
             "server_port": port,
             "password": share_auth,
+            "obfs": {
+                "type": "salamander",
+                "password": obfs_password,
+            },
             "tls": singbox_tls,
         },
     )
@@ -652,7 +679,7 @@ def _export_shadowsocks2022_shadowtls(effective: dict[str, Any]) -> ExportResult
     shadowtls = effective.get("shadowtls") or {}
     shadowtls_password = str(shadowtls.get("password") or "").strip()
     shadowtls_server_name = str(shadowtls.get("server_name") or effective.get("sni") or server).strip()
-    profile = str(effective.get("profile") or "V5-Shadowsocks2022-ShadowTLS-Direct").strip()
+    profile = str(effective.get("profile") or "v3-direct-shadowtls-shadowsocks").strip()
 
     if not server or not password or not shadowtls_password:
         raise V2RayNExportError("Missing fields for Shadowsocks-2022 + ShadowTLS export")
@@ -699,7 +726,7 @@ def _export_wireguard_wstunnel(effective: dict[str, Any]) -> ExportResult:
     server = str(effective.get("server") or "").strip()
     wstunnel = effective.get("wstunnel") or {}
     wireguard = effective.get("wireguard") or {}
-    profile = str(effective.get("profile") or "V7-WireGuard-WSTunnel-Direct").strip()
+    profile = str(effective.get("profile") or "v0-wgws-wireguard").strip()
     private_key = str(wireguard.get("private_key") or "").strip()
     peer_public_key = str(wireguard.get("server_public_key") or "").strip()
     address = wireguard.get("address") or ""

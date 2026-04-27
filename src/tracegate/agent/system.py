@@ -111,6 +111,13 @@ def check_port(protocol: str, port: int) -> tuple[bool, str]:
     return _proc_net_has_listener(normalized, port)
 
 
+def check_port_blocked(protocol: str, port: int) -> tuple[bool, str]:
+    listening, details = check_port(protocol, port)
+    if listening:
+        return False, f"forbidden {protocol}/{port} is listening: {details}"
+    return True, details
+
+
 def check_systemd(unit: str) -> tuple[bool, str]:
     try:
         proc = subprocess.run(["systemctl", "is-active", unit], capture_output=True, text=True)
@@ -180,13 +187,17 @@ async def gather_health_checks(
     stats_secret: str,
     role: str,
     runtime_mode: str,  # kept for backward compatibility with legacy container deployments
-    runtime_profile: str = "xray-centric",
+    runtime_profile: str = "tracegate-2.2",
 ) -> list[dict]:
     contract = resolve_runtime_contract(runtime_profile)
     checks: list[dict] = []
 
     for protocol, port, name in contract.expected_ports(role):
         ok, details = check_port(protocol, port)
+        checks.append({"name": name, "ok": ok, "details": details})
+
+    for protocol, port, name in contract.forbidden_ports(role):
+        ok, details = check_port_blocked(protocol, port)
         checks.append({"name": name, "ok": ok, "details": details})
 
     for process_check in contract.process_checks(role):

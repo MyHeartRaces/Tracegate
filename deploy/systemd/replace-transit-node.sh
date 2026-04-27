@@ -111,6 +111,7 @@ enable_transit_runtime_units() {
     tracegate-haproxy@transit
     tracegate-nginx@transit
     tracegate-xray@transit
+    tracegate-hysteria@transit
   )
   local private_unit=""
 

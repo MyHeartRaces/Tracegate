@@ -260,6 +260,7 @@ def validate_prod_overlay(chart_values: Path, prod_values: Path, *, strict: bool
 
     rollout = _as_dict(gateway.get("rollingUpdate"))
     private_preflight = _as_dict(gateway.get("privatePreflight"))
+    reload_commands = _as_dict(_as_dict(gateway.get("agent")).get("reloadCommands"))
     require(_text(gateway.get("strategy")) == "RollingUpdate", "gateway.strategy must stay RollingUpdate for production")
     require(not bool(gateway.get("allowRecreateStrategy", False)), "gateway.allowRecreateStrategy must stay false for production")
     require(_text(rollout.get("maxUnavailable")) == "0", "gateway.rollingUpdate.maxUnavailable must stay 0")
@@ -267,6 +268,24 @@ def validate_prod_overlay(chart_values: Path, prod_values: Path, *, strict: bool
     require(bool(_as_dict(gateway.get("probes")).get("enabled", False)), "gateway.probes.enabled must stay true")
     require(bool(private_preflight.get("enabled", False)), "gateway.privatePreflight.enabled must stay true")
     require(bool(private_preflight.get("forbidPlaceholders", False)), "gateway.privatePreflight.forbidPlaceholders must stay true")
+    roles = _as_dict(gateway.get("roles"))
+    for role_name, role_payload in roles.items():
+        role = _as_dict(role_payload)
+        if not bool(role.get("enabled", False)):
+            continue
+        ports = _as_dict(role.get("ports"))
+        require(_as_int(ports.get("publicTcp")) == 443, f"gateway.roles.{role_name}.ports.publicTcp must stay 443")
+        require(_as_int(ports.get("publicUdp")) == 8443, f"gateway.roles.{role_name}.ports.publicUdp must stay 8443")
+    profiles_reload = _text(reload_commands.get("profiles"))
+    link_crypto_reload = _text(reload_commands.get("linkCrypto"))
+    require(
+        "tracegate-k3s-private-reload" in profiles_reload and "--component profiles" in profiles_reload,
+        "gateway.agent.reloadCommands.profiles must run tracegate-k3s-private-reload --component profiles",
+    )
+    require(
+        "tracegate-k3s-private-reload" in link_crypto_reload and "--component link-crypto" in link_crypto_reload,
+        "gateway.agent.reloadCommands.linkCrypto must run tracegate-k3s-private-reload --component link-crypto",
+    )
 
     decoy = _as_dict(merged.get("decoy"))
     has_decoy_source = any(_has_value(decoy.get(key)) for key in ("hostPath", "existingClaim", "existingConfigMap"))
@@ -287,6 +306,19 @@ def validate_prod_overlay(chart_values: Path, prod_values: Path, *, strict: bool
     require(_as_int(outer_carrier.get("publicPort")) == 443, "interconnect.entryTransit.outerCarrier.publicPort must stay 443")
     require(_is_clean_http_path(outer_carrier.get("publicPath")), "interconnect.entryTransit.outerCarrier.publicPath must be a clean absolute HTTP path")
     require(bool(outer_carrier.get("verifyTls", False)), "interconnect.entryTransit.outerCarrier.verifyTls must stay true")
+    spki_pinning = _as_dict(outer_carrier.get("spkiPinning"))
+    admission = _as_dict(outer_carrier.get("admission"))
+    require(bool(spki_pinning.get("required", False)), "interconnect.entryTransit.outerCarrier.spkiPinning.required must stay true")
+    require(_has_value(spki_pinning.get("profileFile")), "interconnect.entryTransit.outerCarrier.spkiPinning.profileFile must be set")
+    require(bool(admission.get("required", False)), "interconnect.entryTransit.outerCarrier.admission.required must stay true")
+    require(
+        _text(admission.get("mode")) == "hmac-sha256-generation-bound",
+        "interconnect.entryTransit.outerCarrier.admission.mode must stay hmac-sha256-generation-bound",
+    )
+    require(_text(admission.get("header")) == "Sec-WebSocket-Protocol", "interconnect.entryTransit.outerCarrier.admission.header must stay Sec-WebSocket-Protocol")
+    require(_has_value(admission.get("profileFile")), "interconnect.entryTransit.outerCarrier.admission.profileFile must be set")
+    require(_has_value(outer_carrier.get("tcpShapingProfileFile")), "interconnect.entryTransit.outerCarrier.tcpShapingProfileFile must be set")
+    require(_has_value(outer_carrier.get("promotionPreflightProfileFile")), "interconnect.entryTransit.outerCarrier.promotionPreflightProfileFile must be set")
     wireguard = _as_dict(merged.get("wireguard"))
     wireguard_wstunnel = _as_dict(wireguard.get("wstunnel"))
     bridge_path = _text(outer_carrier.get("publicPath"))
@@ -297,9 +329,10 @@ def validate_prod_overlay(chart_values: Path, prod_values: Path, *, strict: bool
     )
     require(not bool(zapret2.get("hostWideInterception", False)), "interconnect.zapret2.hostWideInterception must stay false")
     require(not bool(zapret2.get("nfqueue", False)), "interconnect.zapret2.nfqueue must stay false")
+    require(bool(zapret2.get("enabled", False)), "interconnect.zapret2.enabled must stay true for TCP link-crypto DPI resistance")
 
     mtproto = _as_dict(merged.get("mtproto"))
-    require(bool(mtproto.get("enabled", False)), "mtproto.enabled must stay true in core Tracegate 2.1")
+    require(bool(mtproto.get("enabled", False)), "mtproto.enabled must stay true in core Tracegate 2.2")
     require(not _is_example_host(mtproto.get("domain")), "mtproto.domain must not use example.com")
     bridge_server_name = _text(outer_carrier.get("serverName")).lower().rstrip(".")
     transit_tls_server_name = _text(_as_dict(transit.get("tls")).get("serverName")).lower().rstrip(".")

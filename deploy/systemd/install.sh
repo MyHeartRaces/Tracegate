@@ -45,7 +45,13 @@ normalize_runtime_profile() {
   raw="${raw%"${raw##*[![:space:]]}"}"
 
   case "${raw}" in
-    ""|default|xray-centric|xray-unified)
+    ""|default|tracegate-2.2|tracegate2.2|k3s|helm)
+      echo "tracegate-2.2"
+      ;;
+    tracegate-2.1|tracegate2.1)
+      echo "tracegate-2.1"
+      ;;
+    xray-centric|xray-unified)
       echo "xray-centric"
       ;;
     split|xray-hysteria)
@@ -104,7 +110,19 @@ seed_if_missing() {
 
 runtime_units_for_role() {
   local role="$1"
-  echo "tracegate-haproxy@${role} tracegate-nginx@${role} tracegate-xray@${role}"
+  local runtime_profile="${2:-tracegate-2.2}"
+  case "${runtime_profile}" in
+    tracegate-2.2)
+      echo "tracegate-haproxy@${role} tracegate-nginx@${role} tracegate-xray@${role} tracegate-hysteria@${role}"
+      ;;
+    tracegate-2.1|xray-centric)
+      echo "tracegate-haproxy@${role} tracegate-nginx@${role} tracegate-xray@${role}"
+      ;;
+    *)
+      echo "unsupported AGENT_RUNTIME_PROFILE value: ${runtime_profile}" >&2
+      exit 1
+      ;;
+  esac
 }
 
 role_env_templates_for_install_role() {
@@ -480,7 +498,7 @@ Next steps:
    ${INSTALL_DIR}/deploy/systemd/install-runtime.sh
    The default INSTALL_COMPONENTS=auto follows AGENT_RUNTIME_PROFILE=${RUNTIME_PROFILE}.
    For Transit MTProto testbeds, opt in explicitly:
-   INSTALL_COMPONENTS=xray,mtproto ${INSTALL_DIR}/deploy/systemd/install-runtime.sh
+   INSTALL_COMPONENTS=xray,hysteria,mtproto ${INSTALL_DIR}/deploy/systemd/install-runtime.sh
 3. Render materialized server bundles:
    ${INSTALL_DIR}/deploy/systemd/render-materialized-bundles.sh
 4. Validate Entry / Transit runtime contracts on a testbed before promoting overlays:

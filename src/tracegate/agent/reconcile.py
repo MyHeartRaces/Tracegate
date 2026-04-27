@@ -8,9 +8,20 @@ import threading
 
 import yaml
 
-from tracegate.services.private_handoffs import write_private_runtime_handoffs
+from tracegate.constants import (
+    TRACEGATE_FORBIDDEN_PUBLIC_TCP_PORT,
+    TRACEGATE_FORBIDDEN_PUBLIC_UDP_PORT,
+    TRACEGATE_PUBLIC_UDP_PORT,
+)
 from tracegate.agent.hysteria_clients import build_hysteria_xray_clients
-from tracegate.enums import ConnectionProtocol, ConnectionVariant, NodeRole
+from tracegate.enums import ConnectionMode, ConnectionProtocol, ConnectionVariant, NodeRole
+from tracegate.services.connection_profiles import (
+    router_transit_tcp_selected_profiles,
+    router_transit_udp_selected_profiles,
+    tcp_chain_selected_profiles,
+    udp_chain_selected_profiles,
+)
+from tracegate.services.private_handoffs import write_private_runtime_handoffs
 from tracegate.services.role_targeting import target_roles_for_connection
 from tracegate.services.runtime_contract import resolve_runtime_contract
 from tracegate.services.sni_catalog import load_catalog
@@ -230,7 +241,7 @@ def _contract_port_owner(contract, role: str, *, protocol: str, port: int) -> st
         if row_protocol != protocol or row_port != port:
             continue
         if protocol == "udp":
-            return "hysteria" if contract.manages_component("hysteria") else "xray"
+            return "xray" if contract.hysteria_metrics_source == "xray_stats" else "hysteria"
         if contract.manages_component("haproxy"):
             return "haproxy"
         if contract.manages_component("xray"):
@@ -321,35 +332,170 @@ def _collect_xray_runtime_state(paths: AgentPaths) -> dict[str, object]:
     }
 
 
+def _hysteria_listen_port(listen: object) -> int:
+    raw = str(listen or "").strip()
+    if not raw:
+        return 0
+    if raw.startswith("[") and "]:" in raw:
+        raw = raw.rsplit(":", 1)[-1]
+    elif ":" in raw:
+        raw = raw.rsplit(":", 1)[-1]
+    return _safe_int(raw)
+
+
+def _hysteria_secret_configured(value: object) -> bool:
+    raw = str(value or "").strip()
+    normalized = raw.upper()
+    return bool(raw) and not normalized.startswith("REPLACE_") and normalized not in {"CHANGE_ME", "CHANGEME", "TODO", "TBD"}
+
+
+def _collect_hysteria_runtime_state(runtime_hysteria: dict[str, object], *, config_path: Path) -> dict[str, object]:
+    auth = runtime_hysteria.get("auth")
+    auth_block = auth if isinstance(auth, dict) else {}
+    auth_http = auth_block.get("http")
+    auth_http_block = auth_http if isinstance(auth_http, dict) else {}
+    obfs = runtime_hysteria.get("obfs")
+    obfs_block = obfs if isinstance(obfs, dict) else {}
+    salamander = obfs_block.get("salamander")
+    salamander_block = salamander if isinstance(salamander, dict) else {}
+    traffic_stats = runtime_hysteria.get("trafficStats")
+    traffic_stats_block = traffic_stats if isinstance(traffic_stats, dict) else {}
+    tls = runtime_hysteria.get("tls")
+    tls_block = tls if isinstance(tls, dict) else {}
+    quic = runtime_hysteria.get("quic")
+    quic_block = quic if isinstance(quic, dict) else {}
+    congestion = runtime_hysteria.get("congestion")
+    congestion_block = congestion if isinstance(congestion, dict) else {}
+    sniff = runtime_hysteria.get("sniff")
+    sniff_block = sniff if isinstance(sniff, dict) else {}
+    listen = str(runtime_hysteria.get("listen") or "").strip()
+    return {
+        "configPath": str(config_path),
+        "configPresent": bool(runtime_hysteria),
+        "listen": listen,
+        "listenPort": _hysteria_listen_port(listen),
+        "auth": {
+            "type": str(auth_block.get("type") or "").strip().lower(),
+            "httpUrl": str(auth_http_block.get("url") or "").strip(),
+            "httpInsecure": bool(auth_http_block.get("insecure", False)),
+        },
+        "obfs": {
+            "type": str(obfs_block.get("type") or "").strip().lower(),
+            "salamanderPasswordConfigured": _hysteria_secret_configured(salamander_block.get("password")),
+        },
+        "trafficStats": {
+            "listen": str(traffic_stats_block.get("listen") or "").strip(),
+            "secretConfigured": _hysteria_secret_configured(traffic_stats_block.get("secret")),
+        },
+        "tls": {
+            "certConfigured": bool(str(tls_block.get("cert") or "").strip()),
+            "keyConfigured": bool(str(tls_block.get("key") or "").strip()),
+            "sniGuard": str(tls_block.get("sniGuard") or "").strip().lower(),
+        },
+        "udp": {
+            "enabled": not bool(runtime_hysteria.get("disableUDP", False)),
+            "idleTimeout": str(runtime_hysteria.get("udpIdleTimeout") or "").strip(),
+        },
+        "quic": {
+            "disablePathMTUDiscovery": bool(quic_block.get("disablePathMTUDiscovery", False)),
+            "maxIdleTimeout": str(quic_block.get("maxIdleTimeout") or "").strip(),
+        },
+        "congestion": {
+            "type": str(congestion_block.get("type") or "").strip().lower(),
+        },
+        "sniff": {
+            "enabled": bool(sniff_block.get("enable", False)),
+            "timeout": str(sniff_block.get("timeout") or "").strip(),
+        },
+        "masqueradeDirs": _extract_masquerade_dirs(runtime_hysteria.get("masquerade")),
+    }
+
+
 def _build_link_crypto_contract_payload(settings: Settings) -> dict[str, object]:
     role_upper = str(settings.agent_role or "").strip().upper()
     classes: list[str] = []
     local_ports: dict[str, int] = {}
     selected_profiles: dict[str, list[str]] = {}
+    udp_classes: list[str] = []
+    udp_local_ports: dict[str, int] = {}
+    udp_selected_profiles: dict[str, list[str]] = {}
 
     def add_link(link_class: str, *, port: int, profiles: list[str]) -> None:
         classes.append(link_class)
         local_ports[link_class] = int(port)
         selected_profiles[link_class] = profiles
 
+    def add_udp_link(link_class: str, *, port: int, profiles: list[str]) -> None:
+        udp_classes.append(link_class)
+        udp_local_ports[link_class] = int(port)
+        udp_selected_profiles[link_class] = profiles
+
+    entry_transit_udp_enabled = bool(settings.private_link_crypto_enabled and settings.private_udp_link_enabled)
+
     if role_upper == "ENTRY":
         if bool(settings.private_link_crypto_enabled):
-            add_link("entry-transit", port=int(settings.private_link_crypto_entry_port), profiles=["V2", "V4", "V6"])
+            add_link("entry-transit", port=int(settings.private_link_crypto_entry_port), profiles=tcp_chain_selected_profiles())
+        if entry_transit_udp_enabled:
+            add_udp_link("entry-transit-udp", port=int(settings.private_udp_link_entry_port), profiles=udp_chain_selected_profiles())
         if bool(settings.private_link_crypto_router_entry_enabled):
-            add_link("router-entry", port=int(settings.private_link_crypto_router_entry_port), profiles=["V2", "V4", "V6"])
+            add_link("router-entry", port=int(settings.private_link_crypto_router_entry_port), profiles=tcp_chain_selected_profiles())
+        if bool(settings.private_udp_link_router_entry_enabled):
+            add_udp_link("router-entry-udp", port=int(settings.private_udp_link_router_entry_port), profiles=udp_chain_selected_profiles())
     elif role_upper == "TRANSIT":
         if bool(settings.private_link_crypto_enabled):
-            add_link("entry-transit", port=int(settings.private_link_crypto_transit_port), profiles=["V2", "V4", "V6"])
+            add_link("entry-transit", port=int(settings.private_link_crypto_transit_port), profiles=tcp_chain_selected_profiles())
+        if entry_transit_udp_enabled:
+            add_udp_link("entry-transit-udp", port=int(settings.private_udp_link_transit_port), profiles=udp_chain_selected_profiles())
         if bool(settings.private_link_crypto_router_transit_enabled):
-            add_link("router-transit", port=int(settings.private_link_crypto_router_transit_port), profiles=["V1", "V3", "V5", "V7"])
+            add_link(
+                "router-transit",
+                port=int(settings.private_link_crypto_router_transit_port),
+                profiles=router_transit_tcp_selected_profiles(),
+            )
+        if bool(settings.private_udp_link_router_transit_enabled):
+            add_udp_link(
+                "router-transit-udp",
+                port=int(settings.private_udp_link_router_transit_port),
+                profiles=router_transit_udp_selected_profiles(),
+            )
 
     outer_wss_server_name = str(settings.private_link_crypto_outer_wss_server_name or "").strip() or "bridge.example.com"
     outer_wss_public_port = int(settings.private_link_crypto_outer_wss_public_port or 443)
     outer_wss_path = str(settings.private_link_crypto_outer_wss_path or "").strip() or "/cdn-cgi/tracegate-link"
     if not outer_wss_path.startswith("/"):
         outer_wss_path = f"/{outer_wss_path}"
+
+    def private_link_crypto_profile(profile_name: object, *, fallback: str) -> str:
+        profile_dir = Path(str(settings.private_link_crypto_profile_dir or "").strip() or "/etc/tracegate/private/link-crypto")
+        safe_name = str(profile_name or "").strip() or fallback
+        return str(profile_dir / safe_name)
+
+    def private_file_ref(path: str) -> dict[str, object]:
+        return {"kind": "file", "path": path, "secretMaterial": True}
+
+    outer_carrier_enabled = bool("entry-transit" in classes and settings.private_link_crypto_outer_carrier_enabled)
+    spki_profile = private_link_crypto_profile(
+        settings.private_link_crypto_outer_wss_spki_profile,
+        fallback="outer-wss-spki.env",
+    )
+    admission_profile = private_link_crypto_profile(
+        settings.private_link_crypto_outer_wss_admission_profile,
+        fallback="outer-wss-admission.env",
+    )
+    tcp_shaping_profile = private_link_crypto_profile(
+        settings.private_link_crypto_tcp_shaping_profile,
+        fallback="tcp-shaping.env",
+    )
+    promotion_preflight_profile = private_link_crypto_profile(
+        settings.private_link_crypto_promotion_preflight_profile,
+        fallback="promotion-preflight.env",
+    )
+    zapret_profile = str(
+        Path(str(settings.private_zapret_profile_dir or "").strip() or "/etc/tracegate/private/zapret")
+        / (str(settings.private_zapret_profile_interconnect or "").strip() or "entry-transit-stealth.env")
+    )
     outer_carrier = {
-        "enabled": bool("entry-transit" in classes and settings.private_link_crypto_outer_carrier_enabled),
+        "enabled": outer_carrier_enabled,
         "mode": str(settings.private_link_crypto_outer_carrier_mode or "").strip() or "wss",
         "protocol": "websocket-tls",
         "serverName": outer_wss_server_name,
@@ -367,10 +513,143 @@ def _build_link_crypto_contract_payload(settings: Settings) -> dict[str, object]
             "transitServerListen": f"127.0.0.1:{int(settings.private_link_crypto_outer_wss_server_port or 14082)}",
             "transitTarget": f"127.0.0.1:{int(settings.private_link_crypto_transit_port or 10882)}",
         },
+        "tlsPinning": {
+            "required": outer_carrier_enabled,
+            "mode": "spki-sha256" if outer_carrier_enabled else "none",
+            "profileSource": "private-file-reference",
+            "profileRef": private_file_ref(spki_profile),
+            "secretMaterial": False,
+        },
+        "admission": {
+            "required": outer_carrier_enabled,
+            "mode": "hmac-sha256-generation-bound" if outer_carrier_enabled else "none",
+            "carrier": "websocket-subprotocol",
+            "header": "Sec-WebSocket-Protocol",
+            "profileSource": "private-file-reference",
+            "profileRef": private_file_ref(admission_profile),
+            "rejectUnauthenticated": outer_carrier_enabled,
+            "secretMaterial": False,
+        },
+    }
+    tcp_required_layers = [
+        "mieru-private-auth",
+        "scoped-zapret2",
+        "private-zapret2-profile",
+        "loopback-only",
+        "generation-drain",
+        "no-direct-backhaul",
+    ]
+    if outer_carrier_enabled:
+        tcp_required_layers.extend(["outer-wss-tls", "spki-sha256-pin", "hmac-admission"])
+    tcp_dpi_resistance = {
+        "enabled": True,
+        "mode": "mieru-wss-spki-hmac-zapret2-scoped" if outer_carrier_enabled else "mieru-zapret2-scoped",
+        "requiredLayers": tcp_required_layers,
+        "outerCarrier": {
+            "required": outer_carrier_enabled,
+            "spkiPinningRequired": outer_carrier_enabled,
+            "hmacAdmissionRequired": outer_carrier_enabled,
+        },
+        "zapret2": {
+            "required": True,
+            "enabled": bool(settings.private_link_crypto_zapret2_enabled),
+            "profileSource": "private-file-reference",
+            "profileRef": private_file_ref(zapret_profile),
+            "packetShaping": "zapret2-scoped",
+            "applyMode": "marked-flow-only",
+            "scope": "link-crypto-flow-only",
+            "hostWideInterception": False,
+            "nfqueue": False,
+        },
+        "trafficShaping": {
+            "required": True,
+            "strategy": "private-zapret2-profile",
+            "profileSource": "private-file-reference",
+            "profileRef": private_file_ref(tcp_shaping_profile),
+            "scope": "marked-flow-only",
+            "target": "tcp/443-outer-wss" if outer_carrier_enabled else "tcp/443-link-crypto",
+            "secretMaterial": False,
+        },
+        "promotionPreflight": {
+            "required": True,
+            "failClosed": True,
+            "profileSource": "private-file-reference",
+            "profileRef": private_file_ref(promotion_preflight_profile),
+            "checks": [
+                "mieru-private-auth",
+                "zapret2-scoped-profile",
+                "no-direct-backhaul",
+            ]
+            + (["spki-pin", "hmac-admission"] if outer_carrier_enabled else []),
+            "secretMaterial": False,
+        },
+    }
+    udp_hardening = {
+        "enabled": bool(settings.private_udp_link_hardening_enabled),
+        "failClosed": True,
+        "requirePrivateAuth": True,
+        "rejectAnonymous": True,
+        "antiReplay": {
+            "enabled": bool(settings.private_udp_link_anti_replay_enabled),
+            "windowPackets": int(settings.private_udp_link_replay_window_packets or 4096),
+        },
+        "antiAmplification": {
+            "enabled": bool(settings.private_udp_link_anti_amplification_enabled),
+            "maxUnvalidatedBytes": int(settings.private_udp_link_max_unvalidated_bytes or 1200),
+        },
+        "rateLimit": {
+            "enabled": bool(settings.private_udp_link_rate_limit_enabled),
+            "handshakePerMinute": int(settings.private_udp_link_handshake_rate_per_minute or 120),
+            "newSessionPerMinute": int(settings.private_udp_link_new_session_rate_per_minute or 60),
+        },
+        "mtu": {
+            "mode": str(settings.private_udp_link_mtu_mode or "").strip() or "clamp",
+            "maxPacketSize": int(settings.private_udp_link_mtu_max_packet_size or 1252),
+        },
+        "keyRotation": {
+            "enabled": bool(settings.private_udp_link_key_rotation_enabled),
+            "strategy": "generation-drain",
+            "maxAgeSeconds": int(settings.private_udp_link_key_rotation_max_age_seconds or 3600),
+            "overlapSeconds": int(settings.private_udp_link_key_rotation_overlap_seconds or 120),
+        },
+        "sourceValidation": {
+            "enabled": bool(settings.private_udp_link_source_validation_enabled),
+            "mode": str(settings.private_udp_link_source_validation_mode or "").strip() or "profile-bound-remote",
+        },
+    }
+    udp_dpi_resistance = {
+        "enabled": True,
+        "mode": "salamander-plus-scoped-paired-obfs",
+        "portSplit": {
+            "publicUdpPort": TRACEGATE_PUBLIC_UDP_PORT,
+            "forbidUdp443": True,
+            "forbidTcp8443": True,
+        },
+        "requiredLayers": [
+            "hysteria2-quic",
+            "salamander",
+            "private-auth",
+            "anti-replay",
+            "anti-amplification",
+            "mtu-clamp",
+            "source-validation",
+        ],
+        "pairedObfs": {
+            "supported": True,
+            "enabled": bool(settings.private_udp_link_paired_obfs_enabled),
+            "backend": "udp2raw",
+            "requiresBothSides": True,
+            "failClosed": True,
+        },
+        "packetShape": {
+            "strategy": "bounded-profile",
+            "mtuMode": str(settings.private_udp_link_mtu_mode or "").strip() or "clamp",
+            "maxPacketSize": int(settings.private_udp_link_mtu_max_packet_size or 1252),
+        },
     }
 
     return {
-        "enabled": bool(classes),
+        "enabled": bool(classes or udp_classes),
         "entryTransitEnabled": bool(settings.private_link_crypto_enabled),
         "routerEntryEnabled": bool(settings.private_link_crypto_router_entry_enabled),
         "routerTransitEnabled": bool(settings.private_link_crypto_router_transit_enabled),
@@ -383,6 +662,7 @@ def _build_link_crypto_contract_payload(settings: Settings) -> dict[str, object]
         "bindHost": str(settings.private_link_crypto_bind_host or "").strip() or "127.0.0.1",
         "remotePort": int(settings.private_link_crypto_remote_port or 443),
         "outerCarrier": outer_carrier,
+        "dpiResistance": tcp_dpi_resistance,
         "classes": classes,
         "counts": {
             "total": len(classes),
@@ -392,10 +672,50 @@ def _build_link_crypto_contract_payload(settings: Settings) -> dict[str, object]
         },
         "localPorts": local_ports,
         "selectedProfiles": selected_profiles,
+        "udp": {
+            "enabled": bool(udp_classes),
+            "carrier": "hysteria2",
+            "transport": "udp-quic",
+            "manager": "link-crypto",
+            "profileSource": "private-file-reference",
+            "secretMaterial": False,
+            "xrayBackhaul": False,
+            "remotePort": int(settings.private_udp_link_remote_port or 8443),
+            "obfs": {
+                "type": "salamander",
+                "required": True,
+            },
+            "pairedObfs": {
+                "enabled": bool(settings.private_udp_link_paired_obfs_enabled),
+                "backend": "udp2raw",
+                "mode": str(settings.private_udp_link_paired_obfs_mode or "").strip() or "udp2raw-faketcp",
+                "requiresBothSides": True,
+                "failClosed": True,
+                "noHostWideInterception": True,
+                "noNfqueue": True,
+            },
+            "hardening": udp_hardening,
+            "dpiResistance": udp_dpi_resistance,
+            "classes": udp_classes,
+            "counts": {
+                "total": len(udp_classes),
+                "entryTransitUdp": len([link_class for link_class in udp_classes if link_class == "entry-transit-udp"]),
+                "routerEntryUdp": len([link_class for link_class in udp_classes if link_class == "router-entry-udp"]),
+                "routerTransitUdp": len([link_class for link_class in udp_classes if link_class == "router-transit-udp"]),
+            },
+            "localPorts": udp_local_ports,
+            "selectedProfiles": udp_selected_profiles,
+        },
         "zapret2": {
             "enabled": bool(settings.private_link_crypto_zapret2_enabled),
+            "required": True,
+            "profileFile": zapret_profile,
+            "profileSource": "private-file-reference",
+            "profileRef": private_file_ref(zapret_profile),
             "packetShaping": "zapret2-scoped",
             "applyMode": "marked-flow-only",
+            "scope": "link-crypto-flow-only",
+            "targetSurfaces": ["tcp/443", "entry-transit", "router-link-crypto"],
             "hostWideInterception": False,
             "nfqueue": False,
             "failOpen": True,
@@ -412,11 +732,21 @@ def _build_runtime_contract_payload(settings: Settings) -> dict[str, object]:
     contract = resolve_runtime_contract(settings.agent_runtime_profile)
 
     runtime_xray = _collect_xray_runtime_state(paths)
-    runtime_hysteria = _try_load_yaml(paths.runtime / "hysteria" / "config.yaml") or {}
+    runtime_hysteria_config_path = paths.runtime / "hysteria" / "server.yaml"
+    if contract.manages_component("hysteria"):
+        runtime_hysteria = _try_load_yaml(runtime_hysteria_config_path) or {}
+    else:
+        runtime_hysteria = _try_load_yaml(paths.runtime / "hysteria" / "config.yaml") or {}
     runtime_nginx_path = paths.runtime / "nginx" / "nginx.conf"
     runtime_nginx = runtime_nginx_path.read_text(encoding="utf-8") if runtime_nginx_path.exists() else ""
 
     link_crypto = _build_link_crypto_contract_payload(settings)
+    public_udp_owner = _contract_port_owner(
+        contract,
+        settings.agent_role,
+        protocol="udp",
+        port=TRACEGATE_PUBLIC_UDP_PORT,
+    )
     payload = {
         "role": str(settings.agent_role or "").strip().upper() or "UNKNOWN",
         "runtimeProfile": contract.name,
@@ -432,6 +762,10 @@ def _build_runtime_contract_payload(settings: Settings) -> dict[str, object]:
             "expectedPorts": [
                 {"protocol": protocol, "port": port, "name": name}
                 for protocol, port, name in contract.expected_ports(settings.agent_role)
+            ],
+            "forbiddenPorts": [
+                {"protocol": protocol, "port": port, "name": name}
+                for protocol, port, name in contract.forbidden_ports(settings.agent_role)
             ],
         },
         "transportProfiles": {
@@ -482,7 +816,16 @@ def _build_runtime_contract_payload(settings: Settings) -> dict[str, object]:
         },
         "fronting": {
             "tcp443Owner": _contract_port_owner(contract, settings.agent_role, protocol="tcp", port=443),
-            "udp443Owner": _contract_port_owner(contract, settings.agent_role, protocol="udp", port=443),
+            "publicUdpPort": TRACEGATE_PUBLIC_UDP_PORT,
+            "publicUdpOwner": public_udp_owner,
+            "udp443Owner": public_udp_owner,
+            "udpPublicPort": TRACEGATE_PUBLIC_UDP_PORT,
+            "forbiddenUdp443": True,
+            "forbiddenTcp8443": True,
+            "forbiddenPublicPorts": [
+                {"protocol": "udp", "port": TRACEGATE_FORBIDDEN_PUBLIC_UDP_PORT, "action": "drop"},
+                {"protocol": "tcp", "port": TRACEGATE_FORBIDDEN_PUBLIC_TCP_PORT, "action": "drop"},
+            ],
             "touchUdp443": bool(settings.fronting_touch_udp_443),
             "mtprotoDomain": str(settings.mtproto_domain or "").strip(),
             "mtprotoPublicPort": int(settings.mtproto_public_port),
@@ -495,6 +838,7 @@ def _build_runtime_contract_payload(settings: Settings) -> dict[str, object]:
             "usersRoot": str(paths.users_dir),
             "xrayConfig": str(paths.runtime / "xray" / "config.json"),
             "xrayV2Config": str(paths.runtime / "xray-v2" / "config.json"),
+            "hysteriaConfig": str(paths.runtime / "hysteria" / "server.yaml"),
             "haproxyConfig": str(paths.runtime / "haproxy" / "haproxy.cfg"),
             "nginxConfig": str(runtime_nginx_path),
         },
@@ -503,6 +847,10 @@ def _build_runtime_contract_payload(settings: Settings) -> dict[str, object]:
             "splitHysteriaMasqueradeDirs": _extract_masquerade_dirs(runtime_hysteria.get("masquerade")),
             "xrayHysteriaMasqueradeDirs": runtime_xray["hysteriaMasqueradeDirs"],
         },
+        "hysteria": _collect_hysteria_runtime_state(
+            runtime_hysteria,
+            config_path=runtime_hysteria_config_path,
+        ),
         "xray": runtime_xray,
     }
     return payload
@@ -805,6 +1153,50 @@ def _strip_xray_entry_transit_backhaul(base: dict) -> None:
             and str(rule.get("outboundTag") or "").strip().startswith("to-transit")
         )
     ]
+
+
+def _strip_xray_hysteria_inbounds(base: dict) -> None:
+    hysteria_tags: set[str] = set()
+    inbounds = base.get("inbounds")
+    if isinstance(inbounds, list):
+        retained_inbounds: list[object] = []
+        for inbound in inbounds:
+            if not isinstance(inbound, dict):
+                retained_inbounds.append(inbound)
+                continue
+            tag = str(inbound.get("tag") or "").strip()
+            stream = inbound.get("streamSettings")
+            network = str((stream or {}).get("network") or "").strip().lower() if isinstance(stream, dict) else ""
+            if str(inbound.get("protocol") or "").strip().lower() == "hysteria" or network == "hysteria":
+                if tag:
+                    hysteria_tags.add(tag)
+                continue
+            retained_inbounds.append(inbound)
+        base["inbounds"] = retained_inbounds
+
+    if not hysteria_tags:
+        return
+    routing = base.get("routing")
+    rules = routing.get("rules") if isinstance(routing, dict) else None
+    if not isinstance(rules, list):
+        return
+    retained_rules: list[object] = []
+    for rule in rules:
+        if not isinstance(rule, dict):
+            retained_rules.append(rule)
+            continue
+        inbound_tags = rule.get("inboundTag")
+        if not isinstance(inbound_tags, list):
+            retained_rules.append(rule)
+            continue
+        filtered_tags = [tag for tag in inbound_tags if str(tag) not in hysteria_tags]
+        if not filtered_tags:
+            continue
+        if len(filtered_tags) != len(inbound_tags):
+            rule = dict(rule)
+            rule["inboundTag"] = filtered_tags
+        retained_rules.append(rule)
+    routing["rules"] = retained_rules
 
 
 def _is_default_transit_rule(rule: dict, managed_reality_tags: set[str]) -> bool:
@@ -1131,16 +1523,18 @@ def _artifact_applies_to_role(settings: Settings, row: dict) -> bool:
 
     proto_raw = str(row.get("protocol") or "").strip().lower()
     variant_raw = str(row.get("variant") or "").strip()
+    mode_raw = str(row.get("mode") or "").strip().lower()
     try:
         protocol = ConnectionProtocol(proto_raw)
         variant = ConnectionVariant(variant_raw)
+        mode = ConnectionMode(mode_raw) if mode_raw else None
     except Exception:
         role_target_raw = str(row.get("role_target") or "").strip()
         if role_target_raw:
             return role_target_raw == role.value
         return True
 
-    return role in target_roles_for_connection(protocol, variant)
+    return role in target_roles_for_connection(protocol, variant, mode)
 
 
 def _artifact_applies_to_xray_public_runtime(settings: Settings, row: dict) -> bool:
@@ -1152,12 +1546,16 @@ def _artifact_applies_to_xray_public_runtime(settings: Settings, row: dict) -> b
 
     proto_raw = str(row.get("protocol") or "").strip().lower()
     variant_raw = str(row.get("variant") or "").strip()
+    mode_raw = str(row.get("mode") or "").strip().lower()
     try:
         protocol = ConnectionProtocol(proto_raw)
         variant = ConnectionVariant(variant_raw)
+        mode = ConnectionMode(mode_raw) if mode_raw else None
     except Exception:
         return _artifact_applies_to_role(settings, row)
 
+    if mode == ConnectionMode.CHAIN and protocol in {ConnectionProtocol.VLESS_REALITY, ConnectionProtocol.HYSTERIA2}:
+        return role == NodeRole.ENTRY
     if protocol == ConnectionProtocol.VLESS_REALITY and variant == ConnectionVariant.V2:
         return role == NodeRole.ENTRY
     if protocol == ConnectionProtocol.HYSTERIA2 and variant == ConnectionVariant.V4:
@@ -1510,7 +1908,7 @@ def reconcile_xray(settings: Settings) -> ReconcileXrayResult:
             continue
 
         is_hysteria = str(inbound.get("protocol") or "").strip().lower() == "hysteria"
-        if is_hysteria:
+        if is_hysteria and not contract.manages_component("hysteria"):
             inbound_settings = inbound.setdefault("settings", {})
             merged_clients = _merge_hysteria_clients(
                 inbound_settings.get("clients") if isinstance(inbound_settings.get("clients"), list) else [],
@@ -1541,6 +1939,8 @@ def reconcile_xray(settings: Settings) -> ReconcileXrayResult:
             _set_vless_outbound_target(outbound, host=transit_host, port=transit_port)
     else:
         _strip_xray_entry_transit_backhaul(base)
+    if contract.manages_component("hysteria"):
+        _strip_xray_hysteria_inbounds(base)
 
     main_runtime, v2_runtime = _split_entry_v2_runtime_configs(
         settings=settings,
@@ -1613,7 +2013,15 @@ def _file_fingerprint(path: Path) -> dict[str, int]:
     }
 
 
-def _k3s_private_marker_matches_source(marker: dict, *, component: str, role_upper: str, state_path: Path, env_path: Path) -> bool:
+def _k3s_private_marker_matches_source(
+    marker: dict,
+    *,
+    component: str,
+    role_upper: str,
+    state_path: Path,
+    env_path: Path,
+    extra_sources: dict[str, Path] | None = None,
+) -> bool:
     if marker.get("schema") != _K3S_PRIVATE_RELOAD_MARKER_SCHEMA:
         return False
     if marker.get("summarySchema") != _K3S_PRIVATE_RELOAD_SUMMARY_SCHEMA:
@@ -1632,7 +2040,20 @@ def _k3s_private_marker_matches_source(marker: dict, *, component: str, role_upp
     env_source = sources.get("env")
     if not isinstance(state_source, dict) or not isinstance(env_source, dict):
         return False
-    return state_source == _file_fingerprint(state_path) and env_source == _file_fingerprint(env_path)
+    if state_source != _file_fingerprint(state_path) or env_source != _file_fingerprint(env_path):
+        return False
+    if extra_sources:
+        router_summary = summary.get("router")
+        if not isinstance(router_summary, dict):
+            return False
+        router_sources = router_summary.get("sources")
+        if not isinstance(router_sources, dict):
+            return False
+        for key, source_path in extra_sources.items():
+            source = router_sources.get(key)
+            if not isinstance(source, dict) or source != _file_fingerprint(source_path):
+                return False
+    return True
 
 
 def _k3s_private_reload_marker_stale(settings: Settings, *, component: str) -> bool:
@@ -1649,6 +2070,19 @@ def _k3s_private_reload_marker_stale(settings: Settings, *, component: str) -> b
     state_path = private_root / component_dir / role_lower / "desired-state.json"
     env_path = private_root / component_dir / role_lower / "desired-state.env"
     marker_path = private_root / "runtime" / f"{component}-{role_lower}-last-reload.json"
+    extra_sources: dict[str, Path] = {}
+    if component == "link-crypto":
+        router_root = private_root / "router" / role_lower
+        router_sources = {
+            "state": router_root / "desired-state.json",
+            "env": router_root / "desired-state.env",
+            "clientBundle": router_root / "client-bundle.json",
+            "clientEnv": router_root / "client-bundle.env",
+        }
+        existing_router_sources = {key: path for key, path in router_sources.items() if path.exists()}
+        if existing_router_sources and len(existing_router_sources) != len(router_sources):
+            return True
+        extra_sources = existing_router_sources
     if not state_path.exists():
         return False
     if not marker_path.exists() or not env_path.exists():
@@ -1657,10 +2091,11 @@ def _k3s_private_reload_marker_stale(settings: Settings, *, component: str) -> b
         marker_mtime_ns = marker_path.stat().st_mtime_ns
         state_mtime_ns = state_path.stat().st_mtime_ns
         env_mtime_ns = env_path.stat().st_mtime_ns
+        extra_mtime_ns = [path.stat().st_mtime_ns for path in extra_sources.values()]
         marker_payload = _load_json(marker_path)
     except (FileNotFoundError, json.JSONDecodeError, OSError):
         return True
-    if state_mtime_ns > marker_mtime_ns or env_mtime_ns > marker_mtime_ns:
+    if state_mtime_ns > marker_mtime_ns or env_mtime_ns > marker_mtime_ns or any(mtime_ns > marker_mtime_ns for mtime_ns in extra_mtime_ns):
         return True
     return not _k3s_private_marker_matches_source(
         marker_payload,
@@ -1668,6 +2103,7 @@ def _k3s_private_reload_marker_stale(settings: Settings, *, component: str) -> b
         role_upper=role_upper,
         state_path=state_path,
         env_path=env_path,
+        extra_sources=extra_sources,
     )
 
 
@@ -1690,6 +2126,10 @@ def _reconcile_all_result(settings: Settings) -> ReconcileAllResult:
             settings=settings, component="nginx", source_name="nginx.conf"
         ):
             changed.append("nginx")
+        if contract.manages_component("hysteria") and _reconcile_passthrough_component(
+            settings=settings, component="hysteria", source_name="server.yaml"
+        ):
+            changed.append("hysteria")
         if reconcile_decoy(settings):
             changed.append("decoy")
 

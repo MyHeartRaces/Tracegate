@@ -38,7 +38,7 @@ async def revoke_connection(session: AsyncSession, connection_id: UUID) -> None:
     for rev in revisions:
         rev.status = RecordStatus.REVOKED
 
-    for role in target_roles_for_connection(conn.protocol, conn.variant):
+    for role in target_roles_for_connection(conn.protocol, conn.variant, conn.mode):
         await create_outbox_event(
             session,
             event_type=OutboxEventType.REVOKE_CONNECTION,

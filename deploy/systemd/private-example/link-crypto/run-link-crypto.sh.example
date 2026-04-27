@@ -13,11 +13,21 @@ TRACEGATE_LINK_CRYPTO_STATE_JSON="${TRACEGATE_LINK_CRYPTO_STATE_JSON:-${TRACEGAT
 TRACEGATE_LINK_CRYPTO_STATE_DIR="${TRACEGATE_LINK_CRYPTO_STATE_DIR:-${TRACEGATE_PRIVATE_RUNTIME_DIR}/link-crypto/runtime}"
 TRACEGATE_LINK_CRYPTO_RUNTIME_DIR="${TRACEGATE_LINK_CRYPTO_RUNTIME_DIR:-${TRACEGATE_LINK_CRYPTO_STATE_DIR}}"
 TRACEGATE_LINK_CRYPTO_RUNNER="${TRACEGATE_LINK_CRYPTO_RUNNER:-/opt/link-crypto-private/tracegate-link-crypto}"
+TRACEGATE_LINK_CRYPTO_UDP_RUNNER="${TRACEGATE_LINK_CRYPTO_UDP_RUNNER:-$(command -v tracegate-link-crypto-runner || true)}"
 TRACEGATE_MIERU_BIN="${TRACEGATE_MIERU_BIN:-$(command -v mieru || true)}"
+TRACEGATE_HYSTERIA_BIN="${TRACEGATE_HYSTERIA_BIN:-$(command -v hysteria || true)}"
+TRACEGATE_LINK_CRYPTO_PAIRED_OBFS_RUNNER="${TRACEGATE_LINK_CRYPTO_PAIRED_OBFS_RUNNER:-$(command -v tracegate-paired-udp-obfs-runner || true)}"
 TRACEGATE_LINK_CRYPTO_LOG_FILE="${TRACEGATE_LINK_CRYPTO_LOG_FILE:-${TRACEGATE_LINK_CRYPTO_RUNTIME_DIR}/mieru.log}"
+TRACEGATE_LINK_CRYPTO_UDP_PLAN_FILE="${TRACEGATE_LINK_CRYPTO_UDP_PLAN_FILE:-${TRACEGATE_LINK_CRYPTO_RUNTIME_DIR}/${ROLE_LOWER}-udp-runner-plan.json}"
 TRACEGATE_LINK_CRYPTO_NO_HOST_WIDE_INTERCEPTION="${TRACEGATE_LINK_CRYPTO_NO_HOST_WIDE_INTERCEPTION:-true}"
 TRACEGATE_LINK_CRYPTO_NO_NFQUEUE="${TRACEGATE_LINK_CRYPTO_NO_NFQUEUE:-true}"
 TRACEGATE_LINK_CRYPTO_RESTART_EXISTING="${TRACEGATE_LINK_CRYPTO_RESTART_EXISTING:-false}"
+TRACEGATE_LINK_CRYPTO_OUTER_WSS_SPKI_PINNING_REQUIRED="${TRACEGATE_LINK_CRYPTO_OUTER_WSS_SPKI_PINNING_REQUIRED:-true}"
+TRACEGATE_LINK_CRYPTO_OUTER_WSS_ADMISSION_REQUIRED="${TRACEGATE_LINK_CRYPTO_OUTER_WSS_ADMISSION_REQUIRED:-true}"
+TRACEGATE_LINK_CRYPTO_TCP_DPI_RESISTANCE_REQUIRED="${TRACEGATE_LINK_CRYPTO_TCP_DPI_RESISTANCE_REQUIRED:-true}"
+TRACEGATE_LINK_CRYPTO_TCP_TRAFFIC_SHAPING_REQUIRED="${TRACEGATE_LINK_CRYPTO_TCP_TRAFFIC_SHAPING_REQUIRED:-true}"
+TRACEGATE_LINK_CRYPTO_PROMOTION_PREFLIGHT_REQUIRED="${TRACEGATE_LINK_CRYPTO_PROMOTION_PREFLIGHT_REQUIRED:-true}"
+TRACEGATE_LINK_CRYPTO_ZAPRET2_REQUIRED="${TRACEGATE_LINK_CRYPTO_ZAPRET2_REQUIRED:-true}"
 
 mkdir -p "${TRACEGATE_LINK_CRYPTO_STATE_DIR}" "${TRACEGATE_LINK_CRYPTO_RUNTIME_DIR}"
 
@@ -59,6 +69,39 @@ stop_profile() {
     rm -f "${pid_file}"
     echo "tracegate link-crypto stopped profile=${profile}"
   fi
+}
+
+run_udp_link_runner() {
+  [[ -s "${TRACEGATE_LINK_CRYPTO_STATE_JSON}" ]] || return 0
+  local runner_action="${ACTION}"
+  local runner_args=(
+    "${runner_action}"
+    --role "${ROLE}"
+    --state-json "${TRACEGATE_LINK_CRYPTO_STATE_JSON}"
+    --runtime-dir "${TRACEGATE_LINK_CRYPTO_RUNTIME_DIR}"
+    --plan-file "${TRACEGATE_LINK_CRYPTO_UDP_PLAN_FILE}"
+    --hysteria-bin "${TRACEGATE_HYSTERIA_BIN}"
+    --paired-obfs-runner "${TRACEGATE_LINK_CRYPTO_PAIRED_OBFS_RUNNER}"
+    --only-udp
+  )
+  if [[ -n "${TRACEGATE_LINK_CRYPTO_UDP_RUNNER}" ]]; then
+    if [[ -x "${TRACEGATE_LINK_CRYPTO_UDP_RUNNER}" ]]; then
+      "${TRACEGATE_LINK_CRYPTO_UDP_RUNNER}" "${runner_args[@]}"
+      return
+    fi
+    local resolved_runner
+    resolved_runner="$(command -v "${TRACEGATE_LINK_CRYPTO_UDP_RUNNER}" || true)"
+    if [[ -n "${resolved_runner}" && -x "${resolved_runner}" ]]; then
+      "${resolved_runner}" "${runner_args[@]}"
+      return
+    fi
+  fi
+  if command -v python3 >/dev/null 2>&1 && python3 -c 'import tracegate.cli.link_crypto_runner' >/dev/null 2>&1; then
+    python3 -m tracegate.cli.link_crypto_runner "${runner_args[@]}"
+    return
+  fi
+  echo "tracegate link-crypto udp runner not installed"
+  return 1
 }
 
 validate_and_write_manifest() {
@@ -123,9 +166,9 @@ for profile_name in client_names:
     if len(prefix) > 1 and prefix.startswith("V") and prefix[1:].isdigit():
         known_variants.add(prefix)
 required_profiles_by_class = {
-    "entry-transit": {"V2", "V4", "V6"},
-    "router-entry": {"V2", "V4", "V6"},
-    "router-transit": {"V1", "V3", "V5", "V7"},
+    "entry-transit": {"V2", "V6"},
+    "router-entry": {"V2", "V6"},
+    "router-transit": {"V1", "V5", "V7"},
 }
 
 def parse_endpoint(raw: object, *, label: str) -> tuple[str, int]:
@@ -152,6 +195,19 @@ def is_loopback_host(host: str) -> bool:
         return ip_address(host).is_loopback
     except ValueError:
         return False
+
+
+def require_private_file_ref(ref: object, *, label: str) -> str:
+    if not isinstance(ref, dict):
+        raise SystemExit(f"tracegate link-crypto {label} profileRef must be file")
+    if str(ref.get("kind") or "").strip() != "file":
+        raise SystemExit(f"tracegate link-crypto {label} profileRef must be file")
+    path = str(ref.get("path") or "").strip()
+    if not path:
+        raise SystemExit(f"tracegate link-crypto {label} profileRef path is missing")
+    if not bool(ref.get("secretMaterial", False)):
+        raise SystemExit(f"tracegate link-crypto {label} profileRef must point to private material")
+    return path
 
 profiles: list[str] = []
 links = state.get("links") if isinstance(state.get("links"), list) else []
@@ -182,21 +238,91 @@ for index, link in enumerate(links):
             f"tracegate link-crypto {link_class} selectedProfiles are not present in runtime-contract transportProfiles"
         )
     required_profiles = required_profiles_by_class.get(link_class, set())
-    if required_profiles and not required_profiles.issubset(selected_set):
-        raise SystemExit(f"tracegate link-crypto {link_class} selectedProfiles must cover {sorted(required_profiles)}")
+    if required_profiles and selected_set != required_profiles:
+        raise SystemExit(f"tracegate link-crypto {link_class} selectedProfiles must equal {sorted(required_profiles)}")
     profile_ref = link.get("profileRef") if isinstance(link.get("profileRef"), dict) else {}
-    if str(profile_ref.get("kind") or "").strip() != "file":
-        raise SystemExit(f"tracegate link-crypto {link_class} profileRef must be file")
-    profile_path = str(profile_ref.get("path") or "").strip()
-    if not profile_path:
-        raise SystemExit(f"tracegate link-crypto {link_class} profileRef path is missing")
-    if not bool(profile_ref.get("secretMaterial", False)):
-        raise SystemExit(f"tracegate link-crypto {link_class} profileRef must point to private material")
+    profile_path = require_private_file_ref(profile_ref, label=f"{link_class} Mieru")
+    outer_carrier = link.get("outerCarrier") if isinstance(link.get("outerCarrier"), dict) else {}
+    if link_class == "entry-transit":
+        if not bool(outer_carrier.get("enabled", False)):
+            raise SystemExit(f"tracegate link-crypto {link_class} outer WSS carrier must stay enabled")
+        if str(outer_carrier.get("mode") or "").strip().lower() != "wss":
+            raise SystemExit(f"tracegate link-crypto {link_class} outer carrier mode must stay wss")
+        if not bool(outer_carrier.get("verifyTls", False)):
+            raise SystemExit(f"tracegate link-crypto {link_class} outer carrier must verify TLS")
+        tls_pinning = outer_carrier.get("tlsPinning") if isinstance(outer_carrier.get("tlsPinning"), dict) else {}
+        if not bool(tls_pinning.get("required", False)):
+            raise SystemExit(f"tracegate link-crypto {link_class} outer carrier must require SPKI pinning")
+        if str(tls_pinning.get("mode") or "").strip() != "spki-sha256":
+            raise SystemExit(f"tracegate link-crypto {link_class} SPKI pinning mode must stay spki-sha256")
+        require_private_file_ref(tls_pinning.get("profileRef"), label=f"{link_class} SPKI")
+        admission = outer_carrier.get("admission") if isinstance(outer_carrier.get("admission"), dict) else {}
+        if not bool(admission.get("required", False)):
+            raise SystemExit(f"tracegate link-crypto {link_class} outer carrier must require HMAC admission")
+        if str(admission.get("mode") or "").strip() != "hmac-sha256-generation-bound":
+            raise SystemExit(f"tracegate link-crypto {link_class} admission mode must stay hmac-sha256-generation-bound")
+        if str(admission.get("header") or "").strip() != "Sec-WebSocket-Protocol":
+            raise SystemExit(f"tracegate link-crypto {link_class} admission header must stay Sec-WebSocket-Protocol")
+        if not bool(admission.get("rejectUnauthenticated", False)):
+            raise SystemExit(f"tracegate link-crypto {link_class} must reject unauthenticated WSS admission")
+        require_private_file_ref(admission.get("profileRef"), label=f"{link_class} admission")
     zapret2 = link.get("zapret2") if isinstance(link.get("zapret2"), dict) else {}
+    if not bool(zapret2.get("required", False)):
+        raise SystemExit(f"tracegate link-crypto {link_class} zapret2 must be required")
+    if not bool(zapret2.get("enabled", False)):
+        raise SystemExit(f"tracegate link-crypto {link_class} zapret2 must be enabled")
     if bool(zapret2.get("hostWideInterception", False)):
         raise SystemExit(f"tracegate link-crypto {link_class} must not enable host-wide interception")
     if bool(zapret2.get("nfqueue", False)):
         raise SystemExit(f"tracegate link-crypto {link_class} must not enable broad NFQUEUE")
+    if str(zapret2.get("packetShaping") or "").strip() != "zapret2-scoped":
+        raise SystemExit(f"tracegate link-crypto {link_class} zapret2 packetShaping must stay zapret2-scoped")
+    if str(zapret2.get("applyMode") or "").strip() != "marked-flow-only":
+        raise SystemExit(f"tracegate link-crypto {link_class} zapret2 applyMode must stay marked-flow-only")
+    require_private_file_ref(zapret2.get("profileRef"), label=f"{link_class} zapret2")
+    dpi = link.get("dpiResistance") if isinstance(link.get("dpiResistance"), dict) else {}
+    if not bool(dpi.get("enabled", False)):
+        raise SystemExit(f"tracegate link-crypto {link_class} TCP DPI resistance must stay enabled")
+    expected_dpi_mode = "mieru-wss-spki-hmac-zapret2-scoped" if link_class == "entry-transit" else "mieru-zapret2-scoped"
+    if str(dpi.get("mode") or "").strip() != expected_dpi_mode:
+        raise SystemExit(f"tracegate link-crypto {link_class} TCP DPI resistance mode must stay {expected_dpi_mode}")
+    required_layers = {
+        "mieru-private-auth",
+        "scoped-zapret2",
+        "private-zapret2-profile",
+        "loopback-only",
+        "generation-drain",
+        "no-direct-backhaul",
+    }
+    if link_class == "entry-transit":
+        required_layers.update({"outer-wss-tls", "spki-sha256-pin", "hmac-admission"})
+    layers = {str(item or "").strip() for item in dpi.get("requiredLayers", []) if str(item or "").strip()}
+    missing_layers = sorted(required_layers - layers)
+    if missing_layers:
+        raise SystemExit(f"tracegate link-crypto {link_class} TCP DPI resistance missing layers: {missing_layers}")
+    dpi_zapret = dpi.get("zapret2") if isinstance(dpi.get("zapret2"), dict) else {}
+    if not bool(dpi_zapret.get("required", False)) or not bool(dpi_zapret.get("enabled", False)):
+        raise SystemExit(f"tracegate link-crypto {link_class} DPI policy must require enabled zapret2")
+    require_private_file_ref(dpi_zapret.get("profileRef"), label=f"{link_class} DPI zapret2")
+    traffic_shaping = dpi.get("trafficShaping") if isinstance(dpi.get("trafficShaping"), dict) else {}
+    if not bool(traffic_shaping.get("required", False)):
+        raise SystemExit(f"tracegate link-crypto {link_class} TCP traffic shaping must be required")
+    if str(traffic_shaping.get("strategy") or "").strip() != "private-zapret2-profile":
+        raise SystemExit(f"tracegate link-crypto {link_class} TCP traffic shaping strategy must stay private-zapret2-profile")
+    if str(traffic_shaping.get("scope") or "").strip() != "marked-flow-only":
+        raise SystemExit(f"tracegate link-crypto {link_class} TCP traffic shaping scope must stay marked-flow-only")
+    require_private_file_ref(traffic_shaping.get("profileRef"), label=f"{link_class} TCP traffic shaping")
+    promotion = dpi.get("promotionPreflight") if isinstance(dpi.get("promotionPreflight"), dict) else {}
+    if not bool(promotion.get("required", False)) or not bool(promotion.get("failClosed", False)):
+        raise SystemExit(f"tracegate link-crypto {link_class} promotion preflight must be required and fail closed")
+    required_checks = {"mieru-private-auth", "zapret2-scoped-profile", "no-direct-backhaul"}
+    if link_class == "entry-transit":
+        required_checks.update({"spki-pin", "hmac-admission"})
+    checks = {str(item or "").strip() for item in promotion.get("checks", []) if str(item or "").strip()}
+    missing_checks = sorted(required_checks - checks)
+    if missing_checks:
+        raise SystemExit(f"tracegate link-crypto {link_class} promotion preflight missing checks: {missing_checks}")
+    require_private_file_ref(promotion.get("profileRef"), label=f"{link_class} promotion preflight")
     rotation = link.get("rotation") if isinstance(link.get("rotation"), dict) else {}
     if bool(rotation.get("restartExisting", False)):
         raise SystemExit(f"tracegate link-crypto {link_class} must not restart existing generation")
@@ -227,6 +353,7 @@ PY
 validate_and_write_manifest
 
 if [[ "${ACTION}" == "stop" ]]; then
+  run_udp_link_runner || true
   if [[ -f "${PROFILE_LIST_FILE}" ]]; then
     while IFS= read -r profile; do
       [[ -n "${profile}" ]] || continue
@@ -260,12 +387,44 @@ if [[ "${TRACEGATE_LINK_CRYPTO_ENABLED,,}" != "true" ]]; then
   exit 0
 fi
 
+if ! is_true "${TRACEGATE_LINK_CRYPTO_OUTER_WSS_SPKI_PINNING_REQUIRED}"; then
+  echo "tracegate link-crypto refuses to run without outer WSS SPKI pinning"
+  exit 1
+fi
+
+if ! is_true "${TRACEGATE_LINK_CRYPTO_OUTER_WSS_ADMISSION_REQUIRED}"; then
+  echo "tracegate link-crypto refuses to run without outer WSS HMAC admission"
+  exit 1
+fi
+
+if ! is_true "${TRACEGATE_LINK_CRYPTO_TCP_DPI_RESISTANCE_REQUIRED}"; then
+  echo "tracegate link-crypto refuses to run without TCP DPI resistance"
+  exit 1
+fi
+
+if ! is_true "${TRACEGATE_LINK_CRYPTO_TCP_TRAFFIC_SHAPING_REQUIRED}"; then
+  echo "tracegate link-crypto refuses to run without TCP traffic shaping"
+  exit 1
+fi
+
+if ! is_true "${TRACEGATE_LINK_CRYPTO_PROMOTION_PREFLIGHT_REQUIRED}"; then
+  echo "tracegate link-crypto refuses to run without promotion preflight"
+  exit 1
+fi
+
+if ! is_true "${TRACEGATE_LINK_CRYPTO_ZAPRET2_REQUIRED}"; then
+  echo "tracegate link-crypto refuses to run without scoped zapret2"
+  exit 1
+fi
+
 if [[ -x "${TRACEGATE_LINK_CRYPTO_RUNNER}" ]]; then
   TRACEGATE_LINK_CRYPTO_STATE_JSON="${TRACEGATE_LINK_CRYPTO_STATE_JSON}" \
   TRACEGATE_LINK_CRYPTO_PROFILE_LIST="${PROFILE_LIST_FILE}" \
   TRACEGATE_LINK_CRYPTO_LAST_ACTION="${LAST_ACTION_FILE}" \
   "${TRACEGATE_LINK_CRYPTO_RUNNER}" "${ACTION}" "${ROLE}" || true
 fi
+
+run_udp_link_runner
 
 if [[ -z "${TRACEGATE_MIERU_BIN}" || ! -x "${TRACEGATE_MIERU_BIN}" ]]; then
   echo "tracegate link-crypto mieru binary not installed"

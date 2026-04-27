@@ -7,8 +7,14 @@ from dataclasses import dataclass
 from ipaddress import ip_address
 from typing import Any
 
+from tracegate.constants import TRACEGATE_PUBLIC_UDP_PORT
 from tracegate.enums import ConnectionMode, ConnectionProtocol, ConnectionVariant
 from tracegate.models import Connection, Device, User
+from tracegate.services.connection_profiles import (
+    connection_profile_label,
+    tcp_chain_selected_profiles,
+    udp_chain_selected_profiles,
+)
 from tracegate.services.hysteria_credentials import build_hysteria_auth_payload
 from tracegate.services.sni_catalog import SniCatalogEntry
 
@@ -22,6 +28,9 @@ class EndpointSet:
     transit_host: str
     entry_host: str
     hysteria_auth_mode: str = "userpass"
+    hysteria_udp_port: int = TRACEGATE_PUBLIC_UDP_PORT
+    hysteria_salamander_password_entry: str = ""
+    hysteria_salamander_password_transit: str = ""
     # Optional per-role proxy hostname (e.g. Cloudflare orange cloud) used for HTTPS-based transports.
     transit_proxy_host: str | None = None
     entry_proxy_host: str | None = None
@@ -106,6 +115,17 @@ def _is_loopback_host(host: str) -> bool:
         return True
     try:
         return ip_address(normalized).is_loopback
+    except ValueError:
+        return False
+
+
+def _is_ip_literal(host: str) -> bool:
+    normalized = str(host or "").strip().strip("[]")
+    if not normalized:
+        return False
+    try:
+        ip_address(normalized)
+        return True
     except ValueError:
         return False
 
@@ -242,24 +262,44 @@ def _shadowsocks2022_password(
     return base64.b64encode(hashlib.sha256(seed).digest()[:key_len]).decode("ascii")
 
 
+def _hysteria_salamander_password(*, endpoints: EndpointSet, is_chain: bool) -> str:
+    password = (
+        endpoints.hysteria_salamander_password_entry
+        if is_chain
+        else endpoints.hysteria_salamander_password_transit
+    )
+    password = str(password or "").strip()
+    return password or "REPLACE_HYSTERIA2_SALAMANDER_PASSWORD"
+
+
 def _entry_transit_private_relay(
     *,
     endpoints: EndpointSet,
     inner_transport: str,
 ) -> dict[str, Any]:
+    is_udp = inner_transport == "hysteria2-quic"
     return {
         "type": "entry_transit_private_relay",
         "entry": endpoints.entry_host,
         "transit": endpoints.transit_host,
-        "link_class": "entry-transit",
-        "carrier": "mieru",
-        "preferred_outer": "wss-carrier",
-        "outer_carrier": "websocket-tls",
-        "optional_packet_shaping": "zapret2-scoped",
+        "link_class": "entry-transit-udp" if is_udp else "entry-transit",
+        "carrier": "hysteria2-salamander" if is_udp else "mieru",
+        "preferred_outer": "udp-quic-salamander" if is_udp else "wss-carrier",
+        "outer_carrier": "udp-quic" if is_udp else "websocket-tls",
+        "optional_packet_shaping": "paired-udp-obfs" if is_udp else "zapret2-scoped",
         "managed_by": "link-crypto",
-        "selected_profiles": ["V2", "V4", "V6"],
+        "selected_profiles": udp_chain_selected_profiles() if is_udp else tcp_chain_selected_profiles(),
         "inner_transport": inner_transport,
         "xray_backhaul": False,
+        "udp_capable": is_udp,
+        "salamander_required": is_udp,
+        "paired_obfs_supported": is_udp,
+        "dpi_resistance": {
+            "required": is_udp,
+            "mode": "salamander-plus-scoped-paired-obfs" if is_udp else "wss-zapret2-scoped",
+            "forbid_udp_443": is_udp,
+            "forbid_tcp_8443": is_udp,
+        },
     }
 
 
@@ -274,14 +314,14 @@ def build_effective_config(
     overrides = connection.custom_overrides_json or {}
 
     if connection.protocol == ConnectionProtocol.VLESS_REALITY:
-        if connection.variant not in {ConnectionVariant.V1, ConnectionVariant.V2}:
-            raise ValueError("VLESS/REALITY supports only V1/V2 variants")
+        if connection.variant != ConnectionVariant.V1:
+            raise ValueError("VLESS/REALITY supports only V1")
         if selected_sni is None:
             raise ValueError("camouflage SNI is required for VLESS/REALITY")
 
         # REALITY terminates on different nodes depending on mode.
-        # - DIRECT (V1): client connects to Transit -> use Transit REALITY public key + shortId.
-        # - CHAIN (V2): client connects to Entry -> use Entry REALITY public key + shortId.
+        # - DIRECT: client connects to Transit -> use Transit REALITY public key + shortId.
+        # - CHAIN: client connects to Entry -> use Entry REALITY public key + shortId.
         if connection.mode == ConnectionMode.DIRECT:
             pbk = endpoints.reality_public_key_transit or endpoints.reality_public_key
             sid = endpoints.reality_short_id_transit or endpoints.reality_short_id
@@ -322,7 +362,7 @@ def build_effective_config(
         if connection.mode == ConnectionMode.DIRECT and connection.variant == ConnectionVariant.V1:
             return {
                 **common,
-                "profile": "V1-VLESS-Reality-Direct",
+                "profile": connection_profile_label(connection.protocol, connection.mode, connection.variant),
                 "server": endpoints.transit_host,
                 "chain": None,
                 "design_constraints": {
@@ -331,10 +371,10 @@ def build_effective_config(
                 },
             }
 
-        if connection.mode == ConnectionMode.CHAIN and connection.variant == ConnectionVariant.V2:
+        if connection.mode == ConnectionMode.CHAIN and connection.variant == ConnectionVariant.V1:
             return {
                 **common,
-                "profile": "V2-VLESS-Reality-Chain",
+                "profile": connection_profile_label(connection.protocol, connection.mode, connection.variant),
                 "server": endpoints.entry_host,
                 "chain": _entry_transit_private_relay(endpoints=endpoints, inner_transport="vless-reality-xhttp"),
                 "design_constraints": {
@@ -350,8 +390,8 @@ def build_effective_config(
 
     if connection.protocol in {ConnectionProtocol.VLESS_WS_TLS, ConnectionProtocol.VLESS_GRPC_TLS}:
         is_grpc = connection.protocol == ConnectionProtocol.VLESS_GRPC_TLS
-        if connection.variant != ConnectionVariant.V1 or connection.mode != ConnectionMode.DIRECT:
-            raise ValueError("VLESS TLS compatibility profiles support only V1 direct")
+        if connection.variant != ConnectionVariant.V0 or connection.mode != ConnectionMode.DIRECT:
+            raise ValueError("VLESS TLS compatibility profiles support only V0 direct")
 
         # TLS compatibility surfaces in Tracegate architecture are always terminated on Transit.
         # Operators can override SNI/Host via custom_overrides_json.
@@ -408,7 +448,7 @@ def build_effective_config(
 
         return {
             **common,
-            "profile": "V1-VLESS-gRPC-TLS-Direct" if is_grpc else "V1-VLESS-WS-TLS-Direct",
+            "profile": connection_profile_label(connection.protocol, connection.mode, connection.variant),
             "server": transit_host,
             "chain": None,
             "design_constraints": {
@@ -419,10 +459,10 @@ def build_effective_config(
 
     if connection.protocol == ConnectionProtocol.HYSTERIA2:
         if (connection.mode, connection.variant) not in {
-            (ConnectionMode.DIRECT, ConnectionVariant.V3),
-            (ConnectionMode.CHAIN, ConnectionVariant.V4),
+            (ConnectionMode.DIRECT, ConnectionVariant.V2),
+            (ConnectionMode.CHAIN, ConnectionVariant.V2),
         }:
-            raise ValueError("Hysteria2 supports V3 direct or V4 chain")
+            raise ValueError("Hysteria2 supports V2 direct or V2 chain")
 
         mode = str(overrides.get("client_mode") or "socks").strip().lower()
         if mode != "socks":
@@ -430,7 +470,7 @@ def build_effective_config(
 
         is_chain = connection.mode == ConnectionMode.CHAIN
         entry_host = endpoints.entry_host if is_chain else endpoints.transit_host
-        profile_name = "V4-Hysteria2-QUIC-Chain" if is_chain else "V3-Hysteria2-QUIC-Direct"
+        profile_name = connection_profile_label(connection.protocol, connection.mode, connection.variant)
         ech_config_list = (
             endpoints.hysteria_ech_config_list_entry if is_chain else endpoints.hysteria_ech_config_list_transit
         )
@@ -446,23 +486,35 @@ def build_effective_config(
         )
         tls_payload: dict[str, Any] = {
             "server_name": entry_host,
-            "insecure": bool(overrides.get("tls_insecure", False)),
+            "insecure": bool(overrides.get("tls_insecure", False)) or _is_ip_literal(entry_host),
             "alpn": ["h3"],
         }
         if ech_config_list:
             tls_payload["ech_config_list"] = ech_config_list
         if ech_force_query:
             tls_payload["ech_force_query"] = ech_force_query
+        salamander_password = _hysteria_salamander_password(endpoints=endpoints, is_chain=is_chain)
+        hysteria_port = _normalize_int_range(
+            endpoints.hysteria_udp_port,
+            field_name="hysteria_udp_port",
+            min_value=1,
+            max_value=65535,
+        )
 
         return {
             "protocol": "hysteria2",
             "profile": profile_name,
             "server": entry_host,
-            "port": 443,
+            "port": hysteria_port,
             "sni": entry_host,
             "transport": "udp-quic",
             "tls": tls_payload,
             "auth": auth_payload,
+            "obfs": {
+                "type": "salamander",
+                "password": salamander_password,
+                "required": True,
+            },
             "client_mode": mode,
             "up_mbps": overrides.get("up_mbps", 100),
             "down_mbps": overrides.get("down_mbps", 100),
@@ -478,10 +530,11 @@ def build_effective_config(
                 "enabled": True,
             },
             "design_constraints": {
-                "fixed_port_udp": 443,
+                "fixed_port_udp": hysteria_port,
                 "masquerade_mode": "file",
+                "salamander_required": True,
                 "entry_role_required": is_chain,
-                "private_interconnect": "mieru-wss-zapret2" if is_chain else None,
+                "private_interconnect": "hysteria2-salamander-udp-link" if is_chain else None,
                 "backhaul_outside_xray": is_chain,
                 "udp_over_private_relay": is_chain,
             },
@@ -492,10 +545,10 @@ def build_effective_config(
 
     if connection.protocol == ConnectionProtocol.SHADOWSOCKS2022_SHADOWTLS:
         if (connection.mode, connection.variant) not in {
-            (ConnectionMode.DIRECT, ConnectionVariant.V5),
-            (ConnectionMode.CHAIN, ConnectionVariant.V6),
+            (ConnectionMode.DIRECT, ConnectionVariant.V3),
+            (ConnectionMode.CHAIN, ConnectionVariant.V3),
         }:
-            raise ValueError("Shadowsocks-2022 + ShadowTLS supports V5 direct or V6 chain")
+            raise ValueError("Shadowsocks-2022 + ShadowTLS supports V3 direct or V3 chain")
 
         is_chain = connection.mode == ConnectionMode.CHAIN
         server = endpoints.entry_host if is_chain else endpoints.transit_host
@@ -525,11 +578,7 @@ def build_effective_config(
         return {
             "protocol": "shadowsocks2022",
             "transport": "shadowtls_v3",
-            "profile": (
-                "V6-Shadowsocks2022-ShadowTLS-Chain"
-                if is_chain
-                else "V5-Shadowsocks2022-ShadowTLS-Direct"
-            ),
+            "profile": connection_profile_label(connection.protocol, connection.mode, connection.variant),
             "server": server,
             "port": 443,
             "sni": shadowtls_server_name,
@@ -570,8 +619,8 @@ def build_effective_config(
         }
 
     if connection.protocol == ConnectionProtocol.WIREGUARD_WSTUNNEL:
-        if (connection.mode, connection.variant) != (ConnectionMode.DIRECT, ConnectionVariant.V7):
-            raise ValueError("WireGuard over WSTunnel supports only V7 direct")
+        if (connection.mode, connection.variant) != (ConnectionMode.DIRECT, ConnectionVariant.V0):
+            raise ValueError("WireGuard over WSTunnel supports only V0 direct")
 
         server = str(overrides.get("server") or endpoints.transit_proxy_host or endpoints.transit_host).strip()
         tls_server_name = str(overrides.get("tls_server_name") or server).strip()
@@ -603,7 +652,7 @@ def build_effective_config(
         return {
             "protocol": "wireguard",
             "transport": "wstunnel",
-            "profile": "V7-WireGuard-WSTunnel-Direct",
+            "profile": connection_profile_label(connection.protocol, connection.mode, connection.variant),
             "server": server,
             "port": 443,
             "sni": tls_server_name,

@@ -148,7 +148,7 @@ async def reissue_current_revisions(payload: ReissueRequest, session: AsyncSessi
         if revision is None:
             continue
 
-        roles = target_roles_for_connection(conn.protocol, conn.variant)
+        roles = target_roles_for_connection(conn.protocol, conn.variant, conn.mode)
         for role in roles:
             event_payload = {
                 "user_id": str(conn.user_id),
@@ -161,6 +161,7 @@ async def reissue_current_revisions(payload: ReissueRequest, session: AsyncSessi
                 "revision_id": str(revision.id),
                 "op_ts": revision.created_at.isoformat(),
                 "protocol": conn.protocol.value,
+                "mode": conn.mode.value,
                 "variant": conn.variant.value,
                 # Ensure per-role idempotency keys never collide for V2 (Entry + Transit).
                 # This also lets reissue create a fresh event when payload changes.

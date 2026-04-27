@@ -33,7 +33,7 @@ from tracegate.services.runtime_contract import resolve_runtime_contract
 from tracegate.settings import effective_mtproto_reload_cmd, ensure_agent_dirs, get_settings
 
 from .metrics import register_agent_metrics
-from .reconcile import _reconcile_all_result
+from .reconcile import AgentPaths, _artifact_applies_to_role, _reconcile_all_result, load_all_user_artifacts
 from .system import run_command
 from .handlers import HandlerError, _reload_commands_for_changed, dispatch_event
 from .state import AgentStateStore
@@ -99,6 +99,17 @@ class DecoySessionResponse(BaseModel):
 class DecoyMTProtoAuthResponse(BaseModel):
     ok: bool
     profile: dict | None = None
+
+
+class HysteriaAuthRequest(BaseModel):
+    addr: str | None = None
+    auth: str | None = None
+    tx: int | None = None
+
+
+class HysteriaAuthResponse(BaseModel):
+    ok: bool
+    id: str | None = None
 
 
 class AgentMTProtoAccessIssueRequest(BaseModel):
@@ -174,6 +185,42 @@ def _forwarded_ip(request: Request) -> str:
 
 def _forwarded_user_agent(request: Request) -> str:
     return (request.headers.get("user-agent") or "").strip()
+
+
+def _hysteria_auth_candidates(row: dict) -> tuple[set[str], str]:
+    cfg = row.get("config")
+    if not isinstance(cfg, dict):
+        return set(), ""
+    auth = cfg.get("auth")
+    if not isinstance(auth, dict):
+        return set(), ""
+
+    username = str(auth.get("username") or auth.get("client_id") or "").strip()
+    password = str(auth.get("password") or "").strip()
+    token = str(auth.get("token") or auth.get("value") or "").strip()
+    client_id = str(auth.get("client_id") or username or token).strip()
+
+    candidates = {value for value in (token, str(auth.get("auth") or "").strip()) if value}
+    if username and password:
+        candidates.add(f"{username}:{password}")
+    return candidates, client_id
+
+
+def _match_hysteria_auth(auth_value: str) -> str:
+    requested = str(auth_value or "").strip()
+    if not requested:
+        return ""
+
+    paths = AgentPaths.from_settings(settings)
+    for row in load_all_user_artifacts(paths):
+        if str(row.get("protocol") or "").strip().lower() != "hysteria2":
+            continue
+        if not _artifact_applies_to_role(settings, row):
+            continue
+        candidates, client_id = _hysteria_auth_candidates(row)
+        if requested in candidates:
+            return client_id or requested
+    return ""
 
 
 def _decoy_session_or_401(request: Request) -> dict:
@@ -317,6 +364,20 @@ async def decoy_mtproto_auth(payload: DecoyMTProtoAuthRequest, request: Request)
         _forwarded_user_agent(request),
     )
     return DecoyMTProtoAuthResponse(ok=True, profile=profile)
+
+
+@app.post("/v1/hysteria/auth", response_model=HysteriaAuthResponse)
+async def hysteria_http_auth(payload: HysteriaAuthRequest, request: Request) -> HysteriaAuthResponse:
+    client_host = request.client.host if request.client is not None else ""
+    if not _is_loopback_host(client_host):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
+
+    client_id = _match_hysteria_auth(payload.auth or "")
+    if not client_id:
+        logger.warning("hysteria_auth_rejected addr=%s", str(payload.addr or "").strip())
+        return HysteriaAuthResponse(ok=False)
+
+    return HysteriaAuthResponse(ok=True, id=client_id)
 
 
 @app.post("/v1/decoy/login", response_model=DecoyLoginResponse)

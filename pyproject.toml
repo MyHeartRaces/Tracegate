@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "tracegate"
-version = "2.1.0"
+version = "2.2.0"
 description = "Tracegate 2 control-plane, node-agent and Telegram bot"
 requires-python = ">=3.11"
 authors = [{name = "Tracegate"}]
@@ -52,6 +52,8 @@ tracegate-render-xray-centric-overlays = "tracegate.cli.render_xray_centric_over
 tracegate-validate-runtime-contracts = "tracegate.cli.validate_runtime_contracts:main"
 tracegate-k3s-private-preflight = "tracegate.cli.k3s_private_preflight:main"
 tracegate-k3s-private-reload = "tracegate.cli.k3s_private_reload:main"
+tracegate-link-crypto-runner = "tracegate.cli.link_crypto_runner:main"
+tracegate-paired-udp-obfs-runner = "tracegate.cli.paired_udp_obfs_runner:main"
 tracegate-udp-tcp-tunnel = "tracegate.cli.udp_tcp_tunnel:main"
 
 [tool.setuptools]

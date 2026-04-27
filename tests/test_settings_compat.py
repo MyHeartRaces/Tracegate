@@ -90,7 +90,7 @@ def test_settings_keep_tracegate21_profile_distinct_from_xray_centric() -> None:
     alias_settings = Settings(agent_runtime_profile="k3s")
 
     assert settings.agent_runtime_profile == "tracegate-2.1"
-    assert alias_settings.agent_runtime_profile == "tracegate-2.1"
+    assert alias_settings.agent_runtime_profile == "tracegate-2.2"
 
 
 def test_effective_private_paths_follow_agent_data_root_outside_systemd_layout() -> None:

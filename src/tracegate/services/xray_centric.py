@@ -9,6 +9,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from tracegate.constants import TRACEGATE_PUBLIC_UDP_PORT
+
 
 class XrayCentricRenderError(RuntimeError):
     pass
@@ -144,7 +146,7 @@ def build_xray_hysteria_inbound(
     *,
     tag: str = "hy2-in",
     listen: str = "0.0.0.0",
-    port: int = 443,
+    port: int = TRACEGATE_PUBLIC_UDP_PORT,
     bootstrap_auth: str = "bootstrap-password",
     decoy_dir: str = "/var/www/decoy",
     tls_cert_file: str = "/etc/tracegate/tls/ws.crt",

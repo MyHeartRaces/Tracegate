@@ -83,6 +83,7 @@ class Device(Base):
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("tg_user.telegram_id", ondelete="CASCADE"), index=True)
     name: Mapped[str] = mapped_column(String(128), nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     status: Mapped[RecordStatus] = mapped_column(
         Enum(RecordStatus, name="device_status"), default=RecordStatus.ACTIVE, nullable=False
     )
@@ -90,6 +91,15 @@ class Device(Base):
 
     user: Mapped[User] = relationship(back_populates="devices")
     connections: Mapped[list[Connection]] = relationship(back_populates="device", cascade="all,delete-orphan")
+
+    __table_args__ = (
+        Index(
+            "uq_device_active_per_user",
+            "user_id",
+            unique=True,
+            postgresql_where=text("status = 'ACTIVE' AND is_active"),
+        ),
+    )
 
 
 class Connection(Base):

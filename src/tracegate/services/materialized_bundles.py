@@ -11,6 +11,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from tracegate.constants import TRACEGATE_PUBLIC_UDP_PORT
+from tracegate.services.runtime_contract import normalize_runtime_profile_name
 from tracegate.services.xray_centric import render_xray_centric_xray_config
 
 
@@ -313,10 +315,18 @@ class MaterializedBundleRenderContext:
     source_root: Path
     materialized_root: Path
     private_overlay_root: Path | None
+    runtime_profile: str
     entry_host: str
     transit_host: str
     ws_path: str
     bootstrap_password: str
+    hysteria_udp_port: int
+    entry_hysteria_salamander_password: str
+    transit_hysteria_salamander_password: str
+    entry_hysteria_stats_secret: str
+    transit_hysteria_stats_secret: str
+    entry_hysteria_auth_url: str
+    transit_hysteria_auth_url: str
     reality_public_key_entry: str
     reality_short_id_entry: str
     reality_public_key_transit: str
@@ -350,10 +360,87 @@ class MaterializedBundleRenderContext:
         materialized_root = Path(_require(env, "BUNDLE_MATERIALIZED_ROOT"))
         private_overlay_root_raw = _first(env, "BUNDLE_PRIVATE_OVERLAY_ROOT")
         private_overlay_root = Path(private_overlay_root_raw) if private_overlay_root_raw else None
+        runtime_profile = normalize_runtime_profile_name(_first(env, "AGENT_RUNTIME_PROFILE"))
         entry_host = _require(env, "DEFAULT_ENTRY_HOST")
         transit_host = _require(env, "DEFAULT_TRANSIT_HOST")
         ws_path = _first(env, "VLESS_WS_PATH", default="/ws") or "/ws"
-        bootstrap_password = _require(env, "HYSTERIA_BOOTSTRAP_PASSWORD")
+        if runtime_profile == "tracegate-2.2":
+            bootstrap_password = _first(env, "HYSTERIA_BOOTSTRAP_PASSWORD", default="unused-tracegate22-bootstrap")
+        else:
+            bootstrap_password = _require(env, "HYSTERIA_BOOTSTRAP_PASSWORD")
+
+        hysteria_udp_port_raw = _first(env, "HYSTERIA_UDP_PORT", default=str(TRACEGATE_PUBLIC_UDP_PORT))
+        try:
+            hysteria_udp_port = int(hysteria_udp_port_raw)
+        except ValueError as exc:
+            raise MaterializedBundleRenderError("HYSTERIA_UDP_PORT must be an integer") from exc
+        if hysteria_udp_port != TRACEGATE_PUBLIC_UDP_PORT:
+            raise MaterializedBundleRenderError(f"HYSTERIA_UDP_PORT must stay {TRACEGATE_PUBLIC_UDP_PORT}")
+
+        agent_port_raw = _first(env, "AGENT_PORT", default="8070") or "8070"
+        try:
+            agent_port = int(agent_port_raw)
+        except ValueError:
+            agent_port = 8070
+        default_hysteria_auth_url = f"http://127.0.0.1:{agent_port}/v1/hysteria/auth"
+        if runtime_profile == "tracegate-2.2":
+            entry_hysteria_salamander_password = _require_first(
+                env,
+                "HYSTERIA_SALAMANDER_PASSWORD_ENTRY",
+                "HYSTERIA_SALAMANDER_PASSWORD",
+            )
+            transit_hysteria_salamander_password = _require_first(
+                env,
+                "HYSTERIA_SALAMANDER_PASSWORD_TRANSIT",
+                "HYSTERIA_SALAMANDER_PASSWORD",
+            )
+            entry_hysteria_stats_secret = _require_first(
+                env,
+                "HYSTERIA_STATS_SECRET_ENTRY",
+                "AGENT_STATS_SECRET_ENTRY",
+                "AGENT_STATS_SECRET",
+            )
+            transit_hysteria_stats_secret = _require_first(
+                env,
+                "HYSTERIA_STATS_SECRET_TRANSIT",
+                "AGENT_STATS_SECRET_TRANSIT",
+                "AGENT_STATS_SECRET",
+            )
+        else:
+            entry_hysteria_salamander_password = _first(
+                env,
+                "HYSTERIA_SALAMANDER_PASSWORD_ENTRY",
+                "HYSTERIA_SALAMANDER_PASSWORD",
+            )
+            transit_hysteria_salamander_password = _first(
+                env,
+                "HYSTERIA_SALAMANDER_PASSWORD_TRANSIT",
+                "HYSTERIA_SALAMANDER_PASSWORD",
+            )
+            entry_hysteria_stats_secret = _first(
+                env,
+                "HYSTERIA_STATS_SECRET_ENTRY",
+                "AGENT_STATS_SECRET_ENTRY",
+                "AGENT_STATS_SECRET",
+            )
+            transit_hysteria_stats_secret = _first(
+                env,
+                "HYSTERIA_STATS_SECRET_TRANSIT",
+                "AGENT_STATS_SECRET_TRANSIT",
+                "AGENT_STATS_SECRET",
+            )
+        entry_hysteria_auth_url = _first(
+            env,
+            "HYSTERIA_AUTH_URL_ENTRY",
+            "HYSTERIA_AUTH_URL",
+            default=default_hysteria_auth_url,
+        ) or default_hysteria_auth_url
+        transit_hysteria_auth_url = _first(
+            env,
+            "HYSTERIA_AUTH_URL_TRANSIT",
+            "HYSTERIA_AUTH_URL",
+            default=default_hysteria_auth_url,
+        ) or default_hysteria_auth_url
 
         reality_public_key_entry = _first(env, "REALITY_PUBLIC_KEY_ENTRY", "REALITY_PUBLIC_KEY")
         reality_short_id_entry = _require_first(env, "REALITY_SHORT_ID_ENTRY", "REALITY_SHORT_ID")
@@ -387,11 +474,6 @@ class MaterializedBundleRenderContext:
             label="MTPROTO_HAPROXY_UPSTREAM",
         )
         decoy_dir = _first(env, "XRAY_CENTRIC_DECOY_DIR", default="/var/www/decoy") or "/var/www/decoy"
-        agent_port_raw = _first(env, "AGENT_PORT", default="8070") or "8070"
-        try:
-            agent_port = int(agent_port_raw)
-        except ValueError:
-            agent_port = 8070
         transit_decoy_agent_upstream = _first(
             env,
             "TRANSIT_DECOY_AGENT_UPSTREAM",
@@ -423,10 +505,18 @@ class MaterializedBundleRenderContext:
             source_root=source_root,
             materialized_root=materialized_root,
             private_overlay_root=private_overlay_root,
+            runtime_profile=runtime_profile,
             entry_host=entry_host,
             transit_host=transit_host,
             ws_path=ws_path,
             bootstrap_password=bootstrap_password,
+            hysteria_udp_port=hysteria_udp_port,
+            entry_hysteria_salamander_password=entry_hysteria_salamander_password,
+            transit_hysteria_salamander_password=transit_hysteria_salamander_password,
+            entry_hysteria_stats_secret=entry_hysteria_stats_secret,
+            transit_hysteria_stats_secret=transit_hysteria_stats_secret,
+            entry_hysteria_auth_url=entry_hysteria_auth_url,
+            transit_hysteria_auth_url=transit_hysteria_auth_url,
             reality_public_key_entry=reality_public_key_entry,
             reality_short_id_entry=reality_short_id_entry,
             reality_public_key_transit=reality_public_key_transit,
@@ -482,6 +572,17 @@ def _bundle_files_manifest(bundle_dir: Path) -> list[dict[str, Any]]:
 def _role_public_units(role_lower: str) -> list[str]:
     return [
         f"tracegate-xray@{role_lower}",
+        f"tracegate-hysteria@{role_lower}",
+        f"tracegate-haproxy@{role_lower}",
+        f"tracegate-nginx@{role_lower}",
+    ]
+
+
+def _role_public_units_for_profile(role_lower: str, runtime_profile: str) -> list[str]:
+    if runtime_profile == "tracegate-2.2":
+        return _role_public_units(role_lower)
+    return [
+        f"tracegate-xray@{role_lower}",
         f"tracegate-haproxy@{role_lower}",
         f"tracegate-nginx@{role_lower}",
     ]
@@ -525,10 +626,12 @@ def _materialized_manifest_payload(ctx: "MaterializedBundleRenderContext") -> di
                 "role": role_upper,
                 "bundleName": bundle_name,
                 "bundleDir": str(bundle_dir),
-                "publicUnits": _role_public_units(role_lower),
+                "publicUnits": _role_public_units_for_profile(role_lower, ctx.runtime_profile),
                 "privateCompanions": _role_private_companions(ctx, role_lower),
                 "features": {
-                    "runtimeProfile": "xray-centric",
+                    "runtimeProfile": ctx.runtime_profile,
+                    "standaloneHysteriaEnabled": ctx.runtime_profile == "tracegate-2.2",
+                    "hysteriaSalamanderEnabled": ctx.runtime_profile == "tracegate-2.2",
                     "finalMaskEnabled": finalmask_enabled,
                     "echEnabled": ech_enabled,
                     "mtprotoFrontingEnabled": role_upper == "TRANSIT" and bool(str(ctx.mtproto_domain or "").strip()),
@@ -542,7 +645,7 @@ def _materialized_manifest_payload(ctx: "MaterializedBundleRenderContext") -> di
     return {
         "version": 1,
         "generatedAt": datetime.now(timezone.utc).isoformat(),
-        "runtimeProfile": "xray-centric",
+        "runtimeProfile": ctx.runtime_profile,
         "materializedRoot": str(ctx.materialized_root),
         "sourceRoot": str(ctx.source_root),
         "privateOverlayRoot": str(ctx.private_overlay_root) if ctx.private_overlay_root is not None else "",
@@ -602,6 +705,7 @@ def _apply_json_overlay(config_path: Path, overlay_dir: Path) -> None:
 def _apply_text_overlay(config_path: Path, overlay_dir: Path) -> None:
     replacement_path = overlay_dir / config_path.name
     if replacement_path.exists():
+        config_path.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(replacement_path, config_path)
 
 
@@ -617,6 +721,8 @@ def _apply_private_overlays(ctx: MaterializedBundleRenderContext) -> None:
         _apply_json_overlay(bundle_dir / "xray.json", overlay_dir)
         for file_name in ("haproxy.cfg", "nginx.conf", "nftables.conf"):
             _apply_text_overlay(bundle_dir / file_name, overlay_dir)
+        if ctx.runtime_profile == "tracegate-2.2":
+            _apply_text_overlay(bundle_dir / "hysteria" / "server.yaml", overlay_dir / "hysteria")
         decoy_overlay_dir = overlay_dir / "decoy"
         if decoy_overlay_dir.exists():
             _copy_tree_overlay(decoy_overlay_dir, bundle_dir / "decoy")
@@ -640,6 +746,137 @@ def _materialize_transit_secret_surface(ctx: MaterializedBundleRenderContext) ->
         shutil.rmtree(target_dir)
     target_dir.parent.mkdir(parents=True, exist_ok=True)
     shutil.copytree(source_dir, target_dir)
+
+
+def _strip_xray_hysteria_runtime(payload: dict[str, Any]) -> None:
+    hysteria_tags: set[str] = set()
+    retained_inbounds: list[Any] = []
+    for inbound in payload.get("inbounds", []):
+        if not isinstance(inbound, dict):
+            retained_inbounds.append(inbound)
+            continue
+        tag = str(inbound.get("tag") or "").strip()
+        stream = inbound.get("streamSettings")
+        network = str((stream or {}).get("network") or "").strip().lower() if isinstance(stream, dict) else ""
+        if str(inbound.get("protocol") or "").strip().lower() == "hysteria" or network == "hysteria" or tag == "hy2-in":
+            if tag:
+                hysteria_tags.add(tag)
+            continue
+        retained_inbounds.append(inbound)
+    payload["inbounds"] = retained_inbounds
+
+    if not hysteria_tags:
+        return
+    routing = payload.get("routing")
+    rules = routing.get("rules") if isinstance(routing, dict) else None
+    if not isinstance(rules, list):
+        return
+    retained_rules: list[Any] = []
+    for rule in rules:
+        if not isinstance(rule, dict):
+            retained_rules.append(rule)
+            continue
+        inbound_tags = rule.get("inboundTag")
+        if not isinstance(inbound_tags, list):
+            retained_rules.append(rule)
+            continue
+        updated_tags = [tag for tag in inbound_tags if str(tag) not in hysteria_tags]
+        if not updated_tags:
+            continue
+        if len(updated_tags) != len(inbound_tags):
+            rule = dict(rule)
+            rule["inboundTag"] = updated_tags
+        retained_rules.append(rule)
+    routing["rules"] = retained_rules
+
+
+def _yaml_scalar(value: object) -> str:
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, int | float):
+        return str(value)
+    return json.dumps(str(value), ensure_ascii=True)
+
+
+def _render_hysteria_server_yaml(
+    *,
+    listen_port: int,
+    tls_cert_file: str,
+    tls_key_file: str,
+    auth_url: str,
+    salamander_password: str,
+    stats_secret: str,
+    decoy_dir: str,
+) -> str:
+    return "\n".join(
+        [
+            f"listen: :{listen_port}",
+            "tls:",
+            f"  cert: {_yaml_scalar(tls_cert_file)}",
+            f"  key: {_yaml_scalar(tls_key_file)}",
+            "  sniGuard: dns-san",
+            "auth:",
+            "  type: http",
+            "  http:",
+            f"    url: {_yaml_scalar(auth_url)}",
+            "    insecure: false",
+            "obfs:",
+            "  type: salamander",
+            "  salamander:",
+            f"    password: {_yaml_scalar(salamander_password)}",
+            "quic:",
+            "  maxIdleTimeout: 30s",
+            "  disablePathMTUDiscovery: false",
+            "congestion:",
+            "  type: bbr",
+            "disableUDP: false",
+            "udpIdleTimeout: 60s",
+            "sniff:",
+            "  enable: true",
+            "  timeout: 2s",
+            "trafficStats:",
+            "  listen: 127.0.0.1:9999",
+            f"  secret: {_yaml_scalar(stats_secret)}",
+            "masquerade:",
+            "  type: file",
+            "  file:",
+            f"    dir: {_yaml_scalar(decoy_dir)}",
+            "",
+        ]
+    )
+
+
+def _write_hysteria_server_configs(ctx: MaterializedBundleRenderContext) -> None:
+    if ctx.runtime_profile != "tracegate-2.2":
+        return
+    for bundle_name, auth_url, salamander_password, stats_secret in (
+        (
+            "base-entry",
+            ctx.entry_hysteria_auth_url,
+            ctx.entry_hysteria_salamander_password,
+            ctx.entry_hysteria_stats_secret,
+        ),
+        (
+            "base-transit",
+            ctx.transit_hysteria_auth_url,
+            ctx.transit_hysteria_salamander_password,
+            ctx.transit_hysteria_stats_secret,
+        ),
+    ):
+        target = ctx.materialized_root / bundle_name / "hysteria" / "server.yaml"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(
+            _render_hysteria_server_yaml(
+                listen_port=ctx.hysteria_udp_port,
+                tls_cert_file=ctx.tls_cert_file,
+                tls_key_file=ctx.tls_key_file,
+                auth_url=auth_url,
+                salamander_password=salamander_password,
+                stats_secret=stats_secret,
+                decoy_dir=ctx.decoy_dir,
+            ),
+            encoding="utf-8",
+        )
 
 
 def render_materialized_bundles(ctx: MaterializedBundleRenderContext) -> None:
@@ -682,6 +919,8 @@ def render_materialized_bundles(ctx: MaterializedBundleRenderContext) -> None:
         source_tag="entry-in",
         groups=ctx.reality_multi_inbound_groups,
     )
+    if ctx.runtime_profile == "tracegate-2.2":
+        _strip_xray_hysteria_runtime(entry_xray)
     _write_json(entry_xray_path, entry_xray)
 
     entry_haproxy_path = ctx.materialized_root / "base-entry" / "haproxy.cfg"
@@ -733,6 +972,8 @@ def render_materialized_bundles(ctx: MaterializedBundleRenderContext) -> None:
         source_tag="vless-reality-in",
         groups=ctx.reality_multi_inbound_groups,
     )
+    if ctx.runtime_profile == "tracegate-2.2":
+        _strip_xray_hysteria_runtime(transit_xray)
     _write_json(transit_xray_path, transit_xray)
 
     transit_haproxy_path = ctx.materialized_root / "base-transit" / "haproxy.cfg"
@@ -769,6 +1010,7 @@ def render_materialized_bundles(ctx: MaterializedBundleRenderContext) -> None:
     transit_nginx = transit_nginx.replace("REPLACE_TRANSIT_SECRET_PATH", ctx.transit_decoy_secret_path)
     transit_nginx_path.write_text(transit_nginx, encoding="utf-8")
 
+    _write_hysteria_server_configs(ctx)
     _apply_private_overlays(ctx)
     _materialize_transit_secret_surface(ctx)
     _write_materialized_manifest(ctx)

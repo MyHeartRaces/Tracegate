@@ -43,6 +43,7 @@ mtproto_domain = ""
 mtproto_fronting_mode = "dedicated-dns-only"
 tcp_owner = ""
 udp_owner = ""
+public_udp_port = 8443
 
 if runtime_state_path.exists():
     try:
@@ -55,7 +56,11 @@ if runtime_state_path.exists():
             mtproto_domain = str(fronting.get("mtprotoDomain") or "").strip()
             mtproto_fronting_mode = str(fronting.get("mtprotoFrontingMode") or mtproto_fronting_mode).strip().lower()
             tcp_owner = str(fronting.get("tcp443Owner") or "").strip()
-            udp_owner = str(fronting.get("udp443Owner") or "").strip()
+            udp_owner = str(fronting.get("publicUdpOwner") or fronting.get("udp443Owner") or "").strip()
+            try:
+                public_udp_port = int(fronting.get("publicUdpPort") or fronting.get("udpPublicPort") or public_udp_port)
+            except Exception:
+                public_udp_port = 8443
 
 mtproto_domain_override = str(sys.argv[15]).strip()
 if mtproto_domain_override:
@@ -128,6 +133,8 @@ payload = {
     "mtprotoDomain": mtproto_domain,
     "mtprotoFrontingMode": mtproto_fronting_mode,
     "tcp443Owner": tcp_owner,
+    "publicUdpPort": public_udp_port,
+    "publicUdpOwner": udp_owner,
     "udp443Owner": udp_owner,
     "cfgFile": str(cfg_path),
     "pidFile": pid_file,
@@ -146,7 +153,7 @@ is_running() {
 }
 
 if [[ "${TRACEGATE_FRONTING_TOUCH_UDP_443,,}" == "true" ]]; then
-  echo "tracegate fronting must not claim udp/443"
+  echo "tracegate fronting must not claim public udp/8443"
   exit 1
 fi
 

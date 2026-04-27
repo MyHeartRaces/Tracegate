@@ -146,9 +146,10 @@ def test_main_menu_text_uses_tracegate2_copy(monkeypatch: pytest.MonkeyPatch) ->
 
     text = main._main_menu_text()
 
-    assert "Tracegate 2" in text
-    assert "Telegram Proxy" in text
-    assert "Все основные действия доступны из этого меню." in text
+    assert "Tracegate 2.2" in text
+    assert "активного устройства" in text
+    assert "Справка" in text
+    assert "Подключения" in text
 
 
 def test_provider_label_uses_public_provider_caption() -> None:
@@ -158,19 +159,19 @@ def test_provider_label_uses_public_provider_caption() -> None:
 
 
 def test_connection_profile_label_uses_variant_and_family() -> None:
-    assert main._connection_profile_label({"protocol": "vless_reality", "mode": "direct", "variant": "V1"}) == "V1-VLESS-Reality-Direct"
-    assert main._connection_profile_label({"protocol": "hysteria2", "mode": "chain", "variant": "V4"}) == "V4-Hysteria2-QUIC-Chain"
-    assert main._connection_profile_label({"protocol": "vless_grpc_tls", "mode": "direct", "variant": "V1"}) == "V1-VLESS-gRPC-TLS-Direct"
-    assert main._connection_profile_label({"protocol": "vless_ws_tls", "mode": "direct", "variant": "V1"}) == "V1-VLESS-WS-TLS-Direct"
+    assert main._connection_profile_label({"protocol": "vless_reality", "mode": "direct", "variant": "V1"}) == "v1-direct-reality-vless"
+    assert main._connection_profile_label({"protocol": "hysteria2", "mode": "chain", "variant": "V2"}) == "v2-chain-quic-hysteria"
+    assert main._connection_profile_label({"protocol": "vless_grpc_tls", "mode": "direct", "variant": "V0"}) == "v0-grpc-vless"
+    assert main._connection_profile_label({"protocol": "vless_ws_tls", "mode": "direct", "variant": "V0"}) == "v0-ws-vless"
     assert (
         main._connection_profile_label(
-            {"protocol": "shadowsocks2022_shadowtls", "mode": "direct", "variant": "V5"}
+            {"protocol": "shadowsocks2022_shadowtls", "mode": "direct", "variant": "V3"}
         )
-        == "V5-Shadowsocks2022-ShadowTLS-Direct"
+        == "v3-direct-shadowtls-shadowsocks"
     )
     assert (
-        main._connection_profile_label({"protocol": "wireguard_wstunnel", "mode": "direct", "variant": "V7"})
-        == "V7-WireGuard-WSTunnel-Direct"
+        main._connection_profile_label({"protocol": "wireguard_wstunnel", "mode": "direct", "variant": "V0"})
+        == "v0-wgws-wireguard"
     )
 
 
@@ -192,14 +193,14 @@ async def test_render_device_page_uses_device_context_and_connection_cards(monke
                 "id": "conn-2",
                 "protocol": "hysteria2",
                 "mode": "chain",
-                "variant": "V4",
+                "variant": "V2",
                 "alias": "",
             },
             {
                 "id": "conn-3",
                 "protocol": "shadowsocks2022_shadowtls",
                 "mode": "direct",
-                "variant": "V5",
+                "variant": "V3",
                 "alias": "",
             },
         ]
@@ -212,9 +213,9 @@ async def test_render_device_page_uses_device_context_and_connection_cards(monke
     assert "🔌 Устройство" in text
     assert "Имя: Laptop" in text
     assert "Подключений: 3" in text
-    assert "• V1-VLESS-Reality-Direct" in text
-    assert "• V4-Hysteria2-QUIC-Chain" in text
-    assert "• V5-Shadowsocks2022-ShadowTLS-Direct" in text
+    assert "• v1-direct-reality-vless" in text
+    assert "• v2-chain-quic-hysteria" in text
+    assert "• v3-direct-shadowtls-shadowsocks" in text
     assert "ID: conn-1" in text
 
 
@@ -248,7 +249,7 @@ async def test_render_revisions_page_humanizes_revision_rows(monkeypatch: pytest
     text, _keyboard = await main.render_revisions_page("conn-1")
 
     assert "🧩 Ревизии" in text
-    assert "Профиль: V1-VLESS-Reality-Direct" in text
+    assert "Профиль: v1-direct-reality-vless" in text
     assert "Устройство: Laptop" in text
     assert "Текущая ревизия: слот 0 · rev-1" in text
     assert "Слот 0 · активна" in text
@@ -312,7 +313,7 @@ def test_guide_text_defaults_to_external_placeholder(monkeypatch: pytest.MonkeyP
 
 def test_format_config_delivery_message_supports_attachment_only_flow() -> None:
     text = main._format_config_delivery_message(
-        marker="V5 - 1 - dev-1 - conn-1",
+        marker="V3 - 1 - dev-1 - conn-1",
         title="Shadowsocks config",
         revision={"id": "rev-1", "slot": 0},
         context="created",
@@ -322,6 +323,7 @@ def test_format_config_delivery_message_supports_attachment_only_flow() -> None:
     )
 
     assert "Скачайте приложенный `.json` файл" in text
+    assert "поддерживает sing-box JSON" in text
     assert "Скопируйте ссылку" not in text
     assert "QR" not in text
 
@@ -336,7 +338,7 @@ async def test_send_client_config_handles_attachment_only_export(monkeypatch: py
             "device_name": "Laptop",
             "protocol": "shadowsocks2022_shadowtls",
             "mode": "direct",
-            "variant": "V5",
+            "variant": "V3",
         }
 
     exported = SimpleNamespace(
@@ -441,7 +443,7 @@ async def test_start_requires_two_step_welcome_before_menu(monkeypatch: pytest.M
     assert "[test-private-welcome-placeholder]" in str(args[0])
     button = kwargs["reply_markup"].inline_keyboard[0][0]
     assert button.callback_data == "welcome_continue_1"
-    assert button.text == "Ознакомился с текстом и готов продолжить?"
+    assert button.text == "➡️ Далее"
 
 
 @pytest.mark.asyncio
@@ -474,16 +476,16 @@ async def test_welcome_continue_flow_persists_acceptance_and_opens_menu(monkeypa
     first = _DummyCallback("welcome_continue_1")
     await main.welcome_continue_1(first, _DummyState())
     args, kwargs = first.message.edit_text_calls[0]
-    assert str(args[0]) == "Вы уверены?"
+    assert "Перед продолжением" in str(args[0])
     button = kwargs["reply_markup"].inline_keyboard[0][0]
     assert button.callback_data == "welcome_continue_2"
-    assert button.text == "Точно готов?"
+    assert button.text == "🏠 Открыть Tracegate"
 
     second = _DummyCallback("welcome_continue_2")
     await main.welcome_continue_2(second, _DummyState())
     args, kwargs = second.message.edit_text_calls[0]
-    assert "Tracegate 2" in str(args[0])
-    assert kwargs["reply_markup"].inline_keyboard[0][0].text == "Мои устройства"
+    assert "Tracegate 2.2" in str(args[0])
+    assert kwargs["reply_markup"].inline_keyboard[0][0].text == "📚 Справка"
     assert accepted["bot_welcome_version"] == "v-test"
 
 
@@ -606,7 +608,7 @@ async def test_add_device_prompt_includes_inline_cancel() -> None:
 
     assert state.states
     args, kwargs = callback.message.answer_calls[0]
-    assert "Введите имя нового устройства" in str(args[0])
+    assert "Введите имя устройства" in str(args[0])
     button = kwargs["reply_markup"].inline_keyboard[0][0]
-    assert button.text == "Отмена"
+    assert button.text == "↩️ Отмена"
     assert button.callback_data == "menu"

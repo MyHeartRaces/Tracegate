@@ -3,12 +3,12 @@ namespace:
   name: tracegate
 
 global:
-  runtimeProfile: tracegate-2.1
-  architectureRevision: "2.1"
+  runtimeProfile: tracegate-2.2
+  architectureRevision: "2.2"
   publicBaseUrl: ""
   image:
     repository: ghcr.io/your-org/tracegate
-    tag: "2.1.0"
+    tag: "2.2.0"
     pullPolicy: IfNotPresent
   imagePullSecrets: []
 
@@ -51,7 +51,7 @@ controlPlane:
     mtprotoDomain: ""
     localSocksAuth: required
     botWelcomeRequired: true
-    botWelcomeVersion: tracegate-2.1-client-safety-v2
+    botWelcomeVersion: tracegate-2.2-ui-v3
     botWelcomeMessageSecret:
       name: tracegate-bot-welcome
       key: message
@@ -78,8 +78,10 @@ privateProfiles:
   keys:
     realityPrivateKeyEntry: reality/entry-private-key
     realityPrivateKeyTransit: reality/transit-private-key
-    hysteriaAuthEntry: hysteria/entry-auth
-    hysteriaAuthTransit: hysteria/transit-auth
+    hysteriaSalamanderEntry: hysteria/entry-salamander-password
+    hysteriaSalamanderTransit: hysteria/transit-salamander-password
+    hysteriaStatsEntry: hysteria/entry-stats-secret
+    hysteriaStatsTransit: hysteria/transit-stats-secret
     mieruClient: mieru/client.json
     mieruServer: mieru/server.json
     zapretEntry: zapret/entry.env
@@ -101,8 +103,10 @@ privateProfiles:
   secretKeys:
     realityPrivateKeyEntry: reality-entry-private-key
     realityPrivateKeyTransit: reality-transit-private-key
-    hysteriaAuthEntry: hysteria-entry-auth
-    hysteriaAuthTransit: hysteria-transit-auth
+    hysteriaSalamanderEntry: hysteria-entry-salamander-password
+    hysteriaSalamanderTransit: hysteria-transit-salamander-password
+    hysteriaStatsEntry: hysteria-entry-stats-secret
+    hysteriaStatsTransit: hysteria-transit-stats-secret
     mieruClient: mieru-client-json
     mieruServer: mieru-server-json
     zapretEntry: zapret-entry-env
@@ -134,15 +138,15 @@ decoy:
 
 transportProfiles:
   clientNames:
-    - V1-VLESS-Reality-Direct
-    - V1-VLESS-gRPC-TLS-Direct
-    - V1-VLESS-WS-TLS-Direct
-    - V2-VLESS-Reality-Chain
-    - V3-Hysteria2-QUIC-Direct
-    - V4-Hysteria2-QUIC-Chain
-    - V5-Shadowsocks2022-ShadowTLS-Direct
-    - V6-Shadowsocks2022-ShadowTLS-Chain
-    - V7-WireGuard-WSTunnel-Direct
+    - v1-direct-reality-vless
+    - v1-chain-reality-vless
+    - v2-direct-quic-hysteria
+    - v2-chain-quic-hysteria
+    - v3-direct-shadowtls-shadowsocks
+    - v3-chain-shadowtls-shadowsocks
+    - v0-ws-vless
+    - v0-grpc-vless
+    - v0-wgws-wireguard
     - MTProto-FakeTLS-Direct
   v1:
     grpcFirst: true
@@ -237,6 +241,7 @@ gateway:
     haproxy: {}
     nginx: {}
     xray: {}
+    hysteria: {}
     mieru: {}
     zapret2:
       requests:
@@ -275,6 +280,10 @@ gateway:
       pullPolicy: IfNotPresent
     xray:
       repository: ghcr.io/xtls/xray-core
+      tag: "latest"
+      pullPolicy: IfNotPresent
+    hysteria:
+      repository: tobyxdd/hysteria
       tag: "latest"
       pullPolicy: IfNotPresent
     mieru:
@@ -319,7 +328,7 @@ gateway:
       affinity: {}
       ports:
         publicTcp: 443
-        publicUdp: 443
+        publicUdp: 8443
         reality: 2443
         httpsAdapter: 4443
         vlessWs: 10000
@@ -350,7 +359,7 @@ gateway:
       ports:
         publicHttp: 80
         publicTcp: 443
-        publicUdp: 443
+        publicUdp: 8443
         reality: 2443
         httpsAdapter: 4443
         vlessWs: 10000
@@ -392,14 +401,67 @@ interconnect:
       clientLocalPort: 14081
       serverLocalPort: 14082
       verifyTls: true
+      spkiPinning:
+        required: true
+        profileFile: /etc/tracegate/private/link-crypto/outer-wss-spki.env
+      admission:
+        required: true
+        mode: hmac-sha256-generation-bound
+        header: Sec-WebSocket-Protocol
+        profileFile: /etc/tracegate/private/link-crypto/outer-wss-admission.env
+      tcpShapingProfileFile: /etc/tracegate/private/link-crypto/tcp-shaping.env
+      promotionPreflightProfileFile: /etc/tracegate/private/link-crypto/promotion-preflight.env
     scope:
-      - V2
-      - V4
-      - V6
+      - V1
+      - V3
     routerEntry:
       enabled: false
     routerTransit:
       enabled: false
+    udp:
+      enabled: true
+      carrier: hysteria2
+      transport: udp-quic
+      remotePort: 8443
+      entryPort: 14481
+      transitPort: 14482
+      routerEntryPort: 14483
+      routerTransitPort: 14484
+      salamanderRequired: true
+      pairedObfs:
+        enabled: false
+        backend: udp2raw
+        mode: udp2raw-faketcp
+        requiresBothSides: true
+        failClosed: true
+        noHostWideInterception: true
+        noNfqueue: true
+      hardening:
+        enabled: true
+        failClosed: true
+        requirePrivateAuth: true
+        rejectAnonymous: true
+        antiReplay:
+          enabled: true
+          windowPackets: 4096
+        antiAmplification:
+          enabled: true
+          maxUnvalidatedBytes: 1200
+        rateLimit:
+          enabled: true
+          handshakePerMinute: 120
+          newSessionPerMinute: 60
+        mtu:
+          mode: clamp
+          maxPacketSize: 1252
+        keyRotation:
+          enabled: true
+          strategy: generation-drain
+          maxAgeSeconds: 3600
+          overlapSeconds: 120
+        sourceValidation:
+          enabled: true
+          mode: profile-bound-remote
   mieru:
     enabled: true
     localSocks:
@@ -411,7 +473,7 @@ interconnect:
       auth: required
     profileSource: external-secret
   zapret2:
-    enabled: false
+    enabled: true
     nfqueue: false
     hostWideInterception: false
     scope: scoped-egress
@@ -429,7 +491,7 @@ interconnect:
 
 wireguard:
   enabled: false
-  variant: V7
+  variant: V0
   wstunnel:
     enabled: true
     mode: wireguard-over-websocket
@@ -440,8 +502,8 @@ wireguard:
 shadowsocks2022:
   enabled: false
   variants:
-    direct: V5
-    chain: V6
+    direct: V3
+    chain: V3
   shadowtls:
     enabled: true
     version: 3

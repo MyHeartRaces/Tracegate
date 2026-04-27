@@ -46,12 +46,16 @@ from tracegate.bot.keyboards import (
     admin_mtproto_keyboard,
     cancel_only_keyboard,
     confirm_action_keyboard,
+    connection_create_categories_keyboard,
+    connection_create_profiles_keyboard,
+    connections_keyboard,
     config_delivery_keyboard,
     admin_user_revoke_notify_keyboard,
     device_actions_keyboard,
     devices_keyboard,
     feedback_admin_keyboard,
     guide_keyboard,
+    help_keyboard,
     main_menu_keyboard,
     mtproto_delivery_keyboard,
     provider_keyboard_with_cancel,
@@ -62,7 +66,6 @@ from tracegate.bot.keyboards import (
     sni_catalog_pick_keyboard,
     sni_page_keyboard_issue,
     sni_page_keyboard_new,
-    vless_transport_keyboard,
 )
 from tracegate.client_export.v2rayn import V2RayNExportError, export_client_config
 from tracegate.enums import ConnectionMode, ConnectionProtocol, ConnectionVariant
@@ -71,6 +74,12 @@ from tracegate.services.bot_blocks import (
     MAX_TIMED_BOT_BLOCK_HOURS,
     PERMANENT_BOT_BLOCK_HOURS,
     is_permanent_bot_block_hours,
+)
+from tracegate.services.connection_profiles import (
+    MAX_CONNECTIONS_PER_DEVICE,
+    MAX_DEVICES_PER_USER,
+    connection_profile_label,
+    supported_profile_specs,
 )
 from tracegate.settings import get_settings
 
@@ -201,12 +210,37 @@ def _build_access_revoked_notification_text(*, revoked_at: datetime) -> str:
     )
 
 
-def _format_devices_text(devices: list[dict]) -> str:
+def _active_device_from_list(devices: list[dict]) -> dict | None:
+    for device in devices:
+        if bool(device.get("is_active")):
+            return device
+    if devices:
+        return devices[0]
+    return None
+
+
+def _format_devices_text(devices: list[dict], *, active_device_id: str | None = None) -> str:
     header = "📱 Устройства"
     if not devices:
-        return f"{header}\n\nПока нет устройств."
-    rows = [f"• {d['name']}\n  ID: {d['id']}" for d in devices]
-    return f"{header}\n\n" + "\n".join(rows)
+        return (
+            f"{header}\n\n"
+            "Здесь хранится список ваших клиентских устройств.\n"
+            "Добавьте первое устройство, затем оно станет активным для выпуска подключений.\n\n"
+            f"Лимит: до {MAX_DEVICES_PER_USER} устройств."
+        )
+    active = next((d for d in devices if str(d.get("id")) == str(active_device_id)), None)
+    rows = []
+    for device in devices:
+        marker = " [активное]" if str(device.get("id")) == str(active_device_id) else ""
+        rows.append(f"• {device['name']}{marker}\n  ID: {device['id']}")
+    text = f"{header}\n\n"
+    if active is not None:
+        text += f"Активное устройство: {active.get('name')}\n"
+    text += (
+        f"Лимит: {len(devices)}/{MAX_DEVICES_PER_USER} устройств\n"
+        "Нажмите на устройство, чтобы сделать его активным.\n\n"
+    )
+    return text + "\n".join(rows)
 
 
 def _observability_scope_label(scope: str) -> str:
@@ -278,9 +312,9 @@ def _format_mtproto_delivery_message(*, result: dict, rotate: bool) -> str:
 
 def _main_menu_text() -> str:
     return (
-        "🏠 Tracegate 2\n\n"
-        "Управляйте устройствами, профилями, ревизиями и Telegram Proxy.\n"
-        "Все основные действия доступны из этого меню."
+        "🏠 Tracegate 2.2\n\n"
+        "Рабочий порядок простой: выберите активное устройство, затем открывайте «Подключения» и обслуживайте профили для активного устройства.\n\n"
+        "Справка всегда сверху. В ней есть гайдлайн и приветствие с кратким обзором новой версии."
     )
 
 
@@ -317,8 +351,16 @@ def _load_guide_text() -> str:
     return str(settings.bot_guide_message or "").strip() or "[TRACEGATE_BOT_GUIDE_PLACEHOLDER]"
 
 
+def _help_text() -> str:
+    return (
+        "📚 Справка\n\n"
+        "Гайдлайн - короткая инструкция по устройствам, подключениям, ревизиям и лимитам.\n"
+        "Приветствие - обзор Tracegate 2.2, который показывается при первом входе после обновления."
+    )
+
+
 def _bot_welcome_version() -> str:
-    return str(settings.bot_welcome_version or "").strip() or "tracegate-2.1-client-safety-v2"
+    return str(settings.bot_welcome_version or "").strip() or "tracegate-2.2-ui-v3"
 
 
 def _bot_welcome_text() -> str:
@@ -351,11 +393,17 @@ async def _send_welcome_step(message: Message, *, step: int) -> None:
     if step == 1:
         text = _bot_welcome_text()
         callback_data = "welcome_continue_1"
-        button_text = "Ознакомился с текстом и готов продолжить?"
+        button_text = "➡️ Далее"
     else:
-        text = "Вы уверены?"
+        text = (
+            "⚙️ Перед продолжением\n\n"
+            "Проверьте два правила:\n"
+            "1. Новые подключения выпускаются только для активного устройства.\n"
+            "2. Если меняете клиент или устройство, сначала выберите его в «Устройствах».\n\n"
+            "После подтверждения откроется главное меню."
+        )
         callback_data = "welcome_continue_2"
-        button_text = "Точно готов?"
+        button_text = "🏠 Открыть Tracegate"
     await message.answer(
         text,
         disable_web_page_preview=True,
@@ -367,11 +415,17 @@ async def _edit_welcome_step(callback: CallbackQuery, *, step: int) -> None:
     if step == 1:
         text = _bot_welcome_text()
         callback_data = "welcome_continue_1"
-        button_text = "Ознакомился с текстом и готов продолжить?"
+        button_text = "➡️ Далее"
     else:
-        text = "Вы уверены?"
+        text = (
+            "⚙️ Перед продолжением\n\n"
+            "Проверьте два правила:\n"
+            "1. Новые подключения выпускаются только для активного устройства.\n"
+            "2. Если меняете клиент или устройство, сначала выберите его в «Устройствах».\n\n"
+            "После подтверждения откроется главное меню."
+        )
         callback_data = "welcome_continue_2"
-        button_text = "Точно готов?"
+        button_text = "🏠 Открыть Tracegate"
     await callback.message.edit_text(
         text,
         disable_web_page_preview=True,
@@ -563,23 +617,10 @@ def _connection_profile_label(connection: dict) -> str:
     protocol = str(connection.get("protocol") or "").strip().lower()
     mode = str(connection.get("mode") or "").strip().lower()
     variant = str(connection.get("variant") or "").strip() or "V?"
-
-    if protocol == ConnectionProtocol.VLESS_REALITY.value:
-        suffix = "Chain" if mode == ConnectionMode.CHAIN.value else "Direct"
-        return f"{variant}-VLESS-Reality-{suffix}"
-    if protocol == ConnectionProtocol.VLESS_GRPC_TLS.value:
-        return f"{variant}-VLESS-gRPC-TLS-Direct"
-    if protocol == ConnectionProtocol.VLESS_WS_TLS.value:
-        return f"{variant}-VLESS-WS-TLS-Direct"
-    if protocol == ConnectionProtocol.HYSTERIA2.value:
-        suffix = "Chain" if mode == ConnectionMode.CHAIN.value else "Direct"
-        return f"{variant}-Hysteria2-QUIC-{suffix}"
-    if protocol == ConnectionProtocol.SHADOWSOCKS2022_SHADOWTLS.value:
-        suffix = "Chain" if mode == ConnectionMode.CHAIN.value else "Direct"
-        return f"{variant}-Shadowsocks2022-ShadowTLS-{suffix}"
-    if protocol == ConnectionProtocol.WIREGUARD_WSTUNNEL.value:
-        return f"{variant}-WireGuard-WSTunnel-Direct"
-    return f"{variant} | {_connection_family_name(protocol, mode)}"
+    try:
+        return connection_profile_label(protocol, mode, variant)
+    except Exception:
+        return f"{variant} | {_connection_family_name(protocol, mode)}"
 
 
 def _format_connection_card(connection: dict) -> str:
@@ -604,6 +645,34 @@ async def render_device_page(device_id: str) -> tuple[str, object]:
     else:
         text += "Пока нет подключений."
     return text, device_actions_keyboard(device_id, connections)
+
+
+async def render_connections_page(telegram_id: int) -> tuple[str, object]:
+    user = await ensure_user(telegram_id)
+    devices = await api.list_devices(user["telegram_id"])
+    active_device = _active_device_from_list(devices)
+    if active_device is None:
+        return (
+            "🔌 Подключения\n\n"
+            "Сначала добавьте устройство в разделе «Устройства». После этого здесь можно будет выпускать профили.",
+            connections_keyboard([], can_create=False),
+        )
+
+    connections = await api.list_connections(active_device["id"])
+    text = (
+        "🔌 Подключения\n\n"
+        f"Активное устройство: {active_device.get('name')}\n"
+        f"Устройство ID: {active_device.get('id')}\n"
+        f"Лимит подключений: {len(connections)}/{MAX_CONNECTIONS_PER_DEVICE}\n\n"
+    )
+    if connections:
+        text += "\n\n".join(_format_connection_card(connection) for connection in connections)
+    else:
+        text += "Пока нет подключений. Нажмите «Создать подключение», чтобы выпустить первый профиль для активного устройства."
+    return text, connections_keyboard(
+        connections,
+        can_create=len(connections) < MAX_CONNECTIONS_PER_DEVICE,
+    )
 
 
 async def render_revisions_page(connection_id: str) -> tuple[str, object]:
@@ -631,12 +700,8 @@ async def render_revisions_page(connection_id: str) -> tuple[str, object]:
     else:
         text += "Пока нет ревизий."
 
-    is_vless = connection["protocol"] in {
-        ConnectionProtocol.VLESS_REALITY.value,
-        ConnectionProtocol.VLESS_GRPC_TLS.value,
-        ConnectionProtocol.VLESS_WS_TLS.value,
-    }
-    return text, revisions_keyboard(connection_id, revisions, is_vless, connection["device_id"])
+    is_reality = connection["protocol"] == ConnectionProtocol.VLESS_REALITY.value
+    return text, revisions_keyboard(connection_id, revisions, is_reality, connection["device_id"])
 
 
 def _current_revision_from_list(revisions: list[dict]) -> dict | None:
@@ -708,7 +773,7 @@ def _format_config_delivery_message(
     else:
         next_steps = [
             "1. Скачайте приложенный `.json` файл.",
-            "2. Импортируйте файл в клиент.",
+            "2. Импортируйте файл в клиент, который поддерживает sing-box JSON.",
             "3. После импорта вернитесь к устройству или ревизиям по кнопкам.",
         ]
     if has_alternate_uri:
@@ -1054,11 +1119,42 @@ async def guide(message: Message) -> None:
     )
 
 
+@router.message(Command("welcome"))
+async def welcome(message: Message) -> None:
+    await message.answer(
+        _bot_welcome_text(),
+        disable_web_page_preview=True,
+        reply_markup=guide_keyboard(),
+    )
+
+
+@router.callback_query(F.data == "help_open")
+async def help_open(callback: CallbackQuery, state: FSMContext) -> None:
+    await state.clear()
+    await callback.message.edit_text(
+        _help_text(),
+        disable_web_page_preview=True,
+        reply_markup=help_keyboard(),
+    )
+    await callback.answer()
+
+
 @router.callback_query(F.data == "guide_open")
 async def guide_open(callback: CallbackQuery, state: FSMContext) -> None:
     await state.clear()
     await callback.message.edit_text(
         _emoji_text("📘", _load_guide_text()),
+        disable_web_page_preview=True,
+        reply_markup=guide_keyboard(),
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data == "welcome_open")
+async def welcome_open(callback: CallbackQuery, state: FSMContext) -> None:
+    await state.clear()
+    await callback.message.edit_text(
+        _bot_welcome_text(),
         disable_web_page_preview=True,
         reply_markup=guide_keyboard(),
     )
@@ -1264,6 +1360,66 @@ async def admin_menu(callback: CallbackQuery, state: FSMContext) -> None:
     await callback.answer()
 
 
+@router.callback_query(F.data == "connections")
+async def list_connections_menu(callback: CallbackQuery, state: FSMContext) -> None:
+    text, keyboard = await render_connections_page(callback.from_user.id)
+    await callback.message.edit_text(text, reply_markup=keyboard)
+    await callback.answer()
+
+
+@router.callback_query(F.data == "conn_create")
+async def connection_create_menu(callback: CallbackQuery, state: FSMContext) -> None:
+    user = await ensure_user(callback.from_user.id)
+    devices = await api.list_devices(user["telegram_id"])
+    active = _active_device_from_list(devices)
+    if active is None:
+        await callback.message.edit_text(
+            "🔌 Создание подключения\n\n"
+            "Сначала добавьте устройство в разделе «Устройства». Новые профили всегда привязываются к активному устройству.",
+            reply_markup=connections_keyboard([], can_create=False),
+        )
+        await callback.answer()
+        return
+
+    connections = await api.list_connections(active["id"])
+    if len(connections) >= MAX_CONNECTIONS_PER_DEVICE:
+        await callback.answer(
+            _msg_warn(f"На устройстве уже {MAX_CONNECTIONS_PER_DEVICE} подключения."),
+            show_alert=True,
+        )
+        return
+
+    await callback.message.edit_text(
+        "🔌 Создание подключения\n\n"
+        f"Активное устройство: {active.get('name')}\n"
+        "Выберите категорию профиля:",
+        reply_markup=connection_create_categories_keyboard(),
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("conncat:"))
+async def connection_create_category(callback: CallbackQuery) -> None:
+    _, category = callback.data.split(":", 1)
+    user = await ensure_user(callback.from_user.id)
+    devices = await api.list_devices(user["telegram_id"])
+    active = _active_device_from_list(devices)
+    if active is None:
+        await callback.answer(_msg_warn("Сначала добавьте устройство."), show_alert=True)
+        return
+    if category not in {"direct", "chain", "other"}:
+        await callback.answer(_msg_warn("Неизвестный тип подключения."), show_alert=True)
+        return
+    await callback.message.edit_text(
+        "🔌 Создание подключения\n\n"
+        f"Активное устройство: {active.get('name')}\n"
+        f"Категория: {category}\n"
+        "Выберите конкретный профиль:",
+        reply_markup=connection_create_profiles_keyboard(category=category, device_id=str(active["id"])),
+    )
+    await callback.answer()
+
+
 @router.callback_query(F.data == "admin_reset_connections")
 async def admin_reset_connections(callback: CallbackQuery, state: FSMContext) -> None:
     await state.clear()
@@ -1276,7 +1432,7 @@ async def admin_reset_connections(callback: CallbackQuery, state: FSMContext) ->
         inline_keyboard=confirm_action_keyboard(
             confirm_callback_data="admin_reset_connections_confirm",
             cancel_callback_data="admin_menu",
-            confirm_text="Подтвердить отзыв",
+            confirm_text="🧹 Подтвердить отзыв",
         ).inline_keyboard
     )
     await callback.message.answer(
@@ -1396,7 +1552,7 @@ async def mtproto_revoke(callback: CallbackQuery) -> None:
         reply_markup=confirm_action_keyboard(
             confirm_callback_data="mtproto_revoke_confirm",
             cancel_callback_data="menu",
-            confirm_text="Отозвать Telegram Proxy",
+            confirm_text="⛔ Отозвать Telegram Proxy",
         ),
     )
     await callback.answer()
@@ -1832,11 +1988,12 @@ async def receive_user_unblock(message: Message, state: FSMContext) -> None:
 
 @router.callback_query(F.data == "devices")
 async def list_devices(callback: CallbackQuery, state: FSMContext) -> None:
-    await state.clear()
     user = await ensure_user(callback.from_user.id)
     devices = await api.list_devices(user["telegram_id"])
-    text = _format_devices_text(devices)
-    await callback.message.edit_text(text, reply_markup=devices_keyboard(devices))
+    active = _active_device_from_list(devices)
+    active_id = str(active.get("id")) if active else None
+    text = _format_devices_text(devices, active_device_id=active_id)
+    await callback.message.edit_text(text, reply_markup=devices_keyboard(devices, active_device_id=active_id))
     await callback.answer()
 
 
@@ -1844,7 +2001,7 @@ async def list_devices(callback: CallbackQuery, state: FSMContext) -> None:
 async def add_device(callback: CallbackQuery, state: FSMContext) -> None:
     await state.set_state(DeviceFlow.waiting_for_name)
     await callback.message.answer(
-        _msg_prompt("Введите имя нового устройства"),
+        _msg_prompt("Введите имя устройства. Например: iPhone, MacBook, Home Router."),
         reply_markup=cancel_only_keyboard(cancel_callback_data="menu"),
     )
     await callback.answer()
@@ -1862,9 +2019,13 @@ async def receive_device_name(message: Message, state: FSMContext) -> None:
             await message.answer(_msg_warn("Имя устройства не может быть пустым."))
             return
         user = await ensure_user(message.from_user.id)
-        await api.create_device(user["telegram_id"], name)
+        device = await api.create_device(user["telegram_id"], name)
+        device = await api.activate_device(device["id"])
         devices = await api.list_devices(user["telegram_id"])
-        await message.answer(_msg_ok("Устройство добавлено."), reply_markup=devices_keyboard(devices))
+        await message.answer(
+            _msg_ok("Устройство добавлено и выбрано активным. Теперь можно перейти в «Подключения» и создать профиль."),
+            reply_markup=devices_keyboard(devices, active_device_id=str(device.get("id"))),
+        )
     except ApiClientError as exc:
         await message.answer(_msg_error(exc))
     finally:
@@ -1873,11 +2034,18 @@ async def receive_device_name(message: Message, state: FSMContext) -> None:
 
 @router.callback_query(F.data.startswith("device:"))
 async def device_actions(callback: CallbackQuery, state: FSMContext) -> None:
-    await state.clear()
     _, device_id = callback.data.split(":", 1)
-    text, keyboard = await render_device_page(device_id)
+    user = await ensure_user(callback.from_user.id)
+    devices = await api.list_devices(user["telegram_id"])
+    if not any(str(device.get("id")) == str(device_id) for device in devices):
+        await callback.answer(_msg_warn("Устройство не найдено"), show_alert=True)
+        return
+    await api.activate_device(device_id)
+    devices = await api.list_devices(user["telegram_id"])
+    text = _format_devices_text(devices, active_device_id=device_id)
+    keyboard = devices_keyboard(devices, active_device_id=device_id)
     await callback.message.edit_text(text, reply_markup=keyboard)
-    await callback.answer()
+    await callback.answer(_msg_ok("Активное устройство выбрано"))
 
 
 @router.callback_query(F.data.startswith("deldevask:"))
@@ -1895,7 +2063,7 @@ async def confirm_delete_device(callback: CallbackQuery) -> None:
             reply_markup=confirm_action_keyboard(
                 confirm_callback_data=f"deldev:{device_id}",
                 cancel_callback_data="devices",
-                confirm_text="Удалить устройство",
+                confirm_text="🗑️ Удалить устройство",
             ),
         )
     except ApiClientError as exc:
@@ -1911,8 +2079,10 @@ async def delete_device(callback: CallbackQuery) -> None:
         await _cleanup_related_messages(callback, device_id=device_id)
         user = await ensure_user(callback.from_user.id)
         devices = await api.list_devices(user["telegram_id"])
-        text = _format_devices_text(devices)
-        await callback.message.edit_text(text, reply_markup=devices_keyboard(devices))
+        active = _active_device_from_list(devices)
+        active_id = str(active.get("id")) if active else None
+        text = _format_devices_text(devices, active_device_id=active_id)
+        await callback.message.edit_text(text, reply_markup=devices_keyboard(devices, active_device_id=active_id))
         await callback.message.answer(_msg_ok("Устройство удалено. Все связанные подключения отозваны."))
     except ApiClientError as exc:
         await callback.message.answer(_msg_error(exc))
@@ -1920,24 +2090,22 @@ async def delete_device(callback: CallbackQuery) -> None:
 
 
 def _profile(spec: str) -> tuple[ConnectionProtocol, ConnectionMode, ConnectionVariant]:
-    if spec == "v1":
-        return ConnectionProtocol.VLESS_REALITY, ConnectionMode.DIRECT, ConnectionVariant.V1
-    if spec == "v1grpc":
-        return ConnectionProtocol.VLESS_GRPC_TLS, ConnectionMode.DIRECT, ConnectionVariant.V1
-    if spec == "v1ws":
-        return ConnectionProtocol.VLESS_WS_TLS, ConnectionMode.DIRECT, ConnectionVariant.V1
-    if spec == "v2":
-        return ConnectionProtocol.VLESS_REALITY, ConnectionMode.CHAIN, ConnectionVariant.V2
-    if spec == "v3":
-        return ConnectionProtocol.HYSTERIA2, ConnectionMode.DIRECT, ConnectionVariant.V3
-    if spec == "v4":
-        return ConnectionProtocol.HYSTERIA2, ConnectionMode.CHAIN, ConnectionVariant.V4
-    if spec == "v5":
-        return ConnectionProtocol.SHADOWSOCKS2022_SHADOWTLS, ConnectionMode.DIRECT, ConnectionVariant.V5
-    if spec == "v6":
-        return ConnectionProtocol.SHADOWSOCKS2022_SHADOWTLS, ConnectionMode.CHAIN, ConnectionVariant.V6
-    if spec == "v7":
-        return ConnectionProtocol.WIREGUARD_WSTUNNEL, ConnectionMode.DIRECT, ConnectionVariant.V7
+    normalized = str(spec or "").strip().lower()
+    aliases = {
+        "v1": "v1direct",
+        "v2": "v1chain",
+        "v3": "v2direct",
+        "v4": "v2chain",
+        "v5": "v3direct",
+        "v6": "v3chain",
+        "v7": "v0wgws",
+        "v1ws": "v0ws",
+        "v1grpc": "v0grpc",
+    }
+    profiles = supported_profile_specs()
+    key = aliases.get(normalized, normalized)
+    if key in profiles:
+        return profiles[key]
     raise ValueError("unknown profile")
 
 
@@ -1953,7 +2121,7 @@ async def new_connection(callback: CallbackQuery) -> None:
                 reply_markup=provider_keyboard_with_cancel(
                     "new",
                     f"{spec}:{device_id}",
-                    cancel_callback_data=f"device:{device_id}",
+                    cancel_callback_data="conn_create",
                 ),
             )
             await callback.answer()
@@ -1970,7 +2138,7 @@ async def new_connection(callback: CallbackQuery) -> None:
             None,
             custom_overrides_json=None,
         )
-        text, keyboard = await render_device_page(device_id)
+        text, keyboard = await render_connections_page(callback.from_user.id)
         await callback.message.edit_text(text, reply_markup=keyboard)
         await _send_client_config(callback, revision, context="created")
     except Exception as exc:  # noqa: BLE001
@@ -1981,29 +2149,22 @@ async def new_connection(callback: CallbackQuery) -> None:
 
 @router.callback_query(F.data.startswith("vlessnew:"))
 async def vless_new(callback: CallbackQuery) -> None:
-    # vlessnew:<spec>:<device_id> where spec is "v1" (direct) or "v2" (chain)
+    # Legacy callback: vlessnew:<spec>:<device_id>
     _, spec, device_id = callback.data.split(":", 2)
-    if spec not in {"v1", "v2"}:
+    if spec in {"v1", "v2"}:
+        spec = "v1direct" if spec == "v1" else "v1chain"
+    if spec not in {"v1direct", "v1chain"}:
         await callback.message.answer(_msg_error("Неизвестный профиль VLESS."))
         await callback.answer()
         return
 
-    if spec == "v2":
-        # Chain profile supports only Reality transport in current architecture.
-        await callback.message.edit_text(
-            "🛡️ V2-VLESS-Reality-Chain\n\nReality включен автоматически.\n\nВыберите провайдера для фильтра SNI:",
-            reply_markup=provider_keyboard_with_cancel(
-                "new",
-                f"{spec}:{device_id}",
-                cancel_callback_data=f"device:{device_id}",
-            ),
-        )
-        await callback.answer()
-        return
-
     await callback.message.edit_text(
-        "🔌 V1-VLESS Direct\n\nВыберите транспорт подключения:",
-        reply_markup=vless_transport_keyboard(spec=spec, device_id=device_id),
+        "🌐 Выберите провайдера для фильтра SNI:",
+        reply_markup=provider_keyboard_with_cancel(
+            "new",
+            f"{spec}:{device_id}",
+            cancel_callback_data="conn_create",
+        ),
     )
     await callback.answer()
 
@@ -2044,52 +2205,30 @@ async def feedback_block(callback: CallbackQuery, state: FSMContext) -> None:
 
 @router.callback_query(F.data.startswith("vlesstrans:"))
 async def vless_transport(callback: CallbackQuery) -> None:
-    # vlesstrans:<spec>:<device_id>:<transport>
+    # Legacy callback: vlesstrans:<spec>:<device_id>:<transport>
     _, spec, device_id, transport = callback.data.split(":", 3)
+    if spec in {"v1", "v2"}:
+        spec = "v1direct" if spec == "v1" else "v1chain"
     transport = (transport or "").strip().lower()
-    if spec not in {"v1", "v2"}:
+    if spec not in {"v1direct", "v1chain"}:
         await callback.message.answer(_msg_error("Неизвестный профиль VLESS."))
         await callback.answer()
         return
 
     try:
-        # Chain profile supports only Reality transport.
-        if spec == "v2":
-            transport = "reality"
-
         if transport == "reality":
             await callback.message.edit_text(
                 "🌐 Выберите провайдера для фильтра SNI:",
                 reply_markup=provider_keyboard_with_cancel(
                     "new",
                     f"{spec}:{device_id}",
-                    cancel_callback_data=f"device:{device_id}",
+                    cancel_callback_data="conn_create",
                 ),
             )
             await callback.answer()
             return
 
-        if transport not in {"grpc", "tls"}:
-            raise ValueError("unknown transport")
-
-        if spec != "v1":
-            raise ValueError("TLS compatibility transports are available only for V1 Direct")
-
-        user = await ensure_user(callback.from_user.id)
-        profile_spec = "v1grpc" if transport == "grpc" else "v1ws"
-        protocol, mode, variant = _profile(profile_spec)
-        connection, revision = await api.create_connection_and_revision(
-            user["telegram_id"],
-            device_id,
-            protocol,
-            mode,
-            variant,
-            None,
-            custom_overrides_json=None,
-        )
-        text, keyboard = await render_device_page(device_id)
-        await callback.message.edit_text(text, reply_markup=keyboard)
-        await _send_client_config(callback, revision, context="created")
+        raise ValueError("unknown transport")
     except Exception as exc:  # noqa: BLE001
         await callback.message.answer(_msg_error(exc))
     finally:
@@ -2111,7 +2250,7 @@ async def new_vless_with_sni(callback: CallbackQuery) -> None:
             variant,
             int(sni_id_raw),
         )
-        text, keyboard = await render_device_page(device_id)
+        text, keyboard = await render_connections_page(callback.from_user.id)
         await callback.message.edit_text(text, reply_markup=keyboard)
         await _send_client_config(callback, revision, context="created")
     except Exception as exc:  # noqa: BLE001
@@ -2141,7 +2280,7 @@ async def _render_sni_picker_new(*, spec: str, device_id: str, provider: str, pa
     if not sni_rows:
         return (
             _msg_warn("Нет доступных SNI в этой категории.\nВыберите другой провайдер:"),
-            provider_keyboard_with_cancel("new", f"{spec}:{device_id}", cancel_callback_data=f"device:{device_id}"),
+            provider_keyboard_with_cancel("new", f"{spec}:{device_id}", cancel_callback_data="conn_create"),
         )
 
     total = len(sni_rows)
@@ -2354,9 +2493,11 @@ async def sni_catalog(callback: CallbackQuery, state: FSMContext) -> None:
     await state.clear()
     user = await ensure_user(callback.from_user.id)
     devices = await api.list_devices(user["telegram_id"])
+    active = _active_device_from_list(devices)
+    active_id = str(active.get("id")) if active else None
     await callback.message.edit_text(
-        _format_devices_text(devices),
-        reply_markup=devices_keyboard(devices),
+        _format_devices_text(devices, active_device_id=active_id),
+        reply_markup=devices_keyboard(devices, active_device_id=active_id),
     )
     await callback.answer(
         _msg_info("Каталог SNI доступен только при создании Reality-подключения."),
@@ -2568,7 +2709,8 @@ async def sni_catalog_new_connection(callback: CallbackQuery, state: FSMContext)
             int(sni_id_raw),
         )
         await state.clear()
-        text, keyboard = await render_device_page(device_id)
+        await api.activate_device(device_id)
+        text, keyboard = await render_connections_page(callback.from_user.id)
         await callback.message.edit_text(text, reply_markup=keyboard)
         await _send_client_config(callback, revision, context="created")
     except Exception as exc:  # noqa: BLE001
@@ -2718,7 +2860,7 @@ async def confirm_revoke_revision(callback: CallbackQuery) -> None:
             reply_markup=confirm_action_keyboard(
                 confirm_callback_data=f"revoke:{revision_id}",
                 cancel_callback_data=f"revs:{revision['connection_id']}",
-                confirm_text="Удалить ревизию",
+                confirm_text="🗑️ Удалить ревизию",
             ),
         )
     except ApiClientError as exc:
@@ -2764,8 +2906,8 @@ async def confirm_delete_connection(callback: CallbackQuery) -> None:
             _format_connection_delete_confirmation(conn),
             reply_markup=confirm_action_keyboard(
                 confirm_callback_data=f"delconn:{connection_id}",
-                cancel_callback_data=f"device:{conn['device_id']}",
-                confirm_text="Удалить подключение",
+                cancel_callback_data="connections",
+                confirm_text="🗑️ Удалить подключение",
             ),
         )
     except ApiClientError as exc:
@@ -2777,12 +2919,9 @@ async def confirm_delete_connection(callback: CallbackQuery) -> None:
 async def delete_connection(callback: CallbackQuery) -> None:
     _, connection_id = callback.data.split(":", 1)
     try:
-        # Fetch device_id for UI refresh before deleting.
-        conn = await api.get_connection(connection_id)
-        device_id = conn["device_id"]
         await api.delete_connection(connection_id)
         await _cleanup_related_messages(callback, connection_id=connection_id)
-        text, keyboard = await render_device_page(device_id)
+        text, keyboard = await render_connections_page(callback.from_user.id)
         await callback.message.edit_text(text, reply_markup=keyboard)
         await callback.message.answer(_msg_ok("Подключение удалено (доступ отозван)."))
     except ApiClientError as exc:

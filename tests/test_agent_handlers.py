@@ -60,6 +60,18 @@ def test_reload_commands_keep_hysteria_empty_outside_legacy_container_mode() -> 
     assert cmds == []
 
 
+def test_reload_commands_include_standalone_hysteria_for_tracegate22() -> None:
+    settings = Settings(
+        agent_runtime_mode="systemd",
+        agent_runtime_profile="tracegate-2.2",
+        agent_reload_hysteria_cmd="reload-hysteria",
+    )
+
+    cmds = handlers._reload_commands_for_changed(settings, {"hysteria"})
+
+    assert cmds == ["reload-hysteria"]
+
+
 def test_reload_commands_include_proxy_stack_when_changed() -> None:
     settings = Settings(
         agent_runtime_mode="systemd",
@@ -488,6 +500,46 @@ def test_handle_apply_bundle_xray_centric_skips_hysteria_base_sync(
     assert reload_calls == [["reload-xray"]]
     assert "base_sync=xray" in msg
     assert "reconciled=xray" in msg
+
+
+def test_handle_apply_bundle_tracegate22_syncs_standalone_hysteria_base(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    monkeypatch.setattr(handlers, "_apply_firewall_bundle", lambda *_args, **_kwargs: None)
+
+    reload_calls: list[list[str]] = []
+    monkeypatch.setattr(handlers, "reconcile_all", lambda _settings: ["hysteria"])
+    monkeypatch.setattr(
+        handlers,
+        "_run_reload_commands",
+        lambda _settings, cmds: reload_calls.append(list(cmds)),
+    )
+
+    settings = Settings(
+        agent_data_root=str(tmp_path),
+        agent_dry_run=False,
+        agent_role="TRANSIT",
+        agent_runtime_profile="tracegate-2.2",
+        agent_reload_hysteria_cmd="reload-hysteria",
+    )
+
+    msg = handlers.handle_apply_bundle(
+        settings,
+        {
+            "bundle_name": "base-transit",
+            "files": {
+                "hysteria/server.yaml": "listen: :8443\nobfs:\n  type: salamander\n",
+            },
+            "commands": [],
+        },
+    )
+
+    assert (tmp_path / "base/hysteria/server.yaml").read_text(encoding="utf-8") == (
+        "listen: :8443\nobfs:\n  type: salamander\n"
+    )
+    assert reload_calls == [["reload-hysteria"]]
+    assert "base_sync=hysteria" in msg
+    assert "reconciled=hysteria" in msg
 
 
 def test_handle_apply_bundle_reload_includes_obfuscation_hook(

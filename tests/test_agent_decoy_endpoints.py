@@ -12,6 +12,7 @@ from fastapi.testclient import TestClient
 os.environ.setdefault("AGENT_AUTH_TOKEN", "test-agent-token")
 os.environ.setdefault("AGENT_DATA_ROOT", tempfile.mkdtemp(prefix="tracegate-agent-main-test-"))
 os.environ.setdefault("AGENT_DRY_RUN", "true")
+os.environ.setdefault("AGENT_STATS_SECRET", "test-stats-secret")
 
 from tracegate.services.mtproto_access import load_mtproto_access_entries
 from tracegate.settings import Settings, get_settings
@@ -129,6 +130,51 @@ def test_decoy_login_session_and_mtproto_fetch(monkeypatch, tmp_path) -> None:
         assert payload["ok"] is True
         assert payload["profile"]["protocol"] == "mtproto"
         assert payload["profile"]["server"] == "proxied.tracegate.su"
+
+
+def test_hysteria_http_auth_accepts_role_scoped_userpass(monkeypatch, tmp_path) -> None:
+    settings = Settings(
+        agent_auth_token="test-agent-token",
+        agent_data_root=str(tmp_path / "agent"),
+        agent_role="TRANSIT",
+        agent_dry_run=True,
+        agent_stats_secret="test-stats-secret",
+    )
+    artifact_path = Path(settings.agent_data_root) / "users" / "42" / "connection-conn-v3.json"
+    artifact_path.parent.mkdir(parents=True, exist_ok=True)
+    artifact_path.write_text(
+        json.dumps(
+            {
+                "connection_id": "conn-v3",
+                "user_id": "42",
+                "protocol": "hysteria2",
+                "variant": "V3",
+                "config": {
+                    "auth": {
+                        "type": "userpass",
+                        "username": "hy_user",
+                        "password": "hy_pass",
+                        "token": "hy_user:hy_pass",
+                        "client_id": "hy_user",
+                    }
+                },
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(agent_main, "settings", settings)
+    monkeypatch.setattr(agent_main, "_is_loopback_host", lambda _host: True)
+
+    with TestClient(agent_main.app) as client:
+        accepted = client.post("/v1/hysteria/auth", json={"addr": "198.51.100.10:40000", "auth": "hy_user:hy_pass", "tx": 0})
+        rejected = client.post("/v1/hysteria/auth", json={"addr": "198.51.100.10:40000", "auth": "bad", "tx": 0})
+
+    assert accepted.status_code == 200
+    assert accepted.json() == {"ok": True, "id": "hy_user"}
+    assert rejected.status_code == 200
+    assert rejected.json() == {"ok": False, "id": None}
 
 
 def test_agent_mtproto_access_issue_persists_user_bound_profile(monkeypatch, tmp_path) -> None:

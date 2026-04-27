@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -8,6 +8,7 @@ from tracegate.enums import ApiScope, ConnectionMode, ConnectionProtocol, Connec
 from tracegate.models import Connection, Device, User
 from tracegate.schemas import ConnectionCreate, ConnectionRead, ConnectionUpdate
 from tracegate.security import require_api_scope
+from tracegate.services.connection_profiles import MAX_CONNECTIONS_PER_DEVICE, is_supported_profile
 from tracegate.services.aliases import connection_alias, user_display
 from tracegate.services.connections import ConnectionRevokeError, revoke_connection
 from tracegate.services.overrides import OverrideValidationError, validate_overrides
@@ -144,34 +145,7 @@ def _to_connection_read(connection: Connection, *, user: User | None, device: De
 
 
 def validate_variant(protocol: ConnectionProtocol, mode: ConnectionMode, variant: ConnectionVariant) -> None:
-    if protocol == ConnectionProtocol.VLESS_REALITY and (mode, variant) in {
-        (ConnectionMode.DIRECT, ConnectionVariant.V1),
-        (ConnectionMode.CHAIN, ConnectionVariant.V2),
-    }:
-        return
-
-    if protocol == ConnectionProtocol.VLESS_WS_TLS and (mode, variant) == (ConnectionMode.DIRECT, ConnectionVariant.V1):
-        return
-
-    if protocol == ConnectionProtocol.VLESS_GRPC_TLS and (mode, variant) == (ConnectionMode.DIRECT, ConnectionVariant.V1):
-        return
-
-    if protocol == ConnectionProtocol.HYSTERIA2 and (mode, variant) in {
-        (ConnectionMode.DIRECT, ConnectionVariant.V3),
-        (ConnectionMode.CHAIN, ConnectionVariant.V4),
-    }:
-        return
-
-    if protocol == ConnectionProtocol.SHADOWSOCKS2022_SHADOWTLS and (mode, variant) in {
-        (ConnectionMode.DIRECT, ConnectionVariant.V5),
-        (ConnectionMode.CHAIN, ConnectionVariant.V6),
-    }:
-        return
-
-    if protocol == ConnectionProtocol.WIREGUARD_WSTUNNEL and (mode, variant) == (
-        ConnectionMode.DIRECT,
-        ConnectionVariant.V7,
-    ):
+    if is_supported_profile(protocol, mode, variant):
         return
 
     raise ConnectionValidationError("Unsupported protocol/mode/variant combination")
@@ -211,6 +185,18 @@ async def create_connection(payload: ConnectionCreate, session: AsyncSession = D
     device = await session.get(Device, payload.device_id)
     if device is None or device.user_id != user.telegram_id:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Device does not belong to user")
+
+    active_count = await session.scalar(
+        select(func.count(Connection.id)).where(
+            Connection.device_id == device.id,
+            Connection.status == RecordStatus.ACTIVE,
+        )
+    )
+    if int(active_count or 0) >= MAX_CONNECTIONS_PER_DEVICE:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Connection limit reached for device ({MAX_CONNECTIONS_PER_DEVICE})",
+        )
 
     try:
         validate_variant(payload.protocol, payload.mode, payload.variant)

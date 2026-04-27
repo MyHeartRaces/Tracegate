@@ -20,6 +20,7 @@ from tracegate.enums import (
     UserRole,
 )
 from tracegate.services.bot_blocks import PERMANENT_BOT_BLOCK_HOURS
+from tracegate.services.connection_profiles import MAX_DEVICES_PER_USER
 
 
 class HealthResponse(BaseModel):
@@ -52,7 +53,7 @@ class SniDomainUpdate(BaseModel):
 
 class UserCreate(BaseModel):
     telegram_id: int
-    devices_max: int = 5
+    devices_max: int = Field(default=MAX_DEVICES_PER_USER, ge=1, le=MAX_DEVICES_PER_USER)
 
 
 class UserRead(BaseModel):
@@ -138,6 +139,7 @@ class DeviceRead(BaseModel):
     id: UUID
     user_id: int
     name: str
+    is_active: bool = False
     status: RecordStatus
 
 

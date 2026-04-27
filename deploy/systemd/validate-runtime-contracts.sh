@@ -93,6 +93,15 @@ TRANSIT_LINK_CRYPTO_STATE="${TRANSIT_LINK_CRYPTO_STATE:-${LINK_CRYPTO_STATE_ROOT
 ENTRY_LINK_CRYPTO_ENV="${ENTRY_LINK_CRYPTO_ENV:-${LINK_CRYPTO_STATE_ROOT}/entry/desired-state.env}"
 TRANSIT_LINK_CRYPTO_ENV="${TRANSIT_LINK_CRYPTO_ENV:-${LINK_CRYPTO_STATE_ROOT}/transit/desired-state.env}"
 LINK_CRYPTO_UNIT="${LINK_CRYPTO_UNIT:-/etc/systemd/system/tracegate-link-crypto@.service}"
+ROUTER_HANDOFF_STATE_ROOT="${ROUTER_HANDOFF_STATE_ROOT:-${PRIVATE_RUNTIME_ROOT}/router}"
+ENTRY_ROUTER_STATE="${ENTRY_ROUTER_STATE:-${ROUTER_HANDOFF_STATE_ROOT}/entry/desired-state.json}"
+TRANSIT_ROUTER_STATE="${TRANSIT_ROUTER_STATE:-${ROUTER_HANDOFF_STATE_ROOT}/transit/desired-state.json}"
+ENTRY_ROUTER_ENV="${ENTRY_ROUTER_ENV:-${ROUTER_HANDOFF_STATE_ROOT}/entry/desired-state.env}"
+TRANSIT_ROUTER_ENV="${TRANSIT_ROUTER_ENV:-${ROUTER_HANDOFF_STATE_ROOT}/transit/desired-state.env}"
+ENTRY_ROUTER_CLIENT_BUNDLE="${ENTRY_ROUTER_CLIENT_BUNDLE:-${ROUTER_HANDOFF_STATE_ROOT}/entry/client-bundle.json}"
+TRANSIT_ROUTER_CLIENT_BUNDLE="${TRANSIT_ROUTER_CLIENT_BUNDLE:-${ROUTER_HANDOFF_STATE_ROOT}/transit/client-bundle.json}"
+ENTRY_ROUTER_CLIENT_ENV="${ENTRY_ROUTER_CLIENT_ENV:-${ROUTER_HANDOFF_STATE_ROOT}/entry/client-bundle.env}"
+TRANSIT_ROUTER_CLIENT_ENV="${TRANSIT_ROUTER_CLIENT_ENV:-${ROUTER_HANDOFF_STATE_ROOT}/transit/client-bundle.env}"
 FRONTING_STATE="${FRONTING_STATE:-${PRIVATE_RUNTIME_ROOT}/fronting/last-action.json}"
 FRONTING_ENV="${FRONTING_ENV:-/etc/tracegate/private/fronting/fronting.env}"
 FRONTING_UNIT="${FRONTING_UNIT:-/etc/systemd/system/tracegate-fronting@.service}"
@@ -188,6 +197,18 @@ case "${PREFLIGHT_MODE_RESOLVED}" in
     if [[ -f "${ENTRY_LINK_CRYPTO_ENV}" && -f "${TRANSIT_LINK_CRYPTO_ENV}" ]]; then
       args+=(--entry-link-crypto-env "${ENTRY_LINK_CRYPTO_ENV}" --transit-link-crypto-env "${TRANSIT_LINK_CRYPTO_ENV}")
     fi
+    if [[ -f "${ENTRY_ROUTER_STATE}" && -f "${TRANSIT_ROUTER_STATE}" ]]; then
+      args+=(--entry-router-state "${ENTRY_ROUTER_STATE}" --transit-router-state "${TRANSIT_ROUTER_STATE}")
+    fi
+    if [[ -f "${ENTRY_ROUTER_ENV}" && -f "${TRANSIT_ROUTER_ENV}" ]]; then
+      args+=(--entry-router-env "${ENTRY_ROUTER_ENV}" --transit-router-env "${TRANSIT_ROUTER_ENV}")
+    fi
+    if [[ -f "${ENTRY_ROUTER_CLIENT_BUNDLE}" && -f "${TRANSIT_ROUTER_CLIENT_BUNDLE}" ]]; then
+      args+=(--entry-router-client-bundle "${ENTRY_ROUTER_CLIENT_BUNDLE}" --transit-router-client-bundle "${TRANSIT_ROUTER_CLIENT_BUNDLE}")
+    fi
+    if [[ -f "${ENTRY_ROUTER_CLIENT_ENV}" && -f "${TRANSIT_ROUTER_CLIENT_ENV}" ]]; then
+      args+=(--entry-router-client-env "${ENTRY_ROUTER_CLIENT_ENV}" --transit-router-client-env "${TRANSIT_ROUTER_CLIENT_ENV}")
+    fi
     ;;
   entry)
     if [[ -f "${ENTRY_RUNTIME_STATE}" ]]; then
@@ -208,6 +229,18 @@ case "${PREFLIGHT_MODE_RESOLVED}" in
     if [[ -f "${ENTRY_LINK_CRYPTO_ENV}" ]]; then
       args+=(--entry-link-crypto-env "${ENTRY_LINK_CRYPTO_ENV}")
     fi
+    if [[ -f "${ENTRY_ROUTER_STATE}" ]]; then
+      args+=(--entry-router-state "${ENTRY_ROUTER_STATE}")
+    fi
+    if [[ -f "${ENTRY_ROUTER_ENV}" ]]; then
+      args+=(--entry-router-env "${ENTRY_ROUTER_ENV}")
+    fi
+    if [[ -f "${ENTRY_ROUTER_CLIENT_BUNDLE}" ]]; then
+      args+=(--entry-router-client-bundle "${ENTRY_ROUTER_CLIENT_BUNDLE}")
+    fi
+    if [[ -f "${ENTRY_ROUTER_CLIENT_ENV}" ]]; then
+      args+=(--entry-router-client-env "${ENTRY_ROUTER_CLIENT_ENV}")
+    fi
     ;;
   transit)
     if [[ -f "${TRANSIT_RUNTIME_STATE}" ]]; then
@@ -227,6 +260,18 @@ case "${PREFLIGHT_MODE_RESOLVED}" in
     fi
     if [[ -f "${TRANSIT_LINK_CRYPTO_ENV}" ]]; then
       args+=(--transit-link-crypto-env "${TRANSIT_LINK_CRYPTO_ENV}")
+    fi
+    if [[ -f "${TRANSIT_ROUTER_STATE}" ]]; then
+      args+=(--transit-router-state "${TRANSIT_ROUTER_STATE}")
+    fi
+    if [[ -f "${TRANSIT_ROUTER_ENV}" ]]; then
+      args+=(--transit-router-env "${TRANSIT_ROUTER_ENV}")
+    fi
+    if [[ -f "${TRANSIT_ROUTER_CLIENT_BUNDLE}" ]]; then
+      args+=(--transit-router-client-bundle "${TRANSIT_ROUTER_CLIENT_BUNDLE}")
+    fi
+    if [[ -f "${TRANSIT_ROUTER_CLIENT_ENV}" ]]; then
+      args+=(--transit-router-client-env "${TRANSIT_ROUTER_CLIENT_ENV}")
     fi
     ;;
 esac

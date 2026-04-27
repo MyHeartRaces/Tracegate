@@ -6,7 +6,7 @@ def test_env_example_uses_tracegate2_entry_transit_naming() -> None:
 
     assert "AGENT_ROLE=TRANSIT" in env_example
     assert "AGENT_RUNTIME_MODE=systemd" in env_example
-    assert "AGENT_RUNTIME_PROFILE=xray-centric" in env_example
+    assert "AGENT_RUNTIME_PROFILE=tracegate-2.2" in env_example
     assert "DEFAULT_ENTRY_HOST=" in env_example
     assert "DEFAULT_TRANSIT_HOST=" in env_example
     assert "DEFAULT_VPS_E_HOST=" not in env_example

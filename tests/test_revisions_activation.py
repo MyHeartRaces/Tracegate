@@ -85,11 +85,11 @@ async def test_activate_revision_uses_two_phase_shift_and_compacts_slots(monkeyp
     assert target.slot == 0
 
     active_rows = [row for row in connection.revisions if row.status == RecordStatus.ACTIVE]
-    assert len(active_rows) == 3
-    assert sorted([row.slot for row in active_rows]) == [0, 1, 2]
+    assert len(active_rows) == 2
+    assert sorted([row.slot for row in active_rows]) == [0, 1]
 
     revoked_rows = [row for row in connection.revisions if row.status == RecordStatus.REVOKED]
-    assert len(revoked_rows) == 1
+    assert len(revoked_rows) == 2
     assert isinstance(captured.get("op_ts"), datetime)
     assert captured["op_ts"] >= target.created_at
 
@@ -122,7 +122,7 @@ async def test_activate_revision_shifts_active_target_before_compaction(monkeypa
     assert session.flush_calls == 2
     assert target.slot == 0
     active_rows = [row for row in connection.revisions if row.status == RecordStatus.ACTIVE]
-    assert sorted([row.slot for row in active_rows]) == [0, 1, 2]
+    assert sorted([row.slot for row in active_rows]) == [0, 1]
 
 
 @pytest.mark.asyncio

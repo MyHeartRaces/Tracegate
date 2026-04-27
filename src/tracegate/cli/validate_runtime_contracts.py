@@ -16,11 +16,17 @@ from tracegate.services.runtime_preflight import (
     ObfuscationRuntimeState,
     PrivateProfileEnv,
     PrivateProfileState,
+    RouterClientBundle,
+    RouterClientBundleEnv,
+    RouterHandoffEnv,
+    RouterHandoffState,
     RuntimePreflightFinding,
     RuntimePreflightError,
     SystemdUnitContract,
     load_private_profile_env,
     load_private_profile_state,
+    load_router_client_bundle,
+    load_router_client_bundle_env,
     load_obfuscation_env_contract,
     load_fronting_env_contract,
     load_fronting_runtime_state,
@@ -32,6 +38,8 @@ from tracegate.services.runtime_preflight import (
     load_obfuscation_runtime_env,
     load_obfuscation_runtime_state,
     load_runtime_contract,
+    load_router_handoff_env,
+    load_router_handoff_state,
     load_systemd_unit_contract,
     load_zapret_profile,
     validate_private_helper_unit_contract,
@@ -46,6 +54,10 @@ from tracegate.services.runtime_preflight import (
     validate_obfuscation_runtime_state,
     validate_private_profile_env,
     validate_private_profile_state,
+    validate_router_client_bundle,
+    validate_router_client_bundle_env,
+    validate_router_handoff_env,
+    validate_router_handoff_state,
     validate_runtime_contract_pair,
     validate_runtime_contract_single,
     validate_zapret_profile,
@@ -104,6 +116,14 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--entry-link-crypto-env", default="", help="Path to Entry link-crypto desired-state.env")
     parser.add_argument("--transit-link-crypto-env", default="", help="Path to Transit link-crypto desired-state.env")
     parser.add_argument("--link-crypto-unit", default="", help="Path to tracegate-link-crypto@.service")
+    parser.add_argument("--entry-router-state", default="", help="Path to Entry router handoff desired-state.json")
+    parser.add_argument("--transit-router-state", default="", help="Path to Transit router handoff desired-state.json")
+    parser.add_argument("--entry-router-env", default="", help="Path to Entry router handoff desired-state.env")
+    parser.add_argument("--transit-router-env", default="", help="Path to Transit router handoff desired-state.env")
+    parser.add_argument("--entry-router-client-bundle", default="", help="Path to Entry router client-bundle.json")
+    parser.add_argument("--transit-router-client-bundle", default="", help="Path to Transit router client-bundle.json")
+    parser.add_argument("--entry-router-client-env", default="", help="Path to Entry router client-bundle.env")
+    parser.add_argument("--transit-router-client-env", default="", help="Path to Transit router client-bundle.env")
     parser.add_argument("--fronting-state", default="", help="Path to Transit fronting last-action.json")
     parser.add_argument("--fronting-env", default="", help="Path to Transit fronting.env")
     parser.add_argument("--fronting-unit", default="", help="Path to tracegate-fronting@.service")
@@ -217,6 +237,58 @@ def _load_link_crypto_env_pair(args: argparse.Namespace) -> tuple[LinkCryptoEnv 
         raise SystemExit(str(exc)) from exc
 
 
+def _load_router_handoff_state_pair(args: argparse.Namespace) -> tuple[RouterHandoffState | None, RouterHandoffState | None]:
+    entry_path_raw = str(args.entry_router_state or "").strip()
+    transit_path_raw = str(args.transit_router_state or "").strip()
+    if not entry_path_raw and not transit_path_raw:
+        return None, None
+    if not entry_path_raw or not transit_path_raw:
+        raise SystemExit("router handoff validation requires both --entry-router-state and --transit-router-state")
+    try:
+        return load_router_handoff_state(Path(entry_path_raw)), load_router_handoff_state(Path(transit_path_raw))
+    except RuntimePreflightError as exc:
+        raise SystemExit(str(exc)) from exc
+
+
+def _load_router_handoff_env_pair(args: argparse.Namespace) -> tuple[RouterHandoffEnv | None, RouterHandoffEnv | None]:
+    entry_path_raw = str(args.entry_router_env or "").strip()
+    transit_path_raw = str(args.transit_router_env or "").strip()
+    if not entry_path_raw and not transit_path_raw:
+        return None, None
+    if not entry_path_raw or not transit_path_raw:
+        raise SystemExit("router handoff env validation requires both --entry-router-env and --transit-router-env")
+    try:
+        return load_router_handoff_env(Path(entry_path_raw)), load_router_handoff_env(Path(transit_path_raw))
+    except RuntimePreflightError as exc:
+        raise SystemExit(str(exc)) from exc
+
+
+def _load_router_client_bundle_pair(args: argparse.Namespace) -> tuple[RouterClientBundle | None, RouterClientBundle | None]:
+    entry_path_raw = str(args.entry_router_client_bundle or "").strip()
+    transit_path_raw = str(args.transit_router_client_bundle or "").strip()
+    if not entry_path_raw and not transit_path_raw:
+        return None, None
+    if not entry_path_raw or not transit_path_raw:
+        raise SystemExit("router client bundle validation requires both --entry-router-client-bundle and --transit-router-client-bundle")
+    try:
+        return load_router_client_bundle(Path(entry_path_raw)), load_router_client_bundle(Path(transit_path_raw))
+    except RuntimePreflightError as exc:
+        raise SystemExit(str(exc)) from exc
+
+
+def _load_router_client_bundle_env_pair(args: argparse.Namespace) -> tuple[RouterClientBundleEnv | None, RouterClientBundleEnv | None]:
+    entry_path_raw = str(args.entry_router_client_env or "").strip()
+    transit_path_raw = str(args.transit_router_client_env or "").strip()
+    if not entry_path_raw and not transit_path_raw:
+        return None, None
+    if not entry_path_raw or not transit_path_raw:
+        raise SystemExit("router client bundle env validation requires both --entry-router-client-env and --transit-router-client-env")
+    try:
+        return load_router_client_bundle_env(Path(entry_path_raw)), load_router_client_bundle_env(Path(transit_path_raw))
+    except RuntimePreflightError as exc:
+        raise SystemExit(str(exc)) from exc
+
+
 def _load_runtime_state_single(args: argparse.Namespace, *, role: str) -> ObfuscationRuntimeState | None:
     attr_name = "entry_runtime_state" if role.upper() == "ENTRY" else "transit_runtime_state"
     path_raw = str(getattr(args, attr_name, "") or "").strip()
@@ -279,6 +351,50 @@ def _load_link_crypto_env_single(args: argparse.Namespace, *, role: str) -> Link
         return None
     try:
         return load_link_crypto_env(Path(path_raw))
+    except RuntimePreflightError as exc:
+        raise SystemExit(str(exc)) from exc
+
+
+def _load_router_handoff_state_single(args: argparse.Namespace, *, role: str) -> RouterHandoffState | None:
+    attr_name = "entry_router_state" if role.upper() == "ENTRY" else "transit_router_state"
+    path_raw = str(getattr(args, attr_name, "") or "").strip()
+    if not path_raw:
+        return None
+    try:
+        return load_router_handoff_state(Path(path_raw))
+    except RuntimePreflightError as exc:
+        raise SystemExit(str(exc)) from exc
+
+
+def _load_router_handoff_env_single(args: argparse.Namespace, *, role: str) -> RouterHandoffEnv | None:
+    attr_name = "entry_router_env" if role.upper() == "ENTRY" else "transit_router_env"
+    path_raw = str(getattr(args, attr_name, "") or "").strip()
+    if not path_raw:
+        return None
+    try:
+        return load_router_handoff_env(Path(path_raw))
+    except RuntimePreflightError as exc:
+        raise SystemExit(str(exc)) from exc
+
+
+def _load_router_client_bundle_single(args: argparse.Namespace, *, role: str) -> RouterClientBundle | None:
+    attr_name = "entry_router_client_bundle" if role.upper() == "ENTRY" else "transit_router_client_bundle"
+    path_raw = str(getattr(args, attr_name, "") or "").strip()
+    if not path_raw:
+        return None
+    try:
+        return load_router_client_bundle(Path(path_raw))
+    except RuntimePreflightError as exc:
+        raise SystemExit(str(exc)) from exc
+
+
+def _load_router_client_bundle_env_single(args: argparse.Namespace, *, role: str) -> RouterClientBundleEnv | None:
+    attr_name = "entry_router_client_env" if role.upper() == "ENTRY" else "transit_router_client_env"
+    path_raw = str(getattr(args, attr_name, "") or "").strip()
+    if not path_raw:
+        return None
+    try:
+        return load_router_client_bundle_env(Path(path_raw))
     except RuntimePreflightError as exc:
         raise SystemExit(str(exc)) from exc
 
@@ -375,6 +491,10 @@ def _print_single_role_report(
     link_crypto_state: LinkCryptoState | None,
     link_crypto_env: LinkCryptoEnv | None,
     link_crypto_unit: SystemdUnitContract | None,
+    router_handoff_state: RouterHandoffState | None,
+    router_handoff_env: RouterHandoffEnv | None,
+    router_client_bundle: RouterClientBundle | None,
+    router_client_env: RouterClientBundleEnv | None,
     fronting_state: FrontingRuntimeState | None,
     fronting_env: FrontingEnvContract | None,
     fronting_unit: SystemdUnitContract | None,
@@ -428,6 +548,22 @@ def _print_single_role_report(
         print(f"{label}={value}")
     if link_crypto_unit is not None:
         print(f"link_crypto_unit={args.link_crypto_unit}")
+    if router_handoff_state is not None:
+        label = "entry_router_state" if role_upper == "ENTRY" else "transit_router_state"
+        value = args.entry_router_state if role_upper == "ENTRY" else args.transit_router_state
+        print(f"{label}={value}")
+    if router_handoff_env is not None:
+        label = "entry_router_env" if role_upper == "ENTRY" else "transit_router_env"
+        value = args.entry_router_env if role_upper == "ENTRY" else args.transit_router_env
+        print(f"{label}={value}")
+    if router_client_bundle is not None:
+        label = "entry_router_client_bundle" if role_upper == "ENTRY" else "transit_router_client_bundle"
+        value = args.entry_router_client_bundle if role_upper == "ENTRY" else args.transit_router_client_bundle
+        print(f"{label}={value}")
+    if router_client_env is not None:
+        label = "entry_router_client_env" if role_upper == "ENTRY" else "transit_router_client_env"
+        value = args.entry_router_client_env if role_upper == "ENTRY" else args.transit_router_client_env
+        print(f"{label}={value}")
     if fronting_state is not None:
         print(f"fronting_state={args.fronting_state}")
     if fronting_env is not None:
@@ -467,6 +603,8 @@ def _print_single_role_report(
                 profiles_unit,
                 link_crypto_state,
                 link_crypto_unit,
+                router_handoff_state,
+                router_client_bundle,
                 fronting_state,
                 fronting_unit,
                 mtproto_state,
@@ -484,6 +622,8 @@ def _print_single_role_report(
                 profiles_unit,
                 link_crypto_env,
                 link_crypto_unit,
+                router_handoff_env,
+                router_client_env,
                 fronting_env,
                 fronting_unit,
                 mtproto_env,
@@ -528,6 +668,10 @@ def _run_single_role_mode(args: argparse.Namespace) -> None:
     link_crypto_state = _load_link_crypto_state_single(args, role=role_upper)
     link_crypto_env = _load_link_crypto_env_single(args, role=role_upper)
     link_crypto_unit = _load_systemd_unit(args, "link_crypto_unit")
+    router_handoff_state = _load_router_handoff_state_single(args, role=role_upper)
+    router_handoff_env = _load_router_handoff_env_single(args, role=role_upper)
+    router_client_bundle = _load_router_client_bundle_single(args, role=role_upper)
+    router_client_env = _load_router_client_bundle_env_single(args, role=role_upper)
     fronting_state = _load_fronting_state(args) if role_upper == "TRANSIT" else None
     fronting_env = _load_fronting_env(args) if role_upper == "TRANSIT" else None
     fronting_unit = _load_systemd_unit(args, "fronting_unit") if role_upper == "TRANSIT" else None
@@ -686,6 +830,44 @@ def _run_single_role_mode(args: argparse.Namespace) -> None:
                 state=link_crypto_state,
             )
         )
+    if router_handoff_state is not None:
+        findings.extend(
+            validate_router_handoff_state(
+                state=router_handoff_state,
+                contract=contract,
+                expected_role=role_upper,
+                contract_path=contract_path,
+                link_crypto_state=link_crypto_state,
+            )
+        )
+    if router_handoff_env is not None:
+        findings.extend(
+            validate_router_handoff_env(
+                env=router_handoff_env,
+                expected_role=role_upper,
+                contract=contract,
+                state=router_handoff_state,
+            )
+        )
+    if router_client_bundle is not None:
+        findings.extend(
+            validate_router_client_bundle(
+                bundle=router_client_bundle,
+                expected_role=role_upper,
+                contract=contract,
+                handoff_state=router_handoff_state,
+            )
+        )
+    if router_client_env is not None:
+        findings.extend(
+            validate_router_client_bundle_env(
+                env=router_client_env,
+                expected_role=role_upper,
+                contract=contract,
+                bundle=router_client_bundle,
+                handoff_state=router_handoff_state,
+            )
+        )
     if profiles_unit is not None:
         findings.extend(
             validate_private_helper_unit_contract(
@@ -786,6 +968,10 @@ def _run_single_role_mode(args: argparse.Namespace) -> None:
         link_crypto_state=link_crypto_state,
         link_crypto_env=link_crypto_env,
         link_crypto_unit=link_crypto_unit,
+        router_handoff_state=router_handoff_state,
+        router_handoff_env=router_handoff_env,
+        router_client_bundle=router_client_bundle,
+        router_client_env=router_client_env,
         fronting_state=fronting_state,
         fronting_env=fronting_env,
         fronting_unit=fronting_unit,
@@ -825,6 +1011,10 @@ def main() -> None:
     entry_link_crypto_state, transit_link_crypto_state = _load_link_crypto_state_pair(args)
     entry_link_crypto_env, transit_link_crypto_env = _load_link_crypto_env_pair(args)
     link_crypto_unit = _load_systemd_unit(args, "link_crypto_unit")
+    entry_router_handoff_state, transit_router_handoff_state = _load_router_handoff_state_pair(args)
+    entry_router_handoff_env, transit_router_handoff_env = _load_router_handoff_env_pair(args)
+    entry_router_client_bundle, transit_router_client_bundle = _load_router_client_bundle_pair(args)
+    entry_router_client_env, transit_router_client_env = _load_router_client_bundle_env_pair(args)
     fronting_state = _load_fronting_state(args)
     fronting_env = _load_fronting_env(args)
     fronting_unit = _load_systemd_unit(args, "fronting_unit")
@@ -1314,6 +1504,78 @@ def main() -> None:
                 state=transit_link_crypto_state,
             )
         )
+    if entry_router_handoff_state is not None and transit_router_handoff_state is not None:
+        findings.extend(
+            validate_router_handoff_state(
+                state=entry_router_handoff_state,
+                contract=entry_contract,
+                expected_role="ENTRY",
+                contract_path=args.entry,
+                link_crypto_state=entry_link_crypto_state,
+            )
+        )
+        findings.extend(
+            validate_router_handoff_state(
+                state=transit_router_handoff_state,
+                contract=transit_contract,
+                expected_role="TRANSIT",
+                contract_path=args.transit,
+                link_crypto_state=transit_link_crypto_state,
+            )
+        )
+    if entry_router_handoff_env is not None and transit_router_handoff_env is not None:
+        findings.extend(
+            validate_router_handoff_env(
+                env=entry_router_handoff_env,
+                expected_role="ENTRY",
+                contract=entry_contract,
+                state=entry_router_handoff_state,
+            )
+        )
+        findings.extend(
+            validate_router_handoff_env(
+                env=transit_router_handoff_env,
+                expected_role="TRANSIT",
+                contract=transit_contract,
+                state=transit_router_handoff_state,
+            )
+        )
+    if entry_router_client_bundle is not None and transit_router_client_bundle is not None:
+        findings.extend(
+            validate_router_client_bundle(
+                bundle=entry_router_client_bundle,
+                expected_role="ENTRY",
+                contract=entry_contract,
+                handoff_state=entry_router_handoff_state,
+            )
+        )
+        findings.extend(
+            validate_router_client_bundle(
+                bundle=transit_router_client_bundle,
+                expected_role="TRANSIT",
+                contract=transit_contract,
+                handoff_state=transit_router_handoff_state,
+            )
+        )
+    if entry_router_client_env is not None and transit_router_client_env is not None:
+        findings.extend(
+            validate_router_client_bundle_env(
+                env=entry_router_client_env,
+                expected_role="ENTRY",
+                contract=entry_contract,
+                bundle=entry_router_client_bundle,
+                handoff_state=entry_router_handoff_state,
+            )
+        )
+        findings.extend(
+            validate_router_client_bundle_env(
+                env=transit_router_client_env,
+                expected_role="TRANSIT",
+                contract=transit_contract,
+                bundle=transit_router_client_bundle,
+                handoff_state=transit_router_handoff_state,
+            )
+        )
 
     errors = [finding for finding in findings if finding.severity == "error"]
     warnings = [finding for finding in findings if finding.severity == "warning"]
@@ -1352,6 +1614,22 @@ def main() -> None:
         print(f"transit_link_crypto_env={args.transit_link_crypto_env}")
     if link_crypto_unit is not None:
         print(f"link_crypto_unit={args.link_crypto_unit}")
+    if entry_router_handoff_state is not None:
+        print(f"entry_router_state={args.entry_router_state}")
+    if transit_router_handoff_state is not None:
+        print(f"transit_router_state={args.transit_router_state}")
+    if entry_router_handoff_env is not None:
+        print(f"entry_router_env={args.entry_router_env}")
+    if transit_router_handoff_env is not None:
+        print(f"transit_router_env={args.transit_router_env}")
+    if entry_router_client_bundle is not None:
+        print(f"entry_router_client_bundle={args.entry_router_client_bundle}")
+    if transit_router_client_bundle is not None:
+        print(f"transit_router_client_bundle={args.transit_router_client_bundle}")
+    if entry_router_client_env is not None:
+        print(f"entry_router_client_env={args.entry_router_client_env}")
+    if transit_router_client_env is not None:
+        print(f"transit_router_client_env={args.transit_router_client_env}")
     if fronting_state is not None:
         print(f"fronting_state={args.fronting_state}")
     if fronting_env is not None:
@@ -1396,6 +1674,14 @@ def main() -> None:
                 entry_link_crypto_env,
                 transit_link_crypto_env,
                 link_crypto_unit,
+                entry_router_handoff_state,
+                transit_router_handoff_state,
+                entry_router_handoff_env,
+                transit_router_handoff_env,
+                entry_router_client_bundle,
+                transit_router_client_bundle,
+                entry_router_client_env,
+                transit_router_client_env,
                 fronting_state,
                 fronting_unit,
                 mtproto_state,
@@ -1416,6 +1702,10 @@ def main() -> None:
                 entry_link_crypto_env,
                 transit_link_crypto_env,
                 link_crypto_unit,
+                entry_router_handoff_env,
+                transit_router_handoff_env,
+                entry_router_client_env,
+                transit_router_client_env,
                 fronting_env,
                 fronting_unit,
                 mtproto_env,

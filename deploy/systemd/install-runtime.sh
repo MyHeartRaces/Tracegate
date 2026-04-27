@@ -3,9 +3,14 @@ set -euo pipefail
 
 XRAY_VERSION="${XRAY_VERSION:-latest}"
 XRAY_INSTALL_POLICY="${XRAY_INSTALL_POLICY:-if-missing}" # always | if-missing | skip
+HYSTERIA_VERSION="${HYSTERIA_VERSION:-latest}"
+HYSTERIA_INSTALL_POLICY="${HYSTERIA_INSTALL_POLICY:-if-missing}" # always | if-missing | skip
+HYSTERIA_DOWNLOAD_URL="${HYSTERIA_DOWNLOAD_URL:-}"
+HYSTERIA_DOWNLOAD_BASE="${HYSTERIA_DOWNLOAD_BASE:-https://download.hysteria.network/app}"
+HYSTERIA_SHA256="${HYSTERIA_SHA256:-}"
 INSTALL_BIN_DIR="${INSTALL_BIN_DIR:-/usr/local/bin}"
 TRACEGATE_ENV_FILE="${TRACEGATE_ENV_FILE:-/etc/tracegate/tracegate.env}"
-INSTALL_COMPONENTS="${INSTALL_COMPONENTS:-auto}" # auto | xray | mtproto | xray,mtproto
+INSTALL_COMPONENTS="${INSTALL_COMPONENTS:-auto}" # auto | xray | hysteria | mtproto | xray,hysteria,mtproto
 INSTALL_PROXY_STACK="${INSTALL_PROXY_STACK:-true}"
 MTPROTO_GIT_REPO="${MTPROTO_GIT_REPO:-https://github.com/TelegramMessenger/MTProxy.git}"
 MTPROTO_GIT_REF="${MTPROTO_GIT_REF:-master}"
@@ -66,7 +71,13 @@ normalize_runtime_profile() {
   raw="${raw%"${raw##*[![:space:]]}"}"
 
   case "${raw}" in
-    ""|default|xray-centric|xray-unified)
+    ""|default|tracegate-2.2|tracegate2.2|k3s|helm)
+      echo "tracegate-2.2"
+      ;;
+    tracegate-2.1|tracegate2.1)
+      echo "tracegate-2.1"
+      ;;
+    xray-centric|xray-unified)
       echo "xray-centric"
       ;;
     split|xray-hysteria)
@@ -86,7 +97,7 @@ normalize_install_component() {
   raw="${raw%"${raw##*[![:space:]]}"}"
 
   case "${raw}" in
-    xray|mtproto)
+    xray|hysteria|mtproto)
       echo "${raw}"
       ;;
     *)
@@ -150,10 +161,18 @@ resolve_install_components() {
         runtime_profile="$(read_env_assignment "${TRACEGATE_ENV_FILE}" "AGENT_RUNTIME_PROFILE")"
       fi
       runtime_profile="$(normalize_runtime_profile "${runtime_profile}")"
-      echo "xray"
+      case "${runtime_profile}" in
+        tracegate-2.2)
+          echo "xray hysteria"
+          ;;
+        tracegate-2.1|xray-centric)
+          echo "xray"
+          ;;
+      esac
       ;;
     *)
       local include_xray="false"
+      local include_hysteria="false"
       local include_mtproto="false"
       local raw_component=""
       local normalized_component=""
@@ -162,6 +181,7 @@ resolve_install_components() {
         normalized_component="$(normalize_install_component "${raw_component}")"
         case "${normalized_component}" in
           xray) include_xray="true" ;;
+          hysteria) include_hysteria="true" ;;
           mtproto) include_mtproto="true" ;;
         esac
       done
@@ -169,6 +189,9 @@ resolve_install_components() {
       local resolved=()
       if [[ "${include_xray}" == "true" ]]; then
         resolved+=("xray")
+      fi
+      if [[ "${include_hysteria}" == "true" ]]; then
+        resolved+=("hysteria")
       fi
       if [[ "${include_mtproto}" == "true" ]]; then
         resolved+=("mtproto")
@@ -184,6 +207,7 @@ resolve_install_components() {
 
 INSTALL_COMPONENTS_RESOLVED="$(resolve_install_components)"
 XRAY_INSTALL_POLICY="$(normalize_install_policy "${XRAY_INSTALL_POLICY}")"
+HYSTERIA_INSTALL_POLICY="$(normalize_install_policy "${HYSTERIA_INSTALL_POLICY}")"
 MTPROTO_INSTALL_POLICY="$(normalize_install_policy "${MTPROTO_INSTALL_POLICY}")"
 MTPROTO_REFRESH_BOOTSTRAP="$(normalize_refresh_policy "${MTPROTO_REFRESH_BOOTSTRAP}")"
 
@@ -204,6 +228,10 @@ xray_artifacts_ready() {
   file_is_ready "${INSTALL_BIN_DIR}/xray" &&
     file_is_ready "${INSTALL_BIN_DIR}/geoip.dat" &&
     file_is_ready "${INSTALL_BIN_DIR}/geosite.dat"
+}
+
+hysteria_binary_ready() {
+  [[ -x "${INSTALL_BIN_DIR}/hysteria" ]]
 }
 
 mtproto_binary_ready() {
@@ -228,6 +256,29 @@ xray_install_required() {
         return 1
       fi
       echo "XRAY_INSTALL_POLICY=skip but Xray is not installed under ${INSTALL_BIN_DIR}" >&2
+      exit 1
+      ;;
+  esac
+}
+
+hysteria_install_required() {
+  if ! component_enabled hysteria; then
+    return 1
+  fi
+
+  case "${HYSTERIA_INSTALL_POLICY}" in
+    always)
+      return 0
+      ;;
+    if-missing)
+      ! hysteria_binary_ready
+      return
+      ;;
+    skip)
+      if hysteria_binary_ready; then
+        return 1
+      fi
+      echo "HYSTERIA_INSTALL_POLICY=skip but Hysteria is not installed under ${INSTALL_BIN_DIR}" >&2
       exit 1
       ;;
   esac
@@ -326,6 +377,26 @@ release_asset_url() {
   fi
 }
 
+hysteria_asset_name() {
+  case "${ARCH}" in
+    amd64) echo "hysteria-linux-amd64" ;;
+    arm64) echo "hysteria-linux-arm64" ;;
+  esac
+}
+
+hysteria_download_url() {
+  local asset_name="$1"
+  if [[ -n "${HYSTERIA_DOWNLOAD_URL}" ]]; then
+    echo "${HYSTERIA_DOWNLOAD_URL}"
+    return 0
+  fi
+  if [[ "${HYSTERIA_VERSION}" == "latest" ]]; then
+    echo "${HYSTERIA_DOWNLOAD_BASE}/latest/${asset_name}"
+  else
+    echo "https://github.com/apernet/hysteria/releases/download/${HYSTERIA_VERSION}/${asset_name}"
+  fi
+}
+
 install_xray() {
   local asset_name=""
   case "${ARCH}" in
@@ -373,6 +444,35 @@ ensure_xray_present() {
   fi
 
   install_xray
+}
+
+install_hysteria() {
+  local asset_name
+  asset_name="$(hysteria_asset_name)"
+  local binary_url
+  binary_url="$(hysteria_download_url "${asset_name}")"
+  local binary_path="${TMP_DIR}/${asset_name}"
+
+  echo "installing Hysteria ${HYSTERIA_VERSION} (${ARCH})"
+  curl -fsSL -o "${binary_path}" "${binary_url}"
+  if [[ -n "${HYSTERIA_SHA256}" ]]; then
+    echo "${HYSTERIA_SHA256}  ${binary_path}" | sha256sum -c -
+  fi
+  install -d -m 0755 "${INSTALL_BIN_DIR}"
+  install -m 0755 "${binary_path}" "${INSTALL_BIN_DIR}/hysteria"
+}
+
+ensure_hysteria_present() {
+  if ! component_enabled hysteria; then
+    return 0
+  fi
+
+  if ! hysteria_install_required; then
+    echo "hysteria already present; skipping install"
+    return 0
+  fi
+
+  install_hysteria
 }
 
 ensure_mtproto_secret_file() {
@@ -493,6 +593,10 @@ if component_enabled xray; then
   ensure_xray_present
 fi
 
+if component_enabled hysteria; then
+  ensure_hysteria_present
+fi
+
 if component_enabled mtproto; then
   install_mtproto
 fi
@@ -500,6 +604,9 @@ fi
 echo "runtime binaries installed (components: ${INSTALL_COMPONENTS_RESOLVED})"
 if component_enabled xray; then
   echo "xray_bin_dir=${INSTALL_BIN_DIR}"
+fi
+if component_enabled hysteria; then
+  echo "hysteria_bin=${INSTALL_BIN_DIR}/hysteria"
 fi
 if component_enabled mtproto; then
   echo "mtproto_binary=${MTPROTO_INSTALL_ROOT}/objs/bin/mtproto-proxy"

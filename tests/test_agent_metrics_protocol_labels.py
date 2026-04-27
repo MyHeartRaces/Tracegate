@@ -77,7 +77,12 @@ def test_hysteria_metrics_normalize_connection_marker(monkeypatch: pytest.Monkey
         lambda _url, _secret: (_ for _ in ()).throw(AssertionError("must not call Hysteria API in xray-centric")),
     )
 
-    settings = Settings(agent_role="TRANSIT", agent_data_root=str(tmp_path), pseudonym_secret="test-secret")
+    settings = Settings(
+        agent_role="TRANSIT",
+        agent_data_root=str(tmp_path),
+        agent_runtime_profile="xray-centric",
+        pseudonym_secret="test-secret",
+    )
     collector = m.AgentMetricsCollector(settings)
     out = list(collector.collect())
 

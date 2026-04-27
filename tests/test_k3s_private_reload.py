@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from tracegate.cli.k3s_private_reload import K3sPrivateReloadError, main, run_private_reload
-from tracegate.services.runtime_contract import TRACEGATE21_CLIENT_PROFILES
+from tracegate.services.runtime_contract import TRACEGATE22_CLIENT_PROFILES
 
 
 PRIVATE_RELOAD_SECRET_CANARIES = (
@@ -40,15 +40,93 @@ def _write_env(path: Path, payload: dict[str, object]) -> None:
 def _contract(path: Path) -> dict:
     payload = {
         "role": "ENTRY",
-        "runtimeProfile": "tracegate-2.1",
-        "contract": {"managedComponents": ["xray"], "xrayBackhaulAllowed": False},
+        "runtimeProfile": "tracegate-2.2",
+        "contract": {"managedComponents": ["xray", "hysteria"], "xrayBackhaulAllowed": False},
         "transportProfiles": {
-            "clientNames": list(TRACEGATE21_CLIENT_PROFILES),
+            "clientNames": list(TRACEGATE22_CLIENT_PROFILES),
             "localSocks": {"auth": "required", "allowAnonymousLocalhost": False},
         },
     }
     _write_json(path, payload)
     return payload
+
+
+def _private_file_ref(path: str) -> dict:
+    return {"kind": "file", "path": path, "secretMaterial": True}
+
+
+def _zapret2_policy() -> dict:
+    return {
+        "enabled": True,
+        "required": True,
+        "profileFile": "/etc/tracegate/private/zapret/entry-transit.env",
+        "profileSource": "private-file-reference",
+        "profileRef": _private_file_ref("/etc/tracegate/private/zapret/entry-transit.env"),
+        "packetShaping": "zapret2-scoped",
+        "applyMode": "marked-flow-only",
+        "scope": "link-crypto-flow-only",
+        "targetSurfaces": ["tcp/443", "entry-transit", "router-link-crypto"],
+        "hostWideInterception": False,
+        "nfqueue": False,
+        "failOpen": True,
+    }
+
+
+def _tcp_dpi_resistance(*, require_outer_carrier: bool, link_class: str) -> dict:
+    required_layers = [
+        "mieru-private-auth",
+        "scoped-zapret2",
+        "private-zapret2-profile",
+        "loopback-only",
+        "generation-drain",
+        "no-direct-backhaul",
+    ]
+    if require_outer_carrier:
+        required_layers.extend(["outer-wss-tls", "spki-sha256-pin", "hmac-admission"])
+    return {
+        "enabled": True,
+        "mode": "mieru-wss-spki-hmac-zapret2-scoped" if require_outer_carrier else "mieru-zapret2-scoped",
+        "requiredLayers": required_layers,
+        "outerCarrier": {
+            "required": require_outer_carrier,
+            "spkiPinningRequired": require_outer_carrier,
+            "hmacAdmissionRequired": require_outer_carrier,
+        },
+        "zapret2": {
+            "required": True,
+            "enabled": True,
+            "profileSource": "private-file-reference",
+            "profileRef": _private_file_ref("/etc/tracegate/private/zapret/entry-transit.env"),
+            "packetShaping": "zapret2-scoped",
+            "applyMode": "marked-flow-only",
+            "scope": "link-crypto-flow-only",
+            "hostWideInterception": False,
+            "nfqueue": False,
+        },
+        "trafficShaping": {
+            "required": True,
+            "strategy": "private-zapret2-profile",
+            "profileSource": "private-file-reference",
+            "profileRef": _private_file_ref("/etc/tracegate/private/link-crypto/tcp-shaping.env"),
+            "scope": "marked-flow-only",
+            "target": "tcp/443-outer-wss" if require_outer_carrier else "tcp/443-link-crypto",
+            "secretMaterial": False,
+        },
+        "promotionPreflight": {
+            "required": True,
+            "failClosed": True,
+            "profileSource": "private-file-reference",
+            "profileRef": _private_file_ref("/etc/tracegate/private/link-crypto/promotion-preflight.env"),
+            "checks": [
+                "mieru-private-auth",
+                "zapret2-scoped-profile",
+                "no-direct-backhaul",
+            ]
+            + (["spki-pin", "hmac-admission"] if require_outer_carrier else []),
+            "secretMaterial": False,
+        },
+        "linkClass": link_class,
+    }
 
 
 def _write_empty_profile_handoff(root: Path, *, role: str, contract: dict, contract_path: Path) -> Path:
@@ -90,11 +168,13 @@ def _local_socks() -> dict:
     }
 
 
-def _shadowtls_profile(*, variant: str) -> dict:
+def _shadowtls_profile(*, mode: str) -> dict:
+    mode_lower = mode.strip().lower()
+    is_chain = mode_lower == "chain"
     chain = None
     stage = "direct-transit-public"
     outer = "shadowtls-v3"
-    if variant == "V6":
+    if is_chain:
         stage = "transit-private-terminator"
         outer = "wss-carrier"
         chain = {
@@ -107,7 +187,7 @@ def _shadowtls_profile(*, variant: str) -> dict:
             "outerCarrier": "websocket-tls",
             "optionalPacketShaping": "zapret2-scoped",
             "managedBy": "link-crypto",
-            "selectedProfiles": ["V2", "V4", "V6"],
+            "selectedProfiles": ["V1", "V3"],
             "innerTransport": "shadowsocks2022-shadowtls-v3",
             "xrayBackhaul": False,
         }
@@ -117,16 +197,17 @@ def _shadowtls_profile(*, variant: str) -> dict:
         "userDisplay": "@user",
         "deviceId": "device",
         "deviceName": "Laptop",
-        "connectionId": f"conn-{variant.lower()}",
-        "revisionId": f"rev-{variant.lower()}",
-        "variant": variant,
-        "profile": f"{variant}-Shadowsocks2022-ShadowTLS-{'Chain' if variant == 'V6' else 'Direct'}",
+        "connectionId": f"conn-v3-{mode_lower}",
+        "revisionId": f"rev-v3-{mode_lower}",
+        "mode": mode_lower,
+        "variant": "V3",
+        "profile": "v3-chain-shadowtls-shadowsocks" if is_chain else "v3-direct-shadowtls-shadowsocks",
         "protocol": "shadowsocks2022_shadowtls",
         "stage": stage,
         "server": "transit.example.com",
         "port": 443,
         "sni": "cdn.example.com",
-        "shadowsocks2022": {"method": "2022-blake3-aes-128-gcm", "password": f"ss-secret-{variant.lower()}"},
+        "shadowsocks2022": {"method": "2022-blake3-aes-128-gcm", "password": f"ss-secret-v3-{mode_lower}"},
         "shadowtls": {
             "version": 3,
             "serverName": "cdn.example.com",
@@ -142,7 +223,7 @@ def _shadowtls_profile(*, variant: str) -> dict:
         "localSocks": _local_socks(),
         "chain": chain,
         "obfuscation": {
-            "scope": "entry-transit-private-relay" if variant == "V6" else "public-tcp-443",
+            "scope": "entry-transit-private-relay" if is_chain else "public-tcp-443",
             "outer": outer,
             "packetShaping": "zapret2-scoped",
             "hostWideInterception": False,
@@ -153,10 +234,10 @@ def _shadowtls_profile(*, variant: str) -> dict:
 def _wireguard_profile() -> dict:
     return {
         "role": "TRANSIT",
-        "connectionId": "conn-v7",
-        "revisionId": "rev-v7",
-        "variant": "V7",
-        "profile": "V7-WireGuard-WSTunnel-Direct",
+        "connectionId": "conn-v0",
+        "revisionId": "rev-v0",
+        "variant": "V0",
+        "profile": "v0-wgws-wireguard",
         "protocol": "wireguard_wstunnel",
         "stage": "direct-transit-public",
         "server": "transit.example.com",
@@ -210,7 +291,7 @@ def _write_transit_profile_handoff(root: Path, *, contract: dict, contract_path:
         "transportProfiles": contract["transportProfiles"],
         "secretMaterial": True,
         "counts": {"total": 3, "shadowsocks2022ShadowTLS": 2, "wireguardWSTunnel": 1},
-        "shadowsocks2022ShadowTLS": [_shadowtls_profile(variant="V5"), _shadowtls_profile(variant="V6")],
+        "shadowsocks2022ShadowTLS": [_shadowtls_profile(mode="direct"), _shadowtls_profile(mode="chain")],
         "wireguardWSTunnel": [_wireguard_profile()],
     }
     _write_json(state_path, state)
@@ -246,7 +327,7 @@ def _write_link_crypto_handoff(
         "router-transit": 10884,
     }[link_class]
     remote_role = "ROUTER" if link_class in {"router-entry", "router-transit"} else ("TRANSIT" if role_upper == "ENTRY" else "ENTRY")
-    selected_profiles = ["V1", "V3", "V5", "V7"] if link_class == "router-transit" else ["V2", "V4", "V6"]
+    selected_profiles = ["V0", "V1", "V3"] if link_class == "router-transit" else ["V1", "V3"]
     outer_carrier = {
         "enabled": link_class == "entry-transit",
         "mode": "wss" if link_class == "entry-transit" else "direct",
@@ -262,6 +343,31 @@ def _write_link_crypto_handoff(
         "entryClientListen": "127.0.0.1:14081" if link_class == "entry-transit" else "",
         "transitServerListen": "127.0.0.1:14082" if link_class == "entry-transit" else "",
         "transitTarget": "127.0.0.1:10882" if link_class == "entry-transit" else "",
+        "tlsPinning": (
+            {
+                "required": True,
+                "mode": "spki-sha256",
+                "profileSource": "private-file-reference",
+                "profileRef": _private_file_ref("/etc/tracegate/private/link-crypto/outer-wss-spki.env"),
+                "secretMaterial": False,
+            }
+            if link_class == "entry-transit"
+            else {"required": False, "mode": "none", "secretMaterial": False}
+        ),
+        "admission": (
+            {
+                "required": True,
+                "mode": "hmac-sha256-generation-bound",
+                "carrier": "websocket-subprotocol",
+                "header": "Sec-WebSocket-Protocol",
+                "profileSource": "private-file-reference",
+                "profileRef": _private_file_ref("/etc/tracegate/private/link-crypto/outer-wss-admission.env"),
+                "rejectUnauthenticated": True,
+                "secretMaterial": False,
+            }
+            if link_class == "entry-transit"
+            else {"required": False, "mode": "none", "secretMaterial": False}
+        ),
     }
     state_path = root / "link-crypto" / role_lower / "desired-state.json"
     state = {
@@ -297,15 +403,11 @@ def _write_link_crypto_handoff(
                 "remote": {"role": remote_role, "endpoint": "transit.example.com:443"},
                 "outerCarrier": outer_carrier,
                 "selectedProfiles": selected_profiles,
-                "zapret2": {
-                    "enabled": False,
-                    "profileFile": "/etc/tracegate/private/zapret/entry-transit.env",
-                    "packetShaping": "zapret2-scoped",
-                    "applyMode": "marked-flow-only",
-                    "hostWideInterception": False,
-                    "nfqueue": False,
-                    "failOpen": True,
-                },
+                "zapret2": _zapret2_policy(),
+                "dpiResistance": _tcp_dpi_resistance(
+                    require_outer_carrier=link_class == "entry-transit",
+                    link_class=link_class,
+                ),
                 "rotation": {"strategy": "generation-drain", "restartExisting": False},
                 "stability": {"failOpen": True, "bypassOnFailure": True, "dropUnrelatedTraffic": False},
             }
@@ -328,13 +430,210 @@ def _write_link_crypto_handoff(
             "TRACEGATE_LINK_CRYPTO_OUTER_WSS_PUBLIC_PORT": 443,
             "TRACEGATE_LINK_CRYPTO_OUTER_WSS_PATH": "/cdn-cgi/tracegate-link",
             "TRACEGATE_LINK_CRYPTO_OUTER_WSS_VERIFY_TLS": "true" if link_class == "entry-transit" else "false",
+            "TRACEGATE_LINK_CRYPTO_OUTER_WSS_SPKI_PINNING_REQUIRED": "true" if link_class == "entry-transit" else "false",
+            "TRACEGATE_LINK_CRYPTO_OUTER_WSS_ADMISSION_REQUIRED": "true" if link_class == "entry-transit" else "false",
             "TRACEGATE_LINK_CRYPTO_GENERATION": 1,
-            "TRACEGATE_LINK_CRYPTO_ZAPRET2_ENABLED": "false",
+            "TRACEGATE_LINK_CRYPTO_ZAPRET2_ENABLED": "true",
+            "TRACEGATE_LINK_CRYPTO_ZAPRET2_REQUIRED": "true",
             "TRACEGATE_LINK_CRYPTO_ZAPRET2_HOST_WIDE_INTERCEPTION": "false",
             "TRACEGATE_LINK_CRYPTO_ZAPRET2_NFQUEUE": "false",
+            "TRACEGATE_LINK_CRYPTO_TCP_DPI_RESISTANCE_REQUIRED": "true",
+            "TRACEGATE_LINK_CRYPTO_TCP_TRAFFIC_SHAPING_REQUIRED": "true",
+            "TRACEGATE_LINK_CRYPTO_PROMOTION_PREFLIGHT_REQUIRED": "true",
         },
     )
     return state_path
+
+
+def _router_route_from_link(row: dict) -> dict:
+    local = row["local"]
+    remote = row["remote"]
+    role_lower = row["role"].lower()
+    link_class = row["class"]
+    return {
+        "class": link_class,
+        "enabled": True,
+        "serverRole": row["role"],
+        "serverSide": row["side"],
+        "remoteRole": remote["role"],
+        "carrier": row["carrier"],
+        "transport": "tcp",
+        "managedBy": row["managedBy"],
+        "xrayBackhaul": row["xrayBackhaul"],
+        "generation": row["generation"],
+        "serverListen": local["listen"],
+        "publicEndpoint": remote["endpoint"],
+        "selectedProfiles": row["selectedProfiles"],
+        "profileRef": row["profileRef"],
+        "auth": local["auth"],
+        "rotation": row["rotation"],
+        "stability": row["stability"],
+        "routerClient": {
+            "requiresPrivateProfile": True,
+            "secretMaterial": "external-private-file",
+            "hostWideInterception": False,
+            "nfqueue": False,
+            "profileRefs": {
+                "mieruClient": {
+                    "kind": "file",
+                    "path": f"/etc/tracegate/private/router/{role_lower}/{link_class}/mieru-client.json",
+                    "secretMaterial": True,
+                }
+            },
+        },
+        "outerCarrier": row["outerCarrier"],
+        "zapret2": row["zapret2"],
+        "dpiResistance": row["dpiResistance"],
+    }
+
+
+def _write_router_handoff_bundle(root: Path, *, role: str, contract: dict, contract_path: Path) -> None:
+    role_upper = role.upper()
+    role_lower = role.lower()
+    link_state = json.loads((root / "link-crypto" / role_lower / "desired-state.json").read_text(encoding="utf-8"))
+    tcp_routes = [_router_route_from_link(row) for row in link_state["links"] if row["class"] in {"router-entry", "router-transit"}]
+    state_path = root / "router" / role_lower / "desired-state.json"
+    state = {
+        "schema": "tracegate.router-handoff.v1",
+        "version": 1,
+        "role": role_upper,
+        "runtimeProfile": contract["runtimeProfile"],
+        "runtimeContractPath": str(contract_path),
+        "secretMaterial": False,
+        "enabled": bool(tcp_routes),
+        "placement": "personal-router-before-entry" if role_upper == "ENTRY" else "personal-router-before-transit",
+        "contract": {
+            "routerIsEntryReplacement": False,
+            "requiresServerSideLinkCrypto": True,
+            "requiresPrivateRouterProfile": bool(tcp_routes),
+            "noHostWideInterception": True,
+            "noNfqueue": True,
+        },
+        "counts": {"total": len(tcp_routes), "tcp": len(tcp_routes), "udp": 0},
+        "classes": {"tcp": [row["class"] for row in tcp_routes], "udp": []},
+        "routes": {"tcp": tcp_routes, "udp": []},
+    }
+    _write_json(state_path, state)
+    _write_env(
+        root / "router" / role_lower / "desired-state.env",
+        {
+            "TRACEGATE_ROUTER_HANDOFF_ROLE": role_upper,
+            "TRACEGATE_ROUTER_HANDOFF_RUNTIME_PROFILE": contract["runtimeProfile"],
+            "TRACEGATE_ROUTER_HANDOFF_STATE_JSON": state_path,
+            "TRACEGATE_ROUTER_CLIENT_BUNDLE_JSON": root / "router" / role_lower / "client-bundle.json",
+            "TRACEGATE_ROUTER_HANDOFF_SECRET_MATERIAL": "false",
+            "TRACEGATE_ROUTER_HANDOFF_ENABLED": "true" if tcp_routes else "false",
+            "TRACEGATE_ROUTER_HANDOFF_COUNT": len(tcp_routes),
+            "TRACEGATE_ROUTER_HANDOFF_TCP_COUNT": len(tcp_routes),
+            "TRACEGATE_ROUTER_HANDOFF_UDP_COUNT": 0,
+            "TRACEGATE_ROUTER_HANDOFF_TCP_CLASSES": ":".join(row["class"] for row in tcp_routes),
+            "TRACEGATE_ROUTER_HANDOFF_UDP_CLASSES": "",
+            "TRACEGATE_ROUTER_HANDOFF_PAIRED_OBFS_ENABLED": "false",
+            "TRACEGATE_ROUTER_HANDOFF_REQUIRES_PRIVATE_PROFILE": "true" if tcp_routes else "false",
+            "TRACEGATE_ROUTER_HANDOFF_ROUTER_IS_ENTRY_REPLACEMENT": "false",
+            "TRACEGATE_ROUTER_HANDOFF_NO_HOST_WIDE_INTERCEPTION": "true",
+            "TRACEGATE_ROUTER_HANDOFF_NO_NFQUEUE": "true",
+        },
+    )
+
+    bundle_routes = [
+        {
+            "class": row["class"],
+            "enabled": row["enabled"],
+            "transport": "tcp",
+            "serverRole": row["serverRole"],
+            "routerRole": "ROUTER",
+            "serverEndpoint": row["publicEndpoint"],
+            "selectedProfiles": row["selectedProfiles"],
+            "routerSide": {
+                "mode": "client",
+                "requiresPrivateProfile": True,
+                "profileRefs": row["routerClient"]["profileRefs"],
+                "failClosed": True,
+                "hostWideInterception": False,
+                "nfqueue": False,
+            },
+            "serverSide": {
+                "mode": "server",
+                "listen": row["serverListen"],
+                "auth": row["auth"],
+            },
+            "carrier": "mieru",
+            "outerCarrier": row["outerCarrier"],
+        }
+        for row in tcp_routes
+    ]
+    bundle_path = root / "router" / role_lower / "client-bundle.json"
+    bundle = {
+        "schema": "tracegate.router-client-bundle.v1",
+        "version": 1,
+        "role": role_upper,
+        "runtimeProfile": contract["runtimeProfile"],
+        "handoffStateJson": str(state_path),
+        "secretMaterial": False,
+        "enabled": bool(bundle_routes),
+        "placement": state["placement"],
+        "counts": state["counts"],
+        "classes": state["classes"],
+        "requirements": {
+            "routerIsEntryReplacement": False,
+            "requiresPrivateProfile": bool(bundle_routes),
+            "requiresServerSideLinkCrypto": True,
+            "requiresBothSides": bool(bundle_routes),
+            "failClosed": True,
+            "noHostWideInterception": True,
+            "noNfqueue": True,
+            "profileDistribution": "external-private-files",
+        },
+        "components": [
+            {
+                "name": "mieru-client",
+                "required": bool(bundle_routes),
+                "transports": ["tcp"],
+                "failClosed": True,
+                "noHostWideInterception": True,
+                "noNfqueue": True,
+            },
+            {
+                "name": "hysteria2-client",
+                "required": False,
+                "transports": ["udp-quic"],
+                "obfs": "salamander",
+                "failClosed": True,
+                "noHostWideInterception": True,
+                "noNfqueue": True,
+            },
+            {
+                "name": "paired-udp-obfs",
+                "required": False,
+                "backend": "udp2raw",
+                "requiresBothSides": True,
+                "failClosed": True,
+                "noHostWideInterception": True,
+                "noNfqueue": True,
+            },
+        ],
+        "routes": {"tcp": bundle_routes, "udp": []},
+    }
+    _write_json(bundle_path, bundle)
+    _write_env(
+        root / "router" / role_lower / "client-bundle.env",
+        {
+            "TRACEGATE_ROUTER_CLIENT_BUNDLE_ROLE": role_upper,
+            "TRACEGATE_ROUTER_CLIENT_BUNDLE_RUNTIME_PROFILE": contract["runtimeProfile"],
+            "TRACEGATE_ROUTER_CLIENT_BUNDLE_JSON": bundle_path,
+            "TRACEGATE_ROUTER_CLIENT_BUNDLE_HANDOFF_JSON": state_path,
+            "TRACEGATE_ROUTER_CLIENT_BUNDLE_SECRET_MATERIAL": "false",
+            "TRACEGATE_ROUTER_CLIENT_BUNDLE_ENABLED": "true" if bundle_routes else "false",
+            "TRACEGATE_ROUTER_CLIENT_BUNDLE_COMPONENTS": "mieru-client" if bundle_routes else "",
+            "TRACEGATE_ROUTER_CLIENT_BUNDLE_TCP_COUNT": len(bundle_routes),
+            "TRACEGATE_ROUTER_CLIENT_BUNDLE_UDP_COUNT": 0,
+            "TRACEGATE_ROUTER_CLIENT_BUNDLE_REQUIRES_BOTH_SIDES": "true" if bundle_routes else "false",
+            "TRACEGATE_ROUTER_CLIENT_BUNDLE_FAIL_CLOSED": "true",
+            "TRACEGATE_ROUTER_CLIENT_BUNDLE_NO_HOST_WIDE_INTERCEPTION": "true",
+            "TRACEGATE_ROUTER_CLIENT_BUNDLE_NO_NFQUEUE": "true",
+        },
+    )
 
 
 def test_k3s_private_reload_validates_profiles_and_writes_redacted_marker(tmp_path: Path) -> None:
@@ -357,7 +656,7 @@ def test_k3s_private_reload_validates_profiles_and_writes_redacted_marker(tmp_pa
     assert marker["component"] == "profiles"
     assert marker["summary"]["total"] == 0
     assert marker["summary"]["protocols"]["shadowsocks2022ShadowTLS"] == 0
-    assert marker["summary"]["transportProfiles"]["clientCount"] == len(TRACEGATE21_CLIENT_PROFILES)
+    assert marker["summary"]["transportProfiles"]["clientCount"] == len(TRACEGATE22_CLIENT_PROFILES)
     assert marker["summary"]["transportProfiles"]["localSocks"] == {
         "auth": "required",
         "allowAnonymousLocalhost": False,
@@ -383,8 +682,8 @@ def test_k3s_private_reload_profile_marker_summarizes_without_profile_secrets(tm
     marker = json.loads(Path(str(result["markerPath"])).read_text(encoding="utf-8"))
     summary = marker["summary"]
     assert summary["protocols"] == {"shadowsocks2022ShadowTLS": 2, "wireguardWSTunnel": 1}
-    assert summary["variants"] == ["V5", "V6", "V7"]
-    assert summary["transportProfiles"]["clientNames"] == sorted(TRACEGATE21_CLIENT_PROFILES)
+    assert summary["variants"] == ["V0", "V3"]
+    assert summary["transportProfiles"]["clientNames"] == sorted(TRACEGATE22_CLIENT_PROFILES)
     assert summary["transportProfiles"]["localSocks"]["auth"] == "required"
     assert summary["localSocks"]["authRequired"] == 3
     assert summary["localSocks"]["anonymous"] == 0
@@ -448,8 +747,8 @@ def test_k3s_private_reload_validates_link_crypto_and_writes_marker(tmp_path: Pa
     assert marker["summary"]["zapret2"]["hostWideInterception"] == 0
     assert marker["summary"]["zapret2"]["nfqueue"] == 0
     assert marker["summary"]["stability"]["restartExisting"] == 0
-    assert marker["summary"]["selectedProfiles"] == ["V2", "V4", "V6"]
-    assert marker["summary"]["transportProfiles"]["clientCount"] == len(TRACEGATE21_CLIENT_PROFILES)
+    assert marker["summary"]["selectedProfiles"] == ["V1", "V3"]
+    assert marker["summary"]["transportProfiles"]["clientCount"] == len(TRACEGATE22_CLIENT_PROFILES)
     assert marker["summary"]["transportProfiles"]["localSocks"]["auth"] == "required"
     assert marker["summary"]["sources"]["state"]["sizeBytes"] > 0
     assert marker["summary"]["sources"]["env"]["sizeBytes"] > 0
@@ -459,8 +758,8 @@ def test_k3s_private_reload_validates_link_crypto_and_writes_marker(tmp_path: Pa
 @pytest.mark.parametrize(
     ("role", "link_class", "selected_profiles"),
     [
-        ("ENTRY", "router-entry", ["V2", "V4", "V6"]),
-        ("TRANSIT", "router-transit", ["V1", "V3", "V5", "V7"]),
+        ("ENTRY", "router-entry", ["V1", "V3"]),
+        ("TRANSIT", "router-transit", ["V0", "V1", "V3"]),
     ],
 )
 def test_k3s_private_reload_validates_router_only_link_crypto_marker(
@@ -481,6 +780,7 @@ def test_k3s_private_reload_validates_router_only_link_crypto_marker(
         contract_path=contract_path,
         link_class=link_class,
     )
+    _write_router_handoff_bundle(private_root, role=role, contract=contract, contract_path=contract_path)
 
     result = run_private_reload(
         component="link-crypto",
@@ -512,6 +812,72 @@ def test_k3s_private_reload_validates_router_only_link_crypto_marker(
         "modes": ["private-profile"],
     }
     _assert_no_private_canaries(json.dumps(marker))
+
+
+def test_k3s_private_reload_link_crypto_validates_router_client_bundle(tmp_path: Path) -> None:
+    contract_path = tmp_path / "runtime" / "runtime-contract.json"
+    contract = _contract(contract_path)
+    private_root = tmp_path / "private"
+    _write_link_crypto_handoff(
+        private_root,
+        role="ENTRY",
+        contract=contract,
+        contract_path=contract_path,
+        link_class="router-entry",
+    )
+    _write_router_handoff_bundle(private_root, role="ENTRY", contract=contract, contract_path=contract_path)
+
+    result = run_private_reload(
+        component="link-crypto",
+        role="ENTRY",
+        private_runtime_root=private_root,
+        runtime_contract=contract_path,
+    )
+
+    marker = json.loads(Path(str(result["markerPath"])).read_text(encoding="utf-8"))
+    router = marker["summary"]["router"]
+    assert router["enabled"] is True
+    assert router["counts"] == {"total": 1, "tcp": 1, "udp": 0}
+    assert router["classes"] == {"tcp": ["router-entry"], "udp": []}
+    assert router["bundle"]["components"]["required"] == ["mieru-client"]
+    assert router["bundle"]["profileDistribution"] == "external-private-files"
+    assert router["profileRefs"] == {
+        "total": 2,
+        "fileRefs": 2,
+        "secretMaterial": 2,
+        "missingPath": 0,
+    }
+    assert router["env"]["clientComponents"] == ["mieru-client"]
+    assert router["env"]["clientFailClosed"] is True
+    assert router["sources"]["clientBundle"]["sizeBytes"] > 0
+    assert router["sources"]["clientEnv"]["mtimeNs"] > 0
+    _assert_no_private_canaries(json.dumps(marker))
+
+
+def test_k3s_private_reload_link_crypto_fails_on_invalid_router_bundle(tmp_path: Path) -> None:
+    contract_path = tmp_path / "runtime" / "runtime-contract.json"
+    contract = _contract(contract_path)
+    private_root = tmp_path / "private"
+    _write_link_crypto_handoff(
+        private_root,
+        role="ENTRY",
+        contract=contract,
+        contract_path=contract_path,
+        link_class="router-entry",
+    )
+    _write_router_handoff_bundle(private_root, role="ENTRY", contract=contract, contract_path=contract_path)
+    bundle_path = private_root / "router" / "entry" / "client-bundle.json"
+    bundle = json.loads(bundle_path.read_text(encoding="utf-8"))
+    bundle["requirements"]["noNfqueue"] = False
+    _write_json(bundle_path, bundle)
+
+    with pytest.raises(K3sPrivateReloadError, match="router handoff validation failed"):
+        run_private_reload(
+            component="link-crypto",
+            role="ENTRY",
+            private_runtime_root=private_root,
+            runtime_contract=contract_path,
+        )
 
 
 def test_k3s_private_reload_fails_on_invalid_handoff(tmp_path: Path) -> None:

@@ -12,16 +12,28 @@ from tracegate.services.runtime_preflight import (
     LinkCryptoState,
     PrivateProfileEnv,
     PrivateProfileState,
+    RouterClientBundle,
+    RouterClientBundleEnv,
+    RouterHandoffEnv,
+    RouterHandoffState,
     RuntimePreflightError,
     RuntimePreflightFinding,
     load_link_crypto_env,
     load_link_crypto_state,
     load_private_profile_env,
     load_private_profile_state,
+    load_router_client_bundle,
+    load_router_client_bundle_env,
+    load_router_handoff_env,
+    load_router_handoff_state,
     validate_link_crypto_env,
     validate_link_crypto_state,
     validate_private_profile_env,
     validate_private_profile_state,
+    validate_router_client_bundle,
+    validate_router_client_bundle_env,
+    validate_router_handoff_env,
+    validate_router_handoff_state,
 )
 
 
@@ -286,6 +298,29 @@ def _link_crypto_outer_carrier_summary(rows: list[dict[str, Any]]) -> dict[str, 
     }
 
 
+def _link_crypto_udp_hardening_summary(rows: list[dict[str, Any]]) -> dict[str, object]:
+    hardening_rows = [_nested_dict(row, "hardening") for row in rows]
+    anti_replay_rows = [_nested_dict(row, "antiReplay") for row in hardening_rows]
+    anti_amplification_rows = [_nested_dict(row, "antiAmplification") for row in hardening_rows]
+    rate_limit_rows = [_nested_dict(row, "rateLimit") for row in hardening_rows]
+    mtu_rows = [_nested_dict(row, "mtu") for row in hardening_rows]
+    key_rotation_rows = [_nested_dict(row, "keyRotation") for row in hardening_rows]
+    source_validation_rows = [_nested_dict(row, "sourceValidation") for row in hardening_rows]
+    return {
+        "enabled": len([row for row in hardening_rows if bool(row.get("enabled", False))]),
+        "failClosed": len([row for row in hardening_rows if bool(row.get("failClosed", False))]),
+        "rejectAnonymous": len([row for row in hardening_rows if bool(row.get("rejectAnonymous", False))]),
+        "antiReplay": len([row for row in anti_replay_rows if bool(row.get("enabled", False))]),
+        "antiAmplification": len([row for row in anti_amplification_rows if bool(row.get("enabled", False))]),
+        "rateLimit": len([row for row in rate_limit_rows if bool(row.get("enabled", False))]),
+        "mtuModes": _sorted_unique([row.get("mode") for row in mtu_rows]),
+        "keyRotation": len([row for row in key_rotation_rows if bool(row.get("enabled", False))]),
+        "keyRotationStrategies": _sorted_unique([row.get("strategy") for row in key_rotation_rows]),
+        "sourceValidation": len([row for row in source_validation_rows if bool(row.get("enabled", False))]),
+        "sourceValidationModes": _sorted_unique([row.get("mode") for row in source_validation_rows]),
+    }
+
+
 def _link_crypto_summary(
     state: LinkCryptoState,
     env: LinkCryptoEnv,
@@ -293,12 +328,32 @@ def _link_crypto_summary(
     findings: list[RuntimePreflightFinding],
 ) -> dict[str, object]:
     rows = list(state.links)
+    udp_rows = list(state.udp_links)
     return {
         "total": state.total_count,
         "classes": {
             "entryTransit": state.entry_transit_count,
             "routerEntry": state.router_entry_count,
             "routerTransit": state.router_transit_count,
+        },
+        "udp": {
+            "total": state.udp_total_count,
+            "classes": {
+                "entryTransitUdp": state.entry_transit_udp_count,
+                "routerEntryUdp": state.router_entry_udp_count,
+                "routerTransitUdp": state.router_transit_udp_count,
+            },
+            "carriers": _sorted_unique([row.get("carrier") for row in udp_rows]),
+            "transports": _sorted_unique([row.get("transport") for row in udp_rows]),
+            "selectedProfiles": _sorted_unique(
+                [
+                    profile
+                    for row in udp_rows
+                    for profile in row.get("selectedProfiles", [])
+                    if isinstance(row.get("selectedProfiles"), list)
+                ]
+            ),
+            "hardening": _link_crypto_udp_hardening_summary(udp_rows),
         },
         "carriers": _sorted_unique([row.get("carrier") for row in rows]),
         "sides": _sorted_unique([row.get("side") for row in rows]),
@@ -320,6 +375,158 @@ def _link_crypto_summary(
         },
         "warnings": len([finding for finding in findings if finding.severity == "warning"]),
     }
+
+
+_ROUTER_LINK_CLASSES = {"router-entry", "router-transit", "router-entry-udp", "router-transit-udp"}
+
+
+def _link_crypto_has_router_routes(state: LinkCryptoState) -> bool:
+    return any(_row_string(row, "class") in _ROUTER_LINK_CLASSES for row in [*state.links, *state.udp_links])
+
+
+def _router_handoff_paths(root: Path, role_lower: str) -> tuple[Path, Path, Path, Path]:
+    router_root = root / "router" / role_lower
+    return (
+        router_root / "desired-state.json",
+        router_root / "desired-state.env",
+        router_root / "client-bundle.json",
+        router_root / "client-bundle.env",
+    )
+
+
+def _router_handoff_present(root: Path, role_lower: str) -> bool:
+    return any(path.exists() for path in _router_handoff_paths(root, role_lower))
+
+
+def _router_profile_refs_summary(routes: list[dict[str, Any]]) -> dict[str, object]:
+    refs: list[dict[str, Any]] = []
+    for row in routes:
+        router_client = _nested_dict(row, "routerClient")
+        router_side = _nested_dict(row, "routerSide")
+        profile_refs = _nested_dict(router_client, "profileRefs") or _nested_dict(router_side, "profileRefs")
+        refs.extend(value for value in profile_refs.values() if isinstance(value, dict))
+    return {
+        "total": len(refs),
+        "fileRefs": len([row for row in refs if _row_string(row, "kind") == "file"]),
+        "secretMaterial": len([row for row in refs if bool(row.get("secretMaterial", False))]),
+        "missingPath": len([row for row in refs if not _row_string(row, "path")]),
+    }
+
+
+def _router_components_summary(bundle: RouterClientBundle) -> dict[str, object]:
+    components = list(bundle.components)
+    return {
+        "required": _sorted_unique([row.get("name") for row in components if bool(row.get("required", False))]),
+        "failClosed": len([row for row in components if bool(row.get("failClosed", False))]),
+        "noHostWideInterception": len([row for row in components if bool(row.get("noHostWideInterception", False))]),
+        "noNfqueue": len([row for row in components if bool(row.get("noNfqueue", False))]),
+    }
+
+
+def _router_hardening_summary(routes: list[dict[str, Any]]) -> dict[str, object]:
+    paired_obfs_rows = [_nested_dict(row, "pairedObfs") for row in routes]
+    hardening_rows = [_nested_dict(row, "hardening") for row in routes]
+    return {
+        "pairedObfs": len([row for row in paired_obfs_rows if bool(row.get("enabled", False))]),
+        "pairedObfsBothSides": len([row for row in paired_obfs_rows if bool(row.get("requiresBothSides", False))]),
+        "pairedObfsFailClosed": len([row for row in paired_obfs_rows if bool(row.get("failClosed", False))]),
+        "failClosed": len([row for row in hardening_rows if bool(row.get("failClosed", False))]),
+        "sourceValidation": len([row for row in hardening_rows if bool(_nested_dict(row, "sourceValidation").get("enabled", False))]),
+    }
+
+
+def _router_summary(
+    state: RouterHandoffState,
+    env: RouterHandoffEnv,
+    bundle: RouterClientBundle,
+    bundle_env: RouterClientBundleEnv,
+    *,
+    findings: list[RuntimePreflightFinding],
+) -> dict[str, object]:
+    handoff_routes = [*state.tcp_routes, *state.udp_routes]
+    bundle_routes = [*bundle.tcp_routes, *bundle.udp_routes]
+    return {
+        "enabled": state.enabled,
+        "placement": state.placement,
+        "counts": {
+            "total": state.total_count,
+            "tcp": state.tcp_count,
+            "udp": state.udp_count,
+        },
+        "classes": {
+            "tcp": list(state.tcp_classes),
+            "udp": list(state.udp_classes),
+        },
+        "bundle": {
+            "enabled": bundle.enabled,
+            "components": _router_components_summary(bundle),
+            "profileDistribution": _row_string(bundle.requirements, "profileDistribution"),
+            "requiresBothSides": bool(bundle.requirements.get("requiresBothSides", False)),
+            "failClosed": bool(bundle.requirements.get("failClosed", False)),
+        },
+        "profileRefs": _router_profile_refs_summary([*handoff_routes, *bundle_routes]),
+        "hardening": _router_hardening_summary([*state.udp_routes, *bundle.udp_routes]),
+        "env": {
+            "pairedObfs": env.paired_obfs_enabled,
+            "clientComponents": list(bundle_env.components),
+            "clientFailClosed": bundle_env.fail_closed,
+            "clientNoHostWideInterception": bundle_env.no_host_wide_interception,
+            "clientNoNfqueue": bundle_env.no_nfqueue,
+        },
+        "sources": {
+            "state": _source_fingerprint(state.path),
+            "env": _source_fingerprint(env.path),
+            "clientBundle": _source_fingerprint(bundle.path),
+            "clientEnv": _source_fingerprint(bundle_env.path),
+        },
+        "warnings": len([finding for finding in findings if finding.severity == "warning"]),
+    }
+
+
+def _validate_router_handoff_bundle(
+    *,
+    role: str,
+    root: Path,
+    contract_path: Path,
+    link_crypto_state: LinkCryptoState,
+) -> dict[str, object]:
+    role_lower = _role_lower(role)
+    state_path, env_path, bundle_path, bundle_env_path = _router_handoff_paths(root, role_lower)
+    state = load_router_handoff_state(state_path)
+    env = load_router_handoff_env(env_path)
+    bundle = load_router_client_bundle(bundle_path)
+    bundle_env = load_router_client_bundle_env(bundle_env_path)
+    contract = _load_contract(contract_path)
+    findings = [
+        *validate_router_handoff_state(
+            state=state,
+            contract=contract,
+            expected_role=role,
+            contract_path=contract_path,
+            link_crypto_state=link_crypto_state,
+        ),
+        *validate_router_handoff_env(
+            env=env,
+            expected_role=role,
+            contract=contract,
+            state=state,
+        ),
+        *validate_router_client_bundle(
+            bundle=bundle,
+            expected_role=role,
+            contract=contract,
+            handoff_state=state,
+        ),
+        *validate_router_client_bundle_env(
+            env=bundle_env,
+            expected_role=role,
+            contract=contract,
+            bundle=bundle,
+            handoff_state=state,
+        ),
+    ]
+    _raise_for_errors(findings, component="router")
+    return _router_summary(state, env, bundle, bundle_env, findings=findings)
 
 
 def _validate_profiles(*, role: str, root: Path, contract_path: Path) -> dict[str, object]:
@@ -365,7 +572,15 @@ def _validate_link_crypto(*, role: str, root: Path, contract_path: Path) -> dict
         ),
     ]
     _raise_for_errors(findings, component="link-crypto")
-    return _link_crypto_summary(state, env, findings=findings)
+    summary = _link_crypto_summary(state, env, findings=findings)
+    if _link_crypto_has_router_routes(state) or _router_handoff_present(root, role_lower):
+        summary["router"] = _validate_router_handoff_bundle(
+            role=role,
+            root=root,
+            contract_path=contract_path,
+            link_crypto_state=state,
+        )
+    return summary
 
 
 def run_private_reload(

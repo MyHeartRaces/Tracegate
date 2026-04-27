@@ -50,17 +50,17 @@ Supported overlay file names:
 
 Important limitation:
 
-- Tracegate 2 runs the Xray-centric runtime only.
+- Tracegate 2.2 uses standalone Hysteria2 for the public UDP surface; Xray-native Hysteria is legacy compatibility only.
 - `FinalMask` and `TLS ECH` are `Xray` features. They can be injected through private overlays only where the actual runtime leg is terminated by `Xray`.
 - `zapret2` is intentionally not modeled in the public repo. Use `render-hook.sh` or host-local systemd units to keep the packet-splitting policy private.
 - the seeded wrapper examples consume the same public runtime-state handoff contract, but never ship the actual `zapret2` policy or segmentation algorithm
 - `xray-centric` typically needs a full `xray.json` replacement instead of a shallow merge, because transport arrays such as `inbounds`, `outbounds` and `routing.rules` are replaced as full lists during overlay merge.
-- If you want the public renderer to inject private `FinalMask` or `ECH` into the generated Xray-native Hysteria inbound, point the shared env at private files such as `XRAY_HYSTERIA_FINALMASK_{ENTRY,TRANSIT}_FILE` and `XRAY_HYSTERIA_ECH_SERVER_KEYS_{ENTRY,TRANSIT}_FILE`. Keep the file contents private; only the file paths belong in host-local env.
+- If you are operating the legacy `xray-centric` profile and want the public renderer to inject private `FinalMask` or `ECH` into the generated Xray-native Hysteria inbound, point the shared env at private files such as `XRAY_HYSTERIA_FINALMASK_{ENTRY,TRANSIT}_FILE` and `XRAY_HYSTERIA_ECH_SERVER_KEYS_{ENTRY,TRANSIT}_FILE`. Keep the file contents private; only the file paths belong in host-local env.
 
 Xray-centric migration note:
 
-- The current code already emits Xray-native Hysteria client rows directly as `{"auth": "<token>", "email": "<connection marker>"}`.
-- The generated private `xray.json` replacements are the intended activation mechanism for the default `xray-centric` path.
+- The current code keeps Xray-native Hysteria client row support only for the explicit legacy `xray-centric` path.
+- The generated private `xray.json` replacements are an activation mechanism for that compatibility path, not for the Tracegate 2.2 default.
 
 Recommended workflow:
 
@@ -69,7 +69,7 @@ Recommended workflow:
 3. Run `render-materialized-bundles.sh`.
 4. Reapply bundles through the API so the agent refreshes `runtime/*` and `runtime-contract.json`.
 5. Run `validate-runtime-contracts.sh` on a testbed before promoting the overlay set to production.
-6. Run `render-xray-centric-overlays.sh` when the private overlay set needs full replacement `xray.json` files for the active xray-centric path.
+6. Run `render-xray-centric-overlays.sh` only when the private overlay set needs full replacement `xray.json` files for the explicit legacy xray-centric path.
 7. Optionally implement `/etc/tracegate/private/render-hook.sh` for local-only post-processing.
 8. Optionally adapt the examples under `/etc/tracegate/private/systemd` if obfuscation must run as a dedicated host-local service.
 9. Keep the private TCP/443 demux under `/etc/tracegate/private/fronting` so it stays independent from both `Xray` and the private `MTProto` gateway.

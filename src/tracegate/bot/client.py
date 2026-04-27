@@ -5,6 +5,7 @@ from uuid import UUID
 import httpx
 
 from tracegate.enums import ConnectionMode, ConnectionProtocol, ConnectionVariant
+from tracegate.services.connection_profiles import connection_profile_label
 
 
 class ApiClientError(RuntimeError):
@@ -82,6 +83,9 @@ class TracegateApiClient:
     async def delete_device(self, device_id: UUID | str) -> None:
         await self._request("DELETE", f"/devices/{device_id}")
 
+    async def activate_device(self, device_id: UUID | str) -> dict:
+        return await self._request("POST", f"/devices/{device_id}/activate")
+
     async def list_connections(self, device_id: UUID | str) -> list[dict]:
         return await self._request("GET", f"/connections/by-device/{device_id}")
 
@@ -137,7 +141,7 @@ class TracegateApiClient:
                 "protocol": protocol.value,
                 "mode": mode.value,
                 "variant": variant.value,
-                "profile_name": variant.value,
+                "profile_name": connection_profile_label(protocol, mode, variant),
                 "custom_overrides_json": custom_overrides_json or {},
             },
         )

@@ -19,26 +19,41 @@ finally:
         sys.modules["prometheus_client"] = _orig_prometheus_client
 
 
-def test_tracegate21_connection_variants_are_validated() -> None:
+def test_tracegate22_connection_variants_are_validated() -> None:
     validate_variant(
-        ConnectionProtocol.VLESS_GRPC_TLS,
+        ConnectionProtocol.VLESS_REALITY,
         ConnectionMode.DIRECT,
         ConnectionVariant.V1,
     )
     validate_variant(
+        ConnectionProtocol.VLESS_REALITY,
+        ConnectionMode.CHAIN,
+        ConnectionVariant.V1,
+    )
+    validate_variant(
+        ConnectionProtocol.VLESS_GRPC_TLS,
+        ConnectionMode.DIRECT,
+        ConnectionVariant.V0,
+    )
+    validate_variant(
+        ConnectionProtocol.HYSTERIA2,
+        ConnectionMode.CHAIN,
+        ConnectionVariant.V2,
+    )
+    validate_variant(
         ConnectionProtocol.SHADOWSOCKS2022_SHADOWTLS,
         ConnectionMode.DIRECT,
-        ConnectionVariant.V5,
+        ConnectionVariant.V3,
     )
     validate_variant(
         ConnectionProtocol.SHADOWSOCKS2022_SHADOWTLS,
         ConnectionMode.CHAIN,
-        ConnectionVariant.V6,
+        ConnectionVariant.V3,
     )
     validate_variant(
         ConnectionProtocol.WIREGUARD_WSTUNNEL,
         ConnectionMode.DIRECT,
-        ConnectionVariant.V7,
+        ConnectionVariant.V0,
     )
 
 
@@ -47,5 +62,5 @@ def test_wireguard_wstunnel_chain_is_rejected() -> None:
         validate_variant(
             ConnectionProtocol.WIREGUARD_WSTUNNEL,
             ConnectionMode.CHAIN,
-            ConnectionVariant.V7,
+            ConnectionVariant.V0,
         )

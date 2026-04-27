@@ -21,7 +21,7 @@ Low-overhead design goals:
 - `Entry`: touch only the chained ingress surface and keep the policy narrower than Transit
 - `Entry-to-Transit`: apply before every backhaul tunnel and keep the scope fixed to tcp/udp `443`
 - `Transit`: apply only to Tracegate-facing public surfaces on `443`; Transit remains the primary endpoint before Internet egress
-- clients: no local `zapret2` in this repository; OpenWRT and desktop profiles are developed separately
+- clients: no local `zapret2` profile bundle in this repository
 
 Recommended operator workflow:
 
@@ -37,7 +37,7 @@ Current product boundary:
 - `V3` / `V4`: `Hysteria2`
 - `V5` / `V6`: `Shadowsocks-2022 + ShadowTLS V3`
 - `V7`: `WireGuard over WSTunnel`
-- `Entry-to-Transit`: mandatory private relay masking surface for `V2` / `V4` / `V6`, outside Xray and scoped to the link-crypto outer flow
+- `Entry-to-Transit`: mandatory private relay masking surface for `V2` / `V6` over TCP plus `V4` over the separate UDP link, outside Xray and scoped to the link-crypto outer flow
 - `MTProto`: persistent account-bound Telegram access through the bot plus a dedicated private zapret profile
 
 The `entry-transit-stealth.env.example` file is the mandatory interconnect metadata surface. The `mtproto-extra.env.example` file is the reserved policy surface for Telegram-recognizable MTProto payload shaping.

@@ -7,7 +7,7 @@ from tracegate.models import Connection, ConnectionRevision
 from tracegate.services.revisions import _compact_slots
 
 
-def test_compact_slots_keeps_only_three_active() -> None:
+def test_compact_slots_keeps_only_two_active() -> None:
     conn = Connection(
         id=uuid4(),
         user_id=uuid4(),
@@ -36,6 +36,7 @@ def test_compact_slots_keeps_only_three_active() -> None:
     active = [rev for rev in conn.revisions if rev.status == RecordStatus.ACTIVE]
     revoked = [rev for rev in conn.revisions if rev.status == RecordStatus.REVOKED]
 
-    assert len(active) == 3
-    assert sorted([rev.slot for rev in active]) == [0, 1, 2]
-    assert len(revoked) == 2
+    assert len(active) == 2
+    assert sorted([rev.slot for rev in active]) == [0, 1]
+    assert len(revoked) == 3
+    assert {rev.slot for rev in revoked} == {1}

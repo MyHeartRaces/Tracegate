@@ -1,10 +1,12 @@
 from pathlib import Path
 
 
-def test_entry_opens_udp_443_for_hysteria_chain_ingress() -> None:
+def test_entry_opens_udp_8443_for_hysteria_chain_ingress() -> None:
     conf = Path("bundles/base-entry/nftables.conf").read_text(encoding="utf-8")
-    assert "udp dport 443 accept" in conf
+    assert "udp dport 8443 accept" in conf
     assert "tcp dport 8070 accept" in conf
+    assert "udp dport 443 drop" in conf
+    assert "tcp dport 8443 drop" in conf
 
 
 def test_tracegate2_firewalls_do_not_depend_on_k3s_or_wireguard() -> None:
@@ -20,7 +22,17 @@ def test_tracegate2_firewalls_do_not_depend_on_k3s_or_wireguard() -> None:
 def test_transit_accepts_public_80_and_443_only_for_data_plane() -> None:
     conf_t = Path("bundles/base-transit/nftables.conf").read_text(encoding="utf-8")
     assert "tcp dport { 80, 443 } accept" in conf_t
-    assert "udp dport 443 accept" in conf_t
+    assert "udp dport 8443 accept" in conf_t
+    assert "udp dport 443 drop" in conf_t
+    assert "tcp dport 8443 drop" in conf_t
+
+
+def test_firewalls_explicitly_drop_crossed_hysteria_ports_before_accept_rules() -> None:
+    for path in ("bundles/base-entry/nftables.conf", "bundles/base-transit/nftables.conf"):
+        conf = Path(path).read_text(encoding="utf-8")
+        tcp_accept = "tcp dport 443 accept" if "tcp dport 443 accept" in conf else "tcp dport { 80, 443 } accept"
+        assert conf.index("udp dport 443 drop") < conf.index("udp dport 8443 accept")
+        assert conf.index("tcp dport 8443 drop") < conf.index(tcp_accept)
 
 
 def test_entry_and_transit_bundles_define_proxy_fronting_stack() -> None:

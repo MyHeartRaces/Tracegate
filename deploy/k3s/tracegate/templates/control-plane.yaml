@@ -176,6 +176,16 @@ spec:
               value: {{ .Values.controlPlane.env.defaultEntryHost | quote }}
             - name: DEFAULT_TRANSIT_HOST
               value: {{ .Values.controlPlane.env.defaultTransitHost | quote }}
+            - name: HYSTERIA_SALAMANDER_PASSWORD_ENTRY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "tracegate.privateProfilesSecretName" . }}
+                  key: {{ .Values.privateProfiles.secretKeys.hysteriaSalamanderEntry }}
+            - name: HYSTERIA_SALAMANDER_PASSWORD_TRANSIT
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "tracegate.privateProfilesSecretName" . }}
+                  key: {{ .Values.privateProfiles.secretKeys.hysteriaSalamanderTransit }}
             - name: VLESS_WS_PATH
               value: {{ .Values.controlPlane.env.vlessWsPath | quote }}
             - name: MTPROTO_DOMAIN

@@ -6,18 +6,18 @@
 
 | Surface | Protocol | Public node | Default port | Notes |
 | --- | --- | --- | --- | --- |
-| `V1` | `VLESS + REALITY` | `Transit` | `443/tcp` | Main direct TCP profile |
-| `V1` | `VLESS + gRPC + TLS` | `Transit` | `443/tcp` | Main HTTPS carrier profile |
-| `V1` | `VLESS + WS + TLS` | `Transit` | `443/tcp` | Legacy WS/TLS fallback |
-| `V2` | `VLESS + REALITY` | `Entry` | `443/tcp` | Optional chain path to `Transit` |
-| `V3` | `Hysteria2` via `Xray` | `Transit` | `443/udp` | Main UDP profile |
-| `V4` | `Hysteria2` via `Xray` | `Entry` | `443/udp` | Optional chain path to `Transit` |
-| `V5` | `Shadowsocks-2022 + ShadowTLS V3` | `Transit` | `443/tcp` | Optional direct TCP profile |
-| `V6` | `Shadowsocks-2022 + ShadowTLS V3` | `Entry` | `443/tcp` | Optional chain path to `Transit` |
-| `V7` | `WireGuard over WebSocket` | `Transit` | `443/tcp` | Optional WireGuard profile |
+| `v1-direct-reality-vless` | `VLESS + REALITY` | `Transit` | `443/tcp` | Main direct TCP profile |
+| `v1-chain-reality-vless` | `VLESS + REALITY` | `Entry` | `443/tcp` | Chain ingress to `Transit` |
+| `v2-direct-quic-hysteria` | `Hysteria2 + Salamander` | `Transit` | `8443/udp` | Main direct UDP profile |
+| `v2-chain-quic-hysteria` | `Hysteria2 + Salamander` | `Entry` | `8443/udp` | UDP-capable chain ingress to `Transit` |
+| `v3-direct-shadowtls-shadowsocks` | `Shadowsocks-2022 + ShadowTLS V3` | `Transit` | `443/tcp` | Optional direct TCP profile |
+| `v3-chain-shadowtls-shadowsocks` | `Shadowsocks-2022 + ShadowTLS V3` | `Entry` | `443/tcp` | Optional chain TCP profile |
+| `v0-grpc-vless` | `VLESS + gRPC + TLS` | `Transit` | `443/tcp` | Other direct compatibility profile |
+| `v0-ws-vless` | `VLESS + WS + TLS` | `Transit` | `443/tcp` | Other direct legacy fallback |
+| `v0-wgws-wireguard` | `WireGuard over WebSocket` | `Transit` | `443/tcp` | Other direct L3 profile |
 | `Telegram Proxy` | `MTProto` | `Transit` | `443/tcp` | Dedicated domain recommended |
 
-Tracegate 2.1 is a `k3s` + Helm managed control plane, node-agent and Telegram bot stack for a privacy gateway built around a primary `Transit` node and an optional `Entry -> Transit` chain.
+Tracegate 2.2 is a `k3s` + Helm managed control plane, node-agent and Telegram bot stack for a privacy gateway built around a primary `Transit` node and an optional `Entry -> Transit` chain.
 
 The repository contains the public control logic, bundle templates, bot UX, observability hooks and deployment contracts. Private packet camouflage, `Mieru` profiles, `zapret2` policies, MTProto secrets and local overlay files stay outside Git and are consumed through explicit runtime handoff surfaces.
 
@@ -25,27 +25,24 @@ Release notes live in [`CHANGELOG.md`](CHANGELOG.md).
 
 ## What the project does
 
-- issues `VLESS`, `Hysteria2`, `Shadowsocks-2022 + ShadowTLS`, `WireGuard over WebSocket` and persistent Telegram Proxy access through a Telegram bot
+- issues Direct, Chain and Other connection profiles plus persistent Telegram Proxy access through a Telegram bot
 - stores users, devices, connections, revisions and admin state in a central control plane
 - delivers runtime changes to node agents through an outbox + dispatcher pipeline
 - keeps `Xray` hot while ordinary config issuance changes only users, not the full runtime
 - renders public bundles from repo templates and applies private overlays only on the target host
 - exposes optional Prometheus + Grafana observability with bot-delivered Grafana access
 - supports Transit-only rollout and Transit node replacement as first-class operational paths
-- ships a single Tracegate 2.1 Helm chart under `deploy/k3s/tracegate`
+- ships a single Tracegate 2.2 Helm chart under `deploy/k3s/tracegate`
 
 ## Product boundary
 
-### Included in Tracegate 2.1
+### Included in Tracegate 2.2
 
 - `V1`: direct `VLESS + REALITY` on `Transit`
-- `V1`: `VLESS` over gRPC-first HTTPS carrier, with `WebSocket + TLS` fallback
-- `V3`: direct `Hysteria2` on `Transit`, terminated by `Xray`
-- `V2`: chained `Entry -> Transit` `VLESS + REALITY`
-- `V4`: chained `Entry -> Transit` `Hysteria2`
-- `V5`: direct `Shadowsocks-2022 + ShadowTLS V3`
-- `V6`: chained `Shadowsocks-2022 + ShadowTLS V3`
-- `V7`: `WireGuard over WebSocket`
+- `V1`: chained `Entry -> Transit` `VLESS + REALITY`
+- `V2`: direct or chained `Hysteria2 + Salamander`, on public `UDP/8443`
+- `V3`: direct or chained `Shadowsocks-2022 + ShadowTLS V3`
+- `V0`: direct Other profiles: `VLESS gRPC`, `VLESS WebSocket`, `WGWS`
 - persistent Telegram Proxy delivery through the bot
 - scoped `Mieru` link encryption wrapped by a dedicated WSS bridge carrier, plus `zapret2` interconnect camouflage with no host-wide NFQUEUE by default
 - optional host-local static/auth surfaces on `Transit`, staged outside Git
@@ -53,17 +50,17 @@ Release notes live in [`CHANGELOG.md`](CHANGELOG.md).
 
 ### Explicitly not part of the active repository contract
 
-- separate standalone `hysteria` daemon path
+- Xray-native Hysteria as the primary UDP runtime
 - temporary "burner" MTProto access
-- client-side OpenWRT / desktop-local obfuscation bundles
+- client-side local obfuscation bundles
 
 ## Design principles
 
 - Helm owns the static topology; live APIs and narrow reload hooks own user/runtime state.
-- `Xray` remains the runtime center for `VLESS` and `Hysteria2` public connection surfaces.
+- `Xray` is no longer the runtime center for every public surface; it remains a TCP compatibility adapter for VLESS-era profiles while UDP is treated as its own Hysteria2 surface.
 - `Transit` is the primary public endpoint; `Entry` is optional chain ingress.
 - Public topology should stay static; ordinary user churn should update `Xray` over gRPC API instead of restarting the runtime.
-- All public-facing profiles stay on `443`.
+- Public TCP profiles stay on `443`; public UDP Hysteria2 profiles use `8443` and require Salamander obfuscation. `udp/443` and `tcp/8443` are forbidden cross-surfaces and must stay dropped.
 - On constrained `~1 GB RAM` hosts, keep the default rollout narrow: static public topology first, optional extra wrappers only when they are operationally justified.
 - Public repo files describe contracts and templates; secrets and private camouflage live in external Kubernetes Secrets or host-local `/etc/tracegate/private`.
 
@@ -82,14 +79,14 @@ Release notes live in [`CHANGELOG.md`](CHANGELOG.md).
 
 - direct `VLESS + REALITY`
 - optional `VLESS + WS + TLS`
-- direct `Hysteria2` through `Xray`
+- direct `Hysteria2 + Salamander`
 - optional host-local static/auth surfaces staged outside Git
 - persistent Telegram Proxy
 - host-local private TCP/443 fronting and `zapret2` wrappers
 
 ### Entry node
 
-`Entry` is optional and exists for chained `V2/V4` rollout. It exposes the public chain ingress and forwards traffic toward `Transit` while sharing the same control-plane and bundle contract.
+`Entry` is optional and exists for Chain rollout. It exposes the public chain ingress and forwards traffic toward `Transit` while sharing the same control-plane and bundle contract.
 
 ### Private host-local boundary
 
@@ -161,7 +158,7 @@ The project can expose:
 
 - `src/tracegate`: application code
 - `bundles/base-entry`, `bundles/base-transit`: public runtime bundle templates
-- `deploy/k3s/tracegate`: Tracegate 2.1 production Helm chart
+- `deploy/k3s/tracegate`: Tracegate 2.2 production Helm chart
 - `deploy/systemd`: host deployment kit for plain Linux installs
 - `deploy/systemd/private-example`: seeded examples for private overlays and wrappers
 - `alembic`: database migrations
@@ -179,11 +176,11 @@ curl http://localhost:8080/health
 pytest -q
 ```
 
-Local development is mainly for the control plane and template logic. Production runtime deployment is covered by the Tracegate 2.1 Helm chart.
+Local development is mainly for the control plane and template logic. Production runtime deployment is covered by the Tracegate 2.2 Helm chart.
 
 ## k3s deployment
 
-Tracegate 2.1 targets `k3s` with a single Helm chart:
+Tracegate 2.2 targets `k3s` with a single Helm chart:
 
 ```bash
 helm template tracegate ./deploy/k3s/tracegate --namespace tracegate --create-namespace
@@ -288,8 +285,8 @@ The repository is designed so sensitive runtime logic can stay private:
 - post-render hooks live under `/etc/tracegate/private/render-hook.sh`
 - private obfuscation/fronting/link-crypto/MTProto helpers live under `/etc/tracegate/private/{systemd,fronting,link-crypto,zapret,mtproto}`
 - agent-generated private runtime state lives under the effective private runtime root, typically `/var/lib/tracegate/private`
-- generated V5/V6/V7 private desired-state files contain credentials and must stay under that private runtime root
-- profile adapter scaffolds emit only redacted manifests; real V5/V6/V7 process wiring stays in private runners
+- generated V0/V3 private desired-state files contain credentials and must stay under that private runtime root
+- profile adapter scaffolds emit only redacted manifests; real V0/V3 process wiring stays in private runners
 - generated link-crypto handoffs contain only public pointers to private Mieru/zapret2 files; the referenced profiles still stay outside Git
 - production overlays must declare dedicated ingress and egress public IP sets; strict preflight rejects shared ingress/egress IPs before deploy
 - user traffic SNAT and any rule that forbids outbound through ingress IPs belongs to private host policy under `/etc/tracegate/private/egress-isolation`
@@ -312,7 +309,7 @@ Do not commit:
 
 ## Current runtime note
 
-Tracegate 2.1 uses `tracegate-2.1` as the k3s production runtime profile. It keeps the public Xray/Hysteria surface but forbids Xray Entry-to-Transit backhaul; V2/V4/V6 chaining is handed to the private `link-crypto`/Mieru layer wrapped by the bridge WSS carrier. The `xray-centric` profile remains only for the systemd migration surface.
+Tracegate 2.2 uses `tracegate-2.2` as the default and k3s production runtime profile. It rejects Xray Entry-to-Transit backhaul; TCP Chain profiles are handed to the private `link-crypto`/Mieru layer wrapped by the bridge WSS carrier, while Hysteria2 Chain uses the separate Salamander UDP link on 8443. Hysteria2 client configs are issued only with Salamander obfuscation and public UDP/8443. The `xray-centric` and `tracegate-2.1` profiles remain explicit legacy compatibility surfaces.
 
 ## License
 

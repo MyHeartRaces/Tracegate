@@ -93,12 +93,41 @@ class Settings(BaseSettings):
     # Optional external text/markdown served by /guide. Production copy must
     # come from private runtime storage or a Kubernetes Secret, not from Git.
     bot_guide_path: str = ""
-    bot_guide_message: str = "[TRACEGATE_BOT_GUIDE_PLACEHOLDER]"
-    # Production warning shown before the normal /start flow. Keep the real
-    # copy in private env/Secrets; the repository default is a placeholder.
+    bot_guide_message: str = (
+        "📘 Tracegate 2.2: гайдлайн\n\n"
+        "Базовый порядок работы:\n"
+        "1. В «Устройствах» выберите активное устройство. Все новые подключения будут выпускаться именно для него.\n"
+        "2. В «Подключениях» создайте профиль, покажите активный конфиг или переключите ревизию.\n"
+        "3. Импортируйте выданный URI, QR или JSON в клиент на активном устройстве.\n\n"
+        "🔌 Типы подключений:\n"
+        "Direct - прямой профиль до Transit: v1 Reality/VLESS, v2 QUIC/Hysteria2, v3 ShadowTLS/Shadowsocks.\n"
+        "Chain - вход через Entry и приватный межнодовый тоннель до Transit: v1, v2 или v3.\n"
+        "Other - совместимые прямые профили: v0-ws-vless, v0-grpc-vless, v0-wgws-wireguard.\n\n"
+        "📏 Лимиты:\n"
+        "- до 5 устройств на пользователя;\n"
+        "- до 4 подключений на устройство;\n"
+        "- до 2 активных ревизий на подключение: текущая и запасная.\n\n"
+        "⚠️ Важно: Hysteria2 работает на UDP/8443 с Salamander. UDP/443 и TCP/8443 намеренно закрыты."
+    )
+    # Welcome text shown before the normal /start flow. Deployments can still
+    # override it from private env/Secrets.
     bot_welcome_required: bool = True
-    bot_welcome_version: str = "tracegate-2.1-client-safety-v2"
-    bot_welcome_message: str = "[TRACEGATE_BOT_WELCOME_MESSAGE_PLACEHOLDER]"
+    bot_welcome_version: str = "tracegate-2.2-ui-v3"
+    bot_welcome_message: str = (
+        "👋 Добро пожаловать в Tracegate 2.2\n\n"
+        "В этой версии изменилась логика работы с устройствами и подключениями.\n\n"
+        "Что изменилось:\n"
+        "- сначала выберите активное устройство в разделе «Устройства»;\n"
+        "- затем создавайте и обслуживайте профили в разделе «Подключения»;\n"
+        "- каждое подключение привязано к конкретному устройству;\n"
+        "- у подключения есть активная и запасная ревизия.\n\n"
+        "🔌 Стек профилей:\n"
+        "- v1 - Reality/VLESS;\n"
+        "- v2 - Hysteria2/QUIC с Salamander на UDP/8443;\n"
+        "- v3 - Shadowsocks-2022/ShadowTLS;\n"
+        "- v0 - совместимые Other-профили: WebSocket, gRPC, WGWS.\n\n"
+        "Это сообщение будет показано один раз после обновления. Позже его можно открыть в «Справка» -> «Приветствие»."
+    )
     bot_welcome_message_file: str = ""
     # /clear command tries to delete last N messages in chat (best-effort).
     bot_clean_max_messages: int = 150
@@ -131,11 +160,11 @@ class Settings(BaseSettings):
     # Tracegate 2 defaults to systemd on plain Linux hosts.
     # The "kubernetes" mode is retained only as a compatibility bridge for legacy container deployments.
     agent_runtime_mode: str = "systemd"
-    # Canonical runtime profile boundary. Tracegate 2 runs only the Xray-centric runtime.
-    # Legacy profile names are normalized into the same Xray-native execution path.
-    agent_runtime_profile: str = "xray-centric"
+    # Canonical runtime profile boundary. Tracegate 2.2 keeps Xray as a TCP adapter,
+    # but Hysteria2 is no longer modeled as an Xray-owned public UDP surface.
+    agent_runtime_profile: str = "tracegate-2.2"
     # Kubernetes rollout invariants exposed through runtime-contract.json so preflight can
-    # verify that Tracegate 2.1 upgrades cannot drop the only Entry/Transit gateway pod.
+    # verify that Tracegate upgrades cannot drop the only Entry/Transit gateway pod.
     agent_gateway_strategy: str = "RollingUpdate"
     agent_gateway_allow_recreate_strategy: bool = False
     agent_gateway_max_unavailable: str = "0"
@@ -177,6 +206,9 @@ class Settings(BaseSettings):
     # Optional managed fronting layer for server-side TCP mux / TLS termination.
     agent_reload_haproxy_cmd: str = ""
     agent_reload_nginx_cmd: str = ""
+    # Optional standalone Hysteria2 reload hook. Tracegate 2.2 treats public UDP as
+    # a Hysteria-owned surface, not as an Xray inbound.
+    agent_reload_hysteria_cmd: str = ""
     # Optional host-local obfuscation helper reload, for example a private systemd wrapper
     # that reacts to runtime-contract.json changes and refreshes zapret2 / FinalMask glue.
     agent_reload_obfuscation_cmd: str = ""
@@ -216,6 +248,47 @@ class Settings(BaseSettings):
     private_link_crypto_router_entry_port: int = 10883
     private_link_crypto_router_transit_port: int = 10884
     private_link_crypto_remote_port: int = 443
+    private_link_crypto_profile_dir: str = "/etc/tracegate/private/link-crypto"
+    private_link_crypto_outer_wss_spki_profile: str = "outer-wss-spki.env"
+    private_link_crypto_outer_wss_admission_profile: str = "outer-wss-admission.env"
+    private_link_crypto_tcp_shaping_profile: str = "tcp-shaping.env"
+    private_link_crypto_promotion_preflight_profile: str = "promotion-preflight.env"
+    private_udp_link_enabled: bool = True
+    private_udp_link_router_entry_enabled: bool = False
+    private_udp_link_router_transit_enabled: bool = False
+    private_udp_link_bind_host: str = "127.0.0.1"
+    private_udp_link_entry_port: int = 14481
+    private_udp_link_transit_port: int = 14482
+    private_udp_link_router_entry_port: int = 14483
+    private_udp_link_router_transit_port: int = 14484
+    private_udp_link_remote_port: int = 8443
+    private_udp_link_profile_dir: str = "/etc/tracegate/private/udp-link"
+    private_udp_link_client_profile: str = "client.yaml"
+    private_udp_link_server_profile: str = "server.yaml"
+    private_udp_link_obfs_profile: str = "salamander.env"
+    private_udp_link_paired_obfs_enabled: bool = False
+    private_udp_link_paired_obfs_mode: str = "udp2raw-faketcp"
+    private_udp_link_paired_obfs_profile: str = "paired-obfs.env"
+    private_udp_link_hardening_enabled: bool = True
+    private_udp_link_anti_replay_enabled: bool = True
+    private_udp_link_replay_window_packets: int = 4096
+    private_udp_link_anti_amplification_enabled: bool = True
+    private_udp_link_max_unvalidated_bytes: int = 1200
+    private_udp_link_rate_limit_enabled: bool = True
+    private_udp_link_handshake_rate_per_minute: int = 120
+    private_udp_link_new_session_rate_per_minute: int = 60
+    private_udp_link_mtu_mode: str = "clamp"
+    private_udp_link_mtu_max_packet_size: int = 1252
+    private_udp_link_key_rotation_enabled: bool = True
+    private_udp_link_key_rotation_max_age_seconds: int = 3600
+    private_udp_link_key_rotation_overlap_seconds: int = 120
+    private_udp_link_source_validation_enabled: bool = True
+    private_udp_link_source_validation_mode: str = "profile-bound-remote"
+    private_router_profile_dir: str = "/etc/tracegate/private/router"
+    private_router_mieru_client_profile: str = "mieru-client.json"
+    private_router_udp_client_profile: str = "hysteria-client.yaml"
+    private_router_udp_salamander_profile: str = "salamander.env"
+    private_router_udp_paired_obfs_profile: str = "paired-obfs.env"
     private_link_crypto_outer_carrier_enabled: bool = True
     private_link_crypto_outer_carrier_mode: str = "wss"
     private_link_crypto_outer_wss_server_name: str = "bridge.example.com"
@@ -224,7 +297,7 @@ class Settings(BaseSettings):
     private_link_crypto_outer_wss_client_port: int = 14081
     private_link_crypto_outer_wss_server_port: int = 14082
     private_link_crypto_outer_wss_verify_tls: bool = True
-    private_link_crypto_zapret2_enabled: bool = False
+    private_link_crypto_zapret2_enabled: bool = True
     private_fronting_listen_addr: str = "127.0.0.1:10443"
     private_fronting_protocol: str = "tcp"
     private_fronting_reality_upstream: str = "127.0.0.1:2443"
@@ -237,7 +310,7 @@ class Settings(BaseSettings):
     private_mtproto_upstream_port: int = 9443
     private_mtproto_secret_file: str = "/etc/tracegate/private/mtproto/secret.txt"
     # Future private MTProto/fronting hints exposed via runtime-contract.json for host-local wrappers.
-    # Keep MTProto on a dedicated real domain and avoid claiming UDP/443 in the private TCP demux layer.
+    # Keep MTProto on a dedicated real domain and avoid claiming public UDP/8443 in the private TCP demux layer.
     mtproto_domain: str = ""
     mtproto_public_port: int = 443
     mtproto_fronting_mode: str = "dedicated-dns-only"
@@ -311,6 +384,17 @@ class Settings(BaseSettings):
     # Optional VLESS over WebSocket+TLS settings (operator-controlled; must match Xray inbound settings).
     vless_ws_path: str = "/ws"
     vless_ws_tls_port: int = 443
+    # Hysteria2 public UDP surface. Tracegate 2.2 keeps it away from TCP/443.
+    hysteria_udp_port: int = 8443
+    # Salamander is mandatory for Tracegate Hysteria2. Keep real values in private env/Secrets.
+    hysteria_salamander_password_entry: str = Field(
+        default="",
+        validation_alias=AliasChoices("HYSTERIA_SALAMANDER_PASSWORD_ENTRY", "HYSTERIA_SALAMANDER_PASSWORD"),
+    )
+    hysteria_salamander_password_transit: str = Field(
+        default="",
+        validation_alias=AliasChoices("HYSTERIA_SALAMANDER_PASSWORD_TRANSIT", "HYSTERIA_SALAMANDER_PASSWORD"),
+    )
     # Optional Hysteria/ECH hints exposed to client effective configs.
     hysteria_ech_config_list_entry: str = Field(
         default="",

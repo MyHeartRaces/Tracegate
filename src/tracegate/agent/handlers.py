@@ -117,6 +117,8 @@ def _proxy_reload_commands(settings: Settings) -> list[str]:
     commands: list[str] = []
     if contract.manages_component("xray"):
         commands.append(settings.agent_reload_xray_cmd)
+    if contract.manages_component("hysteria"):
+        commands.append(settings.agent_reload_hysteria_cmd)
     if contract.manages_component("haproxy"):
         commands.append(settings.agent_reload_haproxy_cmd)
     if contract.manages_component("nginx"):
@@ -139,6 +141,8 @@ def _reload_commands_for_changed(
     cmds: list[str] = []
     if contract.manages_component("xray") and "xray" in changed and (force_xray_reload or not settings.agent_xray_api_enabled):
         cmds.append(settings.agent_reload_xray_cmd)
+    if contract.manages_component("hysteria") and "hysteria" in changed:
+        cmds.append(settings.agent_reload_hysteria_cmd)
     if contract.manages_component("haproxy") and "haproxy" in changed:
         cmds.append(settings.agent_reload_haproxy_cmd)
     if contract.manages_component("nginx") and "nginx" in changed:
@@ -196,6 +200,7 @@ def _sync_base_configs_from_bundle(
     contract = resolve_runtime_contract(settings.agent_runtime_profile)
     mapping = {
         "xray.json": ("base/xray/config.json", "xray"),
+        "hysteria/server.yaml": ("base/hysteria/server.yaml", "hysteria"),
         "haproxy.cfg": ("base/haproxy/haproxy.cfg", "haproxy"),
         "nginx.conf": ("base/nginx/nginx.conf", "nginx"),
     }

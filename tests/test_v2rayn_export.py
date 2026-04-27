@@ -49,14 +49,17 @@ def test_export_hysteria2_uri() -> None:
     effective = {
         "protocol": "hysteria2",
         "server": "t.example.com",
-        "port": 443,
+        "port": 8443,
         "auth": {"type": "userpass", "username": "u", "password": "p"},
+        "obfs": {"type": "salamander", "password": "obfs-secret"},
         "profile": "V3-Hysteria2-QUIC-Direct",
     }
     out = export_v2rayn(effective)
     assert out.kind == "uri"
-    assert out.content.startswith("hysteria2://u:p@t.example.com:443/")
+    assert out.content.startswith("hysteria2://u:p@t.example.com:8443/")
     assert "insecure=0" in out.content
+    assert "obfs=salamander" in out.content
+    assert "obfs-password=obfs-secret" in out.content
     assert "alpn=" not in out.content
     assert "sni=t.example.com" in out.content
     assert "peer=t.example.com" in out.content
@@ -70,24 +73,39 @@ def test_export_hysteria2_uri() -> None:
     assert attachment["inbounds"][0]["users"][0]["password"]
     assert attachment["outbounds"][0]["type"] == "hysteria2"
     assert attachment["outbounds"][0]["password"] == "u:p"
+    assert attachment["outbounds"][0]["obfs"] == {"type": "salamander", "password": "obfs-secret"}
     assert attachment["outbounds"][0]["tls"]["alpn"] == ["h3"]
+
+
+def test_export_hysteria2_rejects_missing_salamander() -> None:
+    effective = {
+        "protocol": "hysteria2",
+        "server": "t.example.com",
+        "port": 8443,
+        "auth": {"type": "userpass", "username": "u", "password": "p"},
+        "profile": "V3-Hysteria2-QUIC-Direct",
+    }
+
+    with pytest.raises(V2RayNExportError, match="Salamander"):
+        export_v2rayn(effective)
 
 
 def test_export_hysteria2_token_uri() -> None:
     effective = {
         "protocol": "hysteria2",
         "server": "t.example.com",
-        "port": 443,
+        "port": 8443,
         "auth": {
             "type": "token",
             "token": "client-token:device-token",
             "client_id": "client-token",
         },
+        "obfs": {"type": "salamander", "password": "obfs-secret"},
         "profile": "V3-Hysteria2-QUIC-Direct",
     }
     out = export_v2rayn(effective)
     assert out.kind == "uri"
-    assert out.content.startswith("hysteria2://client-token%3Adevice-token@t.example.com:443/")
+    assert out.content.startswith("hysteria2://client-token%3Adevice-token@t.example.com:8443/")
     assert "insecure=0" in out.content
     assert "alpn=" not in out.content
     assert "sni=t.example.com" in out.content
@@ -106,12 +124,32 @@ def test_export_hysteria2_token_uri_falls_back_to_raw_token_when_it_is_not_split
     effective = {
         "protocol": "hysteria2",
         "server": "t.example.com",
-        "port": 443,
+        "port": 8443,
         "auth": {"type": "token", "token": "opaque-token", "client_id": "client-token"},
+        "obfs": {"type": "salamander", "password": "obfs-secret"},
         "profile": "V3-Hysteria2-QUIC-Direct",
     }
     out = export_v2rayn(effective)
-    assert out.content.startswith("hysteria2://opaque-token@t.example.com:443/")
+    assert out.content.startswith("hysteria2://opaque-token@t.example.com:8443/")
+
+
+def test_export_hysteria2_ip_sni_forces_insecure_tls() -> None:
+    effective = {
+        "protocol": "hysteria2",
+        "server": "138.124.29.105",
+        "port": 8443,
+        "sni": "138.124.29.105",
+        "tls": {"server_name": "138.124.29.105", "insecure": False},
+        "auth": {"type": "token", "token": "opaque-token", "client_id": "client-token"},
+        "obfs": {"type": "salamander", "password": "obfs-secret"},
+        "profile": "V3-Hysteria2-QUIC-Direct",
+    }
+
+    out = export_v2rayn(effective)
+    attachment = json.loads((out.attachment_content or b"").decode("utf-8"))
+
+    assert "insecure=1" in out.content
+    assert attachment["outbounds"][0]["tls"]["insecure"] is True
 
 
 def test_export_mtproto_tls_link() -> None:
@@ -235,8 +273,9 @@ def test_export_rejects_disabled_local_socks_auth() -> None:
     effective = {
         "protocol": "hysteria2",
         "server": "t.example.com",
-        "port": 443,
+        "port": 8443,
         "auth": {"type": "userpass", "username": "u", "password": "p"},
+        "obfs": {"type": "salamander", "password": "obfs-secret"},
         "profile": "V3-Hysteria2-QUIC-Direct",
         "local_socks": {
             "listen": "127.0.0.1:1080",
@@ -463,8 +502,9 @@ def test_export_wireguard_wstunnel_rejects_unsafe_mtu() -> None:
         {
             "protocol": "hysteria2",
             "server": "t.example.com",
-            "port": 443,
+            "port": 8443,
             "auth": {"type": "userpass", "username": "u", "password": "p"},
+            "obfs": {"type": "salamander", "password": "obfs-secret"},
             "profile": "V3-Hysteria2-QUIC-Direct",
         },
         {

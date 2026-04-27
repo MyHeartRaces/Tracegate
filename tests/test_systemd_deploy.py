@@ -21,6 +21,7 @@ def test_systemd_units_exist_for_tracegate2_runtime() -> None:
         "tracegate-bot.service",
         "tracegate-agent-entry.service",
         "tracegate-agent-transit.service",
+        "tracegate-hysteria@.service",
         "tracegate-xray@.service",
         "transit-single.env.example",
         "transit.env.example",
@@ -86,6 +87,7 @@ def test_systemd_templates_cover_shared_and_role_specific_envs() -> None:
     private_link_crypto_readme = (private_link_crypto_root / "README.md").read_text(encoding="utf-8")
     private_link_crypto_env = (private_link_crypto_root / "link-crypto.env.example").read_text(encoding="utf-8")
     private_link_crypto_runner = (private_link_crypto_root / "run-link-crypto.sh.example").read_text(encoding="utf-8")
+    private_paired_obfs_env = (private_link_crypto_root / "paired-obfs.env.example").read_text(encoding="utf-8")
     private_link_crypto_unit = (private_link_crypto_root / "tracegate-link-crypto@.service.example").read_text(encoding="utf-8")
     private_zapret_readme = (private_zapret_root / "README.md").read_text(encoding="utf-8")
     private_zapret_entry = (private_zapret_root / "entry-lite.env.example").read_text(encoding="utf-8")
@@ -99,11 +101,12 @@ def test_systemd_templates_cover_shared_and_role_specific_envs() -> None:
     private_mtproto_unit = (private_mtproto_root / "tracegate-mtproto@.service.example").read_text(encoding="utf-8")
     haproxy_unit = (root / "tracegate-haproxy@.service").read_text(encoding="utf-8")
     xray_unit = (root / "tracegate-xray@.service").read_text(encoding="utf-8")
+    hysteria_unit = (root / "tracegate-hysteria@.service").read_text(encoding="utf-8")
     nginx_unit = (root / "tracegate-nginx@.service").read_text(encoding="utf-8")
 
     assert "DEFAULT_ENTRY_HOST=" in shared
     assert "DEFAULT_TRANSIT_HOST=" in shared
-    assert "AGENT_RUNTIME_PROFILE=xray-centric" in shared
+    assert "AGENT_RUNTIME_PROFILE=tracegate-2.2" in shared
     assert "BUNDLE_PRIVATE_OVERLAY_ROOT=/etc/tracegate/private/overlays" in shared
     assert "TRACEGATE_PRIVATE_RENDER_HOOK=/etc/tracegate/private/render-hook.sh" in shared
     assert "AGENT_XRAY_API_ENABLED=true" in entry
@@ -111,8 +114,9 @@ def test_systemd_templates_cover_shared_and_role_specific_envs() -> None:
     assert "Transit-only node replacement profile." in transit_single
     assert "TRACEGATE_REPLACE_API_URL=http://127.0.0.1:18080" in transit_single
     assert "TRACEGATE_REPLACE_REISSUE_CURRENT_REVISIONS=true" in transit_single
-    assert "INSTALL_COMPONENTS=xray,mtproto" in transit_single
+    assert "INSTALL_COMPONENTS=xray,hysteria,mtproto" in transit_single
     assert "XRAY_INSTALL_POLICY=if-missing" in transit_single
+    assert "HYSTERIA_INSTALL_POLICY=if-missing" in transit_single
     assert "MTPROTO_INSTALL_POLICY=if-missing" in transit_single
     assert "MTPROTO_REFRESH_BOOTSTRAP=if-missing" in transit_single
     assert "REALITY_PRIVATE_KEY_ENTRY=REPLACE_ENTRY_PLACEHOLDER_PRIVATE_KEY" in transit_single
@@ -123,21 +127,27 @@ def test_systemd_templates_cover_shared_and_role_specific_envs() -> None:
     assert "XRAY_CENTRIC_DECOY_DIR=/var/www/decoy" in shared
     assert "XRAY_CENTRIC_TLS_CERT_FILE=/etc/tracegate/tls/ws.crt" in shared
     assert "XRAY_CENTRIC_TLS_KEY_FILE=/etc/tracegate/tls/ws.key" in shared
-    assert "Shared decoy root for nginx and Xray-native Hysteria masquerade." in shared
+    assert "Shared decoy root for nginx and standalone Hysteria2 masquerade." in shared
     assert "REALITY_PRIVATE_KEY_ENTRY=" in shared
     assert "REALITY_PRIVATE_KEY_TRANSIT=" in shared
     assert "REALITY_MULTI_INBOUND_GROUPS=" in shared
+    assert "HYSTERIA_UDP_PORT=8443" in shared
+    assert "HYSTERIA_SALAMANDER_PASSWORD_ENTRY=REPLACE_ME" in shared
+    assert "HYSTERIA_SALAMANDER_PASSWORD_TRANSIT=REPLACE_ME" in shared
+    assert "HYSTERIA_STATS_SECRET_ENTRY=REPLACE_ME" in shared
+    assert "HYSTERIA_STATS_SECRET_TRANSIT=REPLACE_ME" in shared
     assert "HYSTERIA_BOOTSTRAP_PASSWORD=" in shared
     assert "AGENT_XRAY_API_SERVER=127.0.0.1:8080" in entry
     assert "AGENT_XRAY_API_SERVER=127.0.0.1:8080" in transit
-    assert "Transit-side Hysteria metrics are sourced from Xray stats" in entry
-    assert "Transit-side Hysteria metrics are sourced from Xray stats" in transit
+    assert "Hysteria2 metrics are sourced from the standalone Hysteria traffic stats API." in entry
+    assert "Hysteria2 metrics are sourced from the standalone Hysteria traffic stats API." in transit
     assert "AGENT_HOST=0.0.0.0" in entry
     assert "AGENT_PORT=8070" in entry
     assert "PRIVATE_OBFUSCATION_BACKEND=zapret2" in entry
     assert "PRIVATE_ENTRY_INTERFACE=eth0" in entry
     assert "AGENT_RELOAD_HAPROXY_CMD=systemctl restart tracegate-haproxy@entry" in entry
     assert "AGENT_RELOAD_XRAY_CMD=systemctl restart tracegate-xray@entry" in entry
+    assert "AGENT_RELOAD_HYSTERIA_CMD=systemctl reload tracegate-hysteria@entry || systemctl restart tracegate-hysteria@entry" in entry
     assert "AGENT_RELOAD_NGINX_CMD=systemctl reload tracegate-nginx@entry || systemctl restart tracegate-nginx@entry" in entry
     assert "AGENT_RELOAD_OBFUSCATION_CMD=systemctl reload tracegate-obfuscation@entry || systemctl restart tracegate-obfuscation@entry" in entry
     assert "Private helpers are safe no-ops until their private env files enable them." in entry
@@ -149,6 +159,24 @@ def test_systemd_templates_cover_shared_and_role_specific_envs() -> None:
     assert "PRIVATE_LINK_CRYPTO_BIND_HOST=127.0.0.1" in entry
     assert "PRIVATE_LINK_CRYPTO_ENTRY_PORT=10881" in entry
     assert "PRIVATE_LINK_CRYPTO_REMOTE_PORT=443" in entry
+    assert "PRIVATE_LINK_CRYPTO_ROUTER_ENTRY_ENABLED=false" in entry
+    assert "PRIVATE_LINK_CRYPTO_ROUTER_ENTRY_PORT=10883" in entry
+    assert "PRIVATE_UDP_LINK_ENABLED=true" in entry
+    assert "PRIVATE_UDP_LINK_ENTRY_PORT=14481" in entry
+    assert "PRIVATE_UDP_LINK_REMOTE_PORT=8443" in entry
+    assert "PRIVATE_UDP_LINK_OBFS_PROFILE=salamander.env" in entry
+    assert "PRIVATE_UDP_LINK_HARDENING_ENABLED=true" in entry
+    assert "PRIVATE_UDP_LINK_ANTI_REPLAY_ENABLED=true" in entry
+    assert "PRIVATE_UDP_LINK_REPLAY_WINDOW_PACKETS=4096" in entry
+    assert "PRIVATE_UDP_LINK_ANTI_AMPLIFICATION_ENABLED=true" in entry
+    assert "PRIVATE_UDP_LINK_MAX_UNVALIDATED_BYTES=1200" in entry
+    assert "PRIVATE_UDP_LINK_RATE_LIMIT_ENABLED=true" in entry
+    assert "PRIVATE_UDP_LINK_MTU_MODE=clamp" in entry
+    assert "PRIVATE_UDP_LINK_MTU_MAX_PACKET_SIZE=1252" in entry
+    assert "PRIVATE_UDP_LINK_KEY_ROTATION_ENABLED=true" in entry
+    assert "PRIVATE_UDP_LINK_SOURCE_VALIDATION_ENABLED=true" in entry
+    assert "PRIVATE_UDP_LINK_SOURCE_VALIDATION_MODE=profile-bound-remote" in entry
+    assert "PRIVATE_UDP_LINK_ROUTER_ENTRY_ENABLED=false" in entry
     assert "FRONTING_TOUCH_UDP_443=false" in entry
     assert "AGENT_HOST=0.0.0.0" in transit
     assert "AGENT_PORT=8070" in transit
@@ -159,6 +187,7 @@ def test_systemd_templates_cover_shared_and_role_specific_envs() -> None:
     assert "PRIVATE_ZAPRET_PROFILE_INTERCONNECT=entry-transit-stealth.env" in transit
     assert "AGENT_RELOAD_HAPROXY_CMD=systemctl restart tracegate-haproxy@transit" in transit
     assert "AGENT_RELOAD_XRAY_CMD=systemctl restart tracegate-xray@transit" in transit
+    assert "AGENT_RELOAD_HYSTERIA_CMD=systemctl reload tracegate-hysteria@transit || systemctl restart tracegate-hysteria@transit" in transit
     assert "AGENT_RELOAD_NGINX_CMD=systemctl reload tracegate-nginx@transit || systemctl restart tracegate-nginx@transit" in transit
     assert "AGENT_RELOAD_OBFUSCATION_CMD=systemctl reload tracegate-obfuscation@transit || systemctl restart tracegate-obfuscation@transit" in transit
     assert "AGENT_RELOAD_FRONTING_CMD=systemctl reload tracegate-fronting@transit || systemctl restart tracegate-fronting@transit" in transit
@@ -172,6 +201,23 @@ def test_systemd_templates_cover_shared_and_role_specific_envs() -> None:
     assert "PRIVATE_LINK_CRYPTO_TRANSIT_PORT=10882" in transit
     assert "PRIVATE_LINK_CRYPTO_REMOTE_PORT=443" in transit
     assert "PRIVATE_LINK_CRYPTO_ROUTER_TRANSIT_ENABLED=false" in transit
+    assert "PRIVATE_LINK_CRYPTO_ROUTER_TRANSIT_PORT=10884" in transit
+    assert "PRIVATE_UDP_LINK_ENABLED=true" in transit
+    assert "PRIVATE_UDP_LINK_TRANSIT_PORT=14482" in transit
+    assert "PRIVATE_UDP_LINK_REMOTE_PORT=8443" in transit
+    assert "PRIVATE_UDP_LINK_OBFS_PROFILE=salamander.env" in transit
+    assert "PRIVATE_UDP_LINK_HARDENING_ENABLED=true" in transit
+    assert "PRIVATE_UDP_LINK_ANTI_REPLAY_ENABLED=true" in transit
+    assert "PRIVATE_UDP_LINK_REPLAY_WINDOW_PACKETS=4096" in transit
+    assert "PRIVATE_UDP_LINK_ANTI_AMPLIFICATION_ENABLED=true" in transit
+    assert "PRIVATE_UDP_LINK_MAX_UNVALIDATED_BYTES=1200" in transit
+    assert "PRIVATE_UDP_LINK_RATE_LIMIT_ENABLED=true" in transit
+    assert "PRIVATE_UDP_LINK_MTU_MODE=clamp" in transit
+    assert "PRIVATE_UDP_LINK_MTU_MAX_PACKET_SIZE=1252" in transit
+    assert "PRIVATE_UDP_LINK_KEY_ROTATION_ENABLED=true" in transit
+    assert "PRIVATE_UDP_LINK_SOURCE_VALIDATION_ENABLED=true" in transit
+    assert "PRIVATE_UDP_LINK_SOURCE_VALIDATION_MODE=profile-bound-remote" in transit
+    assert "PRIVATE_UDP_LINK_ROUTER_TRANSIT_ENABLED=false" in transit
     assert "PRIVATE_FRONTING_LISTEN_ADDR=127.0.0.1:10443" in transit
     assert "PRIVATE_FRONTING_REALITY_UPSTREAM=127.0.0.1:2443" in transit
     assert "PRIVATE_FRONTING_MTPROTO_UPSTREAM=127.0.0.1:9443" in transit
@@ -192,16 +238,27 @@ def test_systemd_templates_cover_shared_and_role_specific_envs() -> None:
     assert "PRIVATE_RUNTIME_ROOT=/var/lib/tracegate/private" in transit_single
     assert "PRIVATE_TRANSIT_INTERFACE=eth0" in transit_single
     assert "AGENT_RELOAD_PROFILES_CMD=systemctl reload tracegate-profiles@transit || systemctl restart tracegate-profiles@transit" in transit_single
+    assert "AGENT_RELOAD_HYSTERIA_CMD=systemctl reload tracegate-hysteria@transit || systemctl restart tracegate-hysteria@transit" in transit_single
     assert "AGENT_RELOAD_LINK_CRYPTO_CMD=systemctl reload tracegate-link-crypto@transit || systemctl restart tracegate-link-crypto@transit" in transit_single
     assert "PRIVATE_MIERU_PROFILE_DIR=/etc/tracegate/private/mieru" in transit_single
     assert "PRIVATE_MIERU_SERVER_PROFILE=server.json" in transit_single
     assert "PRIVATE_LINK_CRYPTO_ENABLED=true" in transit_single
     assert "PRIVATE_LINK_CRYPTO_TRANSIT_PORT=10882" in transit_single
+    assert "PRIVATE_LINK_CRYPTO_ROUTER_TRANSIT_ENABLED=false" in transit_single
+    assert "PRIVATE_LINK_CRYPTO_ROUTER_TRANSIT_PORT=10884" in transit_single
     assert "PRIVATE_LINK_CRYPTO_ZAPRET2_ENABLED=false" in transit_single
+    assert "PRIVATE_UDP_LINK_ENABLED=true" in transit_single
+    assert "PRIVATE_UDP_LINK_TRANSIT_PORT=14482" in transit_single
+    assert "PRIVATE_UDP_LINK_REMOTE_PORT=8443" in transit_single
+    assert "PRIVATE_UDP_LINK_MTU_MODE=clamp" in transit_single
+    assert "PRIVATE_UDP_LINK_SOURCE_VALIDATION_MODE=profile-bound-remote" in transit_single
+    assert "PRIVATE_UDP_LINK_ROUTER_TRANSIT_ENABLED=false" in transit_single
     assert "PRIVATE_FRONTING_WS_SNI=transit.example.com" in transit_single
     assert "PRIVATE_MTPROTO_UPSTREAM_PORT=9443" in transit_single
     assert "tracegate-xray@entry" in entry
+    assert "tracegate-hysteria@entry" in entry
     assert "tracegate-xray@transit" in transit
+    assert "tracegate-hysteria@transit" in transit
     assert 'CONFIG_DIR="${CONFIG_DIR:-/etc/tracegate}"' in install_script
     assert "tracegate.env" in install_script
     assert "install-runtime.sh" in install_script
@@ -284,7 +341,7 @@ def test_systemd_templates_cover_shared_and_role_specific_envs() -> None:
     assert "fronting-transit.env.example" in install_script
     assert '"${CONFIG_DIR}/private/overlays/entry"' in install_script
     assert '"${CONFIG_DIR}/private/overlays/transit"' in install_script
-    assert "INSTALL_COMPONENTS=xray,mtproto" in install_script
+    assert "INSTALL_COMPONENTS=xray,hysteria,mtproto" in install_script
     assert 'TRACEGATE_ENV_FILE="${TRACEGATE_ENV_FILE:-${CONFIG_DIR}/tracegate.env}"' in replace_transit_script
     assert 'TRACEGATE_SINGLE_ENV_ONLY="${TRACEGATE_SINGLE_ENV_ONLY:-true}"' in replace_transit_script
     assert 'TRACEGATE_INSTALL_ROLE="${TRACEGATE_INSTALL_ROLE:-transit}"' in replace_transit_script
@@ -297,6 +354,7 @@ def test_systemd_templates_cover_shared_and_role_specific_envs() -> None:
     assert 'wait_for_file() {' in replace_transit_script
     assert 'resolve_api_url() {' in replace_transit_script
     assert 'enable_transit_runtime_units() {' in replace_transit_script
+    assert 'tracegate-hysteria@transit' in replace_transit_script
     assert 'TRACEGATE_REPLACE_RUNTIME_CONTRACT="${TRACEGATE_REPLACE_RUNTIME_CONTRACT:-${AGENT_DATA_ROOT:-/var/lib/tracegate/agent-transit}/runtime/runtime-contract.json}"' in replace_transit_script
     assert 'TRACEGATE_REPLACE_API_URL="$(resolve_api_url)"' in replace_transit_script
     assert 'tracegate-obfuscation@transit tracegate-fronting@transit tracegate-mtproto@transit' in replace_transit_script
@@ -306,6 +364,8 @@ def test_systemd_templates_cover_shared_and_role_specific_envs() -> None:
     assert "dispatch_post \"/dispatch/reissue-current-revisions\" '{}'" in replace_transit_script
     assert 'XRAY_VERSION="${XRAY_VERSION:-latest}"' in runtime_install_script
     assert 'XRAY_INSTALL_POLICY="${XRAY_INSTALL_POLICY:-if-missing}"' in runtime_install_script
+    assert 'HYSTERIA_VERSION="${HYSTERIA_VERSION:-latest}"' in runtime_install_script
+    assert 'HYSTERIA_INSTALL_POLICY="${HYSTERIA_INSTALL_POLICY:-if-missing}"' in runtime_install_script
     assert 'TRACEGATE_ENV_FILE="${TRACEGATE_ENV_FILE:-/etc/tracegate/tracegate.env}"' in runtime_install_script
     assert 'MTPROTO_GIT_REPO="${MTPROTO_GIT_REPO:-https://github.com/TelegramMessenger/MTProxy.git}"' in runtime_install_script
     assert 'MTPROTO_GIT_REF="${MTPROTO_GIT_REF:-master}"' in runtime_install_script
@@ -324,20 +384,22 @@ def test_systemd_templates_cover_shared_and_role_specific_envs() -> None:
     assert 'INSTALL_PROXY_STACK="${INSTALL_PROXY_STACK:-true}"' in runtime_install_script
     assert 'INSTALL_COMPONENTS_RESOLVED="$(resolve_install_components)"' in runtime_install_script
     assert 'XRAY_INSTALL_POLICY="$(normalize_install_policy "${XRAY_INSTALL_POLICY}")"' in runtime_install_script
+    assert 'HYSTERIA_INSTALL_POLICY="$(normalize_install_policy "${HYSTERIA_INSTALL_POLICY}")"' in runtime_install_script
     assert 'MTPROTO_INSTALL_POLICY="$(normalize_install_policy "${MTPROTO_INSTALL_POLICY}")"' in runtime_install_script
     assert 'MTPROTO_REFRESH_BOOTSTRAP="$(normalize_refresh_policy "${MTPROTO_REFRESH_BOOTSTRAP}")"' in runtime_install_script
     assert 'runtime_profile="$(read_env_assignment "${TRACEGATE_ENV_FILE}" "AGENT_RUNTIME_PROFILE")"' in runtime_install_script
     assert 'runtime_profile="$(normalize_runtime_profile "${runtime_profile}")"' in runtime_install_script
-    assert "tracegate-2.1" not in install_script
-    assert "tracegate2.1" not in install_script
-    assert "tracegate-2.1" not in runtime_install_script
-    assert "tracegate2.1" not in runtime_install_script
+    assert "tracegate-2.1" in install_script
+    assert "tracegate2.1" in install_script
+    assert "tracegate-2.1" in runtime_install_script
+    assert "tracegate2.1" in runtime_install_script
     assert 'echo "xray"' in runtime_install_script
     assert 'normalize_install_component() {' in runtime_install_script
     assert 'normalize_install_policy() {' in runtime_install_script
     assert 'normalize_refresh_policy() {' in runtime_install_script
     assert 'component_enabled() {' in runtime_install_script
     assert 'xray_install_required() {' in runtime_install_script
+    assert 'hysteria_install_required() {' in runtime_install_script
     assert 'mtproto_install_required() {' in runtime_install_script
     assert "components: ${INSTALL_COMPONENTS_RESOLVED}" in runtime_install_script
     assert "apt-get install -y --no-install-recommends haproxy nginx" in runtime_install_script
@@ -348,6 +410,9 @@ def test_systemd_templates_cover_shared_and_role_specific_envs() -> None:
     assert 'ensure_mtproto_bootstrap_file() {' in runtime_install_script
     assert 'install_mtproto_binary() {' in runtime_install_script
     assert 'install_mtproto() {' in runtime_install_script
+    assert 'install_hysteria() {' in runtime_install_script
+    assert 'hysteria-linux-amd64' in runtime_install_script
+    assert 'https://download.hysteria.network/app' in runtime_install_script
     assert 'git clone --depth 1 "${MTPROTO_GIT_REPO}" "${source_dir}"' in runtime_install_script
     assert 'git -C "${source_dir}" fetch --depth 1 origin "${MTPROTO_GIT_REF}"' in runtime_install_script
     assert 'make -C "${source_dir}" >/dev/null' in runtime_install_script
@@ -399,6 +464,15 @@ def test_systemd_templates_cover_shared_and_role_specific_envs() -> None:
     assert 'ENTRY_LINK_CRYPTO_ENV="${ENTRY_LINK_CRYPTO_ENV:-${LINK_CRYPTO_STATE_ROOT}/entry/desired-state.env}"' in validate_runtime_script
     assert 'TRANSIT_LINK_CRYPTO_ENV="${TRANSIT_LINK_CRYPTO_ENV:-${LINK_CRYPTO_STATE_ROOT}/transit/desired-state.env}"' in validate_runtime_script
     assert 'LINK_CRYPTO_UNIT="${LINK_CRYPTO_UNIT:-/etc/systemd/system/tracegate-link-crypto@.service}"' in validate_runtime_script
+    assert 'ROUTER_HANDOFF_STATE_ROOT="${ROUTER_HANDOFF_STATE_ROOT:-${PRIVATE_RUNTIME_ROOT}/router}"' in validate_runtime_script
+    assert 'ENTRY_ROUTER_STATE="${ENTRY_ROUTER_STATE:-${ROUTER_HANDOFF_STATE_ROOT}/entry/desired-state.json}"' in validate_runtime_script
+    assert 'TRANSIT_ROUTER_STATE="${TRANSIT_ROUTER_STATE:-${ROUTER_HANDOFF_STATE_ROOT}/transit/desired-state.json}"' in validate_runtime_script
+    assert 'ENTRY_ROUTER_ENV="${ENTRY_ROUTER_ENV:-${ROUTER_HANDOFF_STATE_ROOT}/entry/desired-state.env}"' in validate_runtime_script
+    assert 'TRANSIT_ROUTER_ENV="${TRANSIT_ROUTER_ENV:-${ROUTER_HANDOFF_STATE_ROOT}/transit/desired-state.env}"' in validate_runtime_script
+    assert 'ENTRY_ROUTER_CLIENT_BUNDLE="${ENTRY_ROUTER_CLIENT_BUNDLE:-${ROUTER_HANDOFF_STATE_ROOT}/entry/client-bundle.json}"' in validate_runtime_script
+    assert 'TRANSIT_ROUTER_CLIENT_BUNDLE="${TRANSIT_ROUTER_CLIENT_BUNDLE:-${ROUTER_HANDOFF_STATE_ROOT}/transit/client-bundle.json}"' in validate_runtime_script
+    assert 'ENTRY_ROUTER_CLIENT_ENV="${ENTRY_ROUTER_CLIENT_ENV:-${ROUTER_HANDOFF_STATE_ROOT}/entry/client-bundle.env}"' in validate_runtime_script
+    assert 'TRANSIT_ROUTER_CLIENT_ENV="${TRANSIT_ROUTER_CLIENT_ENV:-${ROUTER_HANDOFF_STATE_ROOT}/transit/client-bundle.env}"' in validate_runtime_script
     assert 'FRONTING_STATE="${FRONTING_STATE:-${PRIVATE_RUNTIME_ROOT}/fronting/last-action.json}"' in validate_runtime_script
     assert 'FRONTING_ENV="${FRONTING_ENV:-/etc/tracegate/private/fronting/fronting.env}"' in validate_runtime_script
     assert 'MTPROTO_STATE="${MTPROTO_STATE:-${PRIVATE_RUNTIME_ROOT}/mtproto/last-action.json}"' in validate_runtime_script
@@ -423,6 +497,13 @@ def test_systemd_templates_cover_shared_and_role_specific_envs() -> None:
     assert 'args+=(--entry-profile-env "${ENTRY_PROFILE_ENV}" --transit-profile-env "${TRANSIT_PROFILE_ENV}")' in validate_runtime_script
     assert 'args+=(--entry-link-crypto-state "${ENTRY_LINK_CRYPTO_STATE}" --transit-link-crypto-state "${TRANSIT_LINK_CRYPTO_STATE}")' in validate_runtime_script
     assert 'args+=(--entry-link-crypto-env "${ENTRY_LINK_CRYPTO_ENV}" --transit-link-crypto-env "${TRANSIT_LINK_CRYPTO_ENV}")' in validate_runtime_script
+    assert 'args+=(--entry-router-state "${ENTRY_ROUTER_STATE}" --transit-router-state "${TRANSIT_ROUTER_STATE}")' in validate_runtime_script
+    assert 'args+=(--entry-router-env "${ENTRY_ROUTER_ENV}" --transit-router-env "${TRANSIT_ROUTER_ENV}")' in validate_runtime_script
+    assert (
+        'args+=(--entry-router-client-bundle "${ENTRY_ROUTER_CLIENT_BUNDLE}" '
+        '--transit-router-client-bundle "${TRANSIT_ROUTER_CLIENT_BUNDLE}")'
+    ) in validate_runtime_script
+    assert 'args+=(--entry-router-client-env "${ENTRY_ROUTER_CLIENT_ENV}" --transit-router-client-env "${TRANSIT_ROUTER_CLIENT_ENV}")' in validate_runtime_script
     assert 'args+=(--entry-profile-state "${ENTRY_PROFILE_STATE}")' in validate_runtime_script
     assert 'args+=(--transit-profile-state "${TRANSIT_PROFILE_STATE}")' in validate_runtime_script
     assert 'args+=(--entry-profile-env "${ENTRY_PROFILE_ENV}")' in validate_runtime_script
@@ -431,6 +512,14 @@ def test_systemd_templates_cover_shared_and_role_specific_envs() -> None:
     assert 'args+=(--transit-link-crypto-state "${TRANSIT_LINK_CRYPTO_STATE}")' in validate_runtime_script
     assert 'args+=(--entry-link-crypto-env "${ENTRY_LINK_CRYPTO_ENV}")' in validate_runtime_script
     assert 'args+=(--transit-link-crypto-env "${TRANSIT_LINK_CRYPTO_ENV}")' in validate_runtime_script
+    assert 'args+=(--entry-router-state "${ENTRY_ROUTER_STATE}")' in validate_runtime_script
+    assert 'args+=(--transit-router-state "${TRANSIT_ROUTER_STATE}")' in validate_runtime_script
+    assert 'args+=(--entry-router-env "${ENTRY_ROUTER_ENV}")' in validate_runtime_script
+    assert 'args+=(--transit-router-env "${TRANSIT_ROUTER_ENV}")' in validate_runtime_script
+    assert 'args+=(--entry-router-client-bundle "${ENTRY_ROUTER_CLIENT_BUNDLE}")' in validate_runtime_script
+    assert 'args+=(--transit-router-client-bundle "${TRANSIT_ROUTER_CLIENT_BUNDLE}")' in validate_runtime_script
+    assert 'args+=(--entry-router-client-env "${ENTRY_ROUTER_CLIENT_ENV}")' in validate_runtime_script
+    assert 'args+=(--transit-router-client-env "${TRANSIT_ROUTER_CLIENT_ENV}")' in validate_runtime_script
     assert 'args+=(--fronting-state "${FRONTING_STATE}")' in validate_runtime_script
     assert 'args+=(--fronting-env "${FRONTING_ENV}")' in validate_runtime_script
     assert 'args+=(--mtproto-state "${MTPROTO_STATE}")' in validate_runtime_script
@@ -460,7 +549,7 @@ def test_systemd_templates_cover_shared_and_role_specific_envs() -> None:
     assert "TRACEGATE_ZAPRET_PROFILE_FILE" in private_systemd_readme
     assert "Keep `Entry` narrower than `Transit`" in private_systemd_readme
     assert "private TCP/443 fronting scaffold" in private_fronting_readme
-    assert "own only `TCP/443`; do not claim `UDP/443`" in private_fronting_readme
+    assert "own only `TCP/443`; do not claim public `UDP/8443`" in private_fronting_readme
     assert "tracegate-fronting@.service.example" in private_fronting_readme
     assert "TRACEGATE_FRONTING_ENABLED=false" in private_fronting_env
     assert "TRACEGATE_PRIVATE_RUNTIME_DIR=/var/lib/tracegate/private" in private_fronting_env
@@ -478,7 +567,7 @@ def test_systemd_templates_cover_shared_and_role_specific_envs() -> None:
     assert 'TRACEGATE_FRONTING_CFG_FILE="${TRACEGATE_FRONTING_CFG_FILE:-${TRACEGATE_FRONTING_RUNTIME_DIR}/haproxy.cfg}"' in private_fronting_runner
     assert '"backend": str(sys.argv[16]).strip().lower()' in private_fronting_runner
     assert "tracegate fronting disabled" in private_fronting_runner
-    assert "tracegate fronting must not claim udp/443" in private_fronting_runner
+    assert "tracegate fronting must not claim public udp/8443" in private_fronting_runner
     assert "tracegate fronting haproxy not installed" in private_fronting_runner
     assert "tracegate fronting started" in private_fronting_runner
     assert "tracegate fronting reloaded" in private_fronting_runner
@@ -513,16 +602,35 @@ def test_systemd_templates_cover_shared_and_role_specific_envs() -> None:
     assert "Mieru" in private_link_crypto_readme
     assert "never to all host traffic" in private_link_crypto_readme
     assert "transportProfiles.localSocks.auth=required" in private_link_crypto_readme
+    assert "TRACEGATE_UDP_OBFS_AUTO_FIREWALL=false" in private_link_crypto_readme
     assert "TRACEGATE_LINK_CRYPTO_ENABLED=false" in private_link_crypto_env
     assert "TRACEGATE_LINK_CRYPTO_BACKEND=mieru" in private_link_crypto_env
     assert "TRACEGATE_LINK_CRYPTO_STATE_JSON=/var/lib/tracegate/private/link-crypto/transit/desired-state.json" in private_link_crypto_env
+    assert "TRACEGATE_LINK_CRYPTO_UDP_RUNNER=tracegate-link-crypto-runner" in private_link_crypto_env
+    assert "TRACEGATE_HYSTERIA_BIN=/usr/local/bin/hysteria" in private_link_crypto_env
+    assert "TRACEGATE_LINK_CRYPTO_PAIRED_OBFS_RUNNER=tracegate-paired-udp-obfs-runner" in private_link_crypto_env
+    assert "TRACEGATE_LINK_CRYPTO_UDP_PLAN_FILE=/var/lib/tracegate/private/link-crypto/runtime/transit-udp-runner-plan.json" in private_link_crypto_env
     assert "TRACEGATE_LINK_CRYPTO_NO_HOST_WIDE_INTERCEPTION=true" in private_link_crypto_env
     assert "TRACEGATE_LINK_CRYPTO_NO_NFQUEUE=true" in private_link_crypto_env
     assert "TRACEGATE_LINK_CRYPTO_RESTART_EXISTING=false" in private_link_crypto_env
+    assert "TRACEGATE_LINK_CRYPTO_OUTER_WSS_SPKI_PINNING_REQUIRED=true" in private_link_crypto_env
+    assert "TRACEGATE_LINK_CRYPTO_OUTER_WSS_ADMISSION_REQUIRED=true" in private_link_crypto_env
+    assert "TRACEGATE_LINK_CRYPTO_TCP_DPI_RESISTANCE_REQUIRED=true" in private_link_crypto_env
+    assert "TRACEGATE_LINK_CRYPTO_TCP_TRAFFIC_SHAPING_REQUIRED=true" in private_link_crypto_env
+    assert "TRACEGATE_LINK_CRYPTO_PROMOTION_PREFLIGHT_REQUIRED=true" in private_link_crypto_env
+    assert "TRACEGATE_LINK_CRYPTO_ZAPRET2_REQUIRED=true" in private_link_crypto_env
     assert 'TRACEGATE_LINK_CRYPTO_STATE_JSON="${TRACEGATE_LINK_CRYPTO_STATE_JSON:-${TRACEGATE_PRIVATE_RUNTIME_DIR}/link-crypto/${ROLE_LOWER}/desired-state.json}"' in private_link_crypto_runner
+    assert 'TRACEGATE_LINK_CRYPTO_UDP_RUNNER="${TRACEGATE_LINK_CRYPTO_UDP_RUNNER:-$(command -v tracegate-link-crypto-runner || true)}"' in private_link_crypto_runner
+    assert 'TRACEGATE_LINK_CRYPTO_PAIRED_OBFS_RUNNER="${TRACEGATE_LINK_CRYPTO_PAIRED_OBFS_RUNNER:-$(command -v tracegate-paired-udp-obfs-runner || true)}"' in private_link_crypto_runner
+    assert 'TRACEGATE_HYSTERIA_BIN="${TRACEGATE_HYSTERIA_BIN:-$(command -v hysteria || true)}"' in private_link_crypto_runner
+    assert "run_udp_link_runner() {" in private_link_crypto_runner
+    assert "python3 -m tracegate.cli.link_crypto_runner" in private_link_crypto_runner
+    assert "--only-udp" in private_link_crypto_runner
+    assert "tracegate link-crypto udp runner not installed" in private_link_crypto_runner
     assert 'TRACEGATE_LINK_CRYPTO_NO_HOST_WIDE_INTERCEPTION="${TRACEGATE_LINK_CRYPTO_NO_HOST_WIDE_INTERCEPTION:-true}"' in private_link_crypto_runner
     assert 'TRACEGATE_LINK_CRYPTO_NO_NFQUEUE="${TRACEGATE_LINK_CRYPTO_NO_NFQUEUE:-true}"' in private_link_crypto_runner
     assert 'TRACEGATE_LINK_CRYPTO_RESTART_EXISTING="${TRACEGATE_LINK_CRYPTO_RESTART_EXISTING:-false}"' in private_link_crypto_runner
+    assert 'TRACEGATE_LINK_CRYPTO_TCP_DPI_RESISTANCE_REQUIRED="${TRACEGATE_LINK_CRYPTO_TCP_DPI_RESISTANCE_REQUIRED:-true}"' in private_link_crypto_runner
     assert "tracegate link-crypto desired-state must not contain secrets" in private_link_crypto_runner
     assert "tracegate link-crypto transportProfiles local SOCKS5 auth must stay required" in private_link_crypto_runner
     assert "tracegate link-crypto transportProfiles must not allow anonymous localhost SOCKS5" in private_link_crypto_runner
@@ -531,11 +639,34 @@ def test_systemd_templates_cover_shared_and_role_specific_envs() -> None:
     assert "selectedProfiles are not present in runtime-contract transportProfiles" in private_link_crypto_runner
     assert "tracegate link-crypto {link_class} must be managed by link-crypto" in private_link_crypto_runner
     assert "tracegate link-crypto {link_class} must stay outside Xray backhaul" in private_link_crypto_runner
+    assert "outer carrier must require SPKI pinning" in private_link_crypto_runner
+    assert "outer carrier must require HMAC admission" in private_link_crypto_runner
+    assert "TCP traffic shaping must be required" in private_link_crypto_runner
+    assert "promotion preflight must be required and fail closed" in private_link_crypto_runner
     assert "tracegate link-crypto refuses host-wide interception" in private_link_crypto_runner
     assert "tracegate link-crypto refuses broad NFQUEUE" in private_link_crypto_runner
     assert "tracegate link-crypto refuses restart-existing mode" in private_link_crypto_runner
+    assert "tracegate link-crypto refuses to run without TCP DPI resistance" in private_link_crypto_runner
+    assert "tracegate link-crypto refuses to run without scoped zapret2" in private_link_crypto_runner
     assert '"${TRACEGATE_MIERU_BIN}" run -c "${profile}"' in private_link_crypto_runner
     assert "already running profile=${profile}" in private_link_crypto_runner
+    assert 'tracegate-link-crypto-runner = "tracegate.cli.link_crypto_runner:main"' in pyproject
+    assert 'tracegate-paired-udp-obfs-runner = "tracegate.cli.paired_udp_obfs_runner:main"' in pyproject
+    assert "TRACEGATE_UDP_OBFS_BACKEND=udp2raw" in private_paired_obfs_env
+    assert "TRACEGATE_UDP_OBFS_MODE=udp2raw-faketcp" in private_paired_obfs_env
+    assert "TRACEGATE_UDP_OBFS_TARGET=127.0.0.1:14482" in private_paired_obfs_env
+    assert "TRACEGATE_UDP_OBFS_CIPHER_MODE=aes128cbc" in private_paired_obfs_env
+    assert "TRACEGATE_UDP_OBFS_REQUIRES_BOTH_SIDES=true" in private_paired_obfs_env
+    assert "TRACEGATE_UDP_OBFS_FAIL_CLOSED=true" in private_paired_obfs_env
+    assert "TRACEGATE_UDP_OBFS_NO_HOST_WIDE_INTERCEPTION=true" in private_paired_obfs_env
+    assert "TRACEGATE_UDP_OBFS_NO_NFQUEUE=true" in private_paired_obfs_env
+    assert "TRACEGATE_UDP_OBFS_PUBLIC_UDP_PORT=8443" in private_paired_obfs_env
+    assert "TRACEGATE_UDP_OBFS_FORBID_UDP_443=true" in private_paired_obfs_env
+    assert "TRACEGATE_UDP_OBFS_FORBID_TCP_8443=true" in private_paired_obfs_env
+    assert "TRACEGATE_UDP_OBFS_DPI_MODE=salamander-plus-scoped-paired-obfs" in private_paired_obfs_env
+    assert "TRACEGATE_UDP_OBFS_PACKET_SHAPE=bounded-profile" in private_paired_obfs_env
+    assert "TRACEGATE_UDP_OBFS_MTU_MODE=clamp" in private_paired_obfs_env
+    assert "TRACEGATE_UDP_OBFS_MAX_PACKET_SIZE=1252" in private_paired_obfs_env
     assert "ConditionPathExists=/etc/tracegate/private/link-crypto/run-link-crypto.sh" in private_link_crypto_unit
     assert "ExecStart=/usr/bin/env bash /etc/tracegate/private/link-crypto/run-link-crypto.sh start %i" in private_link_crypto_unit
     assert "Type=oneshot" in private_link_crypto_unit
@@ -556,7 +687,7 @@ def test_systemd_templates_cover_shared_and_role_specific_envs() -> None:
     assert "openssl s_client` is not a valid health check" in private_mtproto_readme
     assert "public-profile.json" in private_mtproto_readme
     assert "fronting-transit.env.example" in private_mtproto_readme
-    assert "INSTALL_COMPONENTS=xray,mtproto" in private_mtproto_readme
+    assert "INSTALL_COMPONENTS=xray,hysteria,mtproto" in private_mtproto_readme
     assert "TRACEGATE_MTPROTO_ENABLED=false" in private_mtproto_env
     assert "TRACEGATE_PRIVATE_RUNTIME_DIR=/var/lib/tracegate/private" in private_mtproto_env
     assert "TRACEGATE_MTPROTO_PROFILE_FILE=/etc/tracegate/private/zapret/mtproto-extra.env" in private_mtproto_env
@@ -650,6 +781,8 @@ def test_systemd_templates_cover_shared_and_role_specific_envs() -> None:
     assert 'TRACEGATE_ZAPRET_PROFILE_FILE={shell_quote(payload[\'public\'][\'zapretProfileFile\'])}' in private_systemd_runner
     assert 'TRACEGATE_ZAPRET_MTPROTO_PROFILE_FILE={shell_quote(payload[\'public\'][\'zapretMtprotoProfileFile\'])}' in private_systemd_runner
     assert "TRACEGATE_TCP_443_OWNER" in private_systemd_runner
+    assert "TRACEGATE_PUBLIC_UDP_PORT" in private_systemd_runner
+    assert "TRACEGATE_PUBLIC_UDP_OWNER" in private_systemd_runner
     assert "TRACEGATE_UDP_443_OWNER" in private_systemd_runner
     assert "TRACEGATE_TOUCH_UDP_443" in private_systemd_runner
     assert "TRACEGATE_MTPROTO_DOMAIN" in private_systemd_runner
@@ -670,7 +803,7 @@ def test_systemd_templates_cover_shared_and_role_specific_envs() -> None:
     assert "/etc/tracegate/private/link-crypto" in deploy_readme
     assert "/etc/tracegate/private/zapret" in deploy_readme
     assert "/etc/tracegate/private/mtproto" in deploy_readme
-    assert "INSTALL_COMPONENTS=xray,mtproto" in deploy_readme
+    assert "INSTALL_COMPONENTS=xray,hysteria,mtproto" in deploy_readme
     assert "XRAY_INSTALL_POLICY=if-missing" in deploy_readme
     assert "MTPROTO_INSTALL_POLICY=if-missing" in deploy_readme
     assert "MTPROTO_REFRESH_BOOTSTRAP=if-missing" in deploy_readme
@@ -690,8 +823,9 @@ def test_systemd_templates_cover_shared_and_role_specific_envs() -> None:
     assert "<private-runtime-root>/profiles/<role>/desired-state.json" in private_readme
     assert "<private-runtime-root>/link-crypto/<role>/desired-state.json" in private_readme
     assert "`XRAY_CENTRIC_DECOY_DIR` is the shared decoy root used by:" in deploy_readme
-    assert "Xray-native `Hysteria` masquerade directories in the `xray-centric` overlay generator" in deploy_readme
-    assert "`AGENT_RUNTIME_PROFILE=tracegate-2.1` is reserved for the k3s production chart" in deploy_readme
+    assert "standalone Hysteria2 masquerade directories in `tracegate-2.2`" in deploy_readme
+    assert "Xray-native `Hysteria` masquerade directories in the legacy `xray-centric` overlay generator" in deploy_readme
+    assert "`AGENT_RUNTIME_PROFILE=tracegate-2.1` keeps the no-Xray-backhaul contract" in deploy_readme
     assert "The public repository does not ship decoy HTML assets." in deploy_readme
     assert "/var/lib/tracegate/agent-{entry,transit}/runtime/runtime-contract.json" in deploy_readme
     assert "`AGENT_RELOAD_OBFUSCATION_CMD` for an optional host-local wrapper reload when `runtime-contract.json` changes" in deploy_readme
@@ -710,3 +844,6 @@ def test_systemd_templates_cover_shared_and_role_specific_envs() -> None:
     assert "ConditionPathExists=/var/lib/tracegate/agent-%i/runtime/xray/config.json" in xray_unit
     assert "ExecReload=/bin/kill -HUP $MAINPID" in xray_unit
     assert "/usr/local/bin/xray run -config /var/lib/tracegate/agent-%i/runtime/xray/config.json" in xray_unit
+    assert "ConditionPathExists=/usr/local/bin/hysteria" in hysteria_unit
+    assert "ConditionPathExists=/var/lib/tracegate/agent-%i/runtime/hysteria/server.yaml" in hysteria_unit
+    assert "/usr/local/bin/hysteria server -c /var/lib/tracegate/agent-%i/runtime/hysteria/server.yaml" in hysteria_unit

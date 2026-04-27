@@ -48,6 +48,6 @@ official `MTProxy` install, the wrapper refreshes `getProxySecret` / `getProxyCo
 main secret in `secret.txt`, appends persistent account-bound secrets from `issued.json` and supervises the local listener itself. The wrapper uses a private PID namespace by default when `unshare` is available because the official binary can crash on long-lived hosts once the host PID counter exceeds `65535`.
 
 The public `install-runtime.sh` helper now supports this testbed path directly when invoked with
-`INSTALL_COMPONENTS=xray,mtproto`. That opt-in mode installs the official `MTProxy` binary under
+`INSTALL_COMPONENTS=xray,hysteria,mtproto`. That opt-in mode installs the official `MTProxy` binary under
 `/opt/MTProxy`, seeds `secret.txt` / `issued.json` and refreshes the bootstrap files
 expected by `run-mtproto.sh`.

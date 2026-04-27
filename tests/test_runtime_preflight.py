@@ -4,6 +4,11 @@ from pathlib import Path
 import pytest
 
 from tracegate.cli import validate_runtime_contracts
+from tracegate.constants import (
+    TRACEGATE_FORBIDDEN_PUBLIC_TCP_PORT,
+    TRACEGATE_FORBIDDEN_PUBLIC_UDP_PORT,
+    TRACEGATE_PUBLIC_UDP_PORT,
+)
 from tracegate.services.runtime_preflight import (
     RuntimePreflightError,
     load_link_crypto_env,
@@ -18,6 +23,10 @@ from tracegate.services.runtime_preflight import (
     load_obfuscation_runtime_state,
     load_private_profile_env,
     load_private_profile_state,
+    load_router_client_bundle,
+    load_router_client_bundle_env,
+    load_router_handoff_env,
+    load_router_handoff_state,
     load_runtime_contract,
     load_systemd_unit_contract,
     load_zapret_profile,
@@ -32,12 +41,20 @@ from tracegate.services.runtime_preflight import (
     validate_private_helper_unit_contract,
     validate_private_profile_env,
     validate_private_profile_state,
+    validate_router_client_bundle,
+    validate_router_client_bundle_env,
     validate_obfuscation_runtime_state,
+    validate_router_handoff_env,
+    validate_router_handoff_state,
     validate_runtime_contract_pair,
     validate_runtime_contract_single,
     validate_zapret_profile_collection,
 )
-from tracegate.services.runtime_contract import TRACEGATE21_CLIENT_PROFILES, XRAY_CENTRIC_CLIENT_PROFILES
+from tracegate.services.runtime_contract import (
+    TRACEGATE21_CLIENT_PROFILES,
+    TRACEGATE22_CLIENT_PROFILES,
+    XRAY_CENTRIC_CLIENT_PROFILES,
+)
 
 
 def _runtime_contract(
@@ -57,8 +74,14 @@ def _runtime_contract(
 ) -> dict:
     role_suffix = role.strip().lower()
     if transport_profiles is None:
+        if runtime_profile == "tracegate-2.2":
+            client_names = TRACEGATE22_CLIENT_PROFILES
+        elif runtime_profile == "tracegate-2.1":
+            client_names = TRACEGATE21_CLIENT_PROFILES
+        else:
+            client_names = XRAY_CENTRIC_CLIENT_PROFILES
         transport_profiles = {
-            "clientNames": list(TRACEGATE21_CLIENT_PROFILES if runtime_profile == "tracegate-2.1" else XRAY_CENTRIC_CLIENT_PROFILES),
+            "clientNames": list(client_names),
             "localSocks": {"auth": "required", "allowAnonymousLocalhost": False},
             "clientExposure": {
                 "defaultMode": "vpn-tun",
@@ -69,13 +92,23 @@ def _runtime_contract(
         }
     local_socks = transport_profiles.get("localSocks") if isinstance(transport_profiles, dict) else {}
     local_socks_auth = str(local_socks.get("auth") or "").strip().lower() if isinstance(local_socks, dict) else ""
+    default_managed_components = ["xray", "haproxy", "nginx"]
+    if runtime_profile == "tracegate-2.2":
+        default_managed_components.append("hysteria")
+    default_split_hysteria_dirs = ["/srv/decoy"] if runtime_profile == "tracegate-2.2" else []
+    default_xray_hysteria_dirs = [] if runtime_profile == "tracegate-2.2" else ["/srv/decoy"]
+    default_hysteria_tags = [] if runtime_profile == "tracegate-2.2" else ["hy2-in"]
     return {
         "role": role,
         "runtimeProfile": runtime_profile,
         "localSocksAuth": local_socks_auth or "disabled",
         "contract": {
-            "managedComponents": managed_components if managed_components is not None else ["xray", "haproxy", "nginx"],
-            "xrayBackhaulAllowed": runtime_profile != "tracegate-2.1",
+            "managedComponents": managed_components if managed_components is not None else default_managed_components,
+            "xrayBackhaulAllowed": runtime_profile not in {"tracegate-2.1", "tracegate-2.2"},
+            "forbiddenPorts": [
+                {"protocol": "udp", "port": TRACEGATE_FORBIDDEN_PUBLIC_UDP_PORT, "name": "blocked udp/443"},
+                {"protocol": "tcp", "port": TRACEGATE_FORBIDDEN_PUBLIC_TCP_PORT, "name": "blocked tcp/8443"},
+            ],
         },
         "rollout": {
             "gatewayStrategy": "RollingUpdate",
@@ -90,7 +123,16 @@ def _runtime_contract(
         },
         "fronting": {
             "tcp443Owner": "haproxy",
+            "publicUdpPort": TRACEGATE_PUBLIC_UDP_PORT,
+            "publicUdpOwner": "xray" if runtime_profile == "xray-centric" else "hysteria",
             "udp443Owner": "xray" if runtime_profile == "xray-centric" else "hysteria",
+            "udpPublicPort": TRACEGATE_PUBLIC_UDP_PORT,
+            "forbiddenUdp443": True,
+            "forbiddenTcp8443": True,
+            "forbiddenPublicPorts": [
+                {"protocol": "udp", "port": TRACEGATE_FORBIDDEN_PUBLIC_UDP_PORT, "action": "drop"},
+                {"protocol": "tcp", "port": TRACEGATE_FORBIDDEN_PUBLIC_TCP_PORT, "action": "drop"},
+            ],
             "touchUdp443": touch_udp_443,
             "mtprotoDomain": "proxied.tracegate.su" if role == "TRANSIT" else "",
             "mtprotoPublicPort": 443,
@@ -116,8 +158,12 @@ def _runtime_contract(
         },
         "decoy": {
             "nginxRoots": nginx_roots if nginx_roots is not None else ["/srv/decoy"],
-            "splitHysteriaMasqueradeDirs": split_hysteria_dirs if split_hysteria_dirs is not None else [],
-            "xrayHysteriaMasqueradeDirs": xray_hysteria_dirs if xray_hysteria_dirs is not None else ["/srv/decoy"],
+            "splitHysteriaMasqueradeDirs": split_hysteria_dirs
+            if split_hysteria_dirs is not None
+            else default_split_hysteria_dirs,
+            "xrayHysteriaMasqueradeDirs": xray_hysteria_dirs
+            if xray_hysteria_dirs is not None
+            else default_xray_hysteria_dirs,
         },
         "xray": {
             "configPaths": (
@@ -125,9 +171,28 @@ def _runtime_contract(
                 if xray_config_paths is not None
                 else [f"/var/lib/tracegate/agent-{role_suffix}/runtime/xray/config.json"]
             ),
-            "hysteriaInboundTags": hysteria_tags if hysteria_tags is not None else ["hy2-in"],
+            "hysteriaInboundTags": hysteria_tags if hysteria_tags is not None else default_hysteria_tags,
             "finalMaskEnabled": finalmask,
             "echEnabled": ech,
+        },
+        "hysteria": {
+            "configPath": f"/var/lib/tracegate/agent-{role_suffix}/runtime/hysteria/server.yaml",
+            "configPresent": runtime_profile == "tracegate-2.2",
+            "listen": f":{TRACEGATE_PUBLIC_UDP_PORT}",
+            "listenPort": TRACEGATE_PUBLIC_UDP_PORT,
+            "auth": {
+                "type": "http",
+                "httpUrl": "http://127.0.0.1:8070/v1/hysteria/auth",
+                "httpInsecure": False,
+            },
+            "obfs": {"type": "salamander", "salamanderPasswordConfigured": True},
+            "trafficStats": {"listen": "127.0.0.1:9999", "secretConfigured": True},
+            "tls": {"certConfigured": True, "keyConfigured": True, "sniGuard": "dns-san"},
+            "udp": {"enabled": True, "idleTimeout": "60s"},
+            "quic": {"disablePathMTUDiscovery": False, "maxIdleTimeout": "30s"},
+            "congestion": {"type": "bbr"},
+            "sniff": {"enabled": True, "timeout": "2s"},
+            "masqueradeDirs": default_split_hysteria_dirs,
         },
     }
 
@@ -140,7 +205,7 @@ def _write_zapret_profile(tmp_path: Path, file_name: str, **overrides: str) -> P
             "TRACEGATE_ZAPRET_CPU_BUDGET": "low",
             "TRACEGATE_ZAPRET_APPLY_MODE": "selective",
             "TRACEGATE_ZAPRET_TARGET_TCP_PORTS": "443",
-            "TRACEGATE_ZAPRET_TARGET_UDP_PORTS": "443",
+            "TRACEGATE_ZAPRET_TARGET_UDP_PORTS": "8443",
             "TRACEGATE_ZAPRET_TARGET_PROTOCOLS": "v2,v4,v6",
             "TRACEGATE_ZAPRET_TARGET_SURFACES": "vless_reality,hysteria2,shadowtls_v3",
             "TRACEGATE_ZAPRET_TOUCH_UNRELATED_SYSTEM_TRAFFIC": "false",
@@ -153,7 +218,7 @@ def _write_zapret_profile(tmp_path: Path, file_name: str, **overrides: str) -> P
             "TRACEGATE_ZAPRET_CPU_BUDGET": "low",
             "TRACEGATE_ZAPRET_APPLY_MODE": "selective",
             "TRACEGATE_ZAPRET_TARGET_TCP_PORTS": "443",
-            "TRACEGATE_ZAPRET_TARGET_UDP_PORTS": "443",
+            "TRACEGATE_ZAPRET_TARGET_UDP_PORTS": "8443",
             "TRACEGATE_ZAPRET_TARGET_PROTOCOLS": "v1,v3,v5,v7",
             "TRACEGATE_ZAPRET_TARGET_SURFACES": "vless_reality,vless_ws_tls,vless_grpc_tls,hysteria2,shadowtls_v3,wstunnel",
             "TRACEGATE_ZAPRET_TOUCH_UNRELATED_SYSTEM_TRAFFIC": "false",
@@ -166,7 +231,7 @@ def _write_zapret_profile(tmp_path: Path, file_name: str, **overrides: str) -> P
             "TRACEGATE_ZAPRET_CPU_BUDGET": "low",
             "TRACEGATE_ZAPRET_APPLY_MODE": "selective",
             "TRACEGATE_ZAPRET_TARGET_TCP_PORTS": "443",
-            "TRACEGATE_ZAPRET_TARGET_UDP_PORTS": "443",
+            "TRACEGATE_ZAPRET_TARGET_UDP_PORTS": "8443",
             "TRACEGATE_ZAPRET_TARGET_PROTOCOLS": "v2,v4,v6",
             "TRACEGATE_ZAPRET_TARGET_SURFACES": "entry_transit_private_relay,link_crypto_outer,mieru_outer,wss_carrier",
             "TRACEGATE_ZAPRET_TOUCH_UNRELATED_SYSTEM_TRAFFIC": "false",
@@ -241,6 +306,8 @@ def _write_runtime_state(
         },
         "fronting": {
             "tcp443Owner": fronting["tcp443Owner"],
+            "publicUdpPort": fronting.get("publicUdpPort", TRACEGATE_PUBLIC_UDP_PORT),
+            "publicUdpOwner": fronting["udp443Owner"],
             "udp443Owner": fronting["udp443Owner"],
             "touchUdp443": bool(fronting["touchUdp443"]),
             "mtprotoDomain": fronting["mtprotoDomain"],
@@ -306,6 +373,8 @@ def _write_runtime_env(
         "TRACEGATE_ZAPRET_POLICY_DIR": zapret_policy_dir,
         "TRACEGATE_ZAPRET_STATE_DIR": zapret_state_dir,
         "TRACEGATE_TCP_443_OWNER": fronting["tcp443Owner"],
+        "TRACEGATE_PUBLIC_UDP_PORT": fronting.get("publicUdpPort", TRACEGATE_PUBLIC_UDP_PORT),
+        "TRACEGATE_PUBLIC_UDP_OWNER": fronting["udp443Owner"],
         "TRACEGATE_UDP_443_OWNER": fronting["udp443Owner"],
         "TRACEGATE_TOUCH_UDP_443": str(bool(fronting["touchUdp443"])).lower(),
         "TRACEGATE_MTPROTO_DOMAIN": fronting["mtprotoDomain"],
@@ -426,6 +495,8 @@ def _write_fronting_state(
         "mtprotoDomain": "proxied.tracegate.su",
         "mtprotoFrontingMode": "dedicated-dns-only",
         "tcp443Owner": "haproxy",
+        "publicUdpPort": TRACEGATE_PUBLIC_UDP_PORT,
+        "publicUdpOwner": "xray",
         "udp443Owner": "xray",
         "cfgFile": "/var/lib/tracegate/private/fronting/runtime/haproxy.cfg",
         "pidFile": "/var/lib/tracegate/private/fronting/runtime/haproxy.pid",
@@ -583,38 +654,43 @@ def _private_local_socks(username: str = "tg_user", password: str = "tg_pass") -
     }
 
 
-def _private_shadowtls_profile(*, role: str, variant: str = "V6", overrides: dict | None = None) -> dict:
+def _private_shadowtls_profile(
+    *,
+    role: str,
+    mode: str = "chain",
+    variant: str = "V3",
+    overrides: dict | None = None,
+) -> dict:
     role_upper = role.strip().upper()
     variant_upper = variant.strip().upper()
+    mode_lower = mode.strip().lower()
+    is_chain = mode_lower == "chain"
     payload = {
         "role": role_upper,
         "userId": "101",
         "userDisplay": "@alpha",
         "deviceId": "dev-a",
         "deviceName": "Laptop",
-        "connectionId": f"conn-{variant_upper.lower()}",
+        "connectionId": f"conn-{variant_upper.lower()}-{mode_lower}",
         "connectionAlias": "",
-        "revisionId": f"rev-{variant_upper.lower()}",
+        "revisionId": f"rev-{variant_upper.lower()}-{mode_lower}",
+        "mode": mode_lower,
         "variant": variant_upper,
-        "profile": (
-            "V6-Shadowsocks2022-ShadowTLS-Chain"
-            if variant_upper == "V6"
-            else "V5-Shadowsocks2022-ShadowTLS-Direct"
-        ),
+        "profile": "v3-chain-shadowtls-shadowsocks" if is_chain else "v3-direct-shadowtls-shadowsocks",
         "protocol": "shadowsocks2022_shadowtls",
         "stage": (
             "entry-public-to-transit-relay"
-            if role_upper == "ENTRY" and variant_upper == "V6"
+            if role_upper == "ENTRY" and is_chain
             else "transit-private-terminator"
-            if variant_upper == "V6"
+            if is_chain
             else "direct-transit-public"
         ),
-        "server": "entry.tracegate.test" if variant_upper == "V6" else "transit.tracegate.test",
+        "server": "entry.tracegate.test" if is_chain else "transit.tracegate.test",
         "port": 443,
         "sni": "cdn.tracegate.test",
         "shadowsocks2022": {
             "method": "2022-blake3-aes-128-gcm",
-            "password": f"ss-secret-{variant_upper.lower()}",
+            "password": f"ss-secret-{variant_upper.lower()}-{mode_lower}",
         },
         "shadowtls": {
             "version": 3,
@@ -633,7 +709,7 @@ def _private_shadowtls_profile(*, role: str, variant: str = "V6", overrides: dic
             "manageUsers": False,
             "restartOnUserChange": False,
         },
-        "localSocks": _private_local_socks(username=f"tg_{variant_upper.lower()}"),
+        "localSocks": _private_local_socks(username=f"tg_{variant_upper.lower()}_{mode_lower}"),
         "chain": (
             {
                 "type": "entry_transit_private_relay",
@@ -645,16 +721,16 @@ def _private_shadowtls_profile(*, role: str, variant: str = "V6", overrides: dic
                 "outerCarrier": "websocket-tls",
                 "optionalPacketShaping": "zapret2-scoped",
                 "managedBy": "link-crypto",
-                "selectedProfiles": ["V2", "V4", "V6"],
+                "selectedProfiles": ["V1", "V3"],
                 "innerTransport": "shadowsocks2022-shadowtls-v3",
                 "xrayBackhaul": False,
             }
-            if variant_upper == "V6"
+            if is_chain
             else None
         ),
         "obfuscation": {
-            "scope": "entry-transit-private-relay" if variant_upper == "V6" else "public-tcp-443",
-            "outer": "wss-carrier" if variant_upper == "V6" else "shadowtls-v3",
+            "scope": "entry-transit-private-relay" if is_chain else "public-tcp-443",
+            "outer": "wss-carrier" if is_chain else "shadowtls-v3",
             "packetShaping": "zapret2-scoped",
             "hostWideInterception": False,
         },
@@ -671,11 +747,11 @@ def _private_wireguard_profile(overrides: dict | None = None) -> dict:
         "userDisplay": "@router",
         "deviceId": "dev-router",
         "deviceName": "Router",
-        "connectionId": "conn-v7",
+        "connectionId": "conn-v0",
         "connectionAlias": "",
-        "revisionId": "rev-v7",
-        "variant": "V7",
-        "profile": "V7-WireGuard-WSTunnel-Direct",
+        "revisionId": "rev-v0",
+        "variant": "V0",
+        "profile": "v0-wgws-wireguard",
         "protocol": "wireguard_wstunnel",
         "stage": "direct-transit-public",
         "server": "transit.tracegate.test",
@@ -708,7 +784,7 @@ def _private_wireguard_profile(overrides: dict | None = None) -> dict:
             "restartWireGuard": False,
             "restartWSTunnel": False,
         },
-        "localSocks": _private_local_socks(username="tg_v7"),
+        "localSocks": _private_local_socks(username="tg_v0"),
         "chain": None,
         "obfuscation": {
             "scope": "public-wss-443",
@@ -736,11 +812,11 @@ def _write_private_profile_state(
     role_upper = role.strip().upper()
     if shadowtls_profiles is None:
         shadowtls_profiles = (
-            [_private_shadowtls_profile(role=role_upper, variant="V6")]
+            [_private_shadowtls_profile(role=role_upper, mode="chain")]
             if role_upper == "ENTRY"
             else [
-                _private_shadowtls_profile(role=role_upper, variant="V5"),
-                _private_shadowtls_profile(role=role_upper, variant="V6"),
+                _private_shadowtls_profile(role=role_upper, mode="direct"),
+                _private_shadowtls_profile(role=role_upper, mode="chain"),
             ]
         )
     if wireguard_profiles is None:
@@ -799,6 +875,84 @@ def _write_private_profile_env(
     return path
 
 
+def _private_file_ref(path: str) -> dict:
+    return {"kind": "file", "path": path, "secretMaterial": True}
+
+
+def _link_crypto_zapret2_policy() -> dict:
+    return {
+        "enabled": True,
+        "required": True,
+        "profileFile": "/etc/tracegate/private/zapret/entry-transit-stealth.env",
+        "profileSource": "private-file-reference",
+        "profileRef": _private_file_ref("/etc/tracegate/private/zapret/entry-transit-stealth.env"),
+        "packetShaping": "zapret2-scoped",
+        "applyMode": "marked-flow-only",
+        "scope": "link-crypto-flow-only",
+        "targetSurfaces": ["tcp/443", "entry-transit", "router-link-crypto"],
+        "hostWideInterception": False,
+        "nfqueue": False,
+        "failOpen": True,
+    }
+
+
+def _link_crypto_tcp_dpi_resistance(*, require_outer_carrier: bool = True, link_class: str = "entry-transit") -> dict:
+    required_layers = [
+        "mieru-private-auth",
+        "scoped-zapret2",
+        "private-zapret2-profile",
+        "loopback-only",
+        "generation-drain",
+        "no-direct-backhaul",
+    ]
+    if require_outer_carrier:
+        required_layers.extend(["outer-wss-tls", "spki-sha256-pin", "hmac-admission"])
+    return {
+        "enabled": True,
+        "mode": "mieru-wss-spki-hmac-zapret2-scoped" if require_outer_carrier else "mieru-zapret2-scoped",
+        "requiredLayers": required_layers,
+        "outerCarrier": {
+            "required": require_outer_carrier,
+            "spkiPinningRequired": require_outer_carrier,
+            "hmacAdmissionRequired": require_outer_carrier,
+        },
+        "zapret2": {
+            "required": True,
+            "enabled": True,
+            "profileSource": "private-file-reference",
+            "profileRef": _private_file_ref("/etc/tracegate/private/zapret/entry-transit-stealth.env"),
+            "packetShaping": "zapret2-scoped",
+            "applyMode": "marked-flow-only",
+            "scope": "link-crypto-flow-only",
+            "hostWideInterception": False,
+            "nfqueue": False,
+        },
+        "trafficShaping": {
+            "required": True,
+            "strategy": "private-zapret2-profile",
+            "profileSource": "private-file-reference",
+            "profileRef": _private_file_ref("/etc/tracegate/private/link-crypto/tcp-shaping.env"),
+            "scope": "marked-flow-only",
+            "target": "tcp/443-outer-wss" if require_outer_carrier else "tcp/443-link-crypto",
+            "secretMaterial": False,
+        },
+        "promotionPreflight": {
+            "required": True,
+            "failClosed": True,
+            "profileSource": "private-file-reference",
+            "profileRef": _private_file_ref("/etc/tracegate/private/link-crypto/promotion-preflight.env"),
+            "checks": [
+                "mieru-private-auth",
+                "zapret2-scoped-profile",
+                "no-direct-backhaul",
+            ]
+            + (["spki-pin", "hmac-admission"] if require_outer_carrier else []),
+            "secretMaterial": False,
+        },
+        "linkClass": link_class,
+    }
+
+
 def _link_crypto_row(*, role: str, link_class: str = "entry-transit", overrides: dict | None = None) -> dict:
     role_upper = role.strip().upper()
     side = "client" if role_upper == "ENTRY" and link_class == "entry-transit" else "server"
@@ -818,6 +972,31 @@ def _link_crypto_row(*, role: str, link_class: str = "entry-transit", overrides:
         "entryClientListen": "127.0.0.1:14081" if link_class == "entry-transit" else "",
         "transitServerListen": "127.0.0.1:14082" if link_class == "entry-transit" else "",
         "transitTarget": "127.0.0.1:10882" if link_class == "entry-transit" else "",
+        "tlsPinning": (
+            {
+                "required": True,
+                "mode": "spki-sha256",
+                "profileSource": "private-file-reference",
+                "profileRef": _private_file_ref("/etc/tracegate/private/link-crypto/outer-wss-spki.env"),
+                "secretMaterial": False,
+            }
+            if link_class == "entry-transit"
+            else {"required": False, "mode": "none", "secretMaterial": False}
+        ),
+        "admission": (
+            {
+                "required": True,
+                "mode": "hmac-sha256-generation-bound",
+                "carrier": "websocket-subprotocol",
+                "header": "Sec-WebSocket-Protocol",
+                "profileSource": "private-file-reference",
+                "profileRef": _private_file_ref("/etc/tracegate/private/link-crypto/outer-wss-admission.env"),
+                "rejectUnauthenticated": True,
+                "secretMaterial": False,
+            }
+            if link_class == "entry-transit"
+            else {"required": False, "mode": "none", "secretMaterial": False}
+        ),
     }
     payload = {
         "class": link_class,
@@ -845,16 +1024,12 @@ def _link_crypto_row(*, role: str, link_class: str = "entry-transit", overrides:
             "endpoint": "transit.tracegate.test:443" if role_upper == "ENTRY" else "entry.tracegate.test:443",
         },
         "outerCarrier": outer_carrier,
-        "selectedProfiles": ["V2", "V4", "V6"],
-        "zapret2": {
-            "enabled": False,
-            "profileFile": "/etc/tracegate/private/zapret/entry-transit-stealth.env",
-            "packetShaping": "zapret2-scoped",
-            "applyMode": "marked-flow-only",
-            "hostWideInterception": False,
-            "nfqueue": False,
-            "failOpen": True,
-        },
+        "selectedProfiles": ["V1", "V3"],
+        "zapret2": _link_crypto_zapret2_policy(),
+        "dpiResistance": _link_crypto_tcp_dpi_resistance(
+            require_outer_carrier=link_class == "entry-transit",
+            link_class=link_class,
+        ),
         "rotation": {
             "strategy": "generation-drain",
             "restartExisting": False,
@@ -862,6 +1037,152 @@ def _link_crypto_row(*, role: str, link_class: str = "entry-transit", overrides:
         "stability": {
             "failOpen": True,
             "bypassOnFailure": True,
+            "dropUnrelatedTraffic": False,
+        },
+    }
+    if overrides:
+        payload.update(overrides)
+    return payload
+
+
+def _link_crypto_udp_hardening() -> dict:
+    return {
+        "enabled": True,
+        "failClosed": True,
+        "requirePrivateAuth": True,
+        "rejectAnonymous": True,
+        "antiReplay": {"enabled": True, "windowPackets": 4096},
+        "antiAmplification": {"enabled": True, "maxUnvalidatedBytes": 1200},
+        "rateLimit": {"enabled": True, "handshakePerMinute": 120, "newSessionPerMinute": 60},
+        "mtu": {"mode": "clamp", "maxPacketSize": 1252},
+        "keyRotation": {
+            "enabled": True,
+            "strategy": "generation-drain",
+            "maxAgeSeconds": 3600,
+            "overlapSeconds": 120,
+        },
+        "sourceValidation": {"enabled": True, "mode": "profile-bound-remote"},
+    }
+
+
+def _link_crypto_udp_dpi_resistance() -> dict:
+    return {
+        "enabled": True,
+        "mode": "salamander-plus-scoped-paired-obfs",
+        "portSplit": {
+            "publicUdpPort": TRACEGATE_PUBLIC_UDP_PORT,
+            "forbidUdp443": True,
+            "forbidTcp8443": True,
+        },
+        "requiredLayers": [
+            "hysteria2-quic",
+            "salamander",
+            "private-auth",
+            "anti-replay",
+            "anti-amplification",
+            "mtu-clamp",
+            "source-validation",
+        ],
+        "pairedObfs": {
+            "supported": True,
+            "enabled": True,
+            "backend": "udp2raw",
+            "requiresBothSides": True,
+            "failClosed": True,
+        },
+        "packetShape": {
+            "strategy": "bounded-profile",
+            "mtuMode": "clamp",
+            "maxPacketSize": 1252,
+        },
+    }
+
+
+def _link_crypto_udp_row(
+    *,
+    role: str,
+    link_class: str = "entry-transit-udp",
+    overrides: dict | None = None,
+) -> dict:
+    role_upper = role.strip().upper()
+    side = "client" if role_upper == "ENTRY" and link_class == "entry-transit-udp" else "server"
+    remote_role = (
+        "TRANSIT"
+        if role_upper == "ENTRY" and link_class == "entry-transit-udp"
+        else "ENTRY"
+        if link_class == "entry-transit-udp"
+        else "ROUTER"
+    )
+    local_port = {
+        ("ENTRY", "entry-transit-udp"): 14481,
+        ("TRANSIT", "entry-transit-udp"): 14482,
+        ("ENTRY", "router-entry-udp"): 14483,
+        ("TRANSIT", "router-transit-udp"): 14484,
+    }.get((role_upper, link_class), 14481)
+    selected_profiles = ["V2"]
+    payload = {
+        "class": link_class,
+        "enabled": True,
+        "role": role_upper,
+        "side": side,
+        "carrier": "hysteria2",
+        "transport": "udp-quic",
+        "managedBy": "link-crypto",
+        "xrayBackhaul": False,
+        "generation": 1,
+        "profileRef": {
+            "kind": "file",
+            "path": f"/etc/tracegate/private/udp-link/{'client' if side == 'client' else 'server'}.yaml",
+            "secretMaterial": True,
+        },
+        "local": {
+            "listen": f"127.0.0.1:{local_port}",
+            "protocol": "udp",
+            "auth": {"required": True, "mode": "private-profile"},
+        },
+        "remote": {
+            "role": remote_role,
+            "endpoint": "transit.tracegate.test:8443" if role_upper == "ENTRY" else "entry.tracegate.test:8443",
+            "protocol": "udp-quic",
+        },
+        "datagram": {
+            "udpCapable": True,
+            "innerTransports": ["hysteria2-quic"],
+            "preferredForProfiles": selected_profiles,
+        },
+        "obfs": {
+            "type": "salamander",
+            "required": True,
+            "profileRef": {
+                "kind": "file",
+                "path": "/etc/tracegate/private/udp-link/salamander.env",
+                "secretMaterial": True,
+            },
+        },
+        "pairedObfs": {
+            "enabled": True,
+            "backend": "udp2raw",
+            "mode": "udp2raw-faketcp",
+            "requiresBothSides": True,
+            "failClosed": True,
+            "noHostWideInterception": True,
+            "noNfqueue": True,
+            "profileRef": {
+                "kind": "file",
+                "path": "/etc/tracegate/private/udp-link/paired-obfs.env",
+                "secretMaterial": True,
+            },
+        },
+        "hardening": _link_crypto_udp_hardening(),
+        "dpiResistance": _link_crypto_udp_dpi_resistance(),
+        "selectedProfiles": selected_profiles,
+        "rotation": {
+            "strategy": "generation-drain",
+            "restartExisting": False,
+        },
+        "stability": {
+            "failOpen": False,
+            "bypassOnFailure": False,
             "dropUnrelatedTraffic": False,
         },
     }
@@ -881,6 +1202,31 @@ def _link_crypto_outer_carrier_contract(*, enabled: bool = True) -> dict:
         "url": "wss://bridge.tracegate.test:443/cdn-cgi/tracegate-link" if enabled else "",
         "verifyTls": enabled,
         "secretMaterial": False,
+        "tlsPinning": (
+            {
+                "required": True,
+                "mode": "spki-sha256",
+                "profileSource": "private-file-reference",
+                "profileRef": _private_file_ref("/etc/tracegate/private/link-crypto/outer-wss-spki.env"),
+                "secretMaterial": False,
+            }
+            if enabled
+            else {"required": False, "mode": "none", "secretMaterial": False}
+        ),
+        "admission": (
+            {
+                "required": True,
+                "mode": "hmac-sha256-generation-bound",
+                "carrier": "websocket-subprotocol",
+                "header": "Sec-WebSocket-Protocol",
+                "profileSource": "private-file-reference",
+                "profileRef": _private_file_ref("/etc/tracegate/private/link-crypto/outer-wss-admission.env"),
+                "rejectUnauthenticated": True,
+                "secretMaterial": False,
+            }
+            if enabled
+            else {"required": False, "mode": "none", "secretMaterial": False}
+        ),
         "localPorts": {
             "entryClient": 14081,
             "transitServer": 14082,
@@ -893,6 +1239,65 @@ def _link_crypto_outer_carrier_contract(*, enabled: bool = True) -> dict:
     }
 
 
+def _router_link_crypto_contract(*, role: str) -> dict:
+    role_upper = role.strip().upper()
+    tcp_class = "router-entry" if role_upper == "ENTRY" else "router-transit"
+    udp_class = "router-entry-udp" if role_upper == "ENTRY" else "router-transit-udp"
+    tcp_profiles = ["V1", "V3"] if role_upper == "ENTRY" else ["V0", "V1", "V3"]
+    udp_profiles = ["V2"]
+    tcp_count_key = "routerEntry" if role_upper == "ENTRY" else "routerTransit"
+    udp_count_key = "routerEntryUdp" if role_upper == "ENTRY" else "routerTransitUdp"
+    tcp_port = 10883 if role_upper == "ENTRY" else 10884
+    udp_port = 14483 if role_upper == "ENTRY" else 14484
+    tcp_counts = {"total": 1, "entryTransit": 0, "routerEntry": 0, "routerTransit": 0}
+    udp_counts = {"total": 1, "entryTransitUdp": 0, "routerEntryUdp": 0, "routerTransitUdp": 0}
+    tcp_counts[tcp_count_key] = 1
+    udp_counts[udp_count_key] = 1
+    return {
+        "enabled": True,
+        "carrier": "mieru",
+        "manager": "link-crypto",
+        "profileSource": "private-file-reference",
+        "secretMaterial": False,
+        "xrayBackhaul": False,
+        "generation": 1,
+        "remotePort": 443,
+        "outerCarrier": _link_crypto_outer_carrier_contract(enabled=False),
+        "dpiResistance": _link_crypto_tcp_dpi_resistance(require_outer_carrier=False, link_class=tcp_class),
+        "classes": [tcp_class],
+        "counts": tcp_counts,
+        "localPorts": {tcp_class: tcp_port},
+        "selectedProfiles": {tcp_class: tcp_profiles},
+        "udp": {
+            "enabled": True,
+            "carrier": "hysteria2",
+            "transport": "udp-quic",
+            "manager": "link-crypto",
+            "profileSource": "private-file-reference",
+            "secretMaterial": False,
+            "xrayBackhaul": False,
+            "remotePort": TRACEGATE_PUBLIC_UDP_PORT,
+            "obfs": {"type": "salamander", "required": True},
+            "pairedObfs": {
+                "enabled": True,
+                "backend": "udp2raw",
+                "mode": "udp2raw-faketcp",
+                "requiresBothSides": True,
+                "failClosed": True,
+                "noHostWideInterception": True,
+                "noNfqueue": True,
+            },
+            "hardening": _link_crypto_udp_hardening(),
+            "dpiResistance": _link_crypto_udp_dpi_resistance(),
+            "classes": [udp_class],
+            "counts": udp_counts,
+            "localPorts": {udp_class: udp_port},
+            "selectedProfiles": {udp_class: udp_profiles},
+        },
+        "zapret2": _link_crypto_zapret2_policy(),
+    }
+
+
 def _write_link_crypto_state(
     tmp_path: Path,
     file_name: str,
@@ -901,10 +1306,12 @@ def _write_link_crypto_state(
     role: str,
     runtime_contract_path: str,
     links: list[dict] | None = None,
+    udp_links: list[dict] | None = None,
     overrides: dict | None = None,
 ) -> Path:
     role_upper = role.strip().upper()
     links = links if links is not None else [_link_crypto_row(role=role_upper)]
+    udp_links = udp_links if udp_links is not None else []
     payload = {
         "schema": "tracegate.link-crypto.v1",
         "version": 1,
@@ -920,12 +1327,341 @@ def _write_link_crypto_state(
             "routerTransit": len([row for row in links if row.get("class") == "router-transit"]),
         },
         "links": links,
+        "udpCounts": {
+            "total": len(udp_links),
+            "entryTransitUdp": len([row for row in udp_links if row.get("class") == "entry-transit-udp"]),
+            "routerEntryUdp": len([row for row in udp_links if row.get("class") == "router-entry-udp"]),
+            "routerTransitUdp": len([row for row in udp_links if row.get("class") == "router-transit-udp"]),
+        },
+        "udpLinks": udp_links,
     }
     if overrides:
         payload.update(overrides)
     path = tmp_path / file_name
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload) + "\n", encoding="utf-8")
+    return path
+
+
+def _router_route_from_link(row: dict, *, transport: str) -> dict:
+    local = row["local"]
+    remote = row["remote"]
+    route = {
+        "class": row["class"],
+        "enabled": True,
+        "serverRole": row["role"],
+        "serverSide": row["side"],
+        "remoteRole": remote["role"],
+        "carrier": row["carrier"],
+        "transport": transport,
+        "managedBy": row["managedBy"],
+        "xrayBackhaul": row["xrayBackhaul"],
+        "generation": row["generation"],
+        "serverListen": local["listen"],
+        "publicEndpoint": remote["endpoint"],
+        "selectedProfiles": row["selectedProfiles"],
+        "profileRef": row["profileRef"],
+        "auth": local["auth"],
+        "rotation": row["rotation"],
+        "stability": row["stability"],
+        "routerClient": {
+            "requiresPrivateProfile": True,
+            "secretMaterial": "external-private-file",
+            "hostWideInterception": False,
+            "nfqueue": False,
+            "profileRefs": (
+                {
+                    "hysteriaClient": {
+                        "kind": "file",
+                        "path": f"/etc/tracegate/private/router/{row['role'].lower()}/{row['class']}/hysteria-client.yaml",
+                        "secretMaterial": True,
+                    },
+                    "salamander": {
+                        "kind": "file",
+                        "path": f"/etc/tracegate/private/router/{row['role'].lower()}/{row['class']}/salamander.env",
+                        "secretMaterial": True,
+                    },
+                    "pairedObfs": {
+                        "kind": "file",
+                        "path": f"/etc/tracegate/private/router/{row['role'].lower()}/{row['class']}/paired-obfs.env",
+                        "secretMaterial": True,
+                    },
+                }
+                if transport == "udp-quic"
+                else {
+                    "mieruClient": {
+                        "kind": "file",
+                        "path": f"/etc/tracegate/private/router/{row['role'].lower()}/{row['class']}/mieru-client.json",
+                        "secretMaterial": True,
+                    }
+                }
+            ),
+        },
+    }
+    if transport == "udp-quic":
+        route["datagram"] = row["datagram"]
+        route["obfs"] = row["obfs"]
+        route["pairedObfs"] = row["pairedObfs"]
+        route["hardening"] = row["hardening"]
+        route["dpiResistance"] = row["dpiResistance"]
+    else:
+        route["outerCarrier"] = row["outerCarrier"]
+        route["zapret2"] = row["zapret2"]
+        route["dpiResistance"] = row["dpiResistance"]
+    return route
+
+
+def _router_tcp_link(*, role: str) -> dict:
+    role_upper = role.strip().upper()
+    link_class = "router-entry" if role_upper == "ENTRY" else "router-transit"
+    listen_port = 10883 if role_upper == "ENTRY" else 10884
+    endpoint_host = "entry.tracegate.test" if role_upper == "ENTRY" else "transit.tracegate.test"
+    selected_profiles = ["V1", "V3"] if role_upper == "ENTRY" else ["V0", "V1", "V3"]
+    return _link_crypto_row(
+        role=role_upper,
+        link_class=link_class,
+        overrides={
+            "local": {"listen": f"127.0.0.1:{listen_port}", "auth": {"required": True, "mode": "private-profile"}},
+            "remote": {"role": "ROUTER", "endpoint": f"{endpoint_host}:443"},
+            "selectedProfiles": selected_profiles,
+        },
+    )
+
+
+def _router_udp_link(*, role: str) -> dict:
+    role_upper = role.strip().upper()
+    link_class = "router-entry-udp" if role_upper == "ENTRY" else "router-transit-udp"
+    endpoint_host = "entry.tracegate.test" if role_upper == "ENTRY" else "transit.tracegate.test"
+    return _link_crypto_udp_row(
+        role=role_upper,
+        link_class=link_class,
+        overrides={
+            "remote": {"role": "ROUTER", "endpoint": f"{endpoint_host}:8443", "protocol": "udp-quic"},
+        },
+    )
+
+
+def _write_router_handoff_state(
+    tmp_path: Path,
+    file_name: str,
+    *,
+    contract: dict,
+    role: str,
+    runtime_contract_path: str,
+    tcp_routes: list[dict] | None = None,
+    udp_routes: list[dict] | None = None,
+    overrides: dict | None = None,
+) -> Path:
+    role_upper = role.strip().upper()
+    tcp_routes = tcp_routes if tcp_routes is not None else []
+    udp_routes = udp_routes if udp_routes is not None else []
+    payload = {
+        "schema": "tracegate.router-handoff.v1",
+        "version": 1,
+        "role": role_upper,
+        "runtimeProfile": contract["runtimeProfile"],
+        "runtimeContractPath": runtime_contract_path,
+        "secretMaterial": False,
+        "enabled": bool(tcp_routes or udp_routes),
+        "placement": "personal-router-before-entry" if role_upper == "ENTRY" else "personal-router-before-transit",
+        "contract": {
+            "routerIsEntryReplacement": False,
+            "requiresServerSideLinkCrypto": True,
+            "requiresPrivateRouterProfile": bool(tcp_routes or udp_routes),
+            "noHostWideInterception": True,
+            "noNfqueue": True,
+        },
+        "counts": {"total": len(tcp_routes) + len(udp_routes), "tcp": len(tcp_routes), "udp": len(udp_routes)},
+        "classes": {
+            "tcp": [row["class"] for row in tcp_routes],
+            "udp": [row["class"] for row in udp_routes],
+        },
+        "routes": {"tcp": tcp_routes, "udp": udp_routes},
+    }
+    if overrides:
+        payload.update(overrides)
+    path = tmp_path / file_name
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload) + "\n", encoding="utf-8")
+    return path
+
+
+def _write_router_handoff_env(
+    tmp_path: Path,
+    file_name: str,
+    *,
+    state_path: Path,
+    state: dict,
+    overrides: dict[str, object] | None = None,
+) -> Path:
+    routes = state["routes"]
+    paired_obfs_enabled = any(bool(row.get("pairedObfs", {}).get("enabled", False)) for row in routes["udp"])
+    payload: dict[str, object] = {
+        "TRACEGATE_ROUTER_HANDOFF_ROLE": state["role"],
+        "TRACEGATE_ROUTER_HANDOFF_RUNTIME_PROFILE": state["runtimeProfile"],
+        "TRACEGATE_ROUTER_HANDOFF_STATE_JSON": str(state_path),
+        "TRACEGATE_ROUTER_HANDOFF_SECRET_MATERIAL": "false",
+        "TRACEGATE_ROUTER_HANDOFF_ENABLED": str(bool(state["enabled"])).lower(),
+        "TRACEGATE_ROUTER_HANDOFF_COUNT": state["counts"]["total"],
+        "TRACEGATE_ROUTER_HANDOFF_TCP_COUNT": state["counts"]["tcp"],
+        "TRACEGATE_ROUTER_HANDOFF_UDP_COUNT": state["counts"]["udp"],
+        "TRACEGATE_ROUTER_HANDOFF_TCP_CLASSES": ":".join(state["classes"]["tcp"]),
+        "TRACEGATE_ROUTER_HANDOFF_UDP_CLASSES": ":".join(state["classes"]["udp"]),
+        "TRACEGATE_ROUTER_HANDOFF_PAIRED_OBFS_ENABLED": str(paired_obfs_enabled).lower(),
+        "TRACEGATE_ROUTER_HANDOFF_REQUIRES_PRIVATE_PROFILE": str(bool(state["enabled"])).lower(),
+        "TRACEGATE_ROUTER_HANDOFF_ROUTER_IS_ENTRY_REPLACEMENT": "false",
+        "TRACEGATE_ROUTER_HANDOFF_NO_HOST_WIDE_INTERCEPTION": "true",
+        "TRACEGATE_ROUTER_HANDOFF_NO_NFQUEUE": "true",
+    }
+    if overrides:
+        payload.update(overrides)
+    path = tmp_path / file_name
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("\n".join(f"{key}={value}" for key, value in payload.items()) + "\n", encoding="utf-8")
+    return path
+
+
+def _router_client_route_from_handoff(row: dict, *, transport: str) -> dict:
+    router_client = row["routerClient"]
+    route = {
+        "class": row["class"],
+        "enabled": row["enabled"],
+        "transport": transport,
+        "serverRole": row["serverRole"],
+        "routerRole": "ROUTER",
+        "serverEndpoint": row["publicEndpoint"],
+        "selectedProfiles": row["selectedProfiles"],
+        "routerSide": {
+            "mode": "client",
+            "requiresPrivateProfile": True,
+            "profileRefs": router_client["profileRefs"],
+            "failClosed": True,
+            "hostWideInterception": False,
+            "nfqueue": False,
+        },
+        "serverSide": {
+            "mode": "server",
+            "listen": row["serverListen"],
+            "auth": row["auth"],
+        },
+    }
+    if transport == "tcp":
+        route["carrier"] = "mieru"
+        route["outerCarrier"] = row["outerCarrier"]
+        route["zapret2"] = row["zapret2"]
+        route["dpiResistance"] = row["dpiResistance"]
+    else:
+        route["carrier"] = "hysteria2"
+        route["datagram"] = row["datagram"]
+        route["obfs"] = row["obfs"]
+        route["pairedObfs"] = row["pairedObfs"]
+        route["hardening"] = row["hardening"]
+        route["dpiResistance"] = row["dpiResistance"]
+    return route
+
+
+def _write_router_client_bundle(
+    tmp_path: Path,
+    file_name: str,
+    *,
+    state_path: Path,
+    state: dict,
+    overrides: dict | None = None,
+) -> Path:
+    tcp_routes = [_router_client_route_from_handoff(row, transport="tcp") for row in state["routes"]["tcp"]]
+    udp_routes = [_router_client_route_from_handoff(row, transport="udp-quic") for row in state["routes"]["udp"]]
+    paired_obfs_enabled = any(bool(row.get("pairedObfs", {}).get("enabled", False)) for row in udp_routes)
+    payload = {
+        "schema": "tracegate.router-client-bundle.v1",
+        "version": 1,
+        "role": state["role"],
+        "runtimeProfile": state["runtimeProfile"],
+        "handoffStateJson": str(state_path),
+        "secretMaterial": False,
+        "enabled": state["enabled"],
+        "placement": state["placement"],
+        "counts": state["counts"],
+        "classes": state["classes"],
+        "requirements": {
+            "routerIsEntryReplacement": False,
+            "requiresPrivateProfile": state["enabled"],
+            "requiresServerSideLinkCrypto": True,
+            "requiresBothSides": bool(tcp_routes or udp_routes),
+            "failClosed": True,
+            "noHostWideInterception": True,
+            "noNfqueue": True,
+            "profileDistribution": "external-private-files",
+        },
+        "components": [
+            {
+                "name": "mieru-client",
+                "required": bool(tcp_routes),
+                "transports": ["tcp"],
+                "failClosed": True,
+                "noHostWideInterception": True,
+                "noNfqueue": True,
+            },
+            {
+                "name": "hysteria2-client",
+                "required": bool(udp_routes),
+                "transports": ["udp-quic"],
+                "obfs": "salamander",
+                "failClosed": True,
+                "noHostWideInterception": True,
+                "noNfqueue": True,
+            },
+            {
+                "name": "paired-udp-obfs",
+                "required": paired_obfs_enabled,
+                "backend": "udp2raw",
+                "requiresBothSides": True,
+                "failClosed": True,
+                "noHostWideInterception": True,
+                "noNfqueue": True,
+            },
+        ],
+        "routes": {"tcp": tcp_routes, "udp": udp_routes},
+    }
+    if overrides:
+        payload.update(overrides)
+    path = tmp_path / file_name
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload) + "\n", encoding="utf-8")
+    return path
+
+
+def _write_router_client_bundle_env(
+    tmp_path: Path,
+    file_name: str,
+    *,
+    bundle_path: Path,
+    handoff_path: Path,
+    bundle: dict,
+    overrides: dict[str, object] | None = None,
+) -> Path:
+    components = [row["name"] for row in bundle["components"] if row.get("required")]
+    payload: dict[str, object] = {
+        "TRACEGATE_ROUTER_CLIENT_BUNDLE_ROLE": bundle["role"],
+        "TRACEGATE_ROUTER_CLIENT_BUNDLE_RUNTIME_PROFILE": bundle["runtimeProfile"],
+        "TRACEGATE_ROUTER_CLIENT_BUNDLE_JSON": str(bundle_path),
+        "TRACEGATE_ROUTER_CLIENT_BUNDLE_HANDOFF_JSON": str(handoff_path),
+        "TRACEGATE_ROUTER_CLIENT_BUNDLE_SECRET_MATERIAL": "false",
+        "TRACEGATE_ROUTER_CLIENT_BUNDLE_ENABLED": str(bool(bundle["enabled"])).lower(),
+        "TRACEGATE_ROUTER_CLIENT_BUNDLE_COMPONENTS": ":".join(components),
+        "TRACEGATE_ROUTER_CLIENT_BUNDLE_TCP_COUNT": bundle["counts"]["tcp"],
+        "TRACEGATE_ROUTER_CLIENT_BUNDLE_UDP_COUNT": bundle["counts"]["udp"],
+        "TRACEGATE_ROUTER_CLIENT_BUNDLE_REQUIRES_BOTH_SIDES": str(
+            bool(bundle["requirements"]["requiresBothSides"])
+        ).lower(),
+        "TRACEGATE_ROUTER_CLIENT_BUNDLE_FAIL_CLOSED": "true",
+        "TRACEGATE_ROUTER_CLIENT_BUNDLE_NO_HOST_WIDE_INTERCEPTION": "true",
+        "TRACEGATE_ROUTER_CLIENT_BUNDLE_NO_NFQUEUE": "true",
+    }
+    if overrides:
+        payload.update(overrides)
+    path = tmp_path / file_name
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("\n".join(f"{key}={value}" for key, value in payload.items()) + "\n", encoding="utf-8")
     return path
 
 
@@ -952,10 +1688,16 @@ def _write_link_crypto_env(
         "TRACEGATE_LINK_CRYPTO_OUTER_WSS_PUBLIC_PORT": "443",
         "TRACEGATE_LINK_CRYPTO_OUTER_WSS_PATH": "/cdn-cgi/tracegate-link",
         "TRACEGATE_LINK_CRYPTO_OUTER_WSS_VERIFY_TLS": "true",
+        "TRACEGATE_LINK_CRYPTO_OUTER_WSS_SPKI_PINNING_REQUIRED": "true" if has_entry_transit else "false",
+        "TRACEGATE_LINK_CRYPTO_OUTER_WSS_ADMISSION_REQUIRED": "true" if has_entry_transit else "false",
         "TRACEGATE_LINK_CRYPTO_GENERATION": "1",
-        "TRACEGATE_LINK_CRYPTO_ZAPRET2_ENABLED": "false",
+        "TRACEGATE_LINK_CRYPTO_ZAPRET2_ENABLED": "true",
+        "TRACEGATE_LINK_CRYPTO_ZAPRET2_REQUIRED": "true" if state_payload["counts"]["total"] else "false",
         "TRACEGATE_LINK_CRYPTO_ZAPRET2_HOST_WIDE_INTERCEPTION": "false",
         "TRACEGATE_LINK_CRYPTO_ZAPRET2_NFQUEUE": "false",
+        "TRACEGATE_LINK_CRYPTO_TCP_DPI_RESISTANCE_REQUIRED": "true" if state_payload["counts"]["total"] else "false",
+        "TRACEGATE_LINK_CRYPTO_TCP_TRAFFIC_SHAPING_REQUIRED": "true" if state_payload["counts"]["total"] else "false",
+        "TRACEGATE_LINK_CRYPTO_PROMOTION_PREFLIGHT_REQUIRED": "true" if state_payload["counts"]["total"] else "false",
     }
     if overrides:
         payload.update(overrides)
@@ -1129,6 +1871,74 @@ def test_validate_runtime_contract_pair_rejects_unsafe_xray_api_surface() -> Non
     assert by_code["entry-xray-api-service"].severity == "error"
     assert by_code["entry-xray-api-listen-loopback"].severity == "error"
     assert by_code["transit-xray-api-inbound"].severity == "error"
+
+
+def test_validate_runtime_contract_pair_accepts_tracegate22_standalone_hysteria() -> None:
+    findings = validate_runtime_contract_pair(
+        _runtime_contract(role="ENTRY", runtime_profile="tracegate-2.2"),
+        _runtime_contract(role="TRANSIT", runtime_profile="tracegate-2.2"),
+    )
+
+    assert findings == []
+
+
+def test_validate_runtime_contract_pair_rejects_missing_forbidden_public_ports() -> None:
+    entry = _runtime_contract(role="ENTRY", runtime_profile="tracegate-2.2")
+    transit = _runtime_contract(role="TRANSIT", runtime_profile="tracegate-2.2")
+    entry["contract"]["forbiddenPorts"] = [{"protocol": "udp", "port": 8443, "name": "listen udp/8443"}]
+    entry["fronting"]["forbiddenUdp443"] = False
+    entry["fronting"]["forbiddenPublicPorts"] = [{"protocol": "tcp", "port": 443, "action": "accept"}]
+
+    findings = validate_runtime_contract_pair(entry, transit)
+
+    by_code = {finding.code: finding for finding in findings}
+    assert by_code["entry-forbidden-udp-443"].severity == "error"
+    assert by_code["entry-forbidden-tcp-8443"].severity == "error"
+    assert by_code["entry-fronting-forbidden-udp-443"].severity == "error"
+    assert by_code["entry-fronting-forbidden-tcp-8443"].severity == "error"
+    assert by_code["entry-fronting-forbidden-udp-443-flag"].severity == "error"
+
+
+def test_validate_runtime_contract_pair_rejects_tracegate22_unsafe_hysteria_config() -> None:
+    entry = _runtime_contract(role="ENTRY", runtime_profile="tracegate-2.2")
+    transit = _runtime_contract(role="TRANSIT", runtime_profile="tracegate-2.2")
+    entry["fronting"]["publicUdpOwner"] = "xray"
+    entry["fronting"]["udp443Owner"] = "xray"
+    entry["decoy"]["xrayHysteriaMasqueradeDirs"] = ["/srv/legacy-hy2"]
+    entry["hysteria"]["listenPort"] = 443
+    entry["hysteria"]["auth"]["httpUrl"] = "http://198.51.100.10/v1/hysteria/auth"
+    entry["hysteria"]["obfs"] = {"type": "none", "salamanderPasswordConfigured": False}
+    entry["hysteria"]["trafficStats"] = {"listen": "0.0.0.0:9999", "secretConfigured": False}
+    entry["hysteria"]["udp"]["enabled"] = False
+    entry["hysteria"]["tls"]["sniGuard"] = "disabled"
+    entry["hysteria"]["quic"]["disablePathMTUDiscovery"] = True
+    entry["hysteria"]["sniff"]["enabled"] = False
+
+    findings = validate_runtime_contract_pair(entry, transit)
+
+    by_code = {finding.code: finding for finding in findings}
+    assert by_code["entry-tracegate22-udp-owner"].severity == "error"
+    assert by_code["entry-tracegate22-xray-hysteria-dirs"].severity == "error"
+    assert by_code["entry-hysteria-listen-port"].severity == "error"
+    assert by_code["entry-hysteria-auth-loopback"].severity == "error"
+    assert by_code["entry-hysteria-obfs"].severity == "error"
+    assert by_code["entry-hysteria-salamander-password"].severity == "error"
+    assert by_code["entry-hysteria-stats-listen-loopback"].severity == "error"
+    assert by_code["entry-hysteria-stats-secret"].severity == "error"
+    assert by_code["entry-hysteria-udp-disabled"].severity == "error"
+    assert by_code["entry-hysteria-sni-guard"].severity == "error"
+    assert by_code["entry-hysteria-quic-pmtu"].severity == "error"
+    assert by_code["entry-hysteria-sniff"].severity == "error"
+
+
+def test_validate_runtime_contract_single_rejects_tracegate22_missing_hysteria_config() -> None:
+    contract = _runtime_contract(role="TRANSIT", runtime_profile="tracegate-2.2")
+    contract["hysteria"]["configPresent"] = False
+
+    findings = validate_runtime_contract_single(contract, expected_role="TRANSIT")
+
+    by_code = {finding.code: finding for finding in findings}
+    assert by_code["transit-hysteria-config"].severity == "error"
 
 
 def test_validate_runtime_contract_single_rejects_tracegate21_missing_rollout() -> None:
@@ -1393,6 +2203,7 @@ def test_validate_obfuscation_runtime_env_detects_divergence(tmp_path: Path) -> 
             "TRACEGATE_FINALMASK_ENABLED": "true",
             "TRACEGATE_ECH_ENABLED": "true",
             "TRACEGATE_TCP_443_OWNER": "nginx",
+            "TRACEGATE_PUBLIC_UDP_OWNER": "haproxy",
             "TRACEGATE_UDP_443_OWNER": "haproxy",
             "TRACEGATE_TOUCH_UDP_443": "true",
             "TRACEGATE_MTPROTO_DOMAIN": "",
@@ -1506,8 +2317,8 @@ def test_validate_private_profile_state_warns_on_common_local_socks_port(tmp_pat
     contract_path.write_text(json.dumps(contract) + "\n", encoding="utf-8")
     shadowtls = _private_shadowtls_profile(
         role="TRANSIT",
-        variant="V5",
-        overrides={"localSocks": _private_local_socks(username="tg_v5", password="local-pass") | {"listen": "127.0.0.1:1080"}},
+        mode="direct",
+        overrides={"localSocks": _private_local_socks(username="tg_v3", password="local-pass") | {"listen": "127.0.0.1:1080"}},
     )
     state_path = _write_private_profile_state(
         tmp_path,
@@ -1527,7 +2338,7 @@ def test_validate_private_profile_state_warns_on_common_local_socks_port(tmp_pat
     )
 
     by_code = {finding.code: finding for finding in findings}
-    assert by_code["transit-private-profile-shadowtls-v5-local-socks-common-port"].severity == "warning"
+    assert by_code["transit-private-profile-shadowtls-v3-local-socks-common-port"].severity == "warning"
 
 
 def test_validate_private_profile_state_rejects_wstunnel_url_drift(tmp_path: Path) -> None:
@@ -1563,8 +2374,8 @@ def test_validate_private_profile_state_rejects_wstunnel_url_drift(tmp_path: Pat
     )
 
     by_code = {finding.code: finding for finding in findings}
-    assert by_code["transit-private-profile-wireguard-v7-wstunnel-url"].severity == "error"
-    assert by_code["transit-private-profile-wireguard-v7-wstunnel-path-match"].severity == "error"
+    assert by_code["transit-private-profile-wireguard-v0-wstunnel-url"].severity == "error"
+    assert by_code["transit-private-profile-wireguard-v0-wstunnel-path-match"].severity == "error"
 
 
 def test_validate_private_profile_state_rejects_wireguard_stability_drift(tmp_path: Path) -> None:
@@ -1620,16 +2431,16 @@ def test_validate_private_profile_state_rejects_wireguard_stability_drift(tmp_pa
     )
 
     by_code = {finding.code: finding for finding in findings}
-    assert by_code["transit-private-profile-wireguard-v7-wstunnel-local-udp-loopback"].severity == "error"
-    assert by_code["transit-private-profile-wireguard-v7-wireguard-allowed-ips-host-route"].severity == "error"
-    assert by_code["transit-private-profile-wireguard-v7-wireguard-mtu"].severity == "error"
-    assert by_code["transit-private-profile-wireguard-v7-wireguard-persistent-keepalive"].severity == "error"
-    assert by_code["transit-private-profile-wireguard-v7-sync-strategy"].severity == "error"
-    assert by_code["transit-private-profile-wireguard-v7-sync-apply-mode"].severity == "error"
-    assert by_code["transit-private-profile-wireguard-v7-sync-interface"].severity == "error"
-    assert by_code["transit-private-profile-wireguard-v7-sync-remove-stale"].severity == "error"
-    assert by_code["transit-private-profile-wireguard-v7-sync-restart-wireguard"].severity == "error"
-    assert by_code["transit-private-profile-wireguard-v7-sync-restart-wstunnel"].severity == "error"
+    assert by_code["transit-private-profile-wireguard-v0-wstunnel-local-udp-loopback"].severity == "error"
+    assert by_code["transit-private-profile-wireguard-v0-wireguard-allowed-ips-host-route"].severity == "error"
+    assert by_code["transit-private-profile-wireguard-v0-wireguard-mtu"].severity == "error"
+    assert by_code["transit-private-profile-wireguard-v0-wireguard-persistent-keepalive"].severity == "error"
+    assert by_code["transit-private-profile-wireguard-v0-sync-strategy"].severity == "error"
+    assert by_code["transit-private-profile-wireguard-v0-sync-apply-mode"].severity == "error"
+    assert by_code["transit-private-profile-wireguard-v0-sync-interface"].severity == "error"
+    assert by_code["transit-private-profile-wireguard-v0-sync-remove-stale"].severity == "error"
+    assert by_code["transit-private-profile-wireguard-v0-sync-restart-wireguard"].severity == "error"
+    assert by_code["transit-private-profile-wireguard-v0-sync-restart-wstunnel"].severity == "error"
 
 
 def test_validate_private_profile_state_detects_security_drift(tmp_path: Path) -> None:
@@ -1638,7 +2449,7 @@ def test_validate_private_profile_state_detects_security_drift(tmp_path: Path) -
     contract_path.write_text(json.dumps(contract) + "\n", encoding="utf-8")
     bad_shadowtls = _private_shadowtls_profile(
         role="TRANSIT",
-        variant="V5",
+        mode="direct",
         overrides={
             "profile": "legacy-shadowtls",
             "port": 8443,
@@ -1724,31 +2535,31 @@ def test_validate_private_profile_state_detects_security_drift(tmp_path: Path) -
     assert by_code["entry-private-profile-count-total"].severity == "error"
     assert by_code["entry-private-profile-count-shadowtls"].severity == "error"
     assert by_code["entry-private-profile-count-wireguard"].severity == "error"
-    assert by_code["entry-private-profile-shadowtls-v5-entry-variant"].severity == "error"
-    assert by_code["entry-private-profile-shadowtls-v5-profile"].severity == "error"
-    assert by_code["entry-private-profile-shadowtls-v5-port"].severity == "error"
-    assert by_code["entry-private-profile-shadowtls-v5-ss-password"].severity == "error"
-    assert by_code["entry-private-profile-shadowtls-v5-shadowtls-version"].severity == "error"
-    assert by_code["entry-private-profile-shadowtls-v5-shadowtls-password"].severity == "error"
-    assert by_code["entry-private-profile-shadowtls-v5-shadowtls-credential-scope"].severity == "error"
-    assert by_code["entry-private-profile-shadowtls-v5-shadowtls-profile-ref-kind"].severity == "error"
-    assert by_code["entry-private-profile-shadowtls-v5-shadowtls-profile-ref-path"].severity == "error"
-    assert by_code["entry-private-profile-shadowtls-v5-shadowtls-profile-ref-secret"].severity == "error"
-    assert by_code["entry-private-profile-shadowtls-v5-shadowtls-manage-users"].severity == "error"
-    assert by_code["entry-private-profile-shadowtls-v5-shadowtls-restart-on-user-change"].severity == "error"
-    assert by_code["entry-private-profile-shadowtls-v5-local-socks-listen-loopback"].severity == "error"
-    assert by_code["entry-private-profile-shadowtls-v5-local-socks-auth"].severity == "error"
-    assert by_code["entry-private-profile-shadowtls-v5-local-socks-auth-mode"].severity == "error"
-    assert by_code["entry-private-profile-shadowtls-v5-host-wide-interception"].severity == "error"
-    assert by_code["entry-private-profile-shadowtls-v5-packet-shaping"].severity == "error"
+    assert by_code["entry-private-profile-shadowtls-v3-entry-mode"].severity == "error"
+    assert by_code["entry-private-profile-shadowtls-v3-profile"].severity == "error"
+    assert by_code["entry-private-profile-shadowtls-v3-port"].severity == "error"
+    assert by_code["entry-private-profile-shadowtls-v3-ss-password"].severity == "error"
+    assert by_code["entry-private-profile-shadowtls-v3-shadowtls-version"].severity == "error"
+    assert by_code["entry-private-profile-shadowtls-v3-shadowtls-password"].severity == "error"
+    assert by_code["entry-private-profile-shadowtls-v3-shadowtls-credential-scope"].severity == "error"
+    assert by_code["entry-private-profile-shadowtls-v3-shadowtls-profile-ref-kind"].severity == "error"
+    assert by_code["entry-private-profile-shadowtls-v3-shadowtls-profile-ref-path"].severity == "error"
+    assert by_code["entry-private-profile-shadowtls-v3-shadowtls-profile-ref-secret"].severity == "error"
+    assert by_code["entry-private-profile-shadowtls-v3-shadowtls-manage-users"].severity == "error"
+    assert by_code["entry-private-profile-shadowtls-v3-shadowtls-restart-on-user-change"].severity == "error"
+    assert by_code["entry-private-profile-shadowtls-v3-local-socks-listen-loopback"].severity == "error"
+    assert by_code["entry-private-profile-shadowtls-v3-local-socks-auth"].severity == "error"
+    assert by_code["entry-private-profile-shadowtls-v3-local-socks-auth-mode"].severity == "error"
+    assert by_code["entry-private-profile-shadowtls-v3-host-wide-interception"].severity == "error"
+    assert by_code["entry-private-profile-shadowtls-v3-packet-shaping"].severity == "error"
     assert by_code["entry-private-profile-wireguard-entry"].severity == "error"
-    assert by_code["entry-private-profile-wireguard-v7-wstunnel-url"].severity == "error"
-    assert by_code["entry-private-profile-wireguard-v7-wstunnel-path"].severity == "error"
-    assert by_code["entry-private-profile-wireguard-v7-wireguard-clientPublicKey"].severity == "error"
-    assert by_code["entry-private-profile-wireguard-v7-local-socks-listen-loopback"].severity == "error"
-    assert by_code["entry-private-profile-wireguard-v7-local-socks-auth"].severity == "error"
-    assert by_code["entry-private-profile-wireguard-v7-local-socks-auth-mode"].severity == "error"
-    assert by_code["entry-private-profile-wireguard-v7-host-wide-interception"].severity == "error"
+    assert by_code["entry-private-profile-wireguard-v0-wstunnel-url"].severity == "error"
+    assert by_code["entry-private-profile-wireguard-v0-wstunnel-path"].severity == "error"
+    assert by_code["entry-private-profile-wireguard-v0-wireguard-clientPublicKey"].severity == "error"
+    assert by_code["entry-private-profile-wireguard-v0-local-socks-listen-loopback"].severity == "error"
+    assert by_code["entry-private-profile-wireguard-v0-local-socks-auth"].severity == "error"
+    assert by_code["entry-private-profile-wireguard-v0-local-socks-auth-mode"].severity == "error"
+    assert by_code["entry-private-profile-wireguard-v0-host-wide-interception"].severity == "error"
 
 
 def test_validate_private_profile_env_accepts_consistent_handoff(tmp_path: Path) -> None:
@@ -1835,6 +2646,7 @@ def test_validate_link_crypto_state_accepts_consistent_handoff(tmp_path: Path) -
         "generation": 1,
         "remotePort": 443,
         "outerCarrier": _link_crypto_outer_carrier_contract(),
+        "dpiResistance": _link_crypto_tcp_dpi_resistance(),
         "classes": ["entry-transit"],
         "counts": {
             "total": 1,
@@ -1843,15 +2655,8 @@ def test_validate_link_crypto_state_accepts_consistent_handoff(tmp_path: Path) -
             "routerTransit": 0,
         },
         "localPorts": {"entry-transit": 10881},
-        "selectedProfiles": {"entry-transit": ["V2", "V4", "V6"]},
-        "zapret2": {
-            "enabled": False,
-            "packetShaping": "zapret2-scoped",
-            "applyMode": "marked-flow-only",
-            "hostWideInterception": False,
-            "nfqueue": False,
-            "failOpen": True,
-        },
+        "selectedProfiles": {"entry-transit": ["V1", "V3"]},
+        "zapret2": _link_crypto_zapret2_policy(),
     }
     contract_path = tmp_path / "entry.json"
     contract_path.write_text(json.dumps(contract) + "\n", encoding="utf-8")
@@ -1873,11 +2678,333 @@ def test_validate_link_crypto_state_accepts_consistent_handoff(tmp_path: Path) -
     assert findings == []
 
 
+def test_validate_link_crypto_state_accepts_udp_hysteria2_handoff(tmp_path: Path) -> None:
+    contract = _runtime_contract(role="ENTRY")
+    contract["linkCrypto"] = {
+        "enabled": True,
+        "carrier": "mieru",
+        "manager": "link-crypto",
+        "profileSource": "private-file-reference",
+        "secretMaterial": False,
+        "xrayBackhaul": False,
+        "generation": 1,
+        "remotePort": 443,
+        "outerCarrier": _link_crypto_outer_carrier_contract(),
+        "dpiResistance": _link_crypto_tcp_dpi_resistance(),
+        "classes": ["entry-transit"],
+        "counts": {
+            "total": 1,
+            "entryTransit": 1,
+            "routerEntry": 0,
+            "routerTransit": 0,
+        },
+        "localPorts": {"entry-transit": 10881},
+        "selectedProfiles": {"entry-transit": ["V1", "V3"]},
+        "udp": {
+            "enabled": True,
+            "carrier": "hysteria2",
+            "transport": "udp-quic",
+            "manager": "link-crypto",
+            "profileSource": "private-file-reference",
+            "secretMaterial": False,
+            "xrayBackhaul": False,
+            "remotePort": 8443,
+            "obfs": {"type": "salamander", "required": True},
+            "pairedObfs": {
+                "enabled": True,
+                "backend": "udp2raw",
+                "mode": "udp2raw-faketcp",
+                "requiresBothSides": True,
+                "failClosed": True,
+                "noHostWideInterception": True,
+                "noNfqueue": True,
+            },
+            "hardening": _link_crypto_udp_hardening(),
+            "dpiResistance": _link_crypto_udp_dpi_resistance(),
+            "classes": ["entry-transit-udp"],
+            "counts": {
+                "total": 1,
+                "entryTransitUdp": 1,
+                "routerEntryUdp": 0,
+                "routerTransitUdp": 0,
+            },
+            "localPorts": {"entry-transit-udp": 14481},
+            "selectedProfiles": {"entry-transit-udp": ["V2"]},
+        },
+        "zapret2": _link_crypto_zapret2_policy(),
+    }
+    contract_path = tmp_path / "entry.json"
+    contract_path.write_text(json.dumps(contract) + "\n", encoding="utf-8")
+    state_path = _write_link_crypto_state(
+        tmp_path,
+        "private/link-crypto/entry/desired-state.json",
+        contract=contract,
+        role="ENTRY",
+        runtime_contract_path=str(contract_path),
+        udp_links=[_link_crypto_udp_row(role="ENTRY")],
+    )
+
+    findings = validate_link_crypto_state(
+        state=load_link_crypto_state(state_path),
+        contract=contract,
+        expected_role="ENTRY",
+        contract_path=str(contract_path),
+    )
+
+    assert findings == []
+
+
+def test_validate_link_crypto_state_rejects_cross_protocol_profile_partition(tmp_path: Path) -> None:
+    contract = _runtime_contract(role="ENTRY")
+    contract_path = tmp_path / "entry.json"
+    contract_path.write_text(json.dumps(contract) + "\n", encoding="utf-8")
+    state_path = _write_link_crypto_state(
+        tmp_path,
+        "private/link-crypto/entry/desired-state.json",
+        contract=contract,
+        role="ENTRY",
+        runtime_contract_path=str(contract_path),
+        links=[
+            _link_crypto_row(
+                role="ENTRY",
+                overrides={
+                    "selectedProfiles": ["V1", "V2", "V3"],
+                },
+            )
+        ],
+        udp_links=[
+            _link_crypto_udp_row(
+                role="ENTRY",
+                overrides={
+                    "selectedProfiles": ["V1", "V3"],
+                },
+            )
+        ],
+    )
+
+    findings = validate_link_crypto_state(
+        state=load_link_crypto_state(state_path),
+        contract=contract,
+        expected_role="ENTRY",
+        contract_path=str(contract_path),
+    )
+
+    by_code = {finding.code: finding for finding in findings}
+    assert by_code["entry-link-crypto-entry-transit-selected-profiles"].severity == "error"
+    assert by_code["entry-link-crypto-entry-transit-udp-selected-profiles"].severity == "error"
+
+
+def test_validate_link_crypto_state_rejects_unsafe_udp_handoff(tmp_path: Path) -> None:
+    contract = _runtime_contract(role="ENTRY")
+    contract["linkCrypto"] = {
+        "enabled": True,
+        "carrier": "mieru",
+        "manager": "link-crypto",
+        "profileSource": "private-file-reference",
+        "secretMaterial": False,
+        "xrayBackhaul": False,
+        "generation": 1,
+        "remotePort": 443,
+        "outerCarrier": _link_crypto_outer_carrier_contract(),
+        "dpiResistance": _link_crypto_tcp_dpi_resistance(),
+        "classes": ["entry-transit"],
+        "counts": {
+            "total": 1,
+            "entryTransit": 1,
+            "routerEntry": 0,
+            "routerTransit": 0,
+        },
+        "localPorts": {"entry-transit": 10881},
+        "selectedProfiles": {"entry-transit": ["V1", "V3"]},
+        "udp": {
+            "enabled": True,
+            "carrier": "direct",
+            "transport": "tcp",
+            "manager": "xray",
+            "secretMaterial": True,
+            "xrayBackhaul": True,
+            "remotePort": 443,
+            "obfs": {"type": "none", "required": False},
+            "pairedObfs": {
+                "enabled": True,
+                "backend": "direct",
+                "mode": "direct",
+                "requiresBothSides": False,
+                "failClosed": False,
+                "noHostWideInterception": False,
+                "noNfqueue": False,
+            },
+            "hardening": {
+                "enabled": False,
+                "failClosed": False,
+                "requirePrivateAuth": False,
+                "rejectAnonymous": False,
+                "antiReplay": {"enabled": False, "windowPackets": 64},
+                "antiAmplification": {"enabled": False, "maxUnvalidatedBytes": 8192},
+                "rateLimit": {"enabled": False, "handshakePerMinute": 1000, "newSessionPerMinute": 1001},
+                "mtu": {"mode": "off", "maxPacketSize": 1500},
+                "keyRotation": {
+                    "enabled": False,
+                    "strategy": "restart",
+                    "maxAgeSeconds": 60,
+                    "overlapSeconds": 60,
+                },
+                "sourceValidation": {"enabled": False, "mode": "none"},
+            },
+            "dpiResistance": {
+                "enabled": False,
+                "mode": "off",
+                "portSplit": {"publicUdpPort": 443, "forbidUdp443": False, "forbidTcp8443": False},
+                "requiredLayers": ["hysteria2-quic"],
+                "pairedObfs": {
+                    "supported": False,
+                    "backend": "direct",
+                    "requiresBothSides": False,
+                    "failClosed": False,
+                },
+                "packetShape": {"mtuMode": "off", "maxPacketSize": 1500},
+            },
+            "classes": ["entry-transit-udp"],
+            "counts": {
+                "total": 1,
+                "entryTransitUdp": 1,
+                "routerEntryUdp": 0,
+                "routerTransitUdp": 0,
+            },
+            "localPorts": {"entry-transit-udp": 14481},
+            "selectedProfiles": {"entry-transit-udp": ["V2"]},
+        },
+        "zapret2": _link_crypto_zapret2_policy(),
+    }
+    bad_udp_link = _link_crypto_udp_row(
+        role="ENTRY",
+        overrides={
+            "carrier": "direct",
+            "transport": "tcp",
+            "managedBy": "xray",
+            "xrayBackhaul": True,
+            "local": {"listen": "0.0.0.0:14481", "protocol": "tcp", "auth": {"required": False, "mode": "none"}},
+            "remote": {"role": "TRANSIT", "endpoint": "transit.tracegate.test:443", "protocol": "tcp"},
+            "datagram": {"udpCapable": False},
+            "obfs": {"type": "none", "required": False, "profileRef": {"kind": "inline", "secretMaterial": False}},
+            "pairedObfs": {
+                "enabled": True,
+                "backend": "direct",
+                "mode": "direct",
+                "requiresBothSides": False,
+                "failClosed": False,
+                "noHostWideInterception": False,
+                "noNfqueue": False,
+                "profileRef": {"kind": "inline", "secretMaterial": False},
+            },
+            "hardening": {
+                "enabled": False,
+                "failClosed": False,
+                "requirePrivateAuth": False,
+                "rejectAnonymous": False,
+                "antiReplay": {"enabled": False, "windowPackets": 64},
+                "antiAmplification": {"enabled": False, "maxUnvalidatedBytes": 8192},
+                "rateLimit": {"enabled": False, "handshakePerMinute": 1000, "newSessionPerMinute": 1001},
+                "mtu": {"mode": "off", "maxPacketSize": 1500},
+                "keyRotation": {
+                    "enabled": False,
+                    "strategy": "restart",
+                    "maxAgeSeconds": 60,
+                    "overlapSeconds": 60,
+                },
+                "sourceValidation": {"enabled": False, "mode": "none"},
+            },
+            "dpiResistance": {
+                "enabled": False,
+                "mode": "off",
+                "portSplit": {"publicUdpPort": 443, "forbidUdp443": False, "forbidTcp8443": False},
+                "requiredLayers": ["hysteria2-quic"],
+                "pairedObfs": {
+                    "supported": False,
+                    "backend": "direct",
+                    "requiresBothSides": False,
+                    "failClosed": False,
+                },
+                "packetShape": {"mtuMode": "off", "maxPacketSize": 1500},
+            },
+            "stability": {"failOpen": True, "bypassOnFailure": True, "dropUnrelatedTraffic": True},
+        },
+    )
+    contract_path = tmp_path / "entry.json"
+    contract_path.write_text(json.dumps(contract) + "\n", encoding="utf-8")
+    state_path = _write_link_crypto_state(
+        tmp_path,
+        "private/link-crypto/entry/desired-state.json",
+        contract=contract,
+        role="ENTRY",
+        runtime_contract_path=str(contract_path),
+        udp_links=[bad_udp_link],
+    )
+
+    findings = validate_link_crypto_state(
+        state=load_link_crypto_state(state_path),
+        contract=contract,
+        expected_role="ENTRY",
+        contract_path=str(contract_path),
+    )
+
+    by_code = {finding.code: finding for finding in findings}
+    assert by_code["entry-link-crypto-udp-contract-carrier"].severity == "error"
+    assert by_code["entry-link-crypto-udp-contract-transport"].severity == "error"
+    assert by_code["entry-link-crypto-udp-contract-manager"].severity == "error"
+    assert by_code["entry-link-crypto-udp-contract-secret-material"].severity == "error"
+    assert by_code["entry-link-crypto-udp-contract-xray-backhaul"].severity == "error"
+    assert by_code["entry-link-crypto-udp-contract-remote-port"].severity == "error"
+    assert by_code["entry-link-crypto-udp-contract-salamander"].severity == "error"
+    assert by_code["entry-link-crypto-udp-contract-paired-obfs-backend"].severity == "error"
+    assert by_code["entry-link-crypto-udp-contract-paired-obfs"].severity == "error"
+    assert by_code["entry-link-crypto-udp-contract-paired-obfs-fail-closed"].severity == "error"
+    assert by_code["entry-link-crypto-udp-contract-paired-obfs-host-wide"].severity == "error"
+    assert by_code["entry-link-crypto-udp-contract-paired-obfs-nfqueue"].severity == "error"
+    assert by_code["entry-link-crypto-udp-contract-hardening-enabled"].severity == "error"
+    assert by_code["entry-link-crypto-udp-contract-hardening-anti-replay"].severity == "error"
+    assert by_code["entry-link-crypto-udp-contract-hardening-unvalidated-bytes"].severity == "error"
+    assert by_code["entry-link-crypto-udp-contract-hardening-rate-limit"].severity == "error"
+    assert by_code["entry-link-crypto-udp-contract-hardening-mtu-mode"].severity == "error"
+    assert by_code["entry-link-crypto-udp-contract-hardening-key-rotation-strategy"].severity == "error"
+    assert by_code["entry-link-crypto-udp-contract-hardening-source-validation-mode"].severity == "error"
+    assert by_code["entry-link-crypto-udp-contract-dpi-resistance-enabled"].severity == "error"
+    assert by_code["entry-link-crypto-udp-contract-dpi-resistance-mode"].severity == "error"
+    assert by_code["entry-link-crypto-udp-contract-dpi-resistance-udp443"].severity == "error"
+    assert by_code["entry-link-crypto-udp-contract-dpi-resistance-tcp8443"].severity == "error"
+    assert by_code["entry-link-crypto-entry-transit-udp-carrier"].severity == "error"
+    assert by_code["entry-link-crypto-entry-transit-udp-transport"].severity == "error"
+    assert by_code["entry-link-crypto-entry-transit-udp-managed-by"].severity == "error"
+    assert by_code["entry-link-crypto-entry-transit-udp-xray-backhaul"].severity == "error"
+    assert by_code["entry-link-crypto-entry-transit-udp-local-listen-loopback"].severity == "error"
+    assert by_code["entry-link-crypto-entry-transit-udp-local-protocol"].severity == "error"
+    assert by_code["entry-link-crypto-entry-transit-udp-local-auth"].severity == "error"
+    assert by_code["entry-link-crypto-entry-transit-udp-remote-protocol"].severity == "error"
+    assert by_code["entry-link-crypto-entry-transit-udp-udp-capable"].severity == "error"
+    assert by_code["entry-link-crypto-entry-transit-udp-salamander"].severity == "error"
+    assert by_code["entry-link-crypto-entry-transit-udp-paired-obfs-backend"].severity == "error"
+    assert by_code["entry-link-crypto-entry-transit-udp-paired-obfs-mode"].severity == "error"
+    assert by_code["entry-link-crypto-entry-transit-udp-paired-obfs-both-sides"].severity == "error"
+    assert by_code["entry-link-crypto-entry-transit-udp-paired-obfs-fail-closed"].severity == "error"
+    assert by_code["entry-link-crypto-entry-transit-udp-paired-obfs-host-wide"].severity == "error"
+    assert by_code["entry-link-crypto-entry-transit-udp-paired-obfs-nfqueue"].severity == "error"
+    assert by_code["entry-link-crypto-entry-transit-udp-hardening-fail-closed"].severity == "error"
+    assert by_code["entry-link-crypto-entry-transit-udp-hardening-private-auth"].severity == "error"
+    assert by_code["entry-link-crypto-entry-transit-udp-hardening-replay-window"].severity == "error"
+    assert by_code["entry-link-crypto-entry-transit-udp-hardening-session-rate"].severity == "error"
+    assert by_code["entry-link-crypto-entry-transit-udp-hardening-mtu-size"].severity == "error"
+    assert by_code["entry-link-crypto-entry-transit-udp-hardening-key-rotation-overlap"].severity == "error"
+    assert by_code["entry-link-crypto-entry-transit-udp-dpi-resistance-enabled"].severity == "error"
+    assert by_code["entry-link-crypto-entry-transit-udp-dpi-resistance-paired-backend"].severity == "error"
+    assert by_code["entry-link-crypto-entry-transit-udp-fail-open"].severity == "error"
+    assert by_code["entry-link-crypto-entry-transit-udp-bypass"].severity == "error"
+
+
 @pytest.mark.parametrize(
     ("role", "link_class", "selected_profiles", "local_listen", "remote_endpoint"),
     [
-        ("ENTRY", "router-entry", ["V2", "V4", "V6"], "127.0.0.1:10883", "entry.tracegate.test:443"),
-        ("TRANSIT", "router-transit", ["V1", "V3", "V5", "V7"], "127.0.0.1:10884", "transit.tracegate.test:443"),
+        ("ENTRY", "router-entry", ["V1", "V3"], "127.0.0.1:10883", "entry.tracegate.test:443"),
+        ("TRANSIT", "router-transit", ["V0", "V1", "V3"], "127.0.0.1:10884", "transit.tracegate.test:443"),
     ],
 )
 def test_validate_link_crypto_state_accepts_router_only_handoff(
@@ -1888,7 +3015,7 @@ def test_validate_link_crypto_state_accepts_router_only_handoff(
     local_listen: str,
     remote_endpoint: str,
 ) -> None:
-    contract = _runtime_contract(role=role)
+    contract = _runtime_contract(role=role, runtime_profile="tracegate-2.2")
     contract["linkCrypto"] = {
         "enabled": True,
         "carrier": "mieru",
@@ -1899,6 +3026,7 @@ def test_validate_link_crypto_state_accepts_router_only_handoff(
         "generation": 1,
         "remotePort": 443,
         "outerCarrier": _link_crypto_outer_carrier_contract(enabled=False),
+        "dpiResistance": _link_crypto_tcp_dpi_resistance(require_outer_carrier=False, link_class=link_class),
         "classes": [link_class],
         "counts": {
             "total": 1,
@@ -1908,14 +3036,7 @@ def test_validate_link_crypto_state_accepts_router_only_handoff(
         },
         "localPorts": {link_class: int(local_listen.rsplit(":", 1)[1])},
         "selectedProfiles": {link_class: selected_profiles},
-        "zapret2": {
-            "enabled": False,
-            "packetShaping": "zapret2-scoped",
-            "applyMode": "marked-flow-only",
-            "hostWideInterception": False,
-            "nfqueue": False,
-            "failOpen": True,
-        },
+        "zapret2": _link_crypto_zapret2_policy(),
     }
     contract_path = tmp_path / f"{role.lower()}.json"
     contract_path.write_text(json.dumps(contract) + "\n", encoding="utf-8")
@@ -2003,7 +3124,8 @@ def test_validate_link_crypto_state_detects_runtime_contract_alignment_drift(tmp
                 overrides={
                     "local": {"listen": "127.0.0.1:10883", "auth": {"required": True, "mode": "private-profile"}},
                     "remote": {"role": "ROUTER", "endpoint": "entry.tracegate.test:443"},
-                    "selectedProfiles": ["V2", "V4", "V6"],
+                    "selectedProfiles": ["V1", "V3"],
+                    "zapret2": _link_crypto_zapret2_policy() | {"enabled": False},
                 },
             )
         ],
@@ -2037,7 +3159,7 @@ def test_validate_link_crypto_state_detects_runtime_contract_alignment_drift(tmp
 
 
 def test_validate_link_crypto_state_accepts_role_scoped_runtime_contract(tmp_path: Path) -> None:
-    contract = _runtime_contract(role="TRANSIT")
+    contract = _runtime_contract(role="TRANSIT", runtime_profile="tracegate-2.2")
     contract["linkCrypto"] = {
         "enabled": True,
         "carrier": "mieru",
@@ -2048,14 +3170,8 @@ def test_validate_link_crypto_state_accepts_role_scoped_runtime_contract(tmp_pat
         "generation": 1,
         "remotePort": 443,
         "outerCarrier": _link_crypto_outer_carrier_contract(enabled=False),
-        "zapret2": {
-            "enabled": False,
-            "packetShaping": "zapret2-scoped",
-            "applyMode": "marked-flow-only",
-            "hostWideInterception": False,
-            "nfqueue": False,
-            "failOpen": True,
-        },
+        "dpiResistance": _link_crypto_tcp_dpi_resistance(require_outer_carrier=False, link_class="router-transit"),
+        "zapret2": _link_crypto_zapret2_policy(),
         "roles": {
             "entry": {
                 "enabled": False,
@@ -2069,7 +3185,7 @@ def test_validate_link_crypto_state_accepts_role_scoped_runtime_contract(tmp_pat
                 "classes": ["router-transit"],
                 "counts": {"total": 1, "entryTransit": 0, "routerEntry": 0, "routerTransit": 1},
                 "localPorts": {"router-transit": 10884},
-                "selectedProfiles": {"router-transit": ["V1", "V3", "V5", "V7"]},
+                "selectedProfiles": {"router-transit": ["V0", "V1", "V3"]},
             },
         },
     }
@@ -2088,7 +3204,7 @@ def test_validate_link_crypto_state_accepts_role_scoped_runtime_contract(tmp_pat
                 overrides={
                     "local": {"listen": "127.0.0.1:10884", "auth": {"required": True, "mode": "private-profile"}},
                     "remote": {"role": "ROUTER", "endpoint": "transit.tracegate.test:443"},
-                    "selectedProfiles": ["V1", "V3", "V5", "V7"],
+                    "selectedProfiles": ["V0", "V1", "V3"],
                 },
             )
         ],
@@ -2105,7 +3221,7 @@ def test_validate_link_crypto_state_accepts_role_scoped_runtime_contract(tmp_pat
 
 
 def test_validate_link_crypto_state_uses_top_level_role_metadata_fallback(tmp_path: Path) -> None:
-    contract = _runtime_contract(role="TRANSIT")
+    contract = _runtime_contract(role="TRANSIT", runtime_profile="tracegate-2.2")
     contract["linkCrypto"] = {
         "enabled": True,
         "carrier": "mieru",
@@ -2116,16 +3232,10 @@ def test_validate_link_crypto_state_uses_top_level_role_metadata_fallback(tmp_pa
         "generation": 1,
         "remotePort": 443,
         "outerCarrier": _link_crypto_outer_carrier_contract(enabled=False),
+        "dpiResistance": _link_crypto_tcp_dpi_resistance(require_outer_carrier=False, link_class="router-transit"),
         "localPorts": {"router-transit": 10999},
         "selectedProfiles": {"router-transit": ["V1"]},
-        "zapret2": {
-            "enabled": False,
-            "packetShaping": "zapret2-scoped",
-            "applyMode": "marked-flow-only",
-            "hostWideInterception": False,
-            "nfqueue": False,
-            "failOpen": True,
-        },
+        "zapret2": _link_crypto_zapret2_policy(),
         "roles": {
             "transit": {
                 "enabled": True,
@@ -2149,7 +3259,7 @@ def test_validate_link_crypto_state_uses_top_level_role_metadata_fallback(tmp_pa
                 overrides={
                     "local": {"listen": "127.0.0.1:10884", "auth": {"required": True, "mode": "private-profile"}},
                     "remote": {"role": "ROUTER", "endpoint": "transit.tracegate.test:443"},
-                    "selectedProfiles": ["V1", "V3", "V5", "V7"],
+                    "selectedProfiles": ["V0", "V1", "V3"],
                 },
             )
         ],
@@ -2342,6 +3452,450 @@ def test_validate_link_crypto_env_detects_divergence(tmp_path: Path) -> None:
     assert by_code["entry-link-crypto-env-runtime-profile"].severity == "error"
     assert by_code["entry-link-crypto-env-count-total"].severity == "error"
     assert by_code["entry-link-crypto-env-classes"].severity == "warning"
+
+
+def test_validate_router_handoff_state_and_env_accept_consistent_router_routes(tmp_path: Path) -> None:
+    contract = _runtime_contract(role="ENTRY")
+    contract_path = tmp_path / "entry.json"
+    contract_path.write_text(json.dumps(contract) + "\n", encoding="utf-8")
+    tcp_link = _router_tcp_link(role="ENTRY")
+    udp_link = _router_udp_link(role="ENTRY")
+    link_state_path = _write_link_crypto_state(
+        tmp_path,
+        "private/link-crypto/entry/desired-state.json",
+        contract=contract,
+        role="ENTRY",
+        runtime_contract_path=str(contract_path),
+        links=[tcp_link],
+        udp_links=[udp_link],
+    )
+    router_state_path = _write_router_handoff_state(
+        tmp_path,
+        "private/router/entry/desired-state.json",
+        contract=contract,
+        role="ENTRY",
+        runtime_contract_path=str(contract_path),
+        tcp_routes=[_router_route_from_link(tcp_link, transport="tcp")],
+        udp_routes=[_router_route_from_link(udp_link, transport="udp-quic")],
+    )
+    router_payload = json.loads(router_state_path.read_text(encoding="utf-8"))
+    router_env_path = _write_router_handoff_env(
+        tmp_path,
+        "private/router/entry/desired-state.env",
+        state_path=router_state_path,
+        state=router_payload,
+    )
+    router_state = load_router_handoff_state(router_state_path)
+
+    state_findings = validate_router_handoff_state(
+        state=router_state,
+        contract=contract,
+        expected_role="ENTRY",
+        contract_path=str(contract_path),
+        link_crypto_state=load_link_crypto_state(link_state_path),
+    )
+    env_findings = validate_router_handoff_env(
+        env=load_router_handoff_env(router_env_path),
+        expected_role="ENTRY",
+        contract=contract,
+        state=router_state,
+    )
+
+    assert state_findings == []
+    assert env_findings == []
+
+
+def test_validate_router_handoff_state_rejects_unsafe_router_routes(tmp_path: Path) -> None:
+    contract = _runtime_contract(role="ENTRY")
+    contract_path = tmp_path / "entry.json"
+    contract_path.write_text(json.dumps(contract) + "\n", encoding="utf-8")
+    udp_link = _router_udp_link(role="ENTRY")
+    bad_udp_route = _router_route_from_link(udp_link, transport="udp-quic")
+    bad_udp_route.update(
+        {
+            "enabled": False,
+            "publicEndpoint": "127.0.0.1:8443",
+            "selectedProfiles": ["V3"],
+            "routerClient": {
+                "requiresPrivateProfile": False,
+                "secretMaterial": "external-private-file",
+                "hostWideInterception": True,
+                "nfqueue": True,
+            },
+            "pairedObfs": bad_udp_route["pairedObfs"]
+            | {
+                "failClosed": False,
+                "noHostWideInterception": False,
+                "noNfqueue": False,
+            },
+            "hardening": bad_udp_route["hardening"] | {"failClosed": False},
+        }
+    )
+    link_state_path = _write_link_crypto_state(
+        tmp_path,
+        "private/link-crypto/entry/desired-state.json",
+        contract=contract,
+        role="ENTRY",
+        runtime_contract_path=str(contract_path),
+        links=[],
+        udp_links=[udp_link],
+    )
+    router_state_path = _write_router_handoff_state(
+        tmp_path,
+        "private/router/entry/desired-state.json",
+        contract=contract,
+        role="ENTRY",
+        runtime_contract_path=str(contract_path),
+        udp_routes=[bad_udp_route],
+        overrides={
+            "schema": "legacy.router-handoff",
+            "version": 0,
+            "role": "TRANSIT",
+            "runtimeProfile": "split",
+            "secretMaterial": True,
+            "contract": {
+                "routerIsEntryReplacement": True,
+                "requiresServerSideLinkCrypto": False,
+                "requiresPrivateRouterProfile": False,
+                "noHostWideInterception": False,
+                "noNfqueue": False,
+            },
+        },
+    )
+
+    findings = validate_router_handoff_state(
+        state=load_router_handoff_state(router_state_path),
+        contract=contract,
+        expected_role="ENTRY",
+        contract_path=str(contract_path),
+        link_crypto_state=load_link_crypto_state(link_state_path),
+    )
+
+    by_code = {finding.code: finding for finding in findings}
+    assert by_code["entry-router-handoff-schema"].severity == "error"
+    assert by_code["entry-router-handoff-version"].severity == "error"
+    assert by_code["entry-router-handoff-role"].severity == "error"
+    assert by_code["entry-router-handoff-runtime-profile"].severity == "error"
+    assert by_code["entry-router-handoff-secret-material"].severity == "error"
+    assert by_code["entry-router-handoff-entry-replacement"].severity == "error"
+    assert by_code["entry-router-handoff-server-link-crypto"].severity == "error"
+    assert by_code["entry-router-handoff-private-router-profile"].severity == "error"
+    assert by_code["entry-router-handoff-host-wide"].severity == "error"
+    assert by_code["entry-router-handoff-nfqueue"].severity == "error"
+    assert by_code["entry-router-handoff-router-entry-udp-enabled"].severity == "error"
+    assert by_code["entry-router-handoff-router-entry-udp-public-endpoint-loopback"].severity == "error"
+    assert by_code["entry-router-handoff-router-entry-udp-router-client-private-profile"].severity == "error"
+    assert by_code["entry-router-handoff-router-entry-udp-router-client-host-wide"].severity == "error"
+    assert by_code["entry-router-handoff-router-entry-udp-router-client-nfqueue"].severity == "error"
+    assert by_code["entry-router-handoff-router-entry-udp-router-client-profile-hysteriaClient"].severity == "error"
+    assert by_code["entry-router-handoff-router-entry-udp-router-client-profile-salamander"].severity == "error"
+    assert by_code["entry-router-handoff-router-entry-udp-router-client-profile-pairedObfs"].severity == "error"
+    assert by_code["entry-router-handoff-router-entry-udp-selected-profiles"].severity == "error"
+    assert by_code["entry-router-handoff-router-entry-udp-paired-obfs-fail-closed"].severity == "error"
+    assert by_code["entry-router-handoff-router-entry-udp-paired-obfs-host-wide"].severity == "error"
+    assert by_code["entry-router-handoff-router-entry-udp-paired-obfs-nfqueue"].severity == "error"
+    assert by_code["entry-router-handoff-router-entry-udp-hardening-fail-closed"].severity == "error"
+
+
+def test_validate_router_handoff_env_rejects_divergence(tmp_path: Path) -> None:
+    contract = _runtime_contract(role="ENTRY")
+    contract_path = tmp_path / "entry.json"
+    contract_path.write_text(json.dumps(contract) + "\n", encoding="utf-8")
+    udp_link = _router_udp_link(role="ENTRY")
+    router_state_path = _write_router_handoff_state(
+        tmp_path,
+        "private/router/entry/desired-state.json",
+        contract=contract,
+        role="ENTRY",
+        runtime_contract_path=str(contract_path),
+        udp_routes=[_router_route_from_link(udp_link, transport="udp-quic")],
+    )
+    router_payload = json.loads(router_state_path.read_text(encoding="utf-8"))
+    router_env_path = _write_router_handoff_env(
+        tmp_path,
+        "private/router/entry/desired-state.env",
+        state_path=router_state_path,
+        state=router_payload,
+        overrides={
+            "TRACEGATE_ROUTER_HANDOFF_ROLE": "TRANSIT",
+            "TRACEGATE_ROUTER_HANDOFF_RUNTIME_PROFILE": "split",
+            "TRACEGATE_ROUTER_HANDOFF_STATE_JSON": str(tmp_path / "other-router-state.json"),
+            "TRACEGATE_ROUTER_HANDOFF_SECRET_MATERIAL": "true",
+            "TRACEGATE_ROUTER_HANDOFF_COUNT": 99,
+            "TRACEGATE_ROUTER_HANDOFF_TCP_COUNT": 1,
+            "TRACEGATE_ROUTER_HANDOFF_UDP_COUNT": 0,
+            "TRACEGATE_ROUTER_HANDOFF_PAIRED_OBFS_ENABLED": "false",
+            "TRACEGATE_ROUTER_HANDOFF_REQUIRES_PRIVATE_PROFILE": "false",
+            "TRACEGATE_ROUTER_HANDOFF_ROUTER_IS_ENTRY_REPLACEMENT": "true",
+            "TRACEGATE_ROUTER_HANDOFF_NO_HOST_WIDE_INTERCEPTION": "false",
+            "TRACEGATE_ROUTER_HANDOFF_NO_NFQUEUE": "false",
+        },
+    )
+
+    findings = validate_router_handoff_env(
+        env=load_router_handoff_env(router_env_path),
+        expected_role="ENTRY",
+        contract=contract,
+        state=load_router_handoff_state(router_state_path),
+    )
+
+    by_code = {finding.code: finding for finding in findings}
+    assert by_code["entry-router-handoff-env-role"].severity == "error"
+    assert by_code["entry-router-handoff-env-secret-material"].severity == "error"
+    assert by_code["entry-router-handoff-env-entry-replacement"].severity == "error"
+    assert by_code["entry-router-handoff-env-host-wide"].severity == "error"
+    assert by_code["entry-router-handoff-env-nfqueue"].severity == "error"
+    assert by_code["entry-router-handoff-env-private-profile"].severity == "error"
+    assert by_code["entry-router-handoff-env-count-total"].severity == "error"
+    assert by_code["entry-router-handoff-env-contract-runtime-profile"].severity == "error"
+    assert by_code["entry-router-handoff-env-state-json"].severity == "warning"
+    assert by_code["entry-router-handoff-env-runtime-profile"].severity == "error"
+    assert by_code["entry-router-handoff-env-counts"].severity == "error"
+    assert by_code["entry-router-handoff-env-paired-obfs"].severity == "error"
+
+
+def test_validate_router_client_bundle_and_env_accept_consistent_routes(tmp_path: Path) -> None:
+    contract = _runtime_contract(role="ENTRY")
+    contract["linkCrypto"] = _router_link_crypto_contract(role="ENTRY")
+    contract_path = tmp_path / "entry.json"
+    contract_path.write_text(json.dumps(contract) + "\n", encoding="utf-8")
+    tcp_link = _router_tcp_link(role="ENTRY")
+    udp_link = _router_udp_link(role="ENTRY")
+    router_state_path = _write_router_handoff_state(
+        tmp_path,
+        "private/router/entry/desired-state.json",
+        contract=contract,
+        role="ENTRY",
+        runtime_contract_path=str(contract_path),
+        tcp_routes=[_router_route_from_link(tcp_link, transport="tcp")],
+        udp_routes=[_router_route_from_link(udp_link, transport="udp-quic")],
+    )
+    router_state_payload = json.loads(router_state_path.read_text(encoding="utf-8"))
+    bundle_path = _write_router_client_bundle(
+        tmp_path,
+        "private/router/entry/client-bundle.json",
+        state_path=router_state_path,
+        state=router_state_payload,
+    )
+    bundle_payload = json.loads(bundle_path.read_text(encoding="utf-8"))
+    bundle_env_path = _write_router_client_bundle_env(
+        tmp_path,
+        "private/router/entry/client-bundle.env",
+        bundle_path=bundle_path,
+        handoff_path=router_state_path,
+        bundle=bundle_payload,
+    )
+    router_state = load_router_handoff_state(router_state_path)
+    bundle = load_router_client_bundle(bundle_path)
+
+    state_findings = validate_router_client_bundle(
+        bundle=bundle,
+        expected_role="ENTRY",
+        contract=contract,
+        handoff_state=router_state,
+    )
+    env_findings = validate_router_client_bundle_env(
+        env=load_router_client_bundle_env(bundle_env_path),
+        expected_role="ENTRY",
+        contract=contract,
+        bundle=bundle,
+        handoff_state=router_state,
+    )
+
+    assert state_findings == []
+    assert env_findings == []
+
+
+def test_validate_router_client_bundle_rejects_unsafe_routes(tmp_path: Path) -> None:
+    contract = _runtime_contract(role="ENTRY")
+    contract["linkCrypto"] = _router_link_crypto_contract(role="ENTRY")
+    contract_path = tmp_path / "entry.json"
+    contract_path.write_text(json.dumps(contract) + "\n", encoding="utf-8")
+    udp_link = _router_udp_link(role="ENTRY")
+    router_state_path = _write_router_handoff_state(
+        tmp_path,
+        "private/router/entry/desired-state.json",
+        contract=contract,
+        role="ENTRY",
+        runtime_contract_path=str(contract_path),
+        udp_routes=[_router_route_from_link(udp_link, transport="udp-quic")],
+    )
+    router_state_payload = json.loads(router_state_path.read_text(encoding="utf-8"))
+    bundle_path = _write_router_client_bundle(
+        tmp_path,
+        "private/router/entry/client-bundle.json",
+        state_path=router_state_path,
+        state=router_state_payload,
+        overrides={
+            "schema": "legacy.router-client-bundle",
+            "version": 0,
+            "role": "TRANSIT",
+            "runtimeProfile": "split",
+            "secretMaterial": True,
+            "enabled": False,
+            "placement": "personal-router-before-transit",
+            "requirements": {
+                "routerIsEntryReplacement": True,
+                "requiresPrivateProfile": False,
+                "requiresServerSideLinkCrypto": False,
+                "requiresBothSides": False,
+                "failClosed": False,
+                "noHostWideInterception": False,
+                "noNfqueue": False,
+                "profileDistribution": "inline-secrets",
+            },
+        },
+    )
+    payload = json.loads(bundle_path.read_text(encoding="utf-8"))
+    bad_route = payload["routes"]["udp"][0]
+    bad_route.update(
+        {
+            "enabled": False,
+            "serverEndpoint": "127.0.0.1:8443",
+            "selectedProfiles": ["V3"],
+            "routerSide": {
+                "mode": "server",
+                "requiresPrivateProfile": False,
+                "profileRefs": {},
+                "failClosed": False,
+                "hostWideInterception": True,
+                "nfqueue": True,
+            },
+            "serverSide": {
+                "mode": "client",
+                "listen": "0.0.0.0:14483",
+                "auth": {},
+            },
+            "pairedObfs": bad_route["pairedObfs"]
+            | {
+                "failClosed": False,
+                "noHostWideInterception": False,
+                "noNfqueue": False,
+            },
+            "hardening": bad_route["hardening"] | {"failClosed": False},
+        }
+    )
+    payload["components"][1].update({"obfs": "none", "failClosed": False})
+    payload["components"][2].update({"backend": "raw-udp", "requiresBothSides": False, "noNfqueue": False})
+    bundle_path.write_text(json.dumps(payload) + "\n", encoding="utf-8")
+
+    findings = validate_router_client_bundle(
+        bundle=load_router_client_bundle(bundle_path),
+        expected_role="ENTRY",
+        contract=contract,
+        handoff_state=load_router_handoff_state(router_state_path),
+    )
+
+    by_code = {finding.code: finding for finding in findings}
+    assert by_code["entry-router-client-bundle-schema"].severity == "error"
+    assert by_code["entry-router-client-bundle-version"].severity == "error"
+    assert by_code["entry-router-client-bundle-role"].severity == "error"
+    assert by_code["entry-router-client-bundle-runtime-profile"].severity == "error"
+    assert by_code["entry-router-client-bundle-secret-material"].severity == "error"
+    assert by_code["entry-router-client-bundle-placement"].severity == "error"
+    assert by_code["entry-router-client-bundle-enabled"].severity == "error"
+    assert by_code["entry-router-client-bundle-entry-replacement"].severity == "error"
+    assert by_code["entry-router-client-bundle-private-profile"].severity == "error"
+    assert by_code["entry-router-client-bundle-server-link-crypto"].severity == "error"
+    assert by_code["entry-router-client-bundle-both-sides"].severity == "error"
+    assert by_code["entry-router-client-bundle-fail-closed"].severity == "error"
+    assert by_code["entry-router-client-bundle-host-wide"].severity == "error"
+    assert by_code["entry-router-client-bundle-nfqueue"].severity == "error"
+    assert by_code["entry-router-client-bundle-profile-distribution"].severity == "error"
+    assert by_code["entry-router-client-bundle-component-hysteria2-client-salamander"].severity == "error"
+    assert by_code["entry-router-client-bundle-component-hysteria2-client-fail-closed"].severity == "error"
+    assert by_code["entry-router-client-bundle-component-paired-udp-obfs-backend"].severity == "error"
+    assert by_code["entry-router-client-bundle-component-paired-udp-obfs-both-sides"].severity == "error"
+    assert by_code["entry-router-client-bundle-component-paired-udp-obfs-nfqueue"].severity == "error"
+    assert by_code["entry-router-client-bundle-router-entry-udp-enabled"].severity == "error"
+    assert by_code["entry-router-client-bundle-router-entry-udp-server-endpoint-loopback"].severity == "error"
+    assert by_code["entry-router-client-bundle-router-entry-udp-router-mode"].severity == "error"
+    assert by_code["entry-router-client-bundle-router-entry-udp-router-private-profile"].severity == "error"
+    assert by_code["entry-router-client-bundle-router-entry-udp-router-fail-closed"].severity == "error"
+    assert by_code["entry-router-client-bundle-router-entry-udp-router-host-wide"].severity == "error"
+    assert by_code["entry-router-client-bundle-router-entry-udp-router-nfqueue"].severity == "error"
+    assert by_code["entry-router-client-bundle-router-entry-udp-router-client-profile-hysteriaClient"].severity == "error"
+    assert by_code["entry-router-client-bundle-router-entry-udp-router-client-profile-salamander"].severity == "error"
+    assert by_code["entry-router-client-bundle-router-entry-udp-router-client-profile-pairedObfs"].severity == "error"
+    assert by_code["entry-router-client-bundle-router-entry-udp-server-mode"].severity == "error"
+    assert by_code["entry-router-client-bundle-router-entry-udp-server-listen-loopback"].severity == "error"
+    assert by_code["entry-router-client-bundle-router-entry-udp-server-auth"].severity == "error"
+    assert by_code["entry-router-client-bundle-router-entry-udp-selected-profiles"].severity == "error"
+    assert by_code["entry-router-client-bundle-router-entry-udp-paired-obfs-fail-closed"].severity == "error"
+    assert by_code["entry-router-client-bundle-router-entry-udp-paired-obfs-host-wide"].severity == "error"
+    assert by_code["entry-router-client-bundle-router-entry-udp-paired-obfs-nfqueue"].severity == "error"
+    assert by_code["entry-router-client-bundle-router-entry-udp-hardening-fail-closed"].severity == "error"
+
+
+def test_validate_router_client_bundle_env_rejects_divergence(tmp_path: Path) -> None:
+    contract = _runtime_contract(role="ENTRY")
+    contract["linkCrypto"] = _router_link_crypto_contract(role="ENTRY")
+    contract_path = tmp_path / "entry.json"
+    contract_path.write_text(json.dumps(contract) + "\n", encoding="utf-8")
+    udp_link = _router_udp_link(role="ENTRY")
+    router_state_path = _write_router_handoff_state(
+        tmp_path,
+        "private/router/entry/desired-state.json",
+        contract=contract,
+        role="ENTRY",
+        runtime_contract_path=str(contract_path),
+        udp_routes=[_router_route_from_link(udp_link, transport="udp-quic")],
+    )
+    router_state_payload = json.loads(router_state_path.read_text(encoding="utf-8"))
+    bundle_path = _write_router_client_bundle(
+        tmp_path,
+        "private/router/entry/client-bundle.json",
+        state_path=router_state_path,
+        state=router_state_payload,
+    )
+    bundle_payload = json.loads(bundle_path.read_text(encoding="utf-8"))
+    bundle_env_path = _write_router_client_bundle_env(
+        tmp_path,
+        "private/router/entry/client-bundle.env",
+        bundle_path=bundle_path,
+        handoff_path=router_state_path,
+        bundle=bundle_payload,
+        overrides={
+            "TRACEGATE_ROUTER_CLIENT_BUNDLE_ROLE": "TRANSIT",
+            "TRACEGATE_ROUTER_CLIENT_BUNDLE_RUNTIME_PROFILE": "split",
+            "TRACEGATE_ROUTER_CLIENT_BUNDLE_JSON": "/tmp/other-client-bundle.json",
+            "TRACEGATE_ROUTER_CLIENT_BUNDLE_HANDOFF_JSON": "/tmp/other-router-state.json",
+            "TRACEGATE_ROUTER_CLIENT_BUNDLE_SECRET_MATERIAL": "true",
+            "TRACEGATE_ROUTER_CLIENT_BUNDLE_ENABLED": "false",
+            "TRACEGATE_ROUTER_CLIENT_BUNDLE_COMPONENTS": "mieru-client",
+            "TRACEGATE_ROUTER_CLIENT_BUNDLE_TCP_COUNT": "1",
+            "TRACEGATE_ROUTER_CLIENT_BUNDLE_UDP_COUNT": "0",
+            "TRACEGATE_ROUTER_CLIENT_BUNDLE_REQUIRES_BOTH_SIDES": "false",
+            "TRACEGATE_ROUTER_CLIENT_BUNDLE_FAIL_CLOSED": "false",
+            "TRACEGATE_ROUTER_CLIENT_BUNDLE_NO_HOST_WIDE_INTERCEPTION": "false",
+            "TRACEGATE_ROUTER_CLIENT_BUNDLE_NO_NFQUEUE": "false",
+        },
+    )
+
+    findings = validate_router_client_bundle_env(
+        env=load_router_client_bundle_env(bundle_env_path),
+        expected_role="ENTRY",
+        contract=contract,
+        bundle=load_router_client_bundle(bundle_path),
+        handoff_state=load_router_handoff_state(router_state_path),
+    )
+
+    by_code = {finding.code: finding for finding in findings}
+    assert by_code["entry-router-client-bundle-env-role"].severity == "error"
+    assert by_code["entry-router-client-bundle-env-secret-material"].severity == "error"
+    assert by_code["entry-router-client-bundle-env-fail-closed"].severity == "error"
+    assert by_code["entry-router-client-bundle-env-host-wide"].severity == "error"
+    assert by_code["entry-router-client-bundle-env-nfqueue"].severity == "error"
+    assert by_code["entry-router-client-bundle-env-both-sides"].severity == "error"
+    assert by_code["entry-router-client-bundle-env-contract-runtime-profile"].severity == "error"
+    assert by_code["entry-router-client-bundle-env-bundle-json"].severity == "warning"
+    assert by_code["entry-router-client-bundle-env-handoff-json"].severity == "warning"
+    assert by_code["entry-router-client-bundle-env-runtime-profile"].severity == "error"
+    assert by_code["entry-router-client-bundle-env-bundle-enabled"].severity == "error"
+    assert by_code["entry-router-client-bundle-env-bundle-counts"].severity == "error"
+    assert by_code["entry-router-client-bundle-env-components"].severity == "error"
+    assert by_code["entry-router-client-bundle-env-bundle-both-sides"].severity == "error"
+    assert by_code["entry-router-client-bundle-env-state-json"].severity == "warning"
 
 
 def test_validate_obfuscation_env_contract_accepts_consistent_handoff(tmp_path: Path) -> None:
@@ -2734,6 +4288,7 @@ def test_validate_fronting_and_mtproto_states_detect_divergence(tmp_path: Path) 
                 "touchUdp443": True,
                 "mtprotoDomain": "",
                 "tcp443Owner": "nginx",
+                "publicUdpOwner": "haproxy",
                 "udp443Owner": "haproxy",
                 "mtprotoProfileFile": str(tmp_path / "other-mtproto.env"),
                 "backend": "",
@@ -3654,6 +5209,115 @@ def test_validate_runtime_contracts_cli_validates_link_crypto_handoffs(
     assert "transit_link_crypto_env=" in out
     assert "link_crypto_unit=" in out
     assert "OK runtime contracts, zapret profiles and private handoffs are internally consistent" in out
+
+
+def test_validate_runtime_contracts_cli_validates_router_handoffs(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys
+) -> None:
+    entry_path = tmp_path / "entry.json"
+    transit_path = tmp_path / "transit.json"
+    entry_contract = _runtime_contract(role="ENTRY")
+    transit_contract = _runtime_contract(role="TRANSIT")
+    entry_contract["linkCrypto"] = _router_link_crypto_contract(role="ENTRY")
+    transit_contract["linkCrypto"] = _router_link_crypto_contract(role="TRANSIT")
+    entry_path.write_text(json.dumps(entry_contract) + "\n", encoding="utf-8")
+    transit_path.write_text(json.dumps(transit_contract) + "\n", encoding="utf-8")
+
+    entry_tcp_link = _router_tcp_link(role="ENTRY")
+    entry_udp_link = _router_udp_link(role="ENTRY")
+    transit_tcp_link = _router_tcp_link(role="TRANSIT")
+    transit_udp_link = _router_udp_link(role="TRANSIT")
+    entry_router_state_path = _write_router_handoff_state(
+        tmp_path,
+        "private/router/entry/desired-state.json",
+        contract=entry_contract,
+        role="ENTRY",
+        runtime_contract_path=str(entry_path),
+        tcp_routes=[_router_route_from_link(entry_tcp_link, transport="tcp")],
+        udp_routes=[_router_route_from_link(entry_udp_link, transport="udp-quic")],
+    )
+    transit_router_state_path = _write_router_handoff_state(
+        tmp_path,
+        "private/router/transit/desired-state.json",
+        contract=transit_contract,
+        role="TRANSIT",
+        runtime_contract_path=str(transit_path),
+        tcp_routes=[_router_route_from_link(transit_tcp_link, transport="tcp")],
+        udp_routes=[_router_route_from_link(transit_udp_link, transport="udp-quic")],
+    )
+    entry_router_env_path = _write_router_handoff_env(
+        tmp_path,
+        "private/router/entry/desired-state.env",
+        state_path=entry_router_state_path,
+        state=json.loads(entry_router_state_path.read_text(encoding="utf-8")),
+    )
+    transit_router_env_path = _write_router_handoff_env(
+        tmp_path,
+        "private/router/transit/desired-state.env",
+        state_path=transit_router_state_path,
+        state=json.loads(transit_router_state_path.read_text(encoding="utf-8")),
+    )
+    entry_router_bundle_path = _write_router_client_bundle(
+        tmp_path,
+        "private/router/entry/client-bundle.json",
+        state_path=entry_router_state_path,
+        state=json.loads(entry_router_state_path.read_text(encoding="utf-8")),
+    )
+    transit_router_bundle_path = _write_router_client_bundle(
+        tmp_path,
+        "private/router/transit/client-bundle.json",
+        state_path=transit_router_state_path,
+        state=json.loads(transit_router_state_path.read_text(encoding="utf-8")),
+    )
+    entry_router_client_env_path = _write_router_client_bundle_env(
+        tmp_path,
+        "private/router/entry/client-bundle.env",
+        bundle_path=entry_router_bundle_path,
+        handoff_path=entry_router_state_path,
+        bundle=json.loads(entry_router_bundle_path.read_text(encoding="utf-8")),
+    )
+    transit_router_client_env_path = _write_router_client_bundle_env(
+        tmp_path,
+        "private/router/transit/client-bundle.env",
+        bundle_path=transit_router_bundle_path,
+        handoff_path=transit_router_state_path,
+        bundle=json.loads(transit_router_bundle_path.read_text(encoding="utf-8")),
+    )
+
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "tracegate-validate-runtime-contracts",
+            "--entry",
+            str(entry_path),
+            "--transit",
+            str(transit_path),
+            "--entry-router-state",
+            str(entry_router_state_path),
+            "--transit-router-state",
+            str(transit_router_state_path),
+            "--entry-router-env",
+            str(entry_router_env_path),
+            "--transit-router-env",
+            str(transit_router_env_path),
+            "--entry-router-client-bundle",
+            str(entry_router_bundle_path),
+            "--transit-router-client-bundle",
+            str(transit_router_bundle_path),
+            "--entry-router-client-env",
+            str(entry_router_client_env_path),
+            "--transit-router-client-env",
+            str(transit_router_client_env_path),
+        ],
+    )
+
+    validate_runtime_contracts.main()
+    out = capsys.readouterr().out
+    assert "entry_router_state=" in out
+    assert "transit_router_env=" in out
+    assert "entry_router_client_bundle=" in out
+    assert "transit_router_client_env=" in out
+    assert "OK runtime contracts and private runtime/env handoffs are internally consistent" in out
 
 
 def test_validate_runtime_contracts_cli_validates_obfuscation_env_when_provided(

@@ -71,6 +71,28 @@ def test_check_port_falls_back_to_proc_net_when_ss_missing(monkeypatch, tmp_path
     assert "/proc/net/tcp port=443" in details
 
 
+def test_check_port_blocked_rejects_listener(monkeypatch):
+    monkeypatch.setattr(system, "check_port", lambda protocol, port: (True, f"{protocol}:{port}"))
+
+    ok, details = system.check_port_blocked("udp", 443)
+
+    assert ok is False
+    assert "forbidden udp/443 is listening" in details
+
+
+def test_check_port_blocked_accepts_no_listener(monkeypatch):
+    monkeypatch.setattr(system, "check_port", lambda protocol, port: (False, f"{protocol}/{port} is not listening"))
+
+    ok, details = system.check_port_blocked("tcp", 8443)
+
+    assert ok is True
+    assert "tcp/8443 is not listening" in details
+
+
+def _tracegate22_port_check(protocol: str, port: int) -> tuple[bool, str]:
+    return (protocol, port) in {("tcp", 443), ("udp", 8443)}, f"{protocol}:{port}"
+
+
 def test_proc_has_process_from_comm(tmp_path):
     proc = tmp_path / "123"
     proc.mkdir()
@@ -166,7 +188,7 @@ async def test_check_hysteria_stats_secret_empty_secret_short_circuit(monkeypatc
 
 @pytest.mark.asyncio
 async def test_gather_health_checks_entry_legacy_container_runtime(monkeypatch):
-    monkeypatch.setattr(system, "check_port", lambda protocol, port: (True, f"{protocol}:{port}"))
+    monkeypatch.setattr(system, "check_port", _tracegate22_port_check)
     monkeypatch.setattr(system, "check_process", lambda name: (True, name))
     monkeypatch.setattr(system, "check_systemd", lambda name: (False, name))
 
@@ -180,11 +202,14 @@ async def test_gather_health_checks_entry_legacy_container_runtime(monkeypatch):
         "secret",
         "ENTRY",
         "kubernetes",
+        "xray-centric",
     )
 
     names = [row["name"] for row in checks]
     assert "listen tcp/443" in names
-    assert "listen udp/443" in names
+    assert "listen udp/8443" in names
+    assert "blocked udp/443" in names
+    assert "blocked tcp/8443" in names
     assert "process xray" in names
     assert "process haproxy" in names
     assert "hysteria stats API auth" not in names
@@ -194,7 +219,7 @@ async def test_gather_health_checks_entry_legacy_container_runtime(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_gather_health_checks_transit_legacy_container_runtime(monkeypatch):
-    monkeypatch.setattr(system, "check_port", lambda protocol, port: (True, f"{protocol}:{port}"))
+    monkeypatch.setattr(system, "check_port", _tracegate22_port_check)
     monkeypatch.setattr(system, "check_process", lambda name: (True, name))
     monkeypatch.setattr(system, "check_systemd", lambda name: (False, name))
 
@@ -208,11 +233,14 @@ async def test_gather_health_checks_transit_legacy_container_runtime(monkeypatch
         "secret",
         "TRANSIT",
         "kubernetes",
+        "xray-centric",
     )
 
     names = [row["name"] for row in checks]
     assert "listen tcp/443" in names
-    assert "listen udp/443" in names
+    assert "listen udp/8443" in names
+    assert "blocked udp/443" in names
+    assert "blocked tcp/8443" in names
     assert "process xray" in names
     assert "process haproxy" in names
     assert "process hysteria" not in names
@@ -220,8 +248,37 @@ async def test_gather_health_checks_transit_legacy_container_runtime(monkeypatch
 
 
 @pytest.mark.asyncio
+async def test_gather_health_checks_default_profile_is_tracegate22(monkeypatch):
+    monkeypatch.setattr(system, "check_port", _tracegate22_port_check)
+    monkeypatch.setattr(system, "check_process", lambda name: (True, name))
+    monkeypatch.setattr(system, "check_systemd", lambda name: (False, name))
+
+    async def _stats(url, secret):
+        return True, "auth=200"
+
+    monkeypatch.setattr(system, "check_hysteria_stats_secret", _stats)
+
+    checks = await system.gather_health_checks(
+        "http://127.0.0.1:9999/traffic",
+        "secret",
+        "TRANSIT",
+        "kubernetes",
+    )
+
+    names = [row["name"] for row in checks]
+    assert "listen tcp/443" in names
+    assert "listen udp/8443" in names
+    assert "blocked udp/443" in names
+    assert "blocked tcp/8443" in names
+    assert "process xray" in names
+    assert "process hysteria" in names
+    assert "process haproxy" in names
+    assert "hysteria stats API auth" in names
+
+
+@pytest.mark.asyncio
 async def test_gather_health_checks_transit_xray_centric_profile_skips_hysteria_process_and_stats(monkeypatch):
-    monkeypatch.setattr(system, "check_port", lambda protocol, port: (True, f"{protocol}:{port}"))
+    monkeypatch.setattr(system, "check_port", _tracegate22_port_check)
     monkeypatch.setattr(system, "check_process", lambda name: (True, name))
     monkeypatch.setattr(system, "check_systemd", lambda name: (False, name))
 
@@ -240,7 +297,9 @@ async def test_gather_health_checks_transit_xray_centric_profile_skips_hysteria_
 
     names = [row["name"] for row in checks]
     assert "listen tcp/443" in names
-    assert "listen udp/443" in names
+    assert "listen udp/8443" in names
+    assert "blocked udp/443" in names
+    assert "blocked tcp/8443" in names
     assert "process xray" in names
     assert "process haproxy" in names
     assert "process hysteria" not in names

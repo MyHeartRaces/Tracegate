@@ -1,6 +1,7 @@
 # Tracegate 2.1 stealth architecture
 
-Status: design proposal
+Status: superseded design proposal. Tracegate 2.2 moves public UDP ingress to
+`8443/udp` and keeps Hysteria2 outside Xray.
 
 Date: 2026-04-24
 
@@ -37,7 +38,7 @@ Gateway pods keep the old useful k3s pattern: sidecars share a pod network names
 Data-plane sidecars:
 
 - `edge-mux`: owns public `TCP/443`, does SNI/ALPN/path demux and static decoy routing.
-- `udp-edge`: owns public `UDP/443` for Hysteria2 or TUIC lab profiles.
+- `udp-edge`: owns public `UDP/8443` for Hysteria2 or TUIC lab profiles.
 - `xray`: kept only where existing V1/V2 compatibility requires it, with users synced through gRPC API.
 - `sing-box`: owns Shadowsocks-2022, ShadowTLS V3, TUIC lab profiles and the chain-proxy relay fabric.
 - `mtproto-gateway`: core Transit-side Telegram Proxy runtime, fronted on a dedicated domain and isolated from the main profile runtimes.
@@ -63,13 +64,13 @@ and zapret2 profiles remain outside Git.
 | --- | --- | --- | --- | --- |
 | `V1` | Transit `TCP/443` | edge-mux + gRPC/WS carrier + Xray or sing-box adapter | direct | New default TCP compatibility surface. Prefer HTTP/2 gRPC carrier; keep legacy WS+TLS fallback only for clients that cannot speak gRPC. |
 | `V2` | Entry `TCP/443` | edge-mux + chain-proxy | chain | Keep current user-facing role, but Entry-to-Transit must move out of Xray. |
-| `V3` | Transit `UDP/443` | Hysteria2 standalone or sing-box | direct | Keep Hysteria2 for now. Do not replace with TUIC in the first 2.1 production cut. |
-| `V4` | Entry `UDP/443` | Hysteria2 standalone or sing-box + chain-proxy | chain | Keep as backup/UDP profile. Its backhaul must use the same chain relay contract as V2/V6. |
+| `V3` | Transit `UDP/8443` | Hysteria2 standalone or sing-box | direct | Keep Hysteria2 for now. Do not replace with TUIC in the first 2.1 production cut. |
+| `V4` | Entry `UDP/8443` | Hysteria2 standalone or sing-box + chain-proxy | chain | Keep as backup/UDP profile. Its backhaul must use the same chain relay contract as V2/V6. |
 | `V5` | Transit `TCP/443` | sing-box ShadowTLS V3 + Shadowsocks-2022 | direct | New direct SS2022 profile. |
 | `V6` | Entry `TCP/443` | sing-box ShadowTLS V3 + Shadowsocks-2022 + chain-proxy | chain | New chained SS2022 profile. |
 | `V7` | Transit `TCP/443` WSS | wstunnel + WireGuard | direct L3 | WireGuard returns, but only through WebSocket/TLS. Optional Entry-fronted V7 is lab-only until latency and reconnect behavior are proven. |
 | `V8` | Transit `TCP/443` or dedicated domain | Mieru or RESTLS lab | direct option | Optional direct Transit obfuscation layer, not a default production profile. |
-| `V9` | Transit/Entry `UDP/443` | TUIC v5 lab | direct or chain lab | Evaluation profile only. |
+| `V9` | Transit/Entry `UDP/8443` | TUIC v5 lab | direct or chain lab | Evaluation profile only. |
 | `MTProto` | Transit `TCP/443` dedicated domain | fronting + MTProxy-compatible gateway + zapret2 extra profile | direct | Core Telegram Proxy surface. Maximum obfuscation is preferred over long-lived connection stability. |
 
 ## Client profile naming
@@ -244,7 +245,7 @@ Backplane tiers:
 
 - Tier 1: ShadowTLS V3 + Shadowsocks-2022 relay on `TCP/443`, default for V2/V6 and TCP-heavy V4.
 - Tier 2: private WireGuard-over-WSTunnel L3 overlay, only where a true IP route is required.
-- Tier 3: Hysteria2 or TUIC QUIC backplane, lab-only for UDP-heavy workloads when `UDP/443` is known to survive.
+- Tier 3: Hysteria2 or TUIC QUIC backplane, lab-only for UDP-heavy workloads when `UDP/8443` is known to survive.
 
 Avoid reintroducing the old adaptive selector as a default. If selector logic returns, it must be sticky, per-flow, slow to switch, and disabled from probing multiple expensive backplanes on small Entry nodes.
 
@@ -258,7 +259,7 @@ The zapret2 layer must be reworked as a narrow private helper, not as a broad ne
 
 Rules for 2.1:
 
-- Entry public profile: only Entry ingress `TCP/443` and `UDP/443`.
+- Entry public profile: only Entry ingress `TCP/443` and `UDP/8443`.
 - Interconnect profile: only Entry-to-Transit bridge traffic.
 - Transit profile: only Tracegate-facing public `443` surfaces.
 - No broad NFQUEUE or userspace interception over all host traffic.

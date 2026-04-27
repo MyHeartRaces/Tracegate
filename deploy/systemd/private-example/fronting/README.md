@@ -11,7 +11,7 @@ Scope:
 Important boundary:
 
 - this scaffold stays disabled by default until the private backend is validated on a testbed
-- own only `TCP/443`; do not claim `UDP/443`
+- own only `TCP/443`; do not claim public `UDP/8443`
 - keep the actual classifier, fake-handshake logic and packet shaping outside Git
 - keep `MTProto` on its own dedicated real hostname instead of reusing the main public surface
 - keep the default listen address on a local test port until the demux is validated end-to-end
@@ -19,7 +19,7 @@ Important boundary:
 Recommended shape:
 
 1. Let the private fronting service own only public `TCP/443`.
-2. Keep `UDP/443` on the active runtime owner, which is currently `Xray` in `xray-centric`.
+2. Keep public `UDP/8443` on the active runtime owner.
 3. Route `REALITY`, `WS+TLS` and `MTProto` legs into separate local upstreams.
 4. Keep `MTProto` and `zapret2` as separate private layers behind the fronting service.
 5. Validate the demux first on a local test port such as `127.0.0.1:10443`.

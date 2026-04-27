@@ -10,6 +10,7 @@ The deploy kit in this directory covers the control plane and both node-agent ro
 - `tracegate-agent-entry.service`
 - `tracegate-agent-transit.service`
 - `tracegate-xray@.service`
+- `tracegate-hysteria@.service`
 - `tracegate-haproxy@.service`
 - `tracegate-nginx@.service`
 - `tracegate.env.example`
@@ -69,6 +70,8 @@ Defaults:
 
 - `XRAY_VERSION=latest`
 - `XRAY_INSTALL_POLICY=if-missing`
+- `HYSTERIA_VERSION=latest`
+- `HYSTERIA_INSTALL_POLICY=if-missing`
 - `INSTALL_COMPONENTS=auto`
 - `INSTALL_BIN_DIR=/usr/local/bin`
 - `INSTALL_PROXY_STACK=true`
@@ -78,18 +81,19 @@ Defaults:
 - `MTPROTO_INSTALL_ROOT=/opt/MTProxy`
 - `MTPROTO_REFRESH_BOOTSTRAP=if-missing`
 
-The runtime installer resolves official upstream release assets through the GitHub API and verifies checksums
-before replacing the binaries. The default `if-missing` policies make repeat runs deterministic on an already
-provisioned host: existing Xray and MTProxy binaries are reused, and MTProto bootstrap files are only refreshed
-when they are absent.
+The runtime installer resolves official upstream release assets and verifies Xray checksums before replacing the
+binaries. Hysteria2 can also be pinned with `HYSTERIA_SHA256` when byte-for-byte verification is required. The
+default `if-missing` policies make repeat runs deterministic on an already provisioned host: existing Xray,
+Hysteria2 and MTProxy binaries are reused, and MTProto bootstrap files are only refreshed when they are absent.
 
-`INSTALL_COMPONENTS=auto` follows `AGENT_RUNTIME_PROFILE` and installs the Xray-only runtime.
-Legacy profile names such as `split` and `xray-hysteria` are normalized into the same `xray-centric` path.
+`INSTALL_COMPONENTS=auto` follows `AGENT_RUNTIME_PROFILE`. The default `tracegate-2.2` profile installs Xray and
+standalone Hysteria2; legacy profile names such as `split` and `xray-hysteria` are normalized into the explicit
+`xray-centric` compatibility path.
 
 If you also want the private Transit MTProto scaffold to be runnable on a testbed, install it explicitly:
 
 ```bash
-sudo INSTALL_COMPONENTS=xray,mtproto /opt/tracegate/deploy/systemd/install-runtime.sh
+sudo INSTALL_COMPONENTS=xray,hysteria,mtproto /opt/tracegate/deploy/systemd/install-runtime.sh
 ```
 
 That opt-in path builds the official Telegram `MTProxy` binary from the upstream
@@ -163,7 +167,7 @@ Like the render helpers, preflight also loads `${CONFIG_DIR:-/etc/tracegate}/tra
 `PRIVATE_RUNTIME_ROOT` or MTProto/fronting paths are picked up automatically.
 
 This command writes full replacement `xray.json` overlays into `BUNDLE_PRIVATE_OVERLAY_ROOT`
-for `entry` and `transit`. It is intended for the default `xray-centric` path where Hysteria
+for `entry` and `transit`. It is intended only for the legacy `xray-centric` compatibility path where Hysteria
 ingress is terminated by `Xray` instead of the separate `hysteria` service.
 
 Sensitive transport camouflage can stay outside the repository:
@@ -230,7 +234,7 @@ It keeps:
 - Transit runtime values
 - MTProto/fronting hints
 - replacement toggles such as `TRACEGATE_REPLACE_API_URL`
-- runtime installer choices such as `INSTALL_COMPONENTS=xray,mtproto`
+- runtime installer choices such as `INSTALL_COMPONENTS=xray,hysteria,mtproto`
 - install policies such as `XRAY_INSTALL_POLICY=if-missing`, `MTPROTO_INSTALL_POLICY=if-missing` and `MTPROTO_REFRESH_BOOTSTRAP=if-missing`
 
 The repository also ships a matching GitHub Actions workflow:
@@ -255,16 +259,17 @@ sudo systemctl enable --now tracegate-api tracegate-dispatcher tracegate-bot
 sudo systemctl enable --now tracegate-agent-entry
 sudo systemctl enable --now tracegate-agent-transit
 sudo systemctl enable --now tracegate-haproxy@entry tracegate-nginx@entry
-sudo systemctl enable --now tracegate-xray@entry
+sudo systemctl enable --now tracegate-xray@entry tracegate-hysteria@entry
 sudo systemctl enable --now tracegate-haproxy@transit tracegate-nginx@transit
-sudo systemctl enable --now tracegate-xray@transit
+sudo systemctl enable --now tracegate-xray@transit tracegate-hysteria@transit
 ```
 
 Use only the units needed on a given host:
 
 - control-plane host: `tracegate-api`, `tracegate-dispatcher`, `tracegate-bot`
-- Entry host, `xray-centric`: `tracegate-agent-entry`, `tracegate-haproxy@entry`, `tracegate-nginx@entry`, `tracegate-xray@entry`
-- Transit host, `xray-centric`: `tracegate-agent-transit`, `tracegate-haproxy@transit`, `tracegate-nginx@transit`, `tracegate-xray@transit`
+- Entry host, `tracegate-2.2`: `tracegate-agent-entry`, `tracegate-haproxy@entry`, `tracegate-nginx@entry`, `tracegate-xray@entry`, `tracegate-hysteria@entry`
+- Transit host, `tracegate-2.2`: `tracegate-agent-transit`, `tracegate-haproxy@transit`, `tracegate-nginx@transit`, `tracegate-xray@transit`, `tracegate-hysteria@transit`
+- Legacy `xray-centric` hosts omit `tracegate-hysteria@<role>` because Hysteria is Xray-owned there.
 
 Recommended env layout:
 
@@ -290,12 +295,12 @@ Recommended env layout:
 
 Runtime profile note:
 
-- `AGENT_RUNTIME_PROFILE=xray-centric` is the current Tracegate 2 default
-- `AGENT_RUNTIME_PROFILE=tracegate-2.1` is reserved for the k3s production chart and disables Xray Entry-to-Transit backhaul there; do not use it with this systemd migration kit
+- `AGENT_RUNTIME_PROFILE=tracegate-2.2` is the current Tracegate 2 default
+- `AGENT_RUNTIME_PROFILE=tracegate-2.1` keeps the no-Xray-backhaul contract but remains a legacy compatibility profile
 - older profile names such as `split` and `xray-hysteria` are treated as aliases of `xray-centric`
 - `INSTALL_COMPONENTS=auto` and the helper output from `install.sh` both follow `AGENT_RUNTIME_PROFILE`
-- `INSTALL_COMPONENTS=xray,mtproto` is the intended Transit-only opt-in when the private MTProto wrapper should supervise the official `MTProxy` binary directly on a testbed
-- when `AGENT_XRAY_API_ENABLED=true`, `xray-centric` can now push both `VLESS` and Xray-native `Hysteria` user updates through the Xray gRPC API without a full Xray reload
+- `INSTALL_COMPONENTS=xray,hysteria,mtproto` is the intended Transit-only opt-in when the private MTProto wrapper should supervise the official `MTProxy` binary directly on a testbed
+- when `AGENT_XRAY_API_ENABLED=true`, Tracegate 2.2 pushes VLESS changes through the Xray gRPC API; Hysteria2 auth is served by the agent's local HTTP auth endpoint
 
 Important shared variables for bundle rendering:
 
@@ -304,7 +309,10 @@ Important shared variables for bundle rendering:
 - `REALITY_PUBLIC_KEY_TRANSIT`
 - `REALITY_SHORT_ID_ENTRY`
 - `REALITY_SHORT_ID_TRANSIT`
-- `HYSTERIA_BOOTSTRAP_PASSWORD`
+- `HYSTERIA_SALAMANDER_PASSWORD_ENTRY`
+- `HYSTERIA_SALAMANDER_PASSWORD_TRANSIT`
+- `HYSTERIA_STATS_SECRET_ENTRY`
+- `HYSTERIA_STATS_SECRET_TRANSIT`
 - `ENTRY_TLS_SERVER_NAME`
 - `TRANSIT_TLS_SERVER_NAME`
 - `BUNDLE_PRIVATE_OVERLAY_ROOT`
@@ -314,7 +322,10 @@ Important shared variables for bundle rendering:
 `XRAY_CENTRIC_DECOY_DIR` is the shared decoy root used by:
 
 - rendered `nginx.conf` on `Entry` and `Transit`
-- Xray-native `Hysteria` masquerade directories in the `xray-centric` overlay generator
+- standalone Hysteria2 masquerade directories in `tracegate-2.2`
+- Xray-native `Hysteria` masquerade directories in the legacy `xray-centric` overlay generator
+
+Tracegate 2.2 keeps TCP and UDP public surfaces split: TCP fronting stays on `443`, Hysteria2 stays on `udp/8443`, and host firewall bundles explicitly drop `udp/443` plus `tcp/8443`.
 
 `tracegate-nginx@.service` is not pinned to `/var/www/decoy`; the decoy tree only needs to be readable by `nginx`,
 so `XRAY_CENTRIC_DECOY_DIR` may point to any host path with suitable permissions.
@@ -342,14 +353,16 @@ The node runtime units read directly from the reconciled agent runtime tree:
 - `/var/lib/tracegate/agent-entry/runtime/haproxy/haproxy.cfg`
 - `/var/lib/tracegate/agent-entry/runtime/nginx/nginx.conf`
 - `/var/lib/tracegate/agent-entry/runtime/xray/config.json`
+- `/var/lib/tracegate/agent-entry/runtime/hysteria/server.yaml`
 - `/var/lib/tracegate/agent-transit/runtime/haproxy/haproxy.cfg`
 - `/var/lib/tracegate/agent-transit/runtime/nginx/nginx.conf`
 - `/var/lib/tracegate/agent-transit/runtime/xray/config.json`
+- `/var/lib/tracegate/agent-transit/runtime/hysteria/server.yaml`
 
 The agent also writes `/var/lib/tracegate/agent-{entry,transit}/runtime/runtime-contract.json`.
 This is the public machine-readable hand-off for host-local wrappers that need to detect
-the active decoy root, Xray-native Hysteria masquerade directories, or whether `FinalMask`
-and `ECH` are currently present in the reconciled runtime.
+the active decoy root, standalone Hysteria masquerade directories, legacy Xray-native Hysteria state,
+or whether `FinalMask` and `ECH` are currently present in the reconciled runtime.
 
 The agent now materializes private handoff surfaces under the effective private runtime root
 (default sibling `private/` next to `AGENT_DATA_ROOT`, or explicit `PRIVATE_RUNTIME_ROOT`):

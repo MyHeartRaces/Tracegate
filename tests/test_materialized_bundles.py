@@ -20,6 +20,10 @@ def _base_env(tmp_path: Path) -> dict[str, str]:
         "DEFAULT_TRANSIT_HOST": "transit.tracegate.test",
         "VLESS_WS_PATH": "/stealth/ws",
         "HYSTERIA_BOOTSTRAP_PASSWORD": "bootstrap-secret",
+        "HYSTERIA_SALAMANDER_PASSWORD_ENTRY": "entry-salamander-secret",
+        "HYSTERIA_SALAMANDER_PASSWORD_TRANSIT": "transit-salamander-secret",
+        "HYSTERIA_STATS_SECRET_ENTRY": "entry-stats-secret",
+        "HYSTERIA_STATS_SECRET_TRANSIT": "transit-stats-secret",
         "REALITY_PUBLIC_KEY_TRANSIT": "transit-public-key",
         "REALITY_SHORT_ID_ENTRY": "entry-short-id",
         "REALITY_SHORT_ID_TRANSIT": "transit-short-id",
@@ -69,6 +73,14 @@ def test_context_uses_shared_defaults_and_fallback_values(tmp_path: Path) -> Non
     ctx = MaterializedBundleRenderContext.from_environ(env)
 
     assert ctx.ws_path == "/ws"
+    assert ctx.runtime_profile == "tracegate-2.2"
+    assert ctx.hysteria_udp_port == 8443
+    assert ctx.entry_hysteria_salamander_password == "entry-salamander-secret"
+    assert ctx.transit_hysteria_salamander_password == "transit-salamander-secret"
+    assert ctx.entry_hysteria_stats_secret == "entry-stats-secret"
+    assert ctx.transit_hysteria_stats_secret == "transit-stats-secret"
+    assert ctx.entry_hysteria_auth_url == "http://127.0.0.1:8070/v1/hysteria/auth"
+    assert ctx.transit_hysteria_auth_url == "http://127.0.0.1:8070/v1/hysteria/auth"
     assert ctx.reality_public_key_transit == "shared-public-key"
     assert ctx.reality_short_id_entry == "shared-short-id"
     assert ctx.reality_short_id_transit == "shared-short-id"
@@ -139,16 +151,18 @@ def test_render_materialized_bundles_rewrites_runtime_files(tmp_path: Path) -> N
     transit_haproxy = (ctx.materialized_root / "base-transit" / "haproxy.cfg").read_text(encoding="utf-8")
     entry_nginx = (ctx.materialized_root / "base-entry" / "nginx.conf").read_text(encoding="utf-8")
     transit_nginx = (ctx.materialized_root / "base-transit" / "nginx.conf").read_text(encoding="utf-8")
+    entry_hysteria = (ctx.materialized_root / "base-entry" / "hysteria" / "server.yaml").read_text(encoding="utf-8")
+    transit_hysteria = (ctx.materialized_root / "base-transit" / "hysteria" / "server.yaml").read_text(
+        encoding="utf-8"
+    )
 
     entry_inbound = next(inbound for inbound in entry_xray["inbounds"] if inbound["tag"] == "entry-in")
     entry_ws_inbound = next(inbound for inbound in entry_xray["inbounds"] if inbound["tag"] == "vless-ws-in")
     entry_grpc_inbound = next(inbound for inbound in entry_xray["inbounds"] if inbound["tag"] == "vless-grpc-in")
-    entry_hy2_inbound = next(inbound for inbound in entry_xray["inbounds"] if inbound["tag"] == "hy2-in")
     to_transit = next(outbound for outbound in entry_xray["outbounds"] if outbound["tag"] == "to-transit")
     transit_reality_inbound = next(inbound for inbound in transit_xray["inbounds"] if inbound["tag"] == "vless-reality-in")
     transit_ws_inbound = next(inbound for inbound in transit_xray["inbounds"] if inbound["tag"] == "vless-ws-in")
     transit_grpc_inbound = next(inbound for inbound in transit_xray["inbounds"] if inbound["tag"] == "vless-grpc-in")
-    transit_hy2_inbound = next(inbound for inbound in transit_xray["inbounds"] if inbound["tag"] == "hy2-in")
 
     assert entry_inbound["streamSettings"]["realitySettings"]["dest"] == "origin-entry.example:443"
     assert entry_inbound["streamSettings"]["realitySettings"]["serverNames"] == ["origin-entry.example"]
@@ -178,34 +192,29 @@ def test_render_materialized_bundles_rewrites_runtime_files(tmp_path: Path) -> N
     assert transit_ws_inbound["streamSettings"]["wsSettings"]["heartbeatPeriod"] == 15
     assert transit_grpc_inbound["streamSettings"]["grpcSettings"]["serviceName"] == "tracegate.v1.Edge"
 
-    assert entry_hy2_inbound["protocol"] == "hysteria"
-    assert entry_hy2_inbound["streamSettings"]["hysteriaSettings"]["auth"] == "bootstrap-secret"
-    assert entry_hy2_inbound["streamSettings"]["hysteriaSettings"]["masquerade"]["dir"] == "/srv/decoy"
-    assert entry_hy2_inbound["streamSettings"]["tlsSettings"]["certificates"] == [
-        {"certificateFile": "/etc/tracegate/tls/ws.crt", "keyFile": "/etc/tracegate/tls/ws.key"}
-    ]
-    assert entry_hy2_inbound["streamSettings"]["tlsSettings"]["alpn"] == ["h3"]
-    assert transit_hy2_inbound["protocol"] == "hysteria"
-    assert transit_hy2_inbound["streamSettings"]["hysteriaSettings"]["auth"] == "bootstrap-secret"
-    assert transit_hy2_inbound["streamSettings"]["hysteriaSettings"]["masquerade"]["dir"] == "/srv/decoy"
-    assert transit_hy2_inbound["streamSettings"]["tlsSettings"]["certificates"] == [
-        {"certificateFile": "/etc/tracegate/tls/ws.crt", "keyFile": "/etc/tracegate/tls/ws.key"}
-    ]
-    assert transit_hy2_inbound["streamSettings"]["tlsSettings"]["alpn"] == ["h3"]
+    assert "hy2-in" not in {inbound["tag"] for inbound in entry_xray["inbounds"]}
+    assert "hy2-in" not in {inbound["tag"] for inbound in transit_xray["inbounds"]}
+    assert "listen: :8443" in entry_hysteria
+    assert "url: \"http://127.0.0.1:8070/v1/hysteria/auth\"" in entry_hysteria
+    assert "password: \"entry-salamander-secret\"" in entry_hysteria
+    assert "secret: \"entry-stats-secret\"" in entry_hysteria
+    assert "dir: \"/srv/decoy\"" in entry_hysteria
+    assert "password: \"transit-salamander-secret\"" in transit_hysteria
+    assert "secret: \"transit-stats-secret\"" in transit_hysteria
     assert any(
         rule.get("protocol") == ["bittorrent"] and rule.get("outboundTag") == "block"
         for rule in entry_xray["routing"]["rules"]
         if isinstance(rule, dict)
     )
     assert any(
-        rule.get("inboundTag") == ["entry-in", "vless-ws-in", "vless-grpc-in", "hy2-in"]
+        rule.get("inboundTag") == ["entry-in", "vless-ws-in", "vless-grpc-in"]
         and rule.get("protocol") == ["bittorrent"]
         and rule.get("outboundTag") == "block"
         for rule in entry_xray["routing"]["rules"]
         if isinstance(rule, dict)
     )
     assert any(
-        rule.get("inboundTag") == ["vless-reality-in", "vless-ws-in", "vless-grpc-in", "hy2-in"]
+        rule.get("inboundTag") == ["vless-reality-in", "vless-ws-in", "vless-grpc-in"]
         and rule.get("protocol") == ["bittorrent"]
         and rule.get("outboundTag") == "block"
         for rule in transit_xray["routing"]["rules"]
@@ -236,17 +245,20 @@ def test_render_materialized_bundles_rewrites_runtime_files(tmp_path: Path) -> N
 
     manifest = json.loads((ctx.materialized_root / ".tracegate-deploy-manifest.json").read_text(encoding="utf-8"))
     assert manifest["version"] == 1
-    assert manifest["runtimeProfile"] == "xray-centric"
+    assert manifest["runtimeProfile"] == "tracegate-2.2"
     assert manifest["materializedRoot"] == str(ctx.materialized_root)
 
     bundles = {row["role"]: row for row in manifest["bundles"]}
     assert set(bundles) == {"ENTRY", "TRANSIT"}
     assert bundles["ENTRY"]["publicUnits"] == [
         "tracegate-xray@entry",
+        "tracegate-hysteria@entry",
         "tracegate-haproxy@entry",
         "tracegate-nginx@entry",
     ]
     assert bundles["ENTRY"]["privateCompanions"] == ["tracegate-obfuscation@entry"]
+    assert bundles["ENTRY"]["features"]["standaloneHysteriaEnabled"] is True
+    assert bundles["ENTRY"]["features"]["hysteriaSalamanderEnabled"] is True
     assert bundles["ENTRY"]["features"]["finalMaskEnabled"] is False
     assert bundles["ENTRY"]["features"]["echEnabled"] is False
     assert bundles["TRANSIT"]["features"]["mtprotoFrontingEnabled"] is True
@@ -258,6 +270,7 @@ def test_render_materialized_bundles_rewrites_runtime_files(tmp_path: Path) -> N
     ]
     transit_files = {row["path"] for row in bundles["TRANSIT"]["files"]}
     assert "xray.json" in transit_files
+    assert "hysteria/server.yaml" in transit_files
     assert "haproxy.cfg" in transit_files
     assert "nginx.conf" in transit_files
     assert not any(path.startswith("decoy/") for path in transit_files)
@@ -369,6 +382,7 @@ def test_render_materialized_bundles_uses_configured_mtproto_upstream(tmp_path: 
 
 def test_render_materialized_bundles_injects_hysteria_finalmask_and_ech(tmp_path: Path) -> None:
     env = _base_env(tmp_path)
+    env["AGENT_RUNTIME_PROFILE"] = "xray-centric"
     entry_finalmask_path = tmp_path / "entry-finalmask.json"
     transit_finalmask_path = tmp_path / "transit-finalmask.json"
     transit_ech_path = tmp_path / "transit-ech.txt"
@@ -446,6 +460,8 @@ def test_render_materialized_bundles_does_not_emit_legacy_hysteria_yaml(tmp_path
 
     assert not (ctx.materialized_root / "base-entry" / "hysteria.yaml").exists()
     assert not (ctx.materialized_root / "base-transit" / "hysteria.yaml").exists()
+    assert not (ctx.materialized_root / "base-entry" / "hysteria" / "server.yaml").exists()
+    assert not (ctx.materialized_root / "base-transit" / "hysteria" / "server.yaml").exists()
 
 
 def test_render_materialized_bundles_supports_custom_transit_secret_path_and_agent_upstream(tmp_path: Path) -> None:
