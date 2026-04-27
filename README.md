@@ -2,169 +2,89 @@
   <img src="docs/assets/tracegate-wordmark.svg" alt="TRACEGATE" width="720">
 </p>
 
-## Connection Surfaces
+Tracegate 2.2 is a managed privacy-gateway stack with a Telegram bot, API control plane, node agents and production deployment templates.
 
-| Surface | Protocol | Public node | Default port | Notes |
-| --- | --- | --- | --- | --- |
-| `V1-Direct` | `VLESS + REALITY` | `Transit` | `443/tcp` | Main direct TCP profile |
-| `V1-Chain` | `VLESS + REALITY` | `Entry` | `443/tcp` | Chain ingress to `Transit` |
-| `V2-Direct` | `Hysteria2 + Salamander` | `Transit` | `8443/udp` | Main direct UDP profile |
-| `V2-Chain` | `Hysteria2 + Salamander` | `Entry` | `8443/udp` | UDP-capable chain ingress to `Transit` |
-| `V3-Direct` | `Shadowsocks-2022 + ShadowTLS V3` | `Transit` | `443/tcp` | Optional direct TCP profile |
-| `V3-Chain` | `Shadowsocks-2022 + ShadowTLS V3` | `Entry` | `443/tcp` | Optional chain TCP profile |
-| `V0` | `VLESS + gRPC + TLS` | `Transit` | `443/tcp` | Other direct compatibility profile |
-| `V0` | `VLESS + WS + TLS` | `Transit` | `443/tcp` | Other direct legacy fallback |
-| `V0` | `WireGuard over WebSocket` | `Transit` | `443/tcp` | Other direct L3 profile |
-| `Telegram Proxy` | `MTProto` | `Transit` | `443/tcp` | Dedicated domain recommended |
-
-Tracegate 2.2 is a `k3s` + Helm managed control plane, node-agent and Telegram bot stack for a privacy gateway built around a primary `Transit` node and an optional `Entry -> Transit` chain.
-
-The repository contains the public control logic, bundle templates, bot UX, observability hooks and deployment contracts. Private packet camouflage, `Mieru` profiles, `zapret2` policies, MTProto secrets and local overlay files stay outside Git and are consumed through explicit runtime handoff surfaces.
+It is built around a simple user flow: add a device, select it as active, create a connection profile, then rotate or revoke revisions when needed.
 
 Release notes live in [`CHANGELOG.md`](CHANGELOG.md).
 
-## What the project does
+## Connection Surfaces
 
-- issues Direct, Chain and Other connection profiles plus persistent Telegram Proxy access through a Telegram bot
-- stores users, devices, connections, revisions and admin state in a central control plane
-- delivers runtime changes to node agents through an outbox + dispatcher pipeline
-- keeps `Xray` hot while ordinary config issuance changes only users, not the full runtime
-- renders public bundles from repo templates and applies private overlays only on the target host
-- exposes optional Prometheus + Grafana observability with bot-delivered Grafana access
-- supports Transit-only rollout and Transit node replacement as first-class operational paths
-- ships a single Tracegate 2.2 Helm chart under `deploy/k3s/tracegate`
+| Surface | Profile family | Role | Notes |
+| --- | --- | --- | --- |
+| `V1-Direct` | VLESS + REALITY | Direct | Primary TCP profile |
+| `V1-Chain` | VLESS + REALITY | Chain | Entry-routed TCP profile |
+| `V2-Direct` | Hysteria2 + Salamander | Direct | Primary UDP profile |
+| `V2-Chain` | Hysteria2 + Salamander | Chain | Entry-routed UDP profile |
+| `V3-Direct` | Shadowsocks-2022 + ShadowTLS | Direct | Optional TCP profile |
+| `V3-Chain` | Shadowsocks-2022 + ShadowTLS | Chain | Optional chain TCP profile |
+| `V0` | VLESS gRPC | Other | Direct compatibility profile |
+| `V0` | VLESS WebSocket | Other | Direct compatibility profile |
+| `V0` | WGWS | Other | Direct compatibility profile |
+| `Telegram Proxy` | MTProto | Direct | Persistent Telegram Proxy access |
 
-## Product boundary
+## Core Features
 
-### Included in Tracegate 2.2
+- Telegram bot for user onboarding, device selection, connection creation and revision management
+- per-user device inventory with one active device used for new connection issuance
+- Direct, Chain and Other connection categories with consistent Tracegate 2.2 naming
+- two-revision connection model: active revision plus spare revision
+- persistent Telegram Proxy access delivery through the bot
+- admin controls for users, access revocation, blocks, announcements and operational feedback
+- API control plane with durable PostgreSQL state
+- dispatcher pipeline for delivering runtime changes to node agents
+- optional Prometheus and Grafana integration
+- Helm chart for production k3s deployment
+- systemd deployment kit for plain Linux migration and lab environments
 
-- `V1`: direct `VLESS + REALITY` on `Transit`
-- `V1`: chained `Entry -> Transit` `VLESS + REALITY`
-- `V2`: direct or chained `Hysteria2 + Salamander`, on public `UDP/8443`
-- `V3`: direct or chained `Shadowsocks-2022 + ShadowTLS V3`
-- `V0`: direct Other profiles: `VLESS gRPC`, `VLESS WebSocket`, `WGWS`
-- persistent Telegram Proxy delivery through the bot
-- scoped `Mieru` link encryption wrapped by a dedicated WSS bridge carrier, plus `zapret2` interconnect camouflage with no host-wide NFQUEUE by default
-- optional host-local static/auth surfaces on `Transit`, staged outside Git
-- host-local private handoff contracts for `zapret2`, Transit TCP/443 fronting and MTProto
+## User Model
 
-### Explicitly not part of the active repository contract
+Tracegate stores users, devices, connections and revisions separately.
 
-- Xray-native Hysteria as the primary UDP runtime
-- temporary "burner" MTProto access
-- client-side local obfuscation bundles
+- A user can have up to 5 devices.
+- A device can have up to 4 connections.
+- A connection can have up to 2 active revisions.
+- New profiles are always attached to the currently active device.
+- Existing profiles can be viewed, rotated, activated or removed from the `Connections` section of the bot.
 
-## Design principles
+## Components
 
-- Helm owns the static topology; live APIs and narrow reload hooks own user/runtime state.
-- `Xray` is no longer the runtime center for every public surface; it remains a TCP compatibility adapter for VLESS-era profiles while UDP is treated as its own Hysteria2 surface.
-- `Transit` is the primary public endpoint; `Entry` is optional chain ingress.
-- Public topology should stay static; ordinary user churn should update `Xray` over gRPC API instead of restarting the runtime.
-- Public TCP profiles stay on `443`; public UDP Hysteria2 profiles use `8443` and require Salamander obfuscation. `udp/443` and `tcp/8443` are forbidden cross-surfaces and must stay dropped.
-- On constrained `~1 GB RAM` hosts, keep the default rollout narrow: static public topology first, optional extra wrappers only when they are operationally justified.
-- Public repo files describe contracts and templates; secrets and private camouflage live in external Kubernetes Secrets or host-local `/etc/tracegate/private`.
+### Control Plane
 
-## Architecture
+- `tracegate-api`: FastAPI service for users, devices, connections, revisions, admin flows and grants
+- `tracegate-dispatcher`: background worker for runtime delivery and retry handling
+- `tracegate-bot`: Telegram UX for users and admins
+- PostgreSQL: durable state storage
 
-### Control plane
+### Managed Nodes
 
-- `tracegate-api`: FastAPI service for users, devices, connections, revisions, admin flows, MTProto grants and scoped API tokens
-- `tracegate-dispatcher`: outbox delivery worker with retry, backoff, dead-letter handling and optional ops alerts
-- `tracegate-bot`: Telegram UX for provisioning, admin flows, Grafana access and feedback
-- PostgreSQL: durable storage for users, revisions, dispatcher state and grants
+Node agents receive rendered runtime material from the control plane and apply changes without requiring users to understand the server topology.
 
-### Transit node
+Tracegate supports a primary Transit node and optional Entry nodes for chain profiles. The public repository keeps node templates, validation logic and deployment scaffolding; environment-specific runtime material belongs to deployment storage outside this repository.
 
-`Transit` is the main public node. It can host:
+## Bot UX
 
-- direct `VLESS + REALITY`
-- optional `VLESS + WS + TLS`
-- direct `Hysteria2 + Salamander`
-- optional host-local static/auth surfaces staged outside Git
-- persistent Telegram Proxy
-- host-local private TCP/443 fronting and `zapret2` wrappers
+The main menu is intentionally small:
 
-### Entry node
+- `Help`: guideline and welcome screen
+- `Connections`: create profiles, show active configs, rotate revisions, switch active revision, delete profiles
+- `Devices`: add devices and choose the active one
+- `Telegram Proxy`: show, rotate or revoke persistent Telegram Proxy access
+- `Grafana`: request an observability login when enabled
+- `Feedback`: contact project admins
 
-`Entry` is optional and exists for Chain rollout. It exposes the public chain ingress and forwards traffic toward `Transit` while sharing the same control-plane and bundle contract.
+Admins get an additional management section for access and moderation tasks.
 
-### Private host-local boundary
-
-The public repository never stores the real packet manipulation or MTProto secrets. Instead it emits machine-readable handoff surfaces that private host-local wrappers can consume:
-
-- Helm-mounted private profile Secret under `/etc/tracegate/private`
-- `runtime-contract.json` under each agent runtime tree
-- private runtime-state handoffs under the effective private runtime root
-- private per-role profile desired state under `<private-runtime-root>/profiles/<role>/desired-state.{json,env}`
-- private Mieru link handoff under `<private-runtime-root>/link-crypto/<role>/desired-state.{json,env}`
-- k3s private Secret preflight through `tracegate-k3s-private-preflight` before gateway listeners start
-- k3s private reload validation through `tracegate-k3s-private-reload` with redacted marker files only
-- k3s sidecar startup gates that require generated desired-state/env and a non-stale redacted reload marker
-- k3s sidecar env pointers for private profile and link-crypto desired-state/env/marker files
-- seeded example files under `deploy/systemd/private-example`
-
-The Helm chart mounts private transport Secret files read-only with
-`privateProfiles.defaultMode=256` (`0400`) by default.
-
-The k3s private preflight is intentionally narrow but strict on version class:
-Shadowsocks private files must advertise a `2022-*` method with secret material,
-ShadowTLS private files must declare v3 with password material, MTProto files
-must contain exactly one raw 32-hex-character server secret, and WireGuard
-files must not use `wg-quick` lifecycle hooks, DNS rewrites, saved config, broad
-AllowedIPs routes, unsafe MTU values or long keepalive timers. zapret2 private
-env files must not target broad host traffic through values like `all`, `*` or
-`all-flows`; mounted private files must not be world-accessible.
-
-This is the intended boundary for:
-
-- private `zapret2` logic
-- private `Mieru` Entry-Transit and Router-Entry/Transit link encryption
-- private `sing-box`, `ShadowTLS`, `WSTunnel` and `WireGuard` profile adapters
-- private Transit TCP/443 fronting
-- private MTProto runner configuration
-- local post-render hooks and secret overlays
-
-## Zero-downtime runtime model
-
-Tracegate 2 is designed so ordinary config issuance does not restart `Xray`.
-
-The intended steady state is:
-
-1. pre-seed a stable public topology
-2. keep REALITY inbound mapping fixed, ideally through `REALITY_MULTI_INBOUND_GROUPS`
-3. update users through the server-side loopback-only `Xray` gRPC `HandlerService`
-4. reload only when the structure changes
-
-Typical structural changes that still require reload:
-
-- new inbound layout
-- changed REALITY group mapping
-- changed routing rules
-- changed public fronting layout
-
-Ordinary user issuance, rotation and revocation should stay within the live API sync path.
-
-## Observability
-
-The project can expose:
-
-- Prometheus metrics from API, dispatcher, bot and agent surfaces
-- Grafana with bot-delivered one-time access links
-- pseudonymized user labels for safer dashboards
-- dispatcher health and outbox alerts
-- runtime and handoff validation through preflight tooling
-
-## Repository layout
+## Repository Layout
 
 - `src/tracegate`: application code
-- `bundles/base-entry`, `bundles/base-transit`: public runtime bundle templates
-- `deploy/k3s/tracegate`: Tracegate 2.2 production Helm chart
-- `deploy/systemd`: host deployment kit for plain Linux installs
-- `deploy/systemd/private-example`: seeded examples for private overlays and wrappers
+- `deploy/k3s/tracegate`: production Helm chart
+- `deploy/systemd`: plain-host deployment kit
+- `bundles`: public runtime bundle templates
 - `alembic`: database migrations
-- `tests`: regression tests for API, bot, deployment and runtime logic
+- `tests`: coverage for API, bot and deployment behavior
 
-## Local development
+## Local Development
 
 Use Docker Compose for the control-plane development stack:
 
@@ -172,15 +92,14 @@ Use Docker Compose for the control-plane development stack:
 cp .env.example .env
 docker compose up --build
 docker compose exec api tracegate-init-db
-curl http://localhost:8080/health
 pytest -q
 ```
 
-Local development is mainly for the control plane and template logic. Production runtime deployment is covered by the Tracegate 2.2 Helm chart.
+Local development is intended for the control plane, bot flows, templates and validation logic. Production runtime configuration should be tested through the deployment chart and environment-specific values.
 
-## k3s deployment
+## Production Deployment
 
-Tracegate 2.2 targets `k3s` with a single Helm chart:
+Tracegate 2.2 ships a single Helm chart:
 
 ```bash
 helm template tracegate ./deploy/k3s/tracegate --namespace tracegate --create-namespace
@@ -190,126 +109,48 @@ helm upgrade --install tracegate ./deploy/k3s/tracegate \
   -f deploy/k3s/values-prod.yaml
 ```
 
-Production values and private transport profiles must stay outside Git. The repo ignores `deploy/k3s/values-prod.yaml`, `deploy/k3s/values-*.private.yaml`, `deploy/k3s/private/` and `deploy/k3s/link-profiles/`.
+Production values are intentionally environment-specific and are not part of the public README.
 
-The chart keeps user and connection state out of pod-template checksums, uses
-`RollingUpdate` with `maxUnavailable=0` for gateway pods, mounts decoys
-read-only, enables `Xray` API updates and routes private
-Mieru/zapret2/ShadowTLS/WireGuard/MTProto material through an external Secret.
+For plain-host migration and lab installs, start with [`deploy/systemd`](deploy/systemd).
 
-## Plain-host migration kit
+## Container Image
 
-The old Tracegate 2 plain-host `systemd` kit remains available while 2.1 migrates production traffic to k3s.
+The project publishes the main application image through GitHub Packages:
 
-Start with the deployment kit in [`deploy/systemd`](deploy/systemd):
-
-- `tracegate.env.example`: shared control-plane and bundle-rendering values
-- `entry.env.example`: Entry-only runtime values
-- `transit.env.example`: Transit-only runtime values
-- `transit-single.env.example`: single-file Transit replacement profile
-- `install.sh`: installs the repo, Python package, units and seeded private examples
-- `install-runtime.sh`: installs upstream runtime binaries
-- `render-materialized-bundles.sh`: renders host-ready bundle files
-- `render-xray-centric-overlays.sh`: optional full private `xray.json` overlay generator
-- `validate-runtime-contracts.sh`: rollout preflight
-- `replace-transit-node.sh`: Transit-only replacement workflow
-
-Typical host flow:
-
-```bash
-sudo ./deploy/systemd/install.sh
-sudo /opt/tracegate/deploy/systemd/install-runtime.sh
-sudo /opt/tracegate/deploy/systemd/render-materialized-bundles.sh
-sudo /opt/tracegate/deploy/systemd/validate-runtime-contracts.sh
+```text
+ghcr.io/myheartraces/tracegate:2.2.0
 ```
 
-By default the public repository only provides the runtime contract for the shared static root. A fresh node will boot
-with an empty `XRAY_CENTRIC_DECOY_DIR` until private static/auth content is staged through `/etc/tracegate/private/overlays`.
-Bot-facing copy such as `/guide` and the welcome warning must also be mounted from private runtime storage or external
-Kubernetes Secrets; the repository only contains placeholder settings.
+Production deployments should pin either a version tag or an OCI digest.
 
-Transit-only rebuild flow:
+## Observability
+
+Tracegate can expose metrics for the API, bot, dispatcher and node agents. Grafana access can be issued through the bot when the deployment enables it.
+
+## Validation
+
+The test suite covers:
+
+- API behavior
+- bot navigation and text flows
+- connection and revision rules
+- client export generation
+- Helm rendering
+- deployment validation
+- deployment helper behavior
+
+Run locally:
 
 ```bash
-sudo TRACEGATE_INSTALL_ROLE=transit TRACEGATE_SINGLE_ENV_ONLY=true ./deploy/systemd/install.sh
-sudo TRACEGATE_ENV_FILE=/etc/tracegate/tracegate.env /opt/tracegate/deploy/systemd/replace-transit-node.sh
+python3 -m ruff check .
+pytest -q
 ```
 
-The repository also ships a GitHub Actions workflow for Transit replacement:
+The k3s release gate is:
 
-- [`.github/workflows/transit-node-replacement.yml`](.github/workflows/transit-node-replacement.yml)
-
-For legacy deployment details, environment layout and private overlay rules, read [`deploy/systemd/README.md`](deploy/systemd/README.md).
-
-## Container image
-
-The repository also builds a container image through the `images` workflow.
-
-- the image embeds `Xray` from the official release asset
-- `XRAY_VERSION=latest` resolves through the stable GitHub release download URL, not the unauthenticated API
-- a fixed `XRAY_VERSION` build arg can still be supplied when an operator wants a pinned image build
-
-The container image is used by the Helm chart for the control plane and gateway agent sidecars.
-
-## Operations
-
-Important operator surfaces:
-
-- `POST /dispatch/reapply-base`: resend current base bundle set to node agents
-- `POST /dispatch/reissue-current-revisions`: reissue active user revisions
-- `tracegate-render-materialized-bundles`: render public templates with operator values
-- `tracegate-render-xray-centric-overlays`: generate host-local `Xray` replacements for the active runtime
-- `tracegate-validate-runtime-contracts`: verify public/private handoff consistency before rollout
-- `tracegate-k3s-private-preflight`: validate mounted private Secret files before gateway listeners start
-- `tracegate-k3s-private-reload`: validate generated k3s private handoffs and write redacted reload markers
-
-Useful operational rules:
-
-- keep decoy auth credentials only in host env files
-- keep optional decoy HTML/CSS/JS assets out of the public repository
-- keep MTProto secrets only in host-local files or external Secrets
-- keep private Mieru, ShadowTLS and WireGuard profiles in external Secrets
-- keep `zapret2` policy logic out of the public repository
-- keep k3s `profiles` and `linkCrypto` reload markers newer than their desired-state/env files before private sidecars are allowed to launch
-- keep WireGuard `wg-quick` hooks, DNS rewrites and default-route AllowedIPs out of k3s private Secrets
-- prefer dedicated real domains for Telegram Proxy surfaces
-- treat `VLESS + WS + TLS` as a legacy fallback, not as the core architecture
-
-## Security and private data
-
-The repository is designed so sensitive runtime logic can stay private:
-
-- public bundle templates are safe to commit
-- production Helm values live in ignored files under `deploy/k3s`
-- host-local overlays live under `/etc/tracegate/private/overlays`
-- post-render hooks live under `/etc/tracegate/private/render-hook.sh`
-- private obfuscation/fronting/link-crypto/MTProto helpers live under `/etc/tracegate/private/{systemd,fronting,link-crypto,zapret,mtproto}`
-- agent-generated private runtime state lives under the effective private runtime root, typically `/var/lib/tracegate/private`
-- generated V0/V3 private desired-state files contain credentials and must stay under that private runtime root
-- profile adapter scaffolds emit only redacted manifests; real V0/V3 process wiring stays in private runners
-- generated link-crypto handoffs contain only public pointers to private Mieru/zapret2 files; the referenced profiles still stay outside Git
-- production overlays must declare dedicated ingress and egress public IP sets; strict preflight rejects shared ingress/egress IPs before deploy
-- user traffic SNAT and any rule that forbids outbound through ingress IPs belongs to private host policy under `/etc/tracegate/private/egress-isolation`
-- preflight validation rejects profile handoffs that disable local SOCKS5 auth, expose local adapters outside loopback, or enable host-wide interception
-- default client UX is VPN/TUN-first; local SOCKS/mixed exports are advanced-only and must use required username/password plus stable per-connection high local ports instead of common `1080` defaults
-- per-connection `local_socks_username` / `local_socks_password` overrides are allowed only as a non-empty pair and remain required-auth credentials, not an auth bypass
-- connection read responses redact sensitive override values such as passwords, private keys, preshared keys, secrets and tokens
-- runtime-contract preflight rejects public or widened Xray API surfaces; server-side API is limited to loopback `HandlerService`/`StatsService`
-
-Do not commit:
-
-- API tokens
-- bot tokens
-- MTProto secrets
-- REALITY private keys
-- private `Mieru`, `ShadowTLS` or `WireGuard` profiles
-- private `zapret2` rules or classifiers
-- decoy auth credentials
-- decoy HTML/CSS/JS assets
-
-## Current runtime note
-
-Tracegate 2.2 uses `tracegate-2.2` as the default and k3s production runtime profile. It rejects Xray Entry-to-Transit backhaul; TCP Chain profiles are handed to the private `link-crypto`/Mieru layer wrapped by the bridge WSS carrier, while Hysteria2 Chain uses the separate Salamander UDP link on 8443. Hysteria2 client configs are issued only with Salamander obfuscation and public UDP/8443. The `xray-centric` and `tracegate-2.1` profiles remain explicit legacy compatibility surfaces.
+```bash
+deploy/k3s/deploy-ready-check.sh
+```
 
 ## License
 
