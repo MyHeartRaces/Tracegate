@@ -12,15 +12,15 @@ Release notes live in [`CHANGELOG.md`](CHANGELOG.md).
 
 | Surface | Profile family | Role | Notes |
 | --- | --- | --- | --- |
-| `V1-Direct` | VLESS + REALITY | Direct | Primary TCP profile |
-| `V1-Chain` | VLESS + REALITY | Chain | Entry-routed TCP profile |
-| `V2-Direct` | Hysteria2 + Salamander | Direct | Primary UDP profile |
-| `V2-Chain` | Hysteria2 + Salamander | Chain | Entry-routed UDP profile |
-| `V3-Direct` | Shadowsocks-2022 + ShadowTLS | Direct | Optional TCP profile |
-| `V3-Chain` | Shadowsocks-2022 + ShadowTLS | Chain | Optional chain TCP profile |
-| `V0` | VLESS gRPC | Other | Direct compatibility profile |
-| `V0` | VLESS WebSocket | Other | Direct compatibility profile |
-| `V0` | WGWS | Other | Direct compatibility profile |
+| `V1` | VLESS + REALITY | Direct | Primary TCP profile |
+| `V1` | VLESS + REALITY | Chain | Entry-routed TCP profile |
+| `V2` | Hysteria2 + Salamander | Direct | Primary UDP profile |
+| `V2` | Hysteria2 + Salamander | Chain | Entry-routed UDP profile |
+| `V3` | Shadowsocks-2022 + ShadowTLS | Direct | Optional TCP profile |
+| `V3` | Shadowsocks-2022 + ShadowTLS | Chain | Optional chain TCP profile |
+| `V0` | VLESS gRPC | Direct | Compatibility profile |
+| `V0` | VLESS WebSocket | Direct | Compatibility profile |
+| `V0` | WGWS | Direct | Compatibility profile |
 | `Telegram Proxy` | MTProto | Direct | Persistent Telegram Proxy access |
 
 ## Core Features

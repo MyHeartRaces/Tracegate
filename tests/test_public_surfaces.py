@@ -10,11 +10,17 @@ def test_public_repo_does_not_ship_decoy_html_surfaces() -> None:
         assert not any(path.is_file() for path in root.rglob("*"))
 
 
-def test_readme_declares_private_static_surface_boundary() -> None:
+def test_readme_stays_high_level() -> None:
     readme = (Path(__file__).resolve().parents[1] / "README.md").read_text(encoding="utf-8")
-    assert "optional host-local static/auth surfaces on `Transit`, staged outside Git" in readme
-    assert "keep optional decoy HTML/CSS/JS assets out of the public repository" in readme
-    assert "decoy HTML/CSS/JS assets" in readme
+    assert "Tracegate 2.2 is a managed privacy-gateway stack" in readme
+    assert "## Connection Surfaces" in readme
+    assert "## Core Features" in readme
+    assert "Security and private data" not in readme
+    assert "Do not commit" not in readme
+    assert "Current runtime note" not in readme
+    assert "decoy HTML/CSS/JS assets" not in readme
+    assert "/etc/tracegate/private" not in readme
+    assert "local SOCKS" not in readme
 
 
 def test_public_repo_does_not_ship_bot_copy() -> None:
