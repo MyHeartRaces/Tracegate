@@ -6,15 +6,15 @@
 
 | Surface | Protocol | Public node | Default port | Notes |
 | --- | --- | --- | --- | --- |
-| `v1-direct-reality-vless` | `VLESS + REALITY` | `Transit` | `443/tcp` | Main direct TCP profile |
-| `v1-chain-reality-vless` | `VLESS + REALITY` | `Entry` | `443/tcp` | Chain ingress to `Transit` |
-| `v2-direct-quic-hysteria` | `Hysteria2 + Salamander` | `Transit` | `8443/udp` | Main direct UDP profile |
-| `v2-chain-quic-hysteria` | `Hysteria2 + Salamander` | `Entry` | `8443/udp` | UDP-capable chain ingress to `Transit` |
-| `v3-direct-shadowtls-shadowsocks` | `Shadowsocks-2022 + ShadowTLS V3` | `Transit` | `443/tcp` | Optional direct TCP profile |
-| `v3-chain-shadowtls-shadowsocks` | `Shadowsocks-2022 + ShadowTLS V3` | `Entry` | `443/tcp` | Optional chain TCP profile |
-| `v0-grpc-vless` | `VLESS + gRPC + TLS` | `Transit` | `443/tcp` | Other direct compatibility profile |
-| `v0-ws-vless` | `VLESS + WS + TLS` | `Transit` | `443/tcp` | Other direct legacy fallback |
-| `v0-wgws-wireguard` | `WireGuard over WebSocket` | `Transit` | `443/tcp` | Other direct L3 profile |
+| `V1-Direct` | `VLESS + REALITY` | `Transit` | `443/tcp` | Main direct TCP profile |
+| `V1-Chain` | `VLESS + REALITY` | `Entry` | `443/tcp` | Chain ingress to `Transit` |
+| `V2-Direct` | `Hysteria2 + Salamander` | `Transit` | `8443/udp` | Main direct UDP profile |
+| `V2-Chain` | `Hysteria2 + Salamander` | `Entry` | `8443/udp` | UDP-capable chain ingress to `Transit` |
+| `V3-Direct` | `Shadowsocks-2022 + ShadowTLS V3` | `Transit` | `443/tcp` | Optional direct TCP profile |
+| `V3-Chain` | `Shadowsocks-2022 + ShadowTLS V3` | `Entry` | `443/tcp` | Optional chain TCP profile |
+| `V0` | `VLESS + gRPC + TLS` | `Transit` | `443/tcp` | Other direct compatibility profile |
+| `V0` | `VLESS + WS + TLS` | `Transit` | `443/tcp` | Other direct legacy fallback |
+| `V0` | `WireGuard over WebSocket` | `Transit` | `443/tcp` | Other direct L3 profile |
 | `Telegram Proxy` | `MTProto` | `Transit` | `443/tcp` | Dedicated domain recommended |
 
 Tracegate 2.2 is a `k3s` + Helm managed control plane, node-agent and Telegram bot stack for a privacy gateway built around a primary `Transit` node and an optional `Entry -> Transit` chain.
