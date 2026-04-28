@@ -1,0 +1,517 @@
+namespace:
+  create: true
+  name: tracegate
+
+global:
+  runtimeProfile: tracegate-2.2
+  architectureRevision: "2.2"
+  publicBaseUrl: ""
+  image:
+    repository: ghcr.io/your-org/tracegate
+    tag: "2.2.0"
+    pullPolicy: IfNotPresent
+  imagePullSecrets: []
+
+controlPlane:
+  enabled: true
+  replicas:
+    api: 1
+    dispatcher: 1
+    bot: 0
+  service:
+    type: ClusterIP
+    port: 8080
+  auth:
+    existingSecretName: tracegate-control-plane-auth
+    apiInternalToken: ""
+    agentAuthToken: ""
+    botToken: ""
+    grafanaAlertsWebhookToken: ""
+  database:
+    externalUrl: ""
+    externalUrlSecret:
+      name: tracegate-database-url
+      key: url
+    embedded:
+      enabled: false
+      image: postgres:16
+      database: tracegate
+      username: tracegate
+      password: ""
+      storage: 10Gi
+      storageClassName: ""
+  env:
+    appEnv: prod
+    logLevel: INFO
+    defaultEntryHost: entry.example.com
+    defaultTransitHost: transit.example.com
+    vlessWsPath: /ws
+    vlessGrpcServiceName: tracegate.v1.Edge
+    vlessGrpcPath: /tracegate.v1.Edge/
+    mtprotoDomain: ""
+    localSocksAuth: required
+    botWelcomeRequired: true
+    botWelcomeVersion: tracegate-2.2-ui-v3
+    botWelcomeMessageSecret:
+      name: tracegate-bot-welcome
+      key: message
+    botGuideMessageSecret:
+      name: tracegate-bot-guide
+      key: message
+    superadminTelegramIds: []
+  resources:
+    api: {}
+    dispatcher: {}
+    bot: {}
+    postgres: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  terminationGracePeriodSeconds: 30
+
+privateProfiles:
+  required: true
+  existingSecretName: tracegate-private-profiles
+  mountPath: /etc/tracegate/private
+  defaultMode: 256
+  inlineProfiles: false
+  keys:
+    realityPrivateKeyEntry: reality/entry-private-key
+    realityPrivateKeyTransit: reality/transit-private-key
+    hysteriaSalamanderEntry: hysteria/entry-salamander-password
+    hysteriaSalamanderTransit: hysteria/transit-salamander-password
+    hysteriaStatsEntry: hysteria/entry-stats-secret
+    hysteriaStatsTransit: hysteria/transit-stats-secret
+    mieruClient: mieru/client.json
+    mieruServer: mieru/server.json
+    zapretEntry: zapret/entry.env
+    zapretTransit: zapret/transit.env
+    zapretInterconnect: zapret/entry-transit.env
+    zapretMtproto: zapret/mtproto-extra.env
+    shadowsocks2022: shadowsocks2022/server.json
+    shadowsocks2022Entry: shadowsocks2022/entry-server.json
+    shadowsocks2022Transit: shadowsocks2022/transit-server.json
+    shadowtls: shadowtls/config.yaml
+    shadowtlsEntry: shadowtls/entry-config.yaml
+    shadowtlsTransit: shadowtls/transit-config.yaml
+    wireguard: wireguard/wg.conf
+    mtproto: mtproto/secret.txt
+    labMieruDirect: lab/mieru-direct-server.json
+    labRestlsDirect: lab/restls-direct.yaml
+    labTuicEntry: lab/tuic-entry.json
+    labTuicTransit: lab/tuic-transit.json
+  secretKeys:
+    realityPrivateKeyEntry: reality-entry-private-key
+    realityPrivateKeyTransit: reality-transit-private-key
+    hysteriaSalamanderEntry: hysteria-entry-salamander-password
+    hysteriaSalamanderTransit: hysteria-transit-salamander-password
+    hysteriaStatsEntry: hysteria-entry-stats-secret
+    hysteriaStatsTransit: hysteria-transit-stats-secret
+    mieruClient: mieru-client-json
+    mieruServer: mieru-server-json
+    zapretEntry: zapret-entry-env
+    zapretTransit: zapret-transit-env
+    zapretInterconnect: zapret-entry-transit-env
+    zapretMtproto: zapret-mtproto-extra-env
+    shadowsocks2022: shadowsocks2022-server-json
+    shadowsocks2022Entry: shadowsocks2022-entry-server-json
+    shadowsocks2022Transit: shadowsocks2022-transit-server-json
+    shadowtls: shadowtls-config-yaml
+    shadowtlsEntry: shadowtls-entry-config-yaml
+    shadowtlsTransit: shadowtls-transit-config-yaml
+    wireguard: wireguard-wg-conf
+    mtproto: mtproto-secret-txt
+    labMieruDirect: lab-mieru-direct-server-json
+    labRestlsDirect: lab-restls-direct-yaml
+    labTuicEntry: lab-tuic-entry-json
+    labTuicTransit: lab-tuic-transit-json
+
+decoy:
+  enabled: true
+  preserveExisting: true
+  existingConfigMap: ""
+  existingClaim: ""
+  hostPath: /srv/tracegate/decoy
+  hostPathType: Directory
+  mountPath: /var/www/decoy
+  files: {}
+
+transportProfiles:
+  clientNames:
+    - v1-direct-reality-vless
+    - v1-chain-reality-vless
+    - v2-direct-quic-hysteria
+    - v2-chain-quic-hysteria
+    - v3-direct-shadowtls-shadowsocks
+    - v3-chain-shadowtls-shadowsocks
+    - v0-ws-vless
+    - v0-grpc-vless
+    - v0-wgws-wireguard
+    - MTProto-FakeTLS-Direct
+  v1:
+    grpcFirst: true
+    legacyWebSocketFallback: true
+  socks5:
+    required: true
+    allowAnonymousLocalhost: false
+  clientExposure:
+    defaultMode: vpn-tun
+    localProxyExports: advanced-only
+    lanSharing: forbidden
+    unauthenticatedLocalProxy: forbidden
+
+network:
+  egressIsolation:
+    required: true
+    mode: dedicated-egress-ip
+    ingressPublicIPs: []
+    egressPublicIPs: []
+    forbidIngressIpAsEgress: true
+    requireTransitEgressPublicIP: true
+    clientLeakMitigation: egress-ip-only
+    enforcement:
+      mode: operator-managed
+      managedBy: /etc/tracegate/private/egress-isolation
+      snat: required
+      ingressPublicIpOutbound: forbidden
+    nodeAnnotations:
+      enabled: false
+      ingressPublicIP: tracegate.io/ingress-public-ip
+      egressPublicIP: tracegate.io/egress-public-ip
+
+experimentalProfiles:
+  enabled: false
+  directTransitObfuscation:
+    enabled: false
+    defaultLayer: mieru
+    variants:
+      - V8-Mieru-TCP-Direct
+      - V8-Mieru-RESTLS-Direct
+    mieru:
+      enabled: false
+      role: transit
+      profileSource: external-secret
+    restls:
+      enabled: false
+      mode: candidate-only
+      profileSource: external-secret
+  tuicV5:
+    enabled: false
+    directEnabled: false
+    chainEnabled: false
+    productionReplacementAllowed: false
+    variants:
+      - V9-TUICv5-QUIC-Direct
+      - V9-TUICv5-QUIC-Chain
+
+gateway:
+  enabled: true
+  strategy: RollingUpdate
+  allowRecreateStrategy: false
+  progressDeadlineSeconds: 600
+  rollingUpdate:
+    maxUnavailable: 0
+    maxSurge: 1
+  hostNetwork: true
+  shareProcessNamespace: true
+  dnsPolicy: ClusterFirstWithHostNet
+  terminationGracePeriodSeconds: 60
+  pdb:
+    enabled: true
+    minAvailable: 1
+  probes:
+    enabled: true
+    startup:
+      periodSeconds: 5
+      failureThreshold: 60
+      timeoutSeconds: 2
+    readiness:
+      periodSeconds: 10
+      failureThreshold: 3
+      timeoutSeconds: 2
+    liveness:
+      periodSeconds: 15
+      failureThreshold: 4
+      timeoutSeconds: 2
+  privatePreflight:
+    enabled: true
+    forbidPlaceholders: true
+  containerResources:
+    agent: {}
+    haproxy: {}
+    nginx: {}
+    xray: {}
+    hysteria: {}
+    mieru: {}
+    zapret2:
+      requests:
+        cpu: 10m
+        memory: 32Mi
+      limits:
+        cpu: 100m
+        memory: 128Mi
+    wireguard: {}
+    wstunnel: {}
+    shadowtls: {}
+    shadowsocks: {}
+    mtproto: {}
+    singbox: {}
+  agent:
+    port: 8070
+    dryRun: false
+    dataHostPathPrefix: /var/lib/tracegate
+    reloadCommands:
+      xray: "sh -lc 'pkill -HUP xray || true'"
+      haproxy: "sh -lc 'pkill -USR2 haproxy || true'"
+      nginx: "sh -lc 'nginx -s reload || true'"
+      obfuscation: "sh -lc 'true'"
+      fronting: "sh -lc 'true'"
+      mtproto: "sh -lc 'true'"
+      profiles: "sh -lc 'tracegate-k3s-private-reload --component profiles --role \"${AGENT_ROLE}\" --private-runtime-root /var/lib/tracegate/private --runtime-contract /var/lib/tracegate/runtime/runtime-contract.json'"
+      linkCrypto: "sh -lc 'tracegate-k3s-private-reload --component link-crypto --role \"${AGENT_ROLE}\" --private-runtime-root /var/lib/tracegate/private --runtime-contract /var/lib/tracegate/runtime/runtime-contract.json'"
+  images:
+    haproxy:
+      repository: haproxy
+      tag: "2.9-alpine"
+      pullPolicy: IfNotPresent
+    nginx:
+      repository: nginx
+      tag: "1.25-alpine"
+      pullPolicy: IfNotPresent
+    xray:
+      repository: ghcr.io/xtls/xray-core
+      tag: "latest"
+      pullPolicy: IfNotPresent
+    hysteria:
+      repository: tobyxdd/hysteria
+      tag: "latest"
+      pullPolicy: IfNotPresent
+    mieru:
+      repository: ghcr.io/enfein/mieru
+      tag: "latest"
+      pullPolicy: IfNotPresent
+    zapret2:
+      repository: ghcr.io/bol-van/zapret
+      tag: "latest"
+      pullPolicy: IfNotPresent
+    wstunnel:
+      repository: ghcr.io/erebe/wstunnel
+      tag: "latest"
+      pullPolicy: IfNotPresent
+    wireguard:
+      repository: lscr.io/linuxserver/wireguard
+      tag: "latest"
+      pullPolicy: IfNotPresent
+    shadowtls:
+      repository: ghcr.io/ihciah/shadow-tls
+      tag: "latest"
+      pullPolicy: IfNotPresent
+    shadowsocks:
+      repository: ghcr.io/shadowsocks/ssserver-rust
+      tag: "latest"
+      pullPolicy: IfNotPresent
+    singbox:
+      repository: ghcr.io/sagernet/sing-box
+      tag: "latest"
+      pullPolicy: IfNotPresent
+    mtproto:
+      repository: ghcr.io/9seconds/mtg
+      tag: "latest"
+      pullPolicy: IfNotPresent
+  roles:
+    entry:
+      enabled: true
+      role: ENTRY
+      nodeSelector:
+        tracegate.io/role: entry
+      tolerations: []
+      affinity: {}
+      ports:
+        publicTcp: 443
+        publicUdp: 8443
+        reality: 2443
+        httpsAdapter: 4443
+        vlessWs: 10000
+        vlessGrpc: 10001
+        xrayApi: 8080
+      tls:
+        serverName: entry.example.com
+        existingSecretName: tracegate-entry-tls
+      reality:
+        dest: www.microsoft.com:443
+        serverNames:
+          - www.microsoft.com
+        shortIds:
+          - "0123456789abcdef"
+        privateKeySecret:
+          name: ""
+          key: private-key
+      routing:
+        chainToTransit: true
+      resources: {}
+    transit:
+      enabled: true
+      role: TRANSIT
+      nodeSelector:
+        tracegate.io/role: transit
+      tolerations: []
+      affinity: {}
+      ports:
+        publicHttp: 80
+        publicTcp: 443
+        publicUdp: 8443
+        reality: 2443
+        httpsAdapter: 4443
+        vlessWs: 10000
+        vlessGrpc: 10001
+        xrayApi: 8080
+        mtproto: 9443
+      tls:
+        serverName: transit.example.com
+        existingSecretName: tracegate-transit-tls
+      reality:
+        dest: www.microsoft.com:443
+        serverNames:
+          - www.microsoft.com
+        shortIds:
+          - "fedcba9876543210"
+        privateKeySecret:
+          name: ""
+          key: private-key
+      routing:
+        chainToTransit: false
+      resources: {}
+
+interconnect:
+  entryTransit:
+    enabled: true
+    primary: mieru
+    fallback: none
+    chainBridgeOwner: link-crypto
+    xrayBackhaul: false
+    generation: 1
+    remotePort: 443
+    outerCarrier:
+      enabled: true
+      mode: wss
+      protocol: websocket-tls
+      serverName: bridge.example.com
+      publicPort: 443
+      publicPath: /cdn-cgi/tracegate-link
+      clientLocalPort: 14081
+      serverLocalPort: 14082
+      verifyTls: true
+      spkiPinning:
+        required: true
+        profileFile: /etc/tracegate/private/link-crypto/outer-wss-spki.env
+      admission:
+        required: true
+        mode: hmac-sha256-generation-bound
+        header: Sec-WebSocket-Protocol
+        profileFile: /etc/tracegate/private/link-crypto/outer-wss-admission.env
+      tcpShapingProfileFile: /etc/tracegate/private/link-crypto/tcp-shaping.env
+      promotionPreflightProfileFile: /etc/tracegate/private/link-crypto/promotion-preflight.env
+    scope:
+      - V1
+      - V3
+    routerEntry:
+      enabled: false
+    routerTransit:
+      enabled: false
+    udp:
+      enabled: true
+      carrier: hysteria2
+      transport: udp-quic
+      remotePort: 8443
+      entryPort: 14481
+      transitPort: 14482
+      routerEntryPort: 14483
+      routerTransitPort: 14484
+      salamanderRequired: true
+      pairedObfs:
+        enabled: false
+        backend: udp2raw
+        mode: udp2raw-faketcp
+        requiresBothSides: true
+        failClosed: true
+        noHostWideInterception: true
+        noNfqueue: true
+      hardening:
+        enabled: true
+        failClosed: true
+        requirePrivateAuth: true
+        rejectAnonymous: true
+        antiReplay:
+          enabled: true
+          windowPackets: 4096
+        antiAmplification:
+          enabled: true
+          maxUnvalidatedBytes: 1200
+        rateLimit:
+          enabled: true
+          handshakePerMinute: 120
+          newSessionPerMinute: 60
+        mtu:
+          mode: clamp
+          maxPacketSize: 1252
+        keyRotation:
+          enabled: true
+          strategy: generation-drain
+          maxAgeSeconds: 3600
+          overlapSeconds: 120
+        sourceValidation:
+          enabled: true
+          mode: profile-bound-remote
+  mieru:
+    enabled: true
+    localSocks:
+      bindHost: 127.0.0.1
+      entryPort: 10881
+      transitPort: 10882
+      routerEntryPort: 10883
+      routerTransitPort: 10884
+      auth: required
+    profileSource: external-secret
+  zapret2:
+    enabled: true
+    nfqueue: false
+    hostWideInterception: false
+    scope: scoped-egress
+    applyTo:
+      - entry-transit
+      - router-entry
+      - router-transit
+      - mtproto
+    cpuBudget:
+      entryMaxPercent: 10
+      transitMaxPercent: 10
+  restls:
+    enabled: false
+    mode: candidate-only
+
+wireguard:
+  enabled: false
+  variant: V0
+  wstunnel:
+    enabled: true
+    mode: wireguard-over-websocket
+    publicPath: /cdn-cgi/tracegate
+    localWireguardPort: 51820
+    websocketPort: 51821
+
+shadowsocks2022:
+  enabled: false
+  variants:
+    direct: V3
+    chain: V3
+  shadowtls:
+    enabled: true
+    version: 3
+
+mtproto:
+  enabled: true
+  domain: ""
+  publicPort: 443
+  backendPort: 9443
+  obfuscationProfile: mtproto-extra
+  stabilityClass: aggressive-obfuscation

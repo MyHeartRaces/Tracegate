@@ -1,0 +1,290 @@
+{{- if .Values.controlPlane.enabled }}
+{{- $databaseUrl := .Values.controlPlane.database.externalUrl -}}
+{{- if and (not $databaseUrl) .Values.controlPlane.database.embedded.enabled -}}
+{{- $databaseUrl = printf "postgresql+psycopg://%s:%s@%s-postgres:5432/%s" .Values.controlPlane.database.embedded.username .Values.controlPlane.database.embedded.password (include "tracegate.fullname" .) .Values.controlPlane.database.embedded.database -}}
+{{- end }}
+{{- if .Values.controlPlane.database.embedded.enabled }}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "tracegate.fullname" . }}-postgres
+  namespace: {{ include "tracegate.namespace" . }}
+  labels:
+    {{- include "tracegate.labels" . | nindent 4 }}
+    app.kubernetes.io/component: postgres
+spec:
+  serviceName: {{ include "tracegate.fullname" . }}-postgres
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "tracegate.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: postgres
+  template:
+    metadata:
+      labels:
+        {{- include "tracegate.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: postgres
+    spec:
+      containers:
+        - name: postgres
+          image: {{ .Values.controlPlane.database.embedded.image | quote }}
+          ports:
+            - name: postgres
+              containerPort: 5432
+          env:
+            - name: POSTGRES_DB
+              value: {{ .Values.controlPlane.database.embedded.database | quote }}
+            - name: POSTGRES_USER
+              value: {{ .Values.controlPlane.database.embedded.username | quote }}
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "tracegate.postgresSecretName" . }}
+                  key: password
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        {{- if .Values.controlPlane.database.embedded.storageClassName }}
+        storageClassName: {{ .Values.controlPlane.database.embedded.storageClassName | quote }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.controlPlane.database.embedded.storage | quote }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "tracegate.fullname" . }}-postgres
+  namespace: {{ include "tracegate.namespace" . }}
+  labels:
+    {{- include "tracegate.labels" . | nindent 4 }}
+    app.kubernetes.io/component: postgres
+spec:
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: postgres
+  selector:
+    {{- include "tracegate.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: postgres
+---
+{{- end }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "tracegate.fullname" . }}-api
+  namespace: {{ include "tracegate.namespace" . }}
+  labels:
+    {{- include "tracegate.labels" . | nindent 4 }}
+    app.kubernetes.io/component: api
+spec:
+  type: {{ .Values.controlPlane.service.type }}
+  ports:
+    - name: http
+      port: {{ int .Values.controlPlane.service.port }}
+      targetPort: http
+  selector:
+    {{- include "tracegate.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: api
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "tracegate.fullname" . }}-api
+  namespace: {{ include "tracegate.namespace" . }}
+  labels:
+    {{- include "tracegate.labels" . | nindent 4 }}
+    app.kubernetes.io/component: api
+spec:
+  replicas: {{ int .Values.controlPlane.replicas.api }}
+  selector:
+    matchLabels:
+      {{- include "tracegate.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: api
+  template:
+    metadata:
+      labels:
+        {{- include "tracegate.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: api
+    spec:
+      terminationGracePeriodSeconds: {{ int .Values.controlPlane.terminationGracePeriodSeconds }}
+      {{- if .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml .Values.global.imagePullSecrets | nindent 8 }}
+      {{- end }}
+      nodeSelector:
+        {{- toYaml .Values.controlPlane.nodeSelector | nindent 8 }}
+      tolerations:
+        {{- toYaml .Values.controlPlane.tolerations | nindent 8 }}
+      affinity:
+        {{- toYaml .Values.controlPlane.affinity | nindent 8 }}
+      initContainers:
+        - name: migrate-db
+          image: {{ include "tracegate.image" .Values.global.image | quote }}
+          imagePullPolicy: {{ .Values.global.image.pullPolicy }}
+          command: ["tracegate-migrate-db"]
+          env:
+            - name: DATABASE_URL
+{{- if .Values.controlPlane.database.externalUrlSecret.name }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.controlPlane.database.externalUrlSecret.name }}
+                  key: {{ .Values.controlPlane.database.externalUrlSecret.key }}
+{{- else }}
+              value: {{ $databaseUrl | quote }}
+{{- end }}
+      containers:
+        - name: api
+          image: {{ include "tracegate.image" .Values.global.image | quote }}
+          imagePullPolicy: {{ .Values.global.image.pullPolicy }}
+          command: ["tracegate-api"]
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: APP_ENV
+              value: {{ .Values.controlPlane.env.appEnv | quote }}
+            - name: LOG_LEVEL
+              value: {{ .Values.controlPlane.env.logLevel | quote }}
+            - name: PUBLIC_BASE_URL
+              value: {{ .Values.global.publicBaseUrl | quote }}
+            - name: DATABASE_URL
+{{- if .Values.controlPlane.database.externalUrlSecret.name }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.controlPlane.database.externalUrlSecret.name }}
+                  key: {{ .Values.controlPlane.database.externalUrlSecret.key }}
+{{- else }}
+              value: {{ $databaseUrl | quote }}
+{{- end }}
+            - name: API_INTERNAL_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "tracegate.controlPlaneSecretName" . }}
+                  key: api-internal-token
+            - name: BOT_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "tracegate.controlPlaneSecretName" . }}
+                  key: bot-token
+            - name: DEFAULT_ENTRY_HOST
+              value: {{ .Values.controlPlane.env.defaultEntryHost | quote }}
+            - name: DEFAULT_TRANSIT_HOST
+              value: {{ .Values.controlPlane.env.defaultTransitHost | quote }}
+            - name: HYSTERIA_SALAMANDER_PASSWORD_ENTRY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "tracegate.privateProfilesSecretName" . }}
+                  key: {{ .Values.privateProfiles.secretKeys.hysteriaSalamanderEntry }}
+            - name: HYSTERIA_SALAMANDER_PASSWORD_TRANSIT
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "tracegate.privateProfilesSecretName" . }}
+                  key: {{ .Values.privateProfiles.secretKeys.hysteriaSalamanderTransit }}
+            - name: VLESS_WS_PATH
+              value: {{ .Values.controlPlane.env.vlessWsPath | quote }}
+            - name: MTPROTO_DOMAIN
+              value: {{ (.Values.mtproto.domain | default .Values.controlPlane.env.mtprotoDomain) | quote }}
+            - name: SUPERADMIN_TELEGRAM_IDS
+              value: {{ toJson (.Values.controlPlane.env.superadminTelegramIds | default (list)) | quote }}
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          resources:
+            {{- toYaml .Values.controlPlane.resources.api | nindent 12 }}
+---
+{{- range $name, $replicas := dict "dispatcher" .Values.controlPlane.replicas.dispatcher "bot" .Values.controlPlane.replicas.bot }}
+{{- if gt (int $replicas) 0 }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "tracegate.fullname" $ }}-{{ $name }}
+  namespace: {{ include "tracegate.namespace" $ }}
+  labels:
+    {{- include "tracegate.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: {{ $name }}
+spec:
+  replicas: {{ int $replicas }}
+  selector:
+    matchLabels:
+      {{- include "tracegate.selectorLabels" $ | nindent 6 }}
+      app.kubernetes.io/component: {{ $name }}
+  template:
+    metadata:
+      labels:
+        {{- include "tracegate.selectorLabels" $ | nindent 8 }}
+        app.kubernetes.io/component: {{ $name }}
+    spec:
+      terminationGracePeriodSeconds: {{ int $.Values.controlPlane.terminationGracePeriodSeconds }}
+      containers:
+        - name: {{ $name }}
+          image: {{ include "tracegate.image" $.Values.global.image | quote }}
+          imagePullPolicy: {{ $.Values.global.image.pullPolicy }}
+          command: [{{ ternary "\"tracegate-dispatcher\"" "\"tracegate-bot\"" (eq $name "dispatcher") }}]
+          env:
+            - name: DATABASE_URL
+{{- if $.Values.controlPlane.database.externalUrlSecret.name }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $.Values.controlPlane.database.externalUrlSecret.name }}
+                  key: {{ $.Values.controlPlane.database.externalUrlSecret.key }}
+{{- else }}
+              value: {{ $databaseUrl | quote }}
+{{- end }}
+            - name: API_INTERNAL_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "tracegate.controlPlaneSecretName" $ }}
+                  key: api-internal-token
+            - name: BOT_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "tracegate.controlPlaneSecretName" $ }}
+                  key: bot-token
+{{- if eq $name "bot" }}
+            - name: BOT_API_BASE_URL
+              value: {{ printf "http://%s-api:%d" (include "tracegate.fullname" $) (int $.Values.controlPlane.service.port) | quote }}
+            - name: BOT_API_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "tracegate.controlPlaneSecretName" $ }}
+                  key: api-internal-token
+            - name: BOT_WELCOME_REQUIRED
+              value: {{ $.Values.controlPlane.env.botWelcomeRequired | quote }}
+            - name: BOT_WELCOME_VERSION
+              value: {{ $.Values.controlPlane.env.botWelcomeVersion | quote }}
+{{- if $.Values.controlPlane.env.botWelcomeMessageSecret.name }}
+            - name: BOT_WELCOME_MESSAGE
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $.Values.controlPlane.env.botWelcomeMessageSecret.name }}
+                  key: {{ $.Values.controlPlane.env.botWelcomeMessageSecret.key }}
+{{- end }}
+{{- if $.Values.controlPlane.env.botGuideMessageSecret.name }}
+            - name: BOT_GUIDE_MESSAGE
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $.Values.controlPlane.env.botGuideMessageSecret.name }}
+                  key: {{ $.Values.controlPlane.env.botGuideMessageSecret.key }}
+{{- end }}
+{{- end }}
+          resources:
+            {{- toYaml (index $.Values.controlPlane.resources $name) | nindent 12 }}
+---
+{{- end }}
+{{- end }}
+{{- end }}

@@ -1,0 +1,296 @@
+{
+  "log": {
+    "loglevel": "warning"
+  },
+  "api": {
+    "tag": "api",
+    "services": [
+      "HandlerService",
+      "StatsService"
+    ]
+  },
+  "stats": {},
+  "policy": {
+    "levels": {
+      "0": {
+        "handshake": 4,
+        "connIdle": 300,
+        "uplinkOnly": 2,
+        "downlinkOnly": 5,
+        "statsUserUplink": true,
+        "statsUserDownlink": true
+      }
+    },
+    "system": {
+      "statsInboundUplink": true,
+      "statsInboundDownlink": true,
+      "statsOutboundUplink": true,
+      "statsOutboundDownlink": true
+    }
+  },
+  "inbounds": [
+    {
+      "tag": "api",
+      "listen": "127.0.0.1",
+      "port": 8080,
+      "protocol": "dokodemo-door",
+      "settings": {
+        "address": "127.0.0.1"
+      }
+    },
+    {
+      "tag": "entry-in",
+      "listen": "127.0.0.1",
+      "port": 2443,
+      "protocol": "vless",
+      "settings": {
+        "clients": [],
+        "decryption": "none"
+      },
+      "streamSettings": {
+        "network": "xhttp",
+        "security": "reality",
+        "realitySettings": {
+          "show": false,
+          "dest": "splitter.wb.ru:443",
+          "xver": 0,
+          "serverNames": [
+            "splitter.wb.ru"
+          ],
+          "privateKey": "REPLACE_PRIVATE_KEY",
+          "shortIds": [
+            "fedcba9876543210"
+          ]
+        },
+        "xhttpSettings": {
+          "mode": "packet-up",
+          "path": "/api/v1/update"
+        }
+      },
+      "sniffing": {
+        "enabled": true,
+        "destOverride": [
+          "http",
+          "tls",
+          "quic"
+        ]
+      }
+    },
+    {
+      "tag": "vless-ws-in",
+      "listen": "127.0.0.1",
+      "port": 10000,
+      "protocol": "vless",
+      "settings": {
+        "clients": [],
+        "decryption": "none"
+      },
+      "streamSettings": {
+        "network": "ws",
+        "security": "none",
+        "wsSettings": {
+          "path": "/ws",
+          "heartbeatPeriod": 15
+        }
+      },
+      "sniffing": {
+        "enabled": true,
+        "destOverride": [
+          "http",
+          "tls",
+          "quic"
+        ]
+      }
+    },
+    {
+      "tag": "vless-grpc-in",
+      "listen": "127.0.0.1",
+      "port": 10001,
+      "protocol": "vless",
+      "settings": {
+        "clients": [],
+        "decryption": "none"
+      },
+      "streamSettings": {
+        "network": "grpc",
+        "security": "none",
+        "grpcSettings": {
+          "serviceName": "tracegate.v1.Edge"
+        }
+      },
+      "sniffing": {
+        "enabled": true,
+        "destOverride": [
+          "http",
+          "tls",
+          "quic"
+        ]
+      }
+    },
+    {
+      "tag": "hy2-in",
+      "listen": "0.0.0.0",
+      "port": 8443,
+      "protocol": "hysteria",
+      "settings": {
+        "version": 2,
+        "clients": []
+      },
+      "streamSettings": {
+        "network": "hysteria",
+        "security": "tls",
+        "tlsSettings": {
+          "alpn": [
+            "h3"
+          ],
+          "certificates": [
+            {
+              "certificateFile": "/etc/tracegate/tls/ws.crt",
+              "keyFile": "/etc/tracegate/tls/ws.key"
+            }
+          ]
+        },
+        "hysteriaSettings": {
+          "version": 2,
+          "auth": "bootstrap-password",
+          "udpIdleTimeout": 60,
+          "masquerade": {
+            "type": "file",
+            "dir": "/var/www/decoy"
+          }
+        }
+      },
+      "sniffing": {
+        "enabled": true,
+        "destOverride": [
+          "http",
+          "tls",
+          "quic"
+        ]
+      }
+    }
+  ],
+  "outbounds": [
+    {
+      "tag": "api",
+      "protocol": "freedom"
+    },
+    {
+      "tag": "direct",
+      "protocol": "freedom"
+    },
+    {
+      "tag": "to-transit",
+      "protocol": "vless",
+      "settings": {
+        "vnext": [
+          {
+            "address": "transit.example.com",
+            "port": 443,
+            "users": [
+              {
+                "id": "00000000-0000-4000-8000-000000000123",
+                "encryption": "none",
+                "flow": ""
+              }
+            ]
+          }
+        ]
+      },
+      "streamSettings": {
+        "network": "xhttp",
+        "security": "reality",
+        "realitySettings": {
+          "fingerprint": "chrome",
+          "serverName": "splitter.wb.ru",
+          "publicKey": "REPLACE_TRANSIT_PUBLIC_KEY",
+          "shortId": "0123456789abcdef"
+        },
+        "xhttpSettings": {
+          "mode": "packet-up",
+          "path": "/api/v1/update"
+        }
+      }
+    },
+    {
+      "tag": "block",
+      "protocol": "blackhole"
+    }
+  ],
+  "routing": {
+    "domainStrategy": "IPIfNonMatch",
+    "rules": [
+      {
+        "type": "field",
+        "inboundTag": [
+          "api"
+        ],
+        "outboundTag": "api"
+      },
+      {
+        "type": "field",
+        "inboundTag": [
+          "entry-in",
+          "vless-ws-in",
+          "vless-grpc-in",
+          "hy2-in"
+        ],
+        "protocol": [
+          "bittorrent"
+        ],
+        "outboundTag": "block"
+      },
+      {
+        "type": "field",
+        "inboundTag": [
+          "entry-in",
+          "vless-ws-in",
+          "vless-grpc-in"
+        ],
+        "domain": [
+          "geosite:category-ru",
+          "full:cp.cloudflare.com",
+          "regexp:(?i)\\.ru$",
+          "regexp:(?i)\\.su$",
+          "regexp:(?i)\\.xn--p1ai$"
+        ],
+        "outboundTag": "direct"
+      },
+      {
+        "type": "field",
+        "inboundTag": [
+          "entry-in",
+          "vless-ws-in",
+          "vless-grpc-in"
+        ],
+        "ip": [
+          "geoip:ru"
+        ],
+        "outboundTag": "direct"
+      },
+      {
+        "type": "field",
+        "ip": [
+          "geoip:private"
+        ],
+        "outboundTag": "block"
+      },
+      {
+        "type": "field",
+        "inboundTag": [
+          "hy2-in"
+        ],
+        "outboundTag": "to-transit"
+      },
+      {
+        "type": "field",
+        "inboundTag": [
+          "entry-in",
+          "vless-ws-in",
+          "vless-grpc-in"
+        ],
+        "outboundTag": "to-transit"
+      }
+    ]
+  }
+}

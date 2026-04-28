@@ -1,0 +1,141 @@
+# Copy this file to an ignored values file, for example:
+#   deploy/k3s/values-prod.yaml
+#
+# Never commit real tokens, keys, Hysteria Salamander/stat secrets, Mieru profiles,
+# zapret2 profiles, ShadowTLS passwords, WireGuard keys or MTProto secrets.
+
+namespace:
+  name: tracegate
+
+global:
+  image:
+    repository: ghcr.io/your-org/tracegate
+    tag: "2.2.0"
+  publicBaseUrl: "https://tracegate.example.com"
+
+controlPlane:
+  auth:
+    existingSecretName: tracegate-control-plane-auth
+  database:
+    externalUrlSecret:
+      name: tracegate-database-url
+      key: url
+  env:
+    defaultEntryHost: entry.example.com
+    defaultTransitHost: transit.example.com
+    mtprotoDomain: mtproto.example.com
+    botWelcomeMessageSecret:
+      name: tracegate-bot-welcome
+      key: message
+    botGuideMessageSecret:
+      name: tracegate-bot-guide
+      key: message
+
+privateProfiles:
+  required: true
+  existingSecretName: tracegate-private-profiles
+  defaultMode: 256
+  secretKeys:
+    realityPrivateKeyEntry: reality-entry-private-key
+    realityPrivateKeyTransit: reality-transit-private-key
+    hysteriaSalamanderEntry: hysteria-entry-salamander-password
+    hysteriaSalamanderTransit: hysteria-transit-salamander-password
+    hysteriaStatsEntry: hysteria-entry-stats-secret
+    hysteriaStatsTransit: hysteria-transit-stats-secret
+
+decoy:
+  # Mount the existing production decoy tree. The chart does not ship decoy
+  # HTML/CSS/JS and rejects inline decoy.files.
+  hostPath: /srv/tracegate/decoy
+  hostPathType: Directory
+  mountPath: /var/www/decoy
+
+network:
+  egressIsolation:
+    # Replace with real node public IPs in the ignored production values file.
+    # User-facing ingress IPs must never be used for user traffic SNAT.
+    ingressPublicIPs:
+      - 203.0.113.10
+    egressPublicIPs:
+      - 198.51.100.20
+    nodeAnnotations:
+      enabled: true
+      ingressPublicIP: tracegate.io/ingress-public-ip
+      egressPublicIP: tracegate.io/egress-public-ip
+
+gateway:
+  terminationGracePeriodSeconds: 60
+  pdb:
+    enabled: true
+    minAvailable: 1
+  probes:
+    enabled: true
+  privatePreflight:
+    enabled: true
+    forbidPlaceholders: true
+  agent:
+    reloadCommands:
+      profiles: "sh -lc 'tracegate-k3s-private-reload --component profiles --role \"${AGENT_ROLE}\" --private-runtime-root /var/lib/tracegate/private --runtime-contract /var/lib/tracegate/runtime/runtime-contract.json'"
+      linkCrypto: "sh -lc 'tracegate-k3s-private-reload --component link-crypto --role \"${AGENT_ROLE}\" --private-runtime-root /var/lib/tracegate/private --runtime-contract /var/lib/tracegate/runtime/runtime-contract.json'"
+  roles:
+    entry:
+      nodeSelector:
+        tracegate.io/role: entry
+      tls:
+        serverName: entry.example.com
+        existingSecretName: tracegate-entry-tls
+      reality:
+        dest: www.microsoft.com:443
+        serverNames:
+          - www.microsoft.com
+        privateKeySecret:
+          name: tracegate-entry-reality
+          key: private-key
+        shortIds:
+          - "0123456789abcdef"
+    transit:
+      nodeSelector:
+        tracegate.io/role: transit
+      tls:
+        serverName: transit.example.com
+        existingSecretName: tracegate-transit-tls
+      reality:
+        dest: www.microsoft.com:443
+        serverNames:
+          - www.microsoft.com
+        privateKeySecret:
+          name: tracegate-transit-reality
+          key: private-key
+        shortIds:
+          - "fedcba9876543210"
+
+interconnect:
+  entryTransit:
+    enabled: true
+    primary: mieru
+    fallback: none
+    chainBridgeOwner: link-crypto
+    xrayBackhaul: false
+    outerCarrier:
+      enabled: true
+      mode: wss
+      serverName: bridge.example.com
+      publicPort: 443
+      publicPath: /cdn-cgi/tracegate-link
+      verifyTls: true
+  mieru:
+    enabled: true
+    localSocks:
+      routerEntryPort: 10883
+      routerTransitPort: 10884
+  zapret2:
+    enabled: true
+
+wireguard:
+  enabled: true
+  wstunnel:
+    enabled: true
+
+mtproto:
+  enabled: true
+  domain: mtproto.example.com

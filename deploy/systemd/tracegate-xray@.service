@@ -1,0 +1,26 @@
+[Unit]
+Description=Tracegate Xray runtime (%i)
+After=network-online.target
+Wants=network-online.target
+ConditionPathExists=/usr/local/bin/xray
+ConditionPathExists=/var/lib/tracegate/agent-%i/runtime/xray/config.json
+
+[Service]
+Type=simple
+User=root
+Group=root
+WorkingDirectory=/var/lib/tracegate/agent-%i/runtime/xray
+ExecStart=/usr/local/bin/xray run -config /var/lib/tracegate/agent-%i/runtime/xray/config.json
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=on-failure
+RestartSec=2
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=full
+ReadWritePaths=/var/lib/tracegate/agent-%i/runtime /var/log/tracegate
+LimitNOFILE=1048576
+
+[Install]
+WantedBy=multi-user.target
