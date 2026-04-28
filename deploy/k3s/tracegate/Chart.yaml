@@ -2,5 +2,5 @@ apiVersion: v2
 name: tracegate
 description: Tracegate 2.2 single-chart k3s runtime
 type: application
-version: 2.2.0
-appVersion: "2.2.0"
+version: 2.2.1
+appVersion: "2.2.1"

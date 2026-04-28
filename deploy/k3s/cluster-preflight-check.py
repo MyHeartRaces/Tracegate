@@ -50,6 +50,128 @@ def _enabled(value: Any) -> bool:
     return bool(value)
 
 
+def _as_int(value: Any, *, default: int = 0) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _memory_mi(value: Any) -> int | None:
+    raw = _text(value)
+    if raw.endswith("Mi"):
+        return _as_int(raw[:-2], default=-1)
+    if raw.endswith("Gi"):
+        return _as_int(raw[:-2], default=-1) * 1024
+    return None
+
+
+def _cpu_millis(value: Any) -> int | None:
+    raw = _text(value)
+    if raw.endswith("m"):
+        return _as_int(raw[:-1], default=-1)
+    if "." in raw:
+        return None
+    parsed = _as_int(raw, default=-1)
+    return parsed * 1000 if parsed >= 0 else None
+
+
+def _experimental_requested(values: Mapping[str, Any]) -> bool:
+    experimental = _as_dict(values.get("experimentalProfiles"))
+    direct = _as_dict(experimental.get("directTransitObfuscation"))
+    tuic = _as_dict(experimental.get("tuicV5"))
+    return any(
+        _enabled(value)
+        for value in (
+            experimental.get("enabled"),
+            direct.get("enabled"),
+            _as_dict(direct.get("mieru")).get("enabled"),
+            _as_dict(direct.get("restls")).get("enabled"),
+            tuic.get("enabled"),
+            tuic.get("directEnabled"),
+            tuic.get("chainEnabled"),
+        )
+    )
+
+
+def _entry_small_containers(values: Mapping[str, Any]) -> list[str]:
+    interconnect = _as_dict(values.get("interconnect"))
+    entry_transit = _as_dict(interconnect.get("entryTransit"))
+    outer_carrier = _as_dict(entry_transit.get("outerCarrier"))
+    mieru = _as_dict(interconnect.get("mieru"))
+    zapret2 = _as_dict(interconnect.get("zapret2"))
+    containers = ["agent", "haproxy", "nginx", "xray", "hysteria"]
+    if _enabled(mieru.get("enabled")) and (
+        _enabled(entry_transit.get("enabled")) or _enabled(_as_dict(entry_transit.get("routerEntry")).get("enabled"))
+    ):
+        containers.append("mieru")
+    if (
+        _enabled(mieru.get("enabled"))
+        and _enabled(entry_transit.get("enabled"))
+        and _enabled(outer_carrier.get("enabled"))
+        and _text(outer_carrier.get("mode")) == "wss"
+    ):
+        containers.append("wstunnel")
+    if _enabled(zapret2.get("enabled")):
+        containers.append("zapret2")
+    if _enabled(_as_dict(values.get("shadowsocks2022")).get("enabled")):
+        containers.extend(["shadowsocks", "shadowtls"])
+    return containers
+
+
+def _validate_entry_small(values: Mapping[str, Any]) -> list[str]:
+    gateway = _as_dict(values.get("gateway"))
+    entry_small = _as_dict(gateway.get("entrySmall"))
+    if not _enabled(entry_small.get("enabled")):
+        return []
+
+    errors: list[str] = []
+    roles = _as_dict(gateway.get("roles"))
+    rollout = _as_dict(entry_small.get("rollout"))
+    resources = _as_dict(entry_small.get("containerResources"))
+    if not _enabled(_as_dict(roles.get("entry")).get("enabled")):
+        errors.append("gateway.entrySmall.enabled=true requires the Entry role")
+    if not _enabled(entry_small.get("forbidWireGuard")):
+        errors.append("gateway.entrySmall.forbidWireGuard must stay true")
+    if not _enabled(entry_small.get("forbidExperimental")):
+        errors.append("gateway.entrySmall.forbidExperimental must stay true")
+    if _enabled(_as_dict(values.get("wireguard")).get("enabled")):
+        errors.append("wireguard.enabled must stay false when gateway.entrySmall.enabled=true")
+    if not _enabled(_as_dict(values.get("shadowsocks2022")).get("enabled")):
+        errors.append("shadowsocks2022.enabled must stay true when gateway.entrySmall.enabled=true")
+    if _experimental_requested(values):
+        errors.append("experimentalProfiles must stay disabled when gateway.entrySmall.enabled=true")
+    if _text(rollout.get("strategy")) != "Recreate":
+        errors.append("gateway.entrySmall.rollout.strategy must stay Recreate")
+    if not _enabled(rollout.get("allowRecreateStrategy")):
+        errors.append("gateway.entrySmall.rollout.allowRecreateStrategy must stay true")
+    if _text(rollout.get("maxSurge")) != "0":
+        errors.append("gateway.entrySmall.rollout.maxSurge must stay 0")
+
+    memory_total_mi = 0
+    cpu_total_millis = 0
+    for container_name in _entry_small_containers(values):
+        limits = _as_dict(_as_dict(resources.get(container_name)).get("limits"))
+        memory_mi = _memory_mi(limits.get("memory"))
+        cpu_millis = _cpu_millis(limits.get("cpu"))
+        if memory_mi is None or memory_mi <= 0:
+            errors.append(f"gateway.entrySmall.containerResources.{container_name}.limits.memory must use Mi or Gi")
+        else:
+            memory_total_mi += memory_mi
+        if cpu_millis is None or cpu_millis <= 0:
+            errors.append(f"gateway.entrySmall.containerResources.{container_name}.limits.cpu must use millicores or whole cores")
+        else:
+            cpu_total_millis += cpu_millis
+
+    memory_budget_mi = _as_int(entry_small.get("memoryBudgetMi"))
+    cpu_budget_millis = _as_int(entry_small.get("cpuLimitBudgetMillis"))
+    if memory_total_mi > memory_budget_mi:
+        errors.append(f"gateway.entrySmall memory limit total {memory_total_mi}Mi exceeds memoryBudgetMi={memory_budget_mi}")
+    if cpu_total_millis > cpu_budget_millis:
+        errors.append(f"gateway.entrySmall CPU limit total {cpu_total_millis}m exceeds cpuLimitBudgetMillis={cpu_budget_millis}")
+    return errors
+
+
 def _kubectl_json(kubectl: str, context: str, args: list[str]) -> dict[str, Any]:
     cmd = [kubectl]
     if context:
@@ -215,7 +337,7 @@ def validate_cluster(
 ) -> tuple[list[str], dict[str, int | str]]:
     values = _merge_values(_read_yaml(chart_values), _read_yaml(values_path))
     namespace = namespace_override or _text(_as_dict(values.get("namespace")).get("name")) or "tracegate"
-    errors: list[str] = []
+    errors: list[str] = _validate_entry_small(values)
     checked_secrets = 0
     checked_nodes = 0
     checked_egress_nodes = 0

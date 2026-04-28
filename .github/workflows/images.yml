@@ -64,23 +64,3 @@ jobs:
             VCS_REF=${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
-
-      - name: Create systemd deployment bundle
-        if: github.event_name != 'pull_request'
-        run: |
-          bundle_path="${{ runner.temp }}/tracegate-systemd-bundle.tar.gz"
-          tar \
-            --exclude=.git \
-            --exclude=.venv \
-            --exclude=.pytest_cache \
-            --exclude=.ruff_cache \
-            --exclude='__pycache__' \
-            -czf "$bundle_path" .
-
-      - name: Upload systemd deployment bundle
-        if: github.event_name != 'pull_request'
-        uses: actions/upload-artifact@v4
-        with:
-          name: tracegate-systemd-bundle
-          path: ${{ runner.temp }}/tracegate-systemd-bundle.tar.gz
-          retention-days: 7

@@ -2,9 +2,7 @@
 
 Tracegate 2.2 is deployed as one Helm chart from `deploy/k3s/tracegate`.
 
-This chart is the production target for the 2.2 runtime. The old plain-host
-`deploy/systemd` kit remains in the repository only as the Tracegate 2 migration
-surface until the Helm rollout is complete.
+This chart is the production target for the 2.2 runtime.
 
 ## Rules
 
@@ -48,6 +46,12 @@ surface until the Helm rollout is complete.
   `gateway.strategy=Recreate` is a lab-only maintenance opt-in. Keep
   `maxSurge` non-zero, `progressDeadlineSeconds>=300`, probes enabled, and the
   gateway PDB at `minAvailable=1`.
+- For a constrained Entry node, enable `gateway.entrySmall.enabled=true` in the
+  private production overlay. This applies a dedicated 1 GB / 1 vCPU resource
+  envelope only to the Entry gateway, switches the Entry Deployment to
+  no-surge `Recreate`, rejects WGWS and lab surfaces, requires V3
+  Shadowsocks-2022 + ShadowTLS, and validates the summed Entry container limits
+  before render/preflight.
 - Do not use host-wide NFQUEUE or broad userspace interception for all traffic.
 - Keep Entry-to-Transit chaining outside Xray. In the k3s chart the V2/V6 TCP
   chain bridge is owned by `link-crypto`, encrypted by Mieru, and wrapped in a

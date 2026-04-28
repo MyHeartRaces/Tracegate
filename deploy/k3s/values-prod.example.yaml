@@ -10,7 +10,7 @@ namespace:
 global:
   image:
     repository: ghcr.io/your-org/tracegate
-    tag: "2.2.0"
+    tag: "2.2.1"
   publicBaseUrl: "https://tracegate.example.com"
 
 controlPlane:
@@ -73,6 +73,10 @@ gateway:
   privatePreflight:
     enabled: true
     forbidPlaceholders: true
+  entrySmall:
+    # Enable in the ignored production overlay when the Entry node is limited
+    # to roughly 1 GB RAM and 1 vCPU. This mode requires V3 to be enabled.
+    enabled: false
   agent:
     reloadCommands:
       profiles: "sh -lc 'tracegate-k3s-private-reload --component profiles --role \"${AGENT_ROLE}\" --private-runtime-root /var/lib/tracegate/private --runtime-contract /var/lib/tracegate/runtime/runtime-contract.json'"

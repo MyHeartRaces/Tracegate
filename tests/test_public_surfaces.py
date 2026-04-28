@@ -30,8 +30,8 @@ def test_public_repo_does_not_ship_bot_copy() -> None:
         path.read_text(encoding="utf-8")
         for path in (
             repo_root / "deploy/k3s/tracegate/values.yaml",
-            repo_root / "deploy/systemd/tracegate.env.example",
+            repo_root / "deploy/k3s/values-prod.example.yaml",
         )
     )
-    assert "[TRACEGATE_BOT_GUIDE_PLACEHOLDER]" in public_text
+    assert "tracegate-bot-guide" in public_text
     assert ("Короткий " + "гайд") not in public_text

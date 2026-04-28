@@ -61,6 +61,19 @@ def _gateway_deployment_templates(rendered: str) -> dict[str, dict]:
     return templates
 
 
+def _gateway_deployments(rendered: str) -> dict[str, dict]:
+    deployments: dict[str, dict] = {}
+    for doc in _helm_docs(rendered):
+        if doc.get("kind") != "Deployment":
+            continue
+        labels = doc.get("metadata", {}).get("labels", {})
+        component = labels.get("app.kubernetes.io/component", "")
+        if not str(component).startswith("gateway-"):
+            continue
+        deployments[component] = doc
+    return deployments
+
+
 def _rendered_runtime_contract(rendered: str) -> dict:
     for doc in _helm_docs(rendered):
         if doc.get("kind") != "ConfigMap":
@@ -128,6 +141,18 @@ def test_tracegate21_chart_uses_entry_transit_roles() -> None:
     assert values["gateway"]["probes"]["enabled"] is True
     assert values["gateway"]["privatePreflight"]["enabled"] is True
     assert values["gateway"]["privatePreflight"]["forbidPlaceholders"] is True
+    assert values["gateway"]["entrySmall"]["enabled"] is False
+    assert values["gateway"]["entrySmall"]["profile"] == "1g-1vcpu"
+    assert values["gateway"]["entrySmall"]["memoryBudgetMi"] == 900
+    assert values["gateway"]["entrySmall"]["cpuLimitBudgetMillis"] == 1000
+    assert values["gateway"]["entrySmall"]["forbidWireGuard"] is True
+    assert values["gateway"]["entrySmall"]["forbidExperimental"] is True
+    assert values["gateway"]["entrySmall"]["rollout"] == {
+        "strategy": "Recreate",
+        "allowRecreateStrategy": True,
+        "maxUnavailable": 0,
+        "maxSurge": 0,
+    }
     assert values["network"]["egressIsolation"]["required"] is True
     assert values["network"]["egressIsolation"]["mode"] == "dedicated-egress-ip"
     assert values["network"]["egressIsolation"]["forbidIngressIpAsEgress"] is True
@@ -723,6 +748,7 @@ def test_tracegate21_chart_disables_hostwide_interception_by_default() -> None:
     assert "interconnect.entryTransit.udp.hardening.antiAmplification.enabled=false is forbidden" in _chart_text()
     assert "interconnect.entryTransit.udp.hardening.mtu.mode must stay clamp" in _chart_text()
     assert "interconnect.entryTransit.udp.hardening.sourceValidation.mode must stay profile-bound-remote" in _chart_text()
+    assert "shadowsocks2022.enabled=false is forbidden when gateway.entrySmall.enabled=true" in _chart_text()
     assert "gateway.roles.%s.ports.publicTcp must stay 443; TCP/8443 is forbidden" in _chart_text()
     assert "gateway.roles.%s.ports.publicUdp must stay 8443; UDP/443 is forbidden" in _chart_text()
     assert "containerResources.zapret2" in Path("deploy/k3s/README.md").read_text(encoding="utf-8")
@@ -730,6 +756,82 @@ def test_tracegate21_chart_disables_hostwide_interception_by_default() -> None:
     assert "chainBridgeOwner: link-crypto" in Path("deploy/k3s/values-prod.example.yaml").read_text(encoding="utf-8")
     assert "xrayBackhaul: false" in Path("deploy/k3s/values-prod.example.yaml").read_text(encoding="utf-8")
     assert "outerCarrier:" in Path("deploy/k3s/values-prod.example.yaml").read_text(encoding="utf-8")
+
+
+def test_entry_small_profile_scopes_rollout_and_resources_to_entry(tmp_path: Path) -> None:
+    rendered = _helm_template_with_values(
+        tmp_path,
+        {
+            "gateway": {"entrySmall": {"enabled": True}},
+            "shadowsocks2022": {"enabled": True},
+        },
+    )
+
+    assert rendered.returncode == 0, rendered.stderr
+    deployments = _gateway_deployments(rendered.stdout)
+    entry = deployments["gateway-entry"]
+    transit = deployments["gateway-transit"]
+    assert entry["spec"]["strategy"] == {"type": "Recreate"}
+    assert transit["spec"]["strategy"]["type"] == "RollingUpdate"
+    assert transit["spec"]["strategy"]["rollingUpdate"]["maxSurge"] == "1"
+
+    entry_containers = _containers_by_name(entry["spec"]["template"])
+    transit_containers = _containers_by_name(transit["spec"]["template"])
+    assert _env_value(entry_containers["agent"], "AGENT_GATEWAY_STRATEGY") == "Recreate"
+    assert _env_value(entry_containers["agent"], "AGENT_GATEWAY_MAX_SURGE") == "0"
+    assert _env_value(transit_containers["agent"], "AGENT_GATEWAY_STRATEGY") == "RollingUpdate"
+    assert entry_containers["xray"]["resources"]["limits"]["memory"] == "160Mi"
+    assert entry_containers["hysteria"]["resources"]["limits"]["cpu"] == "180m"
+    assert entry_containers["shadowsocks-2022"]["resources"]["limits"]["memory"] == "96Mi"
+    assert entry_containers["shadowtls-v3"]["resources"]["limits"]["cpu"] == "40m"
+    assert "resources" not in transit_containers["xray"]
+
+
+@pytest.mark.parametrize(
+    ("values", "message"),
+    [
+        (
+            {"gateway": {"entrySmall": {"enabled": True}}},
+            "shadowsocks2022.enabled=false is forbidden when gateway.entrySmall.enabled=true",
+        ),
+        (
+            {"gateway": {"entrySmall": {"enabled": True}}, "shadowsocks2022": {"enabled": True}, "wireguard": {"enabled": True}},
+            "wireguard.enabled=true is forbidden when gateway.entrySmall.enabled=true",
+        ),
+        (
+            {
+                "gateway": {"entrySmall": {"enabled": True}},
+                "shadowsocks2022": {"enabled": True},
+                "experimentalProfiles": {"enabled": True},
+            },
+            "experimentalProfiles are forbidden when gateway.entrySmall.enabled=true",
+        ),
+        (
+            {
+                "gateway": {"entrySmall": {"enabled": True, "rollout": {"strategy": "RollingUpdate"}}},
+                "shadowsocks2022": {"enabled": True},
+            },
+            "gateway.entrySmall.rollout.strategy must be Recreate",
+        ),
+        (
+            {
+                "gateway": {
+                    "entrySmall": {
+                        "enabled": True,
+                        "containerResources": {"xray": {"limits": {"cpu": "180m", "memory": "901Mi"}}},
+                    }
+                },
+                "shadowsocks2022": {"enabled": True},
+            },
+            "gateway.entrySmall container memory limits total",
+        ),
+    ],
+)
+def test_entry_small_profile_rejects_unsafe_overlays(tmp_path: Path, values: dict, message: str) -> None:
+    rendered = _helm_template_with_values(tmp_path, values)
+
+    assert rendered.returncode != 0
+    assert message in rendered.stderr
 
 
 def test_tracegate21_zapret2_sidecar_runs_scoped_mtproto_profile_on_transit(tmp_path: Path) -> None:
@@ -1435,9 +1537,10 @@ def test_tracegate21_templates_keep_user_state_out_of_rollout_checksums() -> Non
 
     assert "kind: PodDisruptionBudget" in gateways
     assert "minAvailable: {{ $.Values.gateway.pdb.minAvailable }}" in gateways
-    assert "type: {{ $.Values.gateway.strategy }}" in gateways
-    assert "maxUnavailable: {{ $.Values.gateway.rollingUpdate.maxUnavailable | quote }}" in gateways
-    assert "maxSurge: {{ $.Values.gateway.rollingUpdate.maxSurge | quote }}" in gateways
+    assert "$entrySmallRole" in gateways
+    assert "type: {{ $roleGatewayStrategy }}" in gateways
+    assert "maxUnavailable: {{ $roleRollingMaxUnavailable | quote }}" in gateways
+    assert "maxSurge: {{ $roleRollingMaxSurge | quote }}" in gateways
     assert "progressDeadlineSeconds: {{ int $.Values.gateway.progressDeadlineSeconds }}" in gateways
     assert "checksum/users" not in gateways
     assert "checksum/secrets" not in gateways
@@ -1474,10 +1577,11 @@ def test_tracegate21_templates_keep_user_state_out_of_rollout_checksums() -> Non
     assert "AGENT_RELOAD_LINK_CRYPTO_CMD" in gateways
     assert "DEFAULT_ENTRY_HOST" in gateways
     assert "DEFAULT_TRANSIT_HOST" in gateways
-    assert "gateway.containerResources.agent" in gateways
-    assert "gateway.containerResources.zapret2" in gateways
-    assert "gateway.containerResources.wireguard" in gateways
-    assert "gateway.containerResources.singbox" in gateways
+    assert "$roleContainerResources" in gateways
+    assert 'index $roleContainerResources "agent"' in gateways
+    assert 'index $roleContainerResources "zapret2"' in gateways
+    assert 'index $roleContainerResources "wireguard"' in gateways
+    assert 'index $roleContainerResources "singbox"' in gateways
     assert 'value: "/var/lib/tracegate/private"' in gateways
     assert "PRIVATE_ZAPRET_PROFILE_DIR" in gateways
     assert "PRIVATE_ZAPRET_PROFILE_ENTRY" in gateways

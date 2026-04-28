@@ -43,6 +43,15 @@
 {{- $linkWssCarrierEnabled := and $.Values.interconnect.entryTransit.enabled $linkOuterCarrier.enabled (eq (toString $linkOuterCarrier.mode) "wss") }}
 {{- $roleLinkWssCarrierEnabled := and $roleLinkCryptoEnabled $linkWssCarrierEnabled (or (eq $roleName "entry") (eq $roleName "transit")) }}
 {{- $linkZapretProfileEnabled := and $.Values.interconnect.zapret2.enabled $roleLinkCryptoEnabled }}
+{{- $entrySmallRole := and (eq $roleName "entry") $.Values.gateway.entrySmall.enabled }}
+{{- $roleGatewayStrategy := ternary $.Values.gateway.entrySmall.rollout.strategy $.Values.gateway.strategy $entrySmallRole }}
+{{- $roleAllowRecreateStrategy := ternary $.Values.gateway.entrySmall.rollout.allowRecreateStrategy $.Values.gateway.allowRecreateStrategy $entrySmallRole }}
+{{- $roleRollingMaxUnavailable := ternary $.Values.gateway.entrySmall.rollout.maxUnavailable $.Values.gateway.rollingUpdate.maxUnavailable $entrySmallRole }}
+{{- $roleRollingMaxSurge := ternary $.Values.gateway.entrySmall.rollout.maxSurge $.Values.gateway.rollingUpdate.maxSurge $entrySmallRole }}
+{{- $roleContainerResources := $.Values.gateway.containerResources }}
+{{- if $entrySmallRole }}
+{{- $roleContainerResources = mergeOverwrite (deepCopy $.Values.gateway.containerResources) $.Values.gateway.entrySmall.containerResources }}
+{{- end }}
 {{- if $.Values.gateway.pdb.enabled }}
 apiVersion: policy/v1
 kind: PodDisruptionBudget
@@ -70,11 +79,11 @@ metadata:
     app.kubernetes.io/component: gateway-{{ $roleName }}
 spec:
   strategy:
-    type: {{ $.Values.gateway.strategy }}
-{{- if eq $.Values.gateway.strategy "RollingUpdate" }}
+    type: {{ $roleGatewayStrategy }}
+{{- if eq $roleGatewayStrategy "RollingUpdate" }}
     rollingUpdate:
-      maxUnavailable: {{ $.Values.gateway.rollingUpdate.maxUnavailable | quote }}
-      maxSurge: {{ $.Values.gateway.rollingUpdate.maxSurge | quote }}
+      maxUnavailable: {{ $roleRollingMaxUnavailable | quote }}
+      maxSurge: {{ $roleRollingMaxSurge | quote }}
 {{- end }}
   progressDeadlineSeconds: {{ int $.Values.gateway.progressDeadlineSeconds }}
   replicas: 1
@@ -342,7 +351,7 @@ spec:
           image: {{ include "tracegate.image" $.Values.global.image | quote }}
           imagePullPolicy: {{ $.Values.global.image.pullPolicy }}
           command: ["tracegate-agent"]
-{{- with $.Values.gateway.containerResources.agent }}
+{{- with (index $roleContainerResources "agent") }}
           resources:
             {{- toYaml . | nindent 12 }}
 {{- end }}
@@ -380,13 +389,13 @@ spec:
             - name: AGENT_RUNTIME_PROFILE
               value: {{ $.Values.global.runtimeProfile | quote }}
             - name: AGENT_GATEWAY_STRATEGY
-              value: {{ $.Values.gateway.strategy | quote }}
+              value: {{ $roleGatewayStrategy | quote }}
             - name: AGENT_GATEWAY_ALLOW_RECREATE_STRATEGY
-              value: {{ $.Values.gateway.allowRecreateStrategy | quote }}
+              value: {{ $roleAllowRecreateStrategy | quote }}
             - name: AGENT_GATEWAY_MAX_UNAVAILABLE
-              value: {{ $.Values.gateway.rollingUpdate.maxUnavailable | quote }}
+              value: {{ $roleRollingMaxUnavailable | quote }}
             - name: AGENT_GATEWAY_MAX_SURGE
-              value: {{ $.Values.gateway.rollingUpdate.maxSurge | quote }}
+              value: {{ $roleRollingMaxSurge | quote }}
             - name: AGENT_GATEWAY_PROGRESS_DEADLINE_SECONDS
               value: {{ $.Values.gateway.progressDeadlineSeconds | quote }}
             - name: AGENT_GATEWAY_PDB_MIN_AVAILABLE
@@ -541,7 +550,7 @@ spec:
           image: {{ include "tracegate.image" $.Values.gateway.images.haproxy | quote }}
           imagePullPolicy: {{ $.Values.gateway.images.haproxy.pullPolicy }}
           command: ["haproxy", "-W", "-db", "-f", "/usr/local/etc/haproxy/haproxy.cfg"]
-{{- with $.Values.gateway.containerResources.haproxy }}
+{{- with (index $roleContainerResources "haproxy") }}
           resources:
             {{- toYaml . | nindent 12 }}
 {{- end }}
@@ -577,7 +586,7 @@ spec:
           image: {{ include "tracegate.image" $.Values.gateway.images.nginx | quote }}
           imagePullPolicy: {{ $.Values.gateway.images.nginx.pullPolicy }}
           command: ["nginx", "-g", "daemon off;", "-c", "/etc/nginx/nginx.conf"]
-{{- with $.Values.gateway.containerResources.nginx }}
+{{- with (index $roleContainerResources "nginx") }}
           resources:
             {{- toYaml . | nindent 12 }}
 {{- end }}
@@ -621,7 +630,7 @@ spec:
           image: {{ include "tracegate.image" $.Values.gateway.images.xray | quote }}
           imagePullPolicy: {{ $.Values.gateway.images.xray.pullPolicy }}
           command: ["xray", "run", "-c", "/etc/xray/config.json"]
-{{- with $.Values.gateway.containerResources.xray }}
+{{- with (index $roleContainerResources "xray") }}
           resources:
             {{- toYaml . | nindent 12 }}
 {{- end }}
@@ -663,7 +672,7 @@ spec:
           image: {{ include "tracegate.image" $.Values.gateway.images.hysteria | quote }}
           imagePullPolicy: {{ $.Values.gateway.images.hysteria.pullPolicy }}
           command: ["hysteria", "server", "-c", "/etc/hysteria/server.yaml"]
-{{- with $.Values.gateway.containerResources.hysteria }}
+{{- with (index $roleContainerResources "hysteria") }}
           resources:
             {{- toYaml . | nindent 12 }}
 {{- end }}
@@ -766,7 +775,7 @@ spec:
               value: {{ $roleLinkCryptoEnv | quote }}
             - name: TRACEGATE_LINK_CRYPTO_RELOAD_MARKER
               value: {{ $roleLinkCryptoReloadMarker | quote }}
-{{- with $.Values.gateway.containerResources.mieru }}
+{{- with (index $roleContainerResources "mieru") }}
           resources:
             {{- toYaml . | nindent 12 }}
 {{- end }}
@@ -806,7 +815,7 @@ spec:
               value: "wss"
             - name: TRACEGATE_LINK_CRYPTO_OUTER_WSS_URL
               value: {{ printf "wss://%s:%d%s" (toString $linkOuterCarrier.serverName) (int $linkOuterCarrier.publicPort) (toString $linkOuterCarrier.publicPath) | quote }}
-{{- with $.Values.gateway.containerResources.wstunnel }}
+{{- with (index $roleContainerResources "wstunnel") }}
           resources:
             {{- toYaml . | nindent 12 }}
 {{- end }}
@@ -876,7 +885,7 @@ spec:
                 done
                 sleep 2
               done
-{{- with $.Values.gateway.containerResources.zapret2 }}
+{{- with (index $roleContainerResources "zapret2") }}
           resources:
             {{- toYaml . | nindent 12 }}
 {{- end }}
@@ -893,7 +902,7 @@ spec:
           image: {{ include "tracegate.image" $.Values.gateway.images.mtproto | quote }}
           imagePullPolicy: {{ $.Values.gateway.images.mtproto.pullPolicy }}
           command: ["sh", "-lc", "mtg run {{ $.Values.privateProfiles.mountPath }}/{{ $.Values.privateProfiles.keys.mtproto }} --bind 127.0.0.1:{{ int $.Values.mtproto.backendPort }}"]
-{{- with $.Values.gateway.containerResources.mtproto }}
+{{- with (index $roleContainerResources "mtproto") }}
           resources:
             {{- toYaml . | nindent 12 }}
 {{- end }}
@@ -919,7 +928,7 @@ spec:
               value: {{ $roleProfileEnv | quote }}
             - name: TRACEGATE_PROFILE_RELOAD_MARKER
               value: {{ $roleProfileReloadMarker | quote }}
-{{- with $.Values.gateway.containerResources.shadowsocks }}
+{{- with (index $roleContainerResources "shadowsocks") }}
           resources:
             {{- toYaml . | nindent 12 }}
 {{- end }}
@@ -943,7 +952,7 @@ spec:
               value: {{ $roleProfileEnv | quote }}
             - name: TRACEGATE_PROFILE_RELOAD_MARKER
               value: {{ $roleProfileReloadMarker | quote }}
-{{- with $.Values.gateway.containerResources.shadowtls }}
+{{- with (index $roleContainerResources "shadowtls") }}
           resources:
             {{- toYaml . | nindent 12 }}
 {{- end }}
@@ -983,7 +992,7 @@ spec:
               value: {{ $roleProfileEnv | quote }}
             - name: TRACEGATE_PROFILE_RELOAD_MARKER
               value: {{ $roleProfileReloadMarker | quote }}
-{{- with $.Values.gateway.containerResources.wireguard }}
+{{- with (index $roleContainerResources "wireguard") }}
           resources:
             {{- toYaml . | nindent 12 }}
 {{- end }}
@@ -1007,7 +1016,7 @@ spec:
               value: {{ $roleProfileEnv | quote }}
             - name: TRACEGATE_PROFILE_RELOAD_MARKER
               value: {{ $roleProfileReloadMarker | quote }}
-{{- with $.Values.gateway.containerResources.wstunnel }}
+{{- with (index $roleContainerResources "wstunnel") }}
           resources:
             {{- toYaml . | nindent 12 }}
 {{- end }}
@@ -1033,7 +1042,7 @@ spec:
               value: {{ $roleProfileEnv | quote }}
             - name: TRACEGATE_PROFILE_RELOAD_MARKER
               value: {{ $roleProfileReloadMarker | quote }}
-{{- with $.Values.gateway.containerResources.mieru }}
+{{- with (index $roleContainerResources "mieru") }}
           resources:
             {{- toYaml . | nindent 12 }}
 {{- end }}
@@ -1059,7 +1068,7 @@ spec:
               value: {{ $roleProfileEnv | quote }}
             - name: TRACEGATE_PROFILE_RELOAD_MARKER
               value: {{ $roleProfileReloadMarker | quote }}
-{{- with $.Values.gateway.containerResources.singbox }}
+{{- with (index $roleContainerResources "singbox") }}
           resources:
             {{- toYaml . | nindent 12 }}
 {{- end }}
@@ -1085,7 +1094,7 @@ spec:
               value: {{ $roleProfileEnv | quote }}
             - name: TRACEGATE_PROFILE_RELOAD_MARKER
               value: {{ $roleProfileReloadMarker | quote }}
-{{- with $.Values.gateway.containerResources.singbox }}
+{{- with (index $roleContainerResources "singbox") }}
           resources:
             {{- toYaml . | nindent 12 }}
 {{- end }}

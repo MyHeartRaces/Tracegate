@@ -35,7 +35,6 @@ Release notes live in [`CHANGELOG.md`](CHANGELOG.md).
 - dispatcher pipeline for delivering runtime changes to node agents
 - optional Prometheus and Grafana integration
 - Helm chart for production k3s deployment
-- systemd deployment kit for plain Linux migration and lab environments
 
 ## User Model
 
@@ -79,7 +78,6 @@ Admins get an additional management section for access and moderation tasks.
 
 - `src/tracegate`: application code
 - `deploy/k3s/tracegate`: production Helm chart
-- `deploy/systemd`: plain-host deployment kit
 - `bundles`: public runtime bundle templates
 - `alembic`: database migrations
 - `tests`: coverage for API, bot and deployment behavior
@@ -111,14 +109,12 @@ helm upgrade --install tracegate ./deploy/k3s/tracegate \
 
 Production values are intentionally environment-specific and are not part of the public README.
 
-For plain-host migration and lab installs, start with [`deploy/systemd`](deploy/systemd).
-
 ## Container Image
 
 The project publishes the main application image through GitHub Packages:
 
 ```text
-ghcr.io/myheartraces/tracegate:2.2.0
+ghcr.io/myheartraces/tracegate:2.2.1
 ```
 
 Production deployments should pin either a version tag or an OCI digest.
@@ -137,7 +133,6 @@ The test suite covers:
 - client export generation
 - Helm rendering
 - deployment validation
-- deployment helper behavior
 
 Run locally:
 

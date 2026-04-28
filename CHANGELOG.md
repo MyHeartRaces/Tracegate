@@ -2,19 +2,20 @@
 
 ## Unreleased
 
+No unreleased changes.
+
+## v2.2.1 - 2026-04-28
+
 ### Runtime and Deployment
 
-- Consolidated the active repository contract around the xray-centric runtime on plain Linux hosts with `systemd`.
-- Added materialized bundle rendering, runtime-contract preflight checks and Transit-only node replacement flow.
-- Added private handoff surfaces for obfuscation, Transit TCP/443 fronting and persistent MTProto state.
-- Synced decoy assets, MTProto state files and runtime overlays into the active host runtime without moving private wrapper logic into Git.
-- Documented the low-overhead constrained-host profile for `~1 GB RAM` Entry/Transit nodes so optional extra layers stay out of the default rollout path.
+- Added the `gateway.entrySmall` k3s profile for 1 GB / 1 vCPU Entry nodes.
+- Kept Entry-small on the full V1/V2/V3 production surface and rejected overlays that omit V3.
+- Removed the legacy plain-host deployment kit, replacement workflow and old 2.1 architecture note from the public repository.
+- Dropped the systemd bundle artifact from the image workflow.
 
-### Bot and Public Surface
+### Validation
 
-- Added persistent Telegram Proxy delivery through the bot and removed the old burner MTProto path.
-- Refined the Transit decoy site, hidden auth gate and GitHub-framed public surface.
-- Normalized current user-facing labels and delivery surfaces around `V1-V4`, `Telegram Proxy` and Grafana access.
+- Added render/preflight checks for Entry-small resource budgets, rollout mode, WGWS/lab-surface rejection and required V3.
 
 ## v0.6.1 - 2026-04-05
 

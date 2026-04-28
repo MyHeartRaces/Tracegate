@@ -21,6 +21,13 @@ data:
       probesEnabled: {{ .Values.gateway.probes.enabled }}
       privatePreflightEnabled: {{ .Values.gateway.privatePreflight.enabled }}
       privatePreflightForbidPlaceholders: {{ .Values.gateway.privatePreflight.forbidPlaceholders }}
+      entrySmall:
+        enabled: {{ .Values.gateway.entrySmall.enabled }}
+        profile: {{ .Values.gateway.entrySmall.profile }}
+        strategy: {{ .Values.gateway.entrySmall.rollout.strategy }}
+        maxSurge: {{ .Values.gateway.entrySmall.rollout.maxSurge | quote }}
+        memoryBudgetMi: {{ int .Values.gateway.entrySmall.memoryBudgetMi }}
+        cpuLimitBudgetMillis: {{ int .Values.gateway.entrySmall.cpuLimitBudgetMillis }}
     privateProfiles:
       source: external-secret
       inlineProfilesAllowed: {{ .Values.privateProfiles.inlineProfiles }}

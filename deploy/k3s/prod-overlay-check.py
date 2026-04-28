@@ -76,6 +76,68 @@ def _as_int(value: Any, *, default: int = 0) -> int:
         return default
 
 
+def _memory_mi(value: Any) -> int | None:
+    raw = _text(value)
+    if raw.endswith("Mi"):
+        return _as_int(raw[:-2], default=-1)
+    if raw.endswith("Gi"):
+        return _as_int(raw[:-2], default=-1) * 1024
+    return None
+
+
+def _cpu_millis(value: Any) -> int | None:
+    raw = _text(value)
+    if raw.endswith("m"):
+        return _as_int(raw[:-1], default=-1)
+    if "." in raw:
+        return None
+    parsed = _as_int(raw, default=-1)
+    return parsed * 1000 if parsed >= 0 else None
+
+
+def _entry_small_containers(values: Mapping[str, Any]) -> list[str]:
+    interconnect = _as_dict(values.get("interconnect"))
+    entry_transit = _as_dict(interconnect.get("entryTransit"))
+    outer_carrier = _as_dict(entry_transit.get("outerCarrier"))
+    mieru = _as_dict(interconnect.get("mieru"))
+    zapret2 = _as_dict(interconnect.get("zapret2"))
+    containers = ["agent", "haproxy", "nginx", "xray", "hysteria"]
+    if bool(mieru.get("enabled", False)) and (
+        bool(entry_transit.get("enabled", False)) or bool(_as_dict(entry_transit.get("routerEntry")).get("enabled", False))
+    ):
+        containers.append("mieru")
+    if (
+        bool(mieru.get("enabled", False))
+        and bool(entry_transit.get("enabled", False))
+        and bool(outer_carrier.get("enabled", False))
+        and _text(outer_carrier.get("mode")) == "wss"
+    ):
+        containers.append("wstunnel")
+    if bool(zapret2.get("enabled", False)):
+        containers.append("zapret2")
+    if bool(_as_dict(values.get("shadowsocks2022")).get("enabled", False)):
+        containers.extend(["shadowsocks", "shadowtls"])
+    return containers
+
+
+def _experimental_requested(values: Mapping[str, Any]) -> bool:
+    experimental = _as_dict(values.get("experimentalProfiles"))
+    direct = _as_dict(experimental.get("directTransitObfuscation"))
+    tuic = _as_dict(experimental.get("tuicV5"))
+    return any(
+        bool(value)
+        for value in (
+            experimental.get("enabled", False),
+            direct.get("enabled", False),
+            _as_dict(direct.get("mieru")).get("enabled", False),
+            _as_dict(direct.get("restls")).get("enabled", False),
+            tuic.get("enabled", False),
+            tuic.get("directEnabled", False),
+            tuic.get("chainEnabled", False),
+        )
+    )
+
+
 def _is_mutable_tag(value: Any) -> bool:
     tag = _text(value).lower()
     return tag in MUTABLE_IMAGE_TAGS or tag.endswith("-latest")
@@ -268,6 +330,38 @@ def validate_prod_overlay(chart_values: Path, prod_values: Path, *, strict: bool
     require(bool(_as_dict(gateway.get("probes")).get("enabled", False)), "gateway.probes.enabled must stay true")
     require(bool(private_preflight.get("enabled", False)), "gateway.privatePreflight.enabled must stay true")
     require(bool(private_preflight.get("forbidPlaceholders", False)), "gateway.privatePreflight.forbidPlaceholders must stay true")
+    entry_small = _as_dict(gateway.get("entrySmall"))
+    if bool(entry_small.get("enabled", False)):
+        entry_small_rollout = _as_dict(entry_small.get("rollout"))
+        resources = _as_dict(entry_small.get("containerResources"))
+        memory_budget_mi = _as_int(entry_small.get("memoryBudgetMi"))
+        cpu_budget_millis = _as_int(entry_small.get("cpuLimitBudgetMillis"))
+        require(entry_enabled, "gateway.entrySmall.enabled=true requires the Entry role")
+        require(bool(entry_small.get("forbidWireGuard", False)), "gateway.entrySmall.forbidWireGuard must stay true")
+        require(bool(entry_small.get("forbidExperimental", False)), "gateway.entrySmall.forbidExperimental must stay true")
+        require(not bool(_as_dict(merged.get("wireguard")).get("enabled", False)), "wireguard.enabled must stay false when gateway.entrySmall.enabled=true")
+        require(bool(_as_dict(merged.get("shadowsocks2022")).get("enabled", False)), "shadowsocks2022.enabled must stay true when gateway.entrySmall.enabled=true")
+        require(not _experimental_requested(merged), "experimentalProfiles must stay disabled when gateway.entrySmall.enabled=true")
+        require(_text(entry_small_rollout.get("strategy")) == "Recreate", "gateway.entrySmall.rollout.strategy must stay Recreate")
+        require(
+            bool(entry_small_rollout.get("allowRecreateStrategy", False)),
+            "gateway.entrySmall.rollout.allowRecreateStrategy must stay true",
+        )
+        require(_text(entry_small_rollout.get("maxSurge")) == "0", "gateway.entrySmall.rollout.maxSurge must stay 0")
+
+        memory_total_mi = 0
+        cpu_total_millis = 0
+        for container_name in _entry_small_containers(merged):
+            container_resources = _as_dict(resources.get(container_name))
+            limits = _as_dict(container_resources.get("limits"))
+            memory_mi = _memory_mi(limits.get("memory"))
+            cpu_millis = _cpu_millis(limits.get("cpu"))
+            require(memory_mi is not None and memory_mi > 0, f"gateway.entrySmall.containerResources.{container_name}.limits.memory must use Mi or Gi")
+            require(cpu_millis is not None and cpu_millis > 0, f"gateway.entrySmall.containerResources.{container_name}.limits.cpu must use millicores or whole cores")
+            memory_total_mi += memory_mi or 0
+            cpu_total_millis += cpu_millis or 0
+        require(memory_total_mi <= memory_budget_mi, f"gateway.entrySmall memory limit total {memory_total_mi}Mi exceeds memoryBudgetMi={memory_budget_mi}")
+        require(cpu_total_millis <= cpu_budget_millis, f"gateway.entrySmall CPU limit total {cpu_total_millis}m exceeds cpuLimitBudgetMillis={cpu_budget_millis}")
     roles = _as_dict(gateway.get("roles"))
     for role_name, role_payload in roles.items():
         role = _as_dict(role_payload)
