@@ -88,8 +88,8 @@ async def test_issue_mtproto_grant_upserts_local_metadata(monkeypatch: pytest.Mo
             "changed": True,
             "profile": {
                 "protocol": "mtproto",
-                "server": "proxied.tracegate.su",
-                "httpsUrl": "https://t.me/proxy?server=proxied.tracegate.su",
+                "server": "proxied.tracegate.test",
+                "httpsUrl": "https://t.me/proxy?server=proxied.tracegate.test",
             },
         }
 

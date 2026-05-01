@@ -116,7 +116,7 @@ def _entry_small_containers(values: Mapping[str, Any]) -> list[str]:
     if bool(zapret2.get("enabled", False)):
         containers.append("zapret2")
     if bool(_as_dict(values.get("shadowsocks2022")).get("enabled", False)):
-        containers.extend(["shadowsocks", "shadowtls"])
+        containers.append("shadowtls")
     return containers
 
 
@@ -212,7 +212,34 @@ def validate_prod_overlay(chart_values: Path, prod_values: Path, *, strict: bool
         require(not _is_mutable_tag(global_image.get("tag")), f"{_image_label('global.image', global_image)} must use a pinned tag or digest")
 
     gateway = _as_dict(merged.get("gateway"))
+    interconnect_for_images = _as_dict(merged.get("interconnect"))
+    entry_transit_for_images = _as_dict(interconnect_for_images.get("entryTransit"))
+    mieru_for_images = _as_dict(interconnect_for_images.get("mieru"))
+    zapret2_for_images = _as_dict(interconnect_for_images.get("zapret2"))
+    shadowsocks2022_for_images = _as_dict(merged.get("shadowsocks2022"))
+    wireguard_for_images = _as_dict(merged.get("wireguard"))
+    mtproto_for_images = _as_dict(merged.get("mtproto"))
+    link_crypto_image_enabled = bool(mieru_for_images.get("enabled", False)) and (
+        bool(entry_transit_for_images.get("enabled", False))
+        or bool(_as_dict(entry_transit_for_images.get("routerEntry")).get("enabled", False))
+        or bool(_as_dict(entry_transit_for_images.get("routerTransit")).get("enabled", False))
+    )
+    enabled_gateway_images = {"haproxy", "nginx", "xray", "hysteria", "singbox"}
+    if bool(mtproto_for_images.get("enabled", False)):
+        enabled_gateway_images.add("mtproto")
+    if link_crypto_image_enabled:
+        enabled_gateway_images.add("mieru")
+    if link_crypto_image_enabled and bool(_as_dict(entry_transit_for_images.get("outerCarrier")).get("enabled", False)):
+        enabled_gateway_images.add("wstunnel")
+    if bool(zapret2_for_images.get("enabled", False)):
+        enabled_gateway_images.add("zapret2")
+    if bool(shadowsocks2022_for_images.get("enabled", False)):
+        enabled_gateway_images.add("shadowtls")
+    if bool(wireguard_for_images.get("enabled", False)):
+        enabled_gateway_images.update({"wireguard", "wstunnel"})
     for name, image in sorted(_as_dict(gateway.get("images")).items()):
+        if name not in enabled_gateway_images:
+            continue
         image_map = _as_dict(image)
         if _has_digest(image_map):
             require(_has_valid_digest(image_map), f"{_image_label(f'gateway.images.{name}', image_map)} must use a valid OCI digest")
@@ -325,7 +352,14 @@ def validate_prod_overlay(chart_values: Path, prod_values: Path, *, strict: bool
     reload_commands = _as_dict(_as_dict(gateway.get("agent")).get("reloadCommands"))
     require(_text(gateway.get("strategy")) == "RollingUpdate", "gateway.strategy must stay RollingUpdate for production")
     require(not bool(gateway.get("allowRecreateStrategy", False)), "gateway.allowRecreateStrategy must stay false for production")
-    require(_text(rollout.get("maxUnavailable")) == "0", "gateway.rollingUpdate.maxUnavailable must stay 0")
+    require(
+        _text(rollout.get("maxUnavailable")) == "1",
+        "gateway.rollingUpdate.maxUnavailable must stay 1 for single-replica hostNetwork production gateways",
+    )
+    require(
+        _text(rollout.get("maxSurge")) in {"0", "0%"},
+        "gateway.rollingUpdate.maxSurge must stay 0 for single-replica hostNetwork production gateways",
+    )
     require(bool(_as_dict(gateway.get("pdb")).get("enabled", False)), "gateway.pdb.enabled must stay true")
     require(bool(_as_dict(gateway.get("probes")).get("enabled", False)), "gateway.probes.enabled must stay true")
     require(bool(private_preflight.get("enabled", False)), "gateway.privatePreflight.enabled must stay true")
@@ -369,7 +403,10 @@ def validate_prod_overlay(chart_values: Path, prod_values: Path, *, strict: bool
             continue
         ports = _as_dict(role.get("ports"))
         require(_as_int(ports.get("publicTcp")) == 443, f"gateway.roles.{role_name}.ports.publicTcp must stay 443")
-        require(_as_int(ports.get("publicUdp")) == 8443, f"gateway.roles.{role_name}.ports.publicUdp must stay 8443")
+        require(
+            _as_int(ports.get("publicUdp")) in {443, 4443},
+            f"gateway.roles.{role_name}.ports.publicUdp must stay 443 or 4443",
+        )
     profiles_reload = _text(reload_commands.get("profiles"))
     link_crypto_reload = _text(reload_commands.get("linkCrypto"))
     require(
@@ -389,6 +426,7 @@ def validate_prod_overlay(chart_values: Path, prod_values: Path, *, strict: bool
     entry_transit = _as_dict(interconnect.get("entryTransit"))
     outer_carrier = _as_dict(entry_transit.get("outerCarrier"))
     zapret2 = _as_dict(interconnect.get("zapret2"))
+    link_crypto_enabled = bool(entry_transit.get("enabled", False)) or bool(_as_dict(entry_transit.get("routerEntry")).get("enabled", False)) or bool(_as_dict(entry_transit.get("routerTransit")).get("enabled", False))
     require(not bool(entry_transit.get("xrayBackhaul", False)), "interconnect.entryTransit.xrayBackhaul must stay false")
     require(_text(entry_transit.get("chainBridgeOwner")) == "link-crypto", "interconnect.entryTransit.chainBridgeOwner must stay link-crypto")
     require(_text(entry_transit.get("fallback")) == "none", "interconnect.entryTransit.fallback must stay none")
@@ -423,7 +461,8 @@ def validate_prod_overlay(chart_values: Path, prod_values: Path, *, strict: bool
     )
     require(not bool(zapret2.get("hostWideInterception", False)), "interconnect.zapret2.hostWideInterception must stay false")
     require(not bool(zapret2.get("nfqueue", False)), "interconnect.zapret2.nfqueue must stay false")
-    require(bool(zapret2.get("enabled", False)), "interconnect.zapret2.enabled must stay true for TCP link-crypto DPI resistance")
+    if link_crypto_enabled:
+        require(bool(zapret2.get("enabled", False)), "interconnect.zapret2.enabled must stay true for TCP link-crypto DPI resistance")
 
     mtproto = _as_dict(merged.get("mtproto"))
     require(bool(mtproto.get("enabled", False)), "mtproto.enabled must stay true in core Tracegate 2.2")

@@ -1,6 +1,6 @@
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
-from tracegate.services.connection_profiles import connection_profile_label
+from tracegate.services.connection_profiles import connection_profile_display_label
 
 PROVIDER_CHOICES: list[tuple[str, str]] = [
     ("Все", "all"),
@@ -17,9 +17,9 @@ SNI_PAGE_SIZE = 20
 
 def main_menu_keyboard(*, is_admin: bool = False) -> InlineKeyboardMarkup:
     rows = [
-        [InlineKeyboardButton(text="📚 Справка", callback_data="help_open")],
         [InlineKeyboardButton(text="🔌 Подключения", callback_data="connections")],
         [InlineKeyboardButton(text="📱 Устройства", callback_data="devices")],
+        [InlineKeyboardButton(text="📚 Справка", callback_data="guide_open")],
         [InlineKeyboardButton(text="🔐 Telegram Proxy", callback_data="mtproto_open")],
         [InlineKeyboardButton(text="📊 Grafana", callback_data="grafana_otp")],
         [InlineKeyboardButton(text="💬 Обратная связь", callback_data="feedback_start")],
@@ -32,8 +32,6 @@ def main_menu_keyboard(*, is_admin: bool = False) -> InlineKeyboardMarkup:
 def help_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="📘 Гайдлайн", callback_data="guide_open")],
-            [InlineKeyboardButton(text="👋 Приветствие", callback_data="welcome_open")],
             [InlineKeyboardButton(text="🏠 Меню", callback_data="menu")],
         ]
     )
@@ -42,7 +40,6 @@ def help_keyboard() -> InlineKeyboardMarkup:
 def guide_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="📚 Справка", callback_data="help_open")],
             [InlineKeyboardButton(text="🏠 Меню", callback_data="menu")],
         ]
     )
@@ -158,7 +155,7 @@ def devices_keyboard(devices: list[dict], *, active_device_id: str | None = None
 
 def _connection_button_label(connection: dict) -> str:
     try:
-        label = connection_profile_label(connection["protocol"], connection["mode"], connection["variant"])
+        label = connection_profile_display_label(connection["protocol"], connection["mode"], connection["variant"])
     except Exception:
         label = f"{connection.get('variant')} ({connection.get('protocol')})"
     alias = str(connection.get("alias") or "").strip()
@@ -193,36 +190,56 @@ def connections_keyboard(connections: list[dict] | None = None, *, can_create: b
 
 
 def connection_create_categories_keyboard() -> InlineKeyboardMarkup:
+    return connection_create_categories_keyboard_for(enabled_specs=None)
+
+
+def connection_create_categories_keyboard_for(*, enabled_specs: set[str] | None = None) -> InlineKeyboardMarkup:
+    enabled = enabled_specs
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="⚡ Direct", callback_data="conncat:direct")],
-            [InlineKeyboardButton(text="⛓️ Chain", callback_data="conncat:chain")],
-            [InlineKeyboardButton(text="🧰 Other", callback_data="conncat:other")],
+            *(
+                [[InlineKeyboardButton(text="⚡ Direct", callback_data="conncat:direct")]]
+                if enabled is None or enabled & {"v1direct", "v2direct", "v3direct"}
+                else []
+            ),
+            *(
+                [[InlineKeyboardButton(text="⛓️ Chain", callback_data="conncat:chain")]]
+                if enabled is None or enabled & {"v1chain", "v2chain", "v3chain"}
+                else []
+            ),
+            *(
+                [[InlineKeyboardButton(text="🧰 Other", callback_data="conncat:other")]]
+                if enabled is None or enabled & {"v0ws", "v0grpc", "v0wgws"}
+                else []
+            ),
             [InlineKeyboardButton(text="↩️ Назад", callback_data="connections")],
         ]
     )
 
 
-def connection_create_profiles_keyboard(*, category: str, device_id: str) -> InlineKeyboardMarkup:
-    rows: list[list[InlineKeyboardButton]]
+def connection_create_profiles_keyboard(
+    *,
+    category: str,
+    device_id: str,
+    enabled_specs: set[str] | None = None,
+) -> InlineKeyboardMarkup:
+    def add_row(rows: list[list[InlineKeyboardButton]], spec: str, text: str) -> None:
+        if enabled_specs is None or spec in enabled_specs:
+            rows.append([InlineKeyboardButton(text=text, callback_data=f"new:{spec}:{device_id}")])
+
+    rows: list[list[InlineKeyboardButton]] = []
     if category == "direct":
-        rows = [
-            [InlineKeyboardButton(text="v1-direct-reality-vless", callback_data=f"new:v1direct:{device_id}")],
-            [InlineKeyboardButton(text="v2-direct-quic-hysteria", callback_data=f"new:v2direct:{device_id}")],
-            [InlineKeyboardButton(text="v3-direct-shadowtls-shadowsocks", callback_data=f"new:v3direct:{device_id}")],
-        ]
+        add_row(rows, "v1direct", "V1-Direct-Reality-VLESS")
+        add_row(rows, "v2direct", "V2-Direct-QUIC-Hysteria")
+        add_row(rows, "v3direct", "V3-Direct-ShadowTLS-Shadowsocks")
     elif category == "chain":
-        rows = [
-            [InlineKeyboardButton(text="v1-chain-reality-vless", callback_data=f"new:v1chain:{device_id}")],
-            [InlineKeyboardButton(text="v2-chain-quic-hysteria", callback_data=f"new:v2chain:{device_id}")],
-            [InlineKeyboardButton(text="v3-chain-shadowtls-shadowsocks", callback_data=f"new:v3chain:{device_id}")],
-        ]
+        add_row(rows, "v1chain", "V1-Chain-Reality-VLESS")
+        add_row(rows, "v2chain", "V2-Chain-QUIC-Hysteria")
+        add_row(rows, "v3chain", "V3-Chain-ShadowTLS-Shadowsocks")
     else:
-        rows = [
-            [InlineKeyboardButton(text="v0-ws-vless", callback_data=f"new:v0ws:{device_id}")],
-            [InlineKeyboardButton(text="v0-grpc-vless", callback_data=f"new:v0grpc:{device_id}")],
-            [InlineKeyboardButton(text="v0-wgws-wireguard", callback_data=f"new:v0wgws:{device_id}")],
-        ]
+        add_row(rows, "v0ws", "V0-WS-VLESS")
+        add_row(rows, "v0grpc", "V0-gRPC-VLESS")
+        add_row(rows, "v0wgws", "V0-WGWS-WireGuard")
     rows.append([InlineKeyboardButton(text="↩️ Назад", callback_data="conn_create")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
@@ -421,14 +438,39 @@ def sni_catalog_pick_keyboard(
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-def sni_catalog_action_keyboard(*, sni_id: int, provider: str, page: int) -> InlineKeyboardMarkup:
-    rows: list[list[InlineKeyboardButton]] = [
-        [InlineKeyboardButton(text="➕ Создать v1-direct-reality-vless", callback_data=f"catnewpick:v1direct:{sni_id}:{provider}:{page}")],
-        [InlineKeyboardButton(text="➕ Создать v1-chain-reality-vless", callback_data=f"catnewpick:v1chain:{sni_id}:{provider}:{page}")],
-        [InlineKeyboardButton(text="🧩 Новая ревизия для VLESS", callback_data=f"catissuepick:{sni_id}:{provider}:{page}")],
-        [InlineKeyboardButton(text="↩️ Назад", callback_data=f"cat:{provider}:{page}")],
-        [InlineKeyboardButton(text="🏠 Меню", callback_data="menu")],
-    ]
+def sni_catalog_action_keyboard(
+    *,
+    sni_id: int,
+    provider: str,
+    page: int,
+    enabled_specs: set[str] | None = None,
+) -> InlineKeyboardMarkup:
+    rows: list[list[InlineKeyboardButton]] = []
+    if enabled_specs is None or "v1direct" in enabled_specs:
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    text="➕ Создать V1-Direct-Reality-VLESS",
+                    callback_data=f"catnewpick:v1direct:{sni_id}:{provider}:{page}",
+                )
+            ]
+        )
+    if enabled_specs is None or "v1chain" in enabled_specs:
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    text="➕ Создать V1-Chain-Reality-VLESS",
+                    callback_data=f"catnewpick:v1chain:{sni_id}:{provider}:{page}",
+                )
+            ]
+        )
+    rows.extend(
+        [
+            [InlineKeyboardButton(text="🧩 Новая ревизия для VLESS", callback_data=f"catissuepick:{sni_id}:{provider}:{page}")],
+            [InlineKeyboardButton(text="↩️ Назад", callback_data=f"cat:{provider}:{page}")],
+            [InlineKeyboardButton(text="🏠 Меню", callback_data="menu")],
+        ]
+    )
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 

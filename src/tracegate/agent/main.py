@@ -10,6 +10,7 @@ from fastapi import Depends, FastAPI, HTTPException, Request, Response, status
 from fastapi.responses import HTMLResponse, JSONResponse
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from pydantic import BaseModel
+from starlette.middleware.cors import CORSMiddleware
 
 from tracegate.observability import configure_logging, install_http_observability
 from tracegate.schemas import AgentEventEnvelope, AgentEventResponse, AgentHealthCheckResult, AgentHealthResponse
@@ -27,7 +28,6 @@ from tracegate.services.mtproto_access import (
     issue_mtproto_access_profile,
     load_mtproto_access_entries,
     revoke_mtproto_access,
-    set_mtproto_access_entries,
 )
 from tracegate.services.runtime_contract import resolve_runtime_contract
 from tracegate.settings import effective_mtproto_reload_cmd, ensure_agent_dirs, get_settings
@@ -50,6 +50,15 @@ if runtime_contract.requires_transit_stats_secret(settings.agent_role) and not s
 ensure_agent_dirs(settings)
 state_store = AgentStateStore(Path(settings.agent_data_root))
 register_agent_metrics(settings)
+
+
+def _agent_cors_origins() -> list[str]:
+    origins: list[str] = []
+    for raw in settings.agent_cors_origins or []:
+        origin = str(raw or "").strip().rstrip("/")
+        if origin:
+            origins.append(origin)
+    return origins
 
 
 def _startup_reconcile() -> None:
@@ -203,6 +212,11 @@ def _hysteria_auth_candidates(row: dict) -> tuple[set[str], str]:
     candidates = {value for value in (token, str(auth.get("auth") or "").strip()) if value}
     if username and password:
         candidates.add(f"{username}:{password}")
+        # Some Hysteria2 URI importers split `user:password` userinfo and send
+        # only the password as the auth string. Keep accepting the canonical
+        # combined auth above, but tolerate the password-only form for client
+        # interoperability.
+        candidates.add(password)
     return candidates, client_id
 
 
@@ -246,7 +260,34 @@ def _apply_mtproto_reload() -> None:
         )
 
 
+def _mtproto_reload_required_for_profile(profile: dict) -> bool:
+    secret_policy = str(profile.get("secretPolicy") or "").strip().lower()
+    if secret_policy == "shared":
+        return False
+    if secret_policy:
+        return True
+    if profile.get("perUserSecrets") is False:
+        return False
+    return True
+
+
+def _mtproto_reload_required_for_current_profile() -> bool:
+    try:
+        profile = load_mtproto_public_profile(settings)
+    except Exception:
+        return True
+    return _mtproto_reload_required_for_profile(profile)
+
+
 app = FastAPI(title="Tracegate Node Agent", version=_app_version())
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=_agent_cors_origins(),
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["Content-Type"],
+    max_age=300,
+)
 install_http_observability(app, component="agent")
 
 
@@ -283,7 +324,7 @@ async def list_mtproto_access() -> AgentMTProtoAccessListResponse:
 )
 async def issue_mtproto_access(payload: AgentMTProtoAccessIssueRequest) -> AgentMTProtoAccessResponse:
     try:
-        profile, previous_entries, _next_entries, changed = issue_mtproto_access_profile(
+        profile, _previous_entries, _next_entries, changed = issue_mtproto_access_profile(
             settings,
             telegram_id=int(payload.telegram_id),
             label=str(payload.label or "").strip(),
@@ -297,13 +338,9 @@ async def issue_mtproto_access(payload: AgentMTProtoAccessIssueRequest) -> Agent
     except DecoyAuthConfigError as exc:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc)) from exc
 
-    if changed:
-        try:
-            _apply_mtproto_reload()
-        except HTTPException:
-            set_mtproto_access_entries(settings, previous_entries)
-            _apply_mtproto_reload()
-            raise
+    # MTProto access issuance is part of the user lifecycle. Do not reload the
+    # MTProto binary here; production profiles must use shared/live-readable
+    # credentials if they need zero-drop issuance.
 
     logger.info(
         "mtproto_access_issued telegram_id=%s changed=%s rotate=%s",
@@ -321,19 +358,15 @@ async def issue_mtproto_access(payload: AgentMTProtoAccessIssueRequest) -> Agent
 )
 async def revoke_mtproto_access_profile(telegram_id: int) -> AgentMTProtoAccessRevokeResponse:
     try:
-        removed, previous_entries, _next_entries = revoke_mtproto_access(settings, telegram_id=int(telegram_id))
+        removed, _previous_entries, _next_entries = revoke_mtproto_access(settings, telegram_id=int(telegram_id))
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
     if removed is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="MTProto access profile not found")
 
-    try:
-        _apply_mtproto_reload()
-    except HTTPException:
-        set_mtproto_access_entries(settings, previous_entries)
-        _apply_mtproto_reload()
-        raise
+    # Revocation must not reload the MTProto binary. The no-reload contract is
+    # enforced at the access layer instead of by restarting the service.
 
     logger.info("mtproto_access_revoked telegram_id=%s", telegram_id)
     return AgentMTProtoAccessRevokeResponse(ok=True, removed=True)
@@ -341,10 +374,6 @@ async def revoke_mtproto_access_profile(telegram_id: int) -> AgentMTProtoAccessR
 
 @app.post("/v1/decoy/mtproto", response_model=DecoyMTProtoAuthResponse)
 async def decoy_mtproto_auth(payload: DecoyMTProtoAuthRequest, request: Request) -> DecoyMTProtoAuthResponse:
-    client_host = request.client.host if request.client is not None else ""
-    if not _is_loopback_host(client_host):
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
-
     if not decoy_auth_is_configured(settings):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
 
@@ -382,10 +411,6 @@ async def hysteria_http_auth(payload: HysteriaAuthRequest, request: Request) -> 
 
 @app.post("/v1/decoy/login", response_model=DecoyLoginResponse)
 async def decoy_login(payload: DecoyMTProtoAuthRequest, request: Request) -> Response:
-    client_host = request.client.host if request.client is not None else ""
-    if not _is_loopback_host(client_host):
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
-
     if not decoy_auth_is_configured(settings):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
 
@@ -416,10 +441,6 @@ async def decoy_login(payload: DecoyMTProtoAuthRequest, request: Request) -> Res
 
 @app.post("/v1/decoy/logout")
 async def decoy_logout(request: Request) -> Response:
-    client_host = request.client.host if request.client is not None else ""
-    if not _is_loopback_host(client_host):
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
-
     response = Response(status_code=status.HTTP_204_NO_CONTENT)
     response.delete_cookie(str(settings.transit_decoy_auth_cookie_name or "").strip() or "tg_decoy_session", path="/")
     return response
@@ -427,9 +448,6 @@ async def decoy_logout(request: Request) -> Response:
 
 @app.get("/v1/decoy/session", response_model=DecoySessionResponse)
 async def decoy_session(request: Request) -> DecoySessionResponse:
-    client_host = request.client.host if request.client is not None else ""
-    if not _is_loopback_host(client_host):
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
     session = load_decoy_session(
         settings,
         request.cookies.get(str(settings.transit_decoy_auth_cookie_name or "").strip() or "tg_decoy_session") or "",
@@ -442,19 +460,12 @@ async def decoy_session(request: Request) -> DecoySessionResponse:
 
 @app.get("/v1/decoy/check")
 async def decoy_check(request: Request) -> Response:
-    client_host = request.client.host if request.client is not None else ""
-    if not _is_loopback_host(client_host):
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
     _decoy_session_or_401(request)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @app.get("/v1/decoy/mtproto", response_model=DecoyMTProtoAuthResponse)
 async def decoy_mtproto_profile(request: Request) -> DecoyMTProtoAuthResponse:
-    client_host = request.client.host if request.client is not None else ""
-    if not _is_loopback_host(client_host):
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
-
     _decoy_session_or_401(request)
     try:
         profile = load_mtproto_public_profile(settings)
@@ -473,9 +484,6 @@ async def decoy_mtproto_profile(request: Request) -> DecoyMTProtoAuthResponse:
 
 @app.get("/v1/decoy/github/frame")
 async def decoy_github_frame(request: Request) -> HTMLResponse:
-    client_host = request.client.host if request.client is not None else ""
-    if not _is_loopback_host(client_host):
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
     try:
         html = await load_github_repo_frame_html(settings)
     except Exception as exc:

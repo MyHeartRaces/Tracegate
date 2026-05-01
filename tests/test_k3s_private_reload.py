@@ -176,17 +176,17 @@ def _shadowtls_profile(*, mode: str) -> dict:
     outer = "shadowtls-v3"
     if is_chain:
         stage = "transit-private-terminator"
-        outer = "wss-carrier"
+        outer = "reality-xhttp"
         chain = {
             "type": "entry_transit_private_relay",
             "entry": "entry.example.com",
             "transit": "transit.example.com",
             "linkClass": "entry-transit",
-            "carrier": "mieru",
-            "preferredOuter": "wss-carrier",
-            "outerCarrier": "websocket-tls",
-            "optionalPacketShaping": "zapret2-scoped",
-            "managedBy": "link-crypto",
+            "carrier": "xray-vless-reality",
+            "preferredOuter": "reality-xhttp",
+            "outerCarrier": "tcp-reality-xhttp",
+            "optionalPacketShaping": "",
+            "managedBy": "xray-chain",
             "selectedProfiles": ["V1", "V3"],
             "innerTransport": "shadowsocks2022-shadowtls-v3",
             "xrayBackhaul": False,
@@ -207,7 +207,10 @@ def _shadowtls_profile(*, mode: str) -> dict:
         "server": "transit.example.com",
         "port": 443,
         "sni": "cdn.example.com",
-        "shadowsocks2022": {"method": "2022-blake3-aes-128-gcm", "password": f"ss-secret-v3-{mode_lower}"},
+        "shadowsocks2022": {
+            "method": "2022-blake3-aes-128-gcm",
+            "password": f"ss-server-secret:ss-secret-v3-{mode_lower}",
+        },
         "shadowtls": {
             "version": 3,
             "serverName": "cdn.example.com",
@@ -225,7 +228,7 @@ def _shadowtls_profile(*, mode: str) -> dict:
         "obfuscation": {
             "scope": "entry-transit-private-relay" if is_chain else "public-tcp-443",
             "outer": outer,
-            "packetShaping": "zapret2-scoped",
+            "packetShaping": "none",
             "hostWideInterception": False,
         },
     }
@@ -263,7 +266,7 @@ def _wireguard_profile() -> dict:
         },
         "sync": {
             "strategy": "wg-set",
-            "interface": "wg0",
+            "interface": "wg",
             "applyMode": "live-peer-sync",
             "removeStalePeers": True,
             "restartWireGuard": False,
@@ -274,7 +277,7 @@ def _wireguard_profile() -> dict:
         "obfuscation": {
             "scope": "public-wss-443",
             "outer": "wstunnel",
-            "packetShaping": "zapret2-scoped",
+            "packetShaping": "none",
             "hostWideInterception": False,
         },
     }
@@ -305,6 +308,45 @@ def _write_transit_profile_handoff(root: Path, *, contract: dict, contract_path:
             "TRACEGATE_PROFILE_COUNT": 3,
             "TRACEGATE_SHADOWSOCKS2022_SHADOWTLS_COUNT": 2,
             "TRACEGATE_WIREGUARD_WSTUNNEL_COUNT": 1,
+        },
+    )
+    return state_path
+
+
+def _write_entry_profile_handoff(root: Path, *, contract: dict, contract_path: Path) -> Path:
+    state_path = root / "profiles" / "entry" / "desired-state.json"
+    shadowtls = _shadowtls_profile(mode="chain")
+    shadowtls.update(
+        {
+            "role": "ENTRY",
+            "stage": "entry-public-to-transit-relay",
+            "server": "entry.example.com",
+        }
+    )
+    shadowtls["shadowtls"]["profileRef"]["path"] = "/etc/tracegate/private/shadowtls/entry-config.yaml"
+    state = {
+        "schema": "tracegate.private-profiles.v1",
+        "version": 1,
+        "role": "ENTRY",
+        "runtimeProfile": contract["runtimeProfile"],
+        "runtimeContractPath": str(contract_path),
+        "transportProfiles": contract["transportProfiles"],
+        "secretMaterial": True,
+        "counts": {"total": 1, "shadowsocks2022ShadowTLS": 1, "wireguardWSTunnel": 0},
+        "shadowsocks2022ShadowTLS": [shadowtls],
+        "wireguardWSTunnel": [],
+    }
+    _write_json(state_path, state)
+    _write_env(
+        root / "profiles" / "entry" / "desired-state.env",
+        {
+            "TRACEGATE_PROFILE_ROLE": "ENTRY",
+            "TRACEGATE_PROFILE_RUNTIME_PROFILE": contract["runtimeProfile"],
+            "TRACEGATE_PROFILE_STATE_JSON": state_path,
+            "TRACEGATE_PROFILE_SECRET_MATERIAL": "true",
+            "TRACEGATE_PROFILE_COUNT": 1,
+            "TRACEGATE_SHADOWSOCKS2022_SHADOWTLS_COUNT": 1,
+            "TRACEGATE_WIREGUARD_WSTUNNEL_COUNT": 0,
         },
     )
     return state_path
@@ -687,8 +729,8 @@ def test_k3s_private_reload_profile_marker_summarizes_without_profile_secrets(tm
     assert summary["transportProfiles"]["localSocks"]["auth"] == "required"
     assert summary["localSocks"]["authRequired"] == 3
     assert summary["localSocks"]["anonymous"] == 0
-    assert summary["chain"]["managedBy"] == ["link-crypto"]
-    assert summary["obfuscation"]["outers"] == ["shadowtls-v3", "wss-carrier", "wstunnel"]
+    assert summary["chain"]["managedBy"] == ["xray-chain"]
+    assert summary["obfuscation"]["outers"] == ["reality-xhttp", "shadowtls-v3", "wstunnel"]
     assert summary["shadowtlsOuter"] == {
         "total": 2,
         "credentialScopes": ["node-static"],
@@ -701,7 +743,7 @@ def test_k3s_private_reload_profile_marker_summarizes_without_profile_secrets(tm
     assert summary["wireguardSync"] == {
         "total": 1,
         "strategies": ["wg-set"],
-        "interfaces": ["wg0"],
+        "interfaces": ["wg"],
         "livePeerSync": 1,
         "removeStalePeers": 1,
         "restartWireGuard": 0,
@@ -709,7 +751,48 @@ def test_k3s_private_reload_profile_marker_summarizes_without_profile_secrets(tm
     }
     assert summary["sources"]["state"]["mtimeNs"] > 0
     assert summary["sources"]["env"]["mtimeNs"] > 0
+    ss_config = json.loads((private_root / "runtime/shadowsocks2022-transit-server.json").read_text(encoding="utf-8"))
+    assert len(ss_config["servers"]) == 1
+    ss_server = ss_config["servers"][0]
+    assert ss_server["server"] == "127.0.0.1"
+    assert ss_server["server_port"] == 18443
+    assert ss_server["password"] == "ss-server-secret"
+    assert sorted(user["password"] for user in ss_server["users"]) == ["ss-secret-v3-chain", "ss-secret-v3-direct"]
     _assert_no_private_canaries(json.dumps(marker))
+
+
+def test_k3s_private_reload_writes_entry_shadowsocks2022_via_chain_socks(tmp_path: Path) -> None:
+    contract_path = tmp_path / "runtime" / "runtime-contract.json"
+    contract = _contract(contract_path)
+    private_root = tmp_path / "private"
+    _write_entry_profile_handoff(private_root, contract=contract, contract_path=contract_path)
+
+    result = run_private_reload(
+        component="profiles",
+        role="ENTRY",
+        private_runtime_root=private_root,
+        runtime_contract=contract_path,
+    )
+
+    assert Path(str(result["markerPath"])).exists()
+    ss_config = json.loads((private_root / "runtime/shadowsocks2022-entry-server.json").read_text(encoding="utf-8"))
+    inbound = ss_config["inbounds"][0]
+    assert inbound["type"] == "shadowsocks"
+    assert inbound["listen"] == "127.0.0.1"
+    assert inbound["listen_port"] == 18443
+    assert inbound["password"] == "ss-server-secret"
+    assert inbound["users"] == [{"name": "conn-v3-chain", "password": "ss-secret-v3-chain"}]
+    outbound = ss_config["outbounds"][0]
+    assert outbound == {
+        "type": "socks",
+        "tag": "chain-to-transit",
+        "server": "127.0.0.1",
+        "server_port": 11082,
+        "version": "5",
+        "network": "tcp",
+    }
+    assert ss_config["route"]["final"] == "chain-to-transit"
+    assert ss_config["route"]["rules"] == [{"inbound": ["ss2022-in"], "outbound": "chain-to-transit"}]
 
 
 def test_k3s_private_reload_validates_link_crypto_and_writes_marker(tmp_path: Path) -> None:

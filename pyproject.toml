@@ -29,6 +29,7 @@ dependencies = [
   "qrcode[pil]>=7.4.2",
   "grpcio>=1.70.0",
   "protobuf>=5.29.0",
+  "cryptography>=42.0.0",
 ]
 
 [project.optional-dependencies]
@@ -52,6 +53,7 @@ tracegate-validate-runtime-contracts = "tracegate.cli.validate_runtime_contracts
 tracegate-k3s-private-preflight = "tracegate.cli.k3s_private_preflight:main"
 tracegate-k3s-private-reload = "tracegate.cli.k3s_private_reload:main"
 tracegate-link-crypto-runner = "tracegate.cli.link_crypto_runner:main"
+tracegate-wireguard-sync-runner = "tracegate.cli.wireguard_sync_runner:main"
 tracegate-paired-udp-obfs-runner = "tracegate.cli.paired_udp_obfs_runner:main"
 tracegate-udp-tcp-tunnel = "tracegate.cli.udp_tcp_tunnel:main"
 

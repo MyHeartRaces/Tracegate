@@ -5,6 +5,7 @@ from tracegate.bot.keyboards import (
     admin_user_revoke_notify_keyboard,
     cancel_only_keyboard,
     confirm_action_keyboard,
+    connection_create_categories_keyboard_for,
     connection_create_profiles_keyboard,
     config_delivery_keyboard,
     device_actions_keyboard,
@@ -71,16 +72,15 @@ def test_main_menu_includes_guide_button() -> None:
     kb = main_menu_keyboard(is_admin=False)
     texts = _button_texts(kb)
     assert _has_text(texts, "Справка")
-    assert kb.inline_keyboard[0][0].text == "📚 Справка"
-    assert kb.inline_keyboard[0][0].callback_data == "help_open"
+    assert kb.inline_keyboard[2][0].text == "📚 Справка"
+    assert kb.inline_keyboard[2][0].callback_data == "guide_open"
 
 
-def test_help_keyboard_exposes_guideline_and_welcome() -> None:
+def test_help_keyboard_returns_to_menu_without_extra_links() -> None:
     kb = help_keyboard()
-    assert kb.inline_keyboard[0][0].text == "📘 Гайдлайн"
-    assert kb.inline_keyboard[0][0].callback_data == "guide_open"
-    assert kb.inline_keyboard[1][0].text == "👋 Приветствие"
-    assert kb.inline_keyboard[1][0].callback_data == "welcome_open"
+    assert len(kb.inline_keyboard) == 1
+    assert kb.inline_keyboard[0][0].text == "🏠 Меню"
+    assert kb.inline_keyboard[0][0].callback_data == "menu"
 
 
 def test_main_menu_uses_unified_devices_section() -> None:
@@ -148,10 +148,9 @@ def test_admin_mtproto_keyboard_exposes_refresh_and_revoke_actions() -> None:
 
 def test_guide_keyboard_returns_to_menu() -> None:
     kb = guide_keyboard()
-    assert kb.inline_keyboard[0][0].text == "📚 Справка"
-    assert kb.inline_keyboard[0][0].callback_data == "help_open"
-    assert kb.inline_keyboard[1][0].text == "🏠 Меню"
-    assert kb.inline_keyboard[1][0].callback_data == "menu"
+    assert len(kb.inline_keyboard) == 1
+    assert kb.inline_keyboard[0][0].text == "🏠 Меню"
+    assert kb.inline_keyboard[0][0].callback_data == "menu"
 
 
 def test_cancel_only_keyboard_uses_single_cancel_action() -> None:
@@ -188,21 +187,39 @@ def test_mtproto_delivery_keyboard_exposes_repeat_rotate_and_revoke_actions() ->
 def test_connection_create_profiles_keyboard_uses_new_profile_names() -> None:
     kb = connection_create_profiles_keyboard(category="direct", device_id="dev-42")
     texts = _button_texts(kb)
-    assert "v1-direct-reality-vless" in texts
-    assert "v2-direct-quic-hysteria" in texts
-    assert "v3-direct-shadowtls-shadowsocks" in texts
+    assert "V1-Direct-Reality-VLESS" in texts
+    assert "V2-Direct-QUIC-Hysteria" in texts
+    assert "V3-Direct-ShadowTLS-Shadowsocks" in texts
 
     kb = connection_create_profiles_keyboard(category="chain", device_id="dev-42")
     texts = _button_texts(kb)
-    assert "v1-chain-reality-vless" in texts
-    assert "v2-chain-quic-hysteria" in texts
-    assert "v3-chain-shadowtls-shadowsocks" in texts
+    assert "V1-Chain-Reality-VLESS" in texts
+    assert "V2-Chain-QUIC-Hysteria" in texts
+    assert "V3-Chain-ShadowTLS-Shadowsocks" in texts
 
     kb = connection_create_profiles_keyboard(category="other", device_id="dev-42")
     texts = _button_texts(kb)
-    assert "v0-ws-vless" in texts
-    assert "v0-grpc-vless" in texts
-    assert "v0-wgws-wireguard" in texts
+    assert "V0-WS-VLESS" in texts
+    assert "V0-gRPC-VLESS" in texts
+    assert "V0-WGWS-WireGuard" in texts
+
+
+def test_connection_create_keyboards_hide_disabled_profiles() -> None:
+    enabled = {"v1direct", "v2direct", "v0ws", "v0grpc"}
+    categories = _button_texts(connection_create_categories_keyboard_for(enabled_specs=enabled))
+    assert "⚡ Direct" in categories
+    assert "🧰 Other" in categories
+    assert "⛓️ Chain" not in categories
+
+    direct = _button_texts(connection_create_profiles_keyboard(category="direct", device_id="dev-42", enabled_specs=enabled))
+    assert "V1-Direct-Reality-VLESS" in direct
+    assert "V2-Direct-QUIC-Hysteria" in direct
+    assert "V3-Direct-ShadowTLS-Shadowsocks" not in direct
+
+    other = _button_texts(connection_create_profiles_keyboard(category="other", device_id="dev-42", enabled_specs=enabled))
+    assert "V0-WS-VLESS" in other
+    assert "V0-gRPC-VLESS" in other
+    assert "V0-WGWS-WireGuard" not in other
 
 
 def test_devices_keyboard_uses_delete_confirmation_callback() -> None:

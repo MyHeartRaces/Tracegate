@@ -74,7 +74,7 @@ def test_context_uses_shared_defaults_and_fallback_values(tmp_path: Path) -> Non
 
     assert ctx.ws_path == "/ws"
     assert ctx.runtime_profile == "tracegate-2.2"
-    assert ctx.hysteria_udp_port == 8443
+    assert ctx.hysteria_udp_port == 4443
     assert ctx.entry_hysteria_salamander_password == "entry-salamander-secret"
     assert ctx.transit_hysteria_salamander_password == "transit-salamander-secret"
     assert ctx.entry_hysteria_stats_secret == "entry-stats-secret"
@@ -194,7 +194,7 @@ def test_render_materialized_bundles_rewrites_runtime_files(tmp_path: Path) -> N
 
     assert "hy2-in" not in {inbound["tag"] for inbound in entry_xray["inbounds"]}
     assert "hy2-in" not in {inbound["tag"] for inbound in transit_xray["inbounds"]}
-    assert "listen: :8443" in entry_hysteria
+    assert "listen: :4443" in entry_hysteria
     assert "url: \"http://127.0.0.1:8070/v1/hysteria/auth\"" in entry_hysteria
     assert "password: \"entry-salamander-secret\"" in entry_hysteria
     assert "secret: \"entry-stats-secret\"" in entry_hysteria

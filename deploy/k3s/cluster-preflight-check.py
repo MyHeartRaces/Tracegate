@@ -115,7 +115,7 @@ def _entry_small_containers(values: Mapping[str, Any]) -> list[str]:
     if _enabled(zapret2.get("enabled")):
         containers.append("zapret2")
     if _enabled(_as_dict(values.get("shadowsocks2022")).get("enabled")):
-        containers.extend(["shadowsocks", "shadowtls"])
+        containers.append("shadowtls")
     return containers
 
 

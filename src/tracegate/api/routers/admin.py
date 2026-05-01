@@ -35,26 +35,22 @@ async def reset_connections(
     if actor.role not in {UserRole.ADMIN, UserRole.SUPERADMIN}:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin role required")
 
-    ids = (
-        await session.execute(
-            select(Connection.id)
-            .join(User, User.telegram_id == Connection.user_id)
-            .where(
-                Connection.status == RecordStatus.ACTIVE,
-                User.role != UserRole.SUPERADMIN,
-            )
-        )
-    ).scalars().all()
-    mtproto_user_ids = (
-        await session.execute(
-            select(MTProtoAccessGrant.telegram_id)
-            .join(User, User.telegram_id == MTProtoAccessGrant.telegram_id)
-            .where(
-                MTProtoAccessGrant.status == RecordStatus.ACTIVE,
-                User.role != UserRole.SUPERADMIN,
-            )
-        )
-    ).scalars().all()
+    connection_query = (
+        select(Connection.id)
+        .join(User, User.telegram_id == Connection.user_id)
+        .where(Connection.status == RecordStatus.ACTIVE)
+    )
+    mtproto_query = (
+        select(MTProtoAccessGrant.telegram_id)
+        .join(User, User.telegram_id == MTProtoAccessGrant.telegram_id)
+        .where(MTProtoAccessGrant.status == RecordStatus.ACTIVE)
+    )
+    if actor.role != UserRole.SUPERADMIN:
+        connection_query = connection_query.where(User.role != UserRole.SUPERADMIN)
+        mtproto_query = mtproto_query.where(User.role != UserRole.SUPERADMIN)
+
+    ids = (await session.execute(connection_query)).scalars().all()
+    mtproto_user_ids = (await session.execute(mtproto_query)).scalars().all()
 
     count = 0
     mtproto_count = 0
@@ -79,6 +75,7 @@ async def reset_connections(
     return AdminResetConnectionsResult(
         revoked_connections=count,
         revoked_mtproto_accesses=mtproto_count,
+        revoked_connection_ids=list(ids),
     )
 
 
@@ -98,6 +95,15 @@ async def revoke_user_access_by_telegram_id(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Target user not found")
     if not can_manage_user(actor_role=actor.role, target_role=target.role):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Insufficient rights for target role")
+
+    active_connection_ids = (
+        await session.execute(
+            select(Connection.id).where(
+                Connection.user_id == target.telegram_id,
+                Connection.status == RecordStatus.ACTIVE,
+            )
+        )
+    ).scalars().all()
 
     try:
         revoked_connections, revoked_devices = await revoke_user_access(session, target.telegram_id)
@@ -121,4 +127,5 @@ async def revoke_user_access_by_telegram_id(
         revoked_connections=revoked_connections,
         revoked_devices=revoked_devices,
         revoked_mtproto_access=bool(revoked_mtproto_access),
+        revoked_connection_ids=list(active_connection_ids),
     )

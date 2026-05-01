@@ -12,15 +12,35 @@ def test_public_repo_does_not_ship_decoy_html_surfaces() -> None:
 
 def test_readme_stays_high_level() -> None:
     readme = (Path(__file__).resolve().parents[1] / "README.md").read_text(encoding="utf-8")
-    assert "Tracegate 2.2 is a managed privacy-gateway stack" in readme
-    assert "## Connection Surfaces" in readme
-    assert "## Core Features" in readme
-    assert "Security and private data" not in readme
-    assert "Do not commit" not in readme
-    assert "Current runtime note" not in readme
-    assert "decoy HTML/CSS/JS assets" not in readme
+    assert "Tracegate 2.2 is a managed privacy-gateway control plane" in readme
+    assert "## Public vs Private Boundary" in readme
+    assert "## Current Public Surface" in readme
+    assert "live hostnames" in readme
     assert "/etc/tracegate/private" not in readme
-    assert "local SOCKS" not in readme
+    assert "tracegate.su" not in readme
+
+
+def test_public_docs_do_not_expose_live_tracegate_domains_or_ips() -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    scanned_roots = (repo_root / "README.md", repo_root / "docs", repo_root / "deploy/k3s/README.md")
+    needles = (
+        "tracegate.su",
+        "entry.tracegate.su",
+        "transit.tracegate.su",
+        "grafana.tracegate.su",
+        "176.124.",
+        "178.250.",
+        "79.137.",
+    )
+    texts: list[str] = []
+    for root in scanned_roots:
+        if root.is_file():
+            texts.append(root.read_text(encoding="utf-8"))
+        else:
+            texts.extend(path.read_text(encoding="utf-8") for path in root.rglob("*.md"))
+    public_text = "\n".join(texts)
+    for needle in needles:
+        assert needle not in public_text
 
 
 def test_public_repo_does_not_ship_bot_copy() -> None:

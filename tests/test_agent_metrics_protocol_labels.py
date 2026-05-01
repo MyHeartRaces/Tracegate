@@ -239,7 +239,7 @@ def test_agent_metrics_export_runtime_and_obfuscation_flags(monkeypatch: pytest.
                 "echEnabled": False,
             },
             "fronting": {
-                "mtprotoDomain": "proto.tracegate.su",
+                "mtprotoDomain": "proto.tracegate.test",
                 "tcp443Owner": "haproxy",
                 "udp443Owner": "xray",
                 "touchUdp443": False,

@@ -46,7 +46,7 @@ from tracegate.bot.keyboards import (
     admin_mtproto_keyboard,
     cancel_only_keyboard,
     confirm_action_keyboard,
-    connection_create_categories_keyboard,
+    connection_create_categories_keyboard_for,
     connection_create_profiles_keyboard,
     connections_keyboard,
     config_delivery_keyboard,
@@ -55,7 +55,6 @@ from tracegate.bot.keyboards import (
     devices_keyboard,
     feedback_admin_keyboard,
     guide_keyboard,
-    help_keyboard,
     main_menu_keyboard,
     mtproto_delivery_keyboard,
     provider_keyboard_with_cancel,
@@ -78,7 +77,8 @@ from tracegate.services.bot_blocks import (
 from tracegate.services.connection_profiles import (
     MAX_CONNECTIONS_PER_DEVICE,
     MAX_DEVICES_PER_USER,
-    connection_profile_label,
+    connection_profile_display_label,
+    enabled_profile_keys,
     supported_profile_specs,
 )
 from tracegate.settings import get_settings
@@ -88,6 +88,9 @@ api = TracegateApiClient(settings.bot_api_base_url, settings.bot_api_token)
 router = Router()
 
 _HIDDEN_EXPORT_EXTRA_TITLES = {"local socks5 credentials"}
+_TELEGRAM_TEXT_CHUNK_LIMIT = 3900
+_GUIDE_APP_LINKS_HEADING = "Ссылки на приложения:"
+_GUIDE_GITHUB_LINE = "GitHub: https://github.com/MyHeartRaces/Tracegate"
 
 
 def _visible_export_extra_messages(extra_messages: object) -> tuple[tuple[str, str], ...]:
@@ -255,8 +258,15 @@ def _format_grafana_otp_message(*, scope: str, otp: dict) -> str:
         "Grafana\n"
         f"Контур: {_observability_scope_label(scope)}\n"
         f"Действует до: {otp.get('expires_at')}\n"
-        f"Ссылка: {otp.get('login_url')}"
+        "Откройте доступ кнопкой ниже. Ссылка одноразовая и действует 5 минут."
     )
+
+
+def _grafana_otp_keyboard(otp: dict) -> InlineKeyboardMarkup | None:
+    login_url = str(otp.get("login_url") or "").strip()
+    if not login_url:
+        return None
+    return InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="Открыть Grafana", url=login_url)]])
 
 
 def _mtproto_access_label(user: dict) -> str | None:
@@ -312,9 +322,9 @@ def _format_mtproto_delivery_message(*, result: dict, rotate: bool) -> str:
 
 def _main_menu_text() -> str:
     return (
-        "🏠 Tracegate 2.2\n\n"
-        "Рабочий порядок простой: выберите активное устройство, затем открывайте «Подключения» и обслуживайте профили для активного устройства.\n\n"
-        "Справка всегда сверху. В ней есть гайдлайн и приветствие с кратким обзором новой версии."
+        "🏠 Tracegate 2\n\n"
+        "Рабочий порядок простой: выбери активное устройство, затем открой «Подключения» "
+        "и создай профиль для активного устройства."
     )
 
 
@@ -351,12 +361,137 @@ def _load_guide_text() -> str:
     return str(settings.bot_guide_message or "").strip() or "[TRACEGATE_BOT_GUIDE_PLACEHOLDER]"
 
 
-def _help_text() -> str:
-    return (
-        "📚 Справка\n\n"
-        "Гайдлайн - короткая инструкция по устройствам, подключениям, ревизиям и лимитам.\n"
-        "Приветствие - обзор Tracegate 2.2, который показывается при первом входе после обновления."
+def _split_telegram_text(text: str, *, limit: int = _TELEGRAM_TEXT_CHUNK_LIMIT) -> tuple[str, ...]:
+    normalized = str(text or "").strip()
+    if len(normalized) <= limit:
+        return (normalized,)
+
+    chunks: list[str] = []
+    current = ""
+    for paragraph in normalized.split("\n\n"):
+        candidate = f"{current}\n\n{paragraph}" if current else paragraph
+        if len(candidate) <= limit:
+            current = candidate
+            continue
+        if current:
+            chunks.append(current)
+            current = ""
+        if len(paragraph) <= limit:
+            current = paragraph
+            continue
+
+        for line in paragraph.splitlines() or [paragraph]:
+            if len(line) > limit:
+                if current:
+                    chunks.append(current)
+                    current = ""
+                chunks.extend(line[index : index + limit] for index in range(0, len(line), limit))
+                continue
+            candidate = f"{current}\n{line}" if current else line
+            if len(candidate) > limit:
+                if current:
+                    chunks.append(current)
+                current = line
+            else:
+                current = candidate
+
+    if current:
+        chunks.append(current)
+    return tuple(chunk for chunk in chunks if chunk) or (normalized[:limit],)
+
+
+def _remove_guide_github_line(text: str) -> tuple[str, str]:
+    github_line = _GUIDE_GITHUB_LINE
+    kept_lines: list[str] = []
+    for line in str(text or "").splitlines():
+        stripped = line.strip()
+        if stripped.lower().startswith("github:"):
+            github_line = stripped
+            continue
+        kept_lines.append(line)
+    return "\n".join(kept_lines).strip(), github_line
+
+
+def _split_guide_app_links(text: str) -> tuple[str, ...]:
+    normalized = str(text or "").strip()
+    without_github, github_line = _remove_guide_github_line(normalized)
+    before_links, marker, after_marker = without_github.partition(_GUIDE_APP_LINKS_HEADING)
+    if not marker:
+        first = "\n\n".join(part for part in [without_github, github_line] if part).strip()
+        return _split_telegram_text(_emoji_text("📘", first))
+
+    link_paragraphs: list[str] = []
+    after_link_paragraphs: list[str] = []
+    in_after_links = False
+    for paragraph in after_marker.strip().split("\n\n"):
+        stripped = paragraph.strip()
+        if not stripped:
+            continue
+        if stripped.startswith("Если не работает:"):
+            in_after_links = True
+        if in_after_links:
+            after_link_paragraphs.append(stripped)
+        else:
+            link_paragraphs.append(stripped)
+
+    first = "\n\n".join(
+        part
+        for part in [
+            before_links.strip(),
+            "\n\n".join(after_link_paragraphs).strip(),
+            github_line,
+        ]
+        if part
     )
+    links = "\n\n".join(
+        part
+        for part in [
+            _GUIDE_APP_LINKS_HEADING,
+            "\n\n".join(link_paragraphs).strip(),
+        ]
+        if part
+    )
+
+    chunks: list[str] = list(_split_telegram_text(_emoji_text("📘", first)))
+    if link_paragraphs:
+        chunks.extend(_split_telegram_text(links))
+    return tuple(chunks)
+
+
+def _guide_chunks() -> tuple[str, ...]:
+    return _split_guide_app_links(_load_guide_text())
+
+
+async def _answer_guide(message: Message) -> None:
+    chunks = _guide_chunks()
+    for index, chunk in enumerate(chunks):
+        await message.answer(
+            chunk,
+            disable_web_page_preview=True,
+            reply_markup=guide_keyboard() if index == len(chunks) - 1 else None,
+        )
+
+
+async def _edit_or_answer_guide(callback: CallbackQuery) -> None:
+    chunks = _guide_chunks()
+    if len(chunks) == 1:
+        await callback.message.edit_text(
+            chunks[0],
+            disable_web_page_preview=True,
+            reply_markup=guide_keyboard(),
+        )
+        return
+
+    await callback.message.edit_text(
+        chunks[0],
+        disable_web_page_preview=True,
+    )
+    for index, chunk in enumerate(chunks[1:], start=1):
+        await callback.message.answer(
+            chunk,
+            disable_web_page_preview=True,
+            reply_markup=guide_keyboard() if index == len(chunks) - 1 else None,
+        )
 
 
 def _bot_welcome_version() -> str:
@@ -389,21 +524,27 @@ def _welcome_keyboard(callback_data: str, *, text: str) -> InlineKeyboardMarkup:
     )
 
 
+def _welcome_confirmation_text() -> str:
+    return (
+        "⚙️ Перед продолжением\n\n"
+        "Подтверди три правила:\n"
+        "1. Новые подключения выпускаются только для активного устройства.\n"
+        "2. Один профиль используется только на одном устройстве и в одном клиенте.\n"
+        "3. Local proxy, LAN sharing, controller/API и HandlerService в клиентах не открываются в сеть "
+        "без необходимости и защиты.\n\n"
+        "Подробности остаются в «Справке» на главном экране."
+    )
+
+
 async def _send_welcome_step(message: Message, *, step: int) -> None:
     if step == 1:
         text = _bot_welcome_text()
         callback_data = "welcome_continue_1"
-        button_text = "➡️ Далее"
+        button_text = "✅ Продолжить"
     else:
-        text = (
-            "⚙️ Перед продолжением\n\n"
-            "Проверьте два правила:\n"
-            "1. Новые подключения выпускаются только для активного устройства.\n"
-            "2. Если меняете клиент или устройство, сначала выберите его в «Устройствах».\n\n"
-            "После подтверждения откроется главное меню."
-        )
+        text = _welcome_confirmation_text()
         callback_data = "welcome_continue_2"
-        button_text = "🏠 Открыть Tracegate"
+        button_text = "✅ Подтверждаю и открываю меню"
     await message.answer(
         text,
         disable_web_page_preview=True,
@@ -415,17 +556,11 @@ async def _edit_welcome_step(callback: CallbackQuery, *, step: int) -> None:
     if step == 1:
         text = _bot_welcome_text()
         callback_data = "welcome_continue_1"
-        button_text = "➡️ Далее"
+        button_text = "✅ Продолжить"
     else:
-        text = (
-            "⚙️ Перед продолжением\n\n"
-            "Проверьте два правила:\n"
-            "1. Новые подключения выпускаются только для активного устройства.\n"
-            "2. Если меняете клиент или устройство, сначала выберите его в «Устройствах».\n\n"
-            "После подтверждения откроется главное меню."
-        )
+        text = _welcome_confirmation_text()
         callback_data = "welcome_continue_2"
-        button_text = "🏠 Открыть Tracegate"
+        button_text = "✅ Подтверждаю и открываю меню"
     await callback.message.edit_text(
         text,
         disable_web_page_preview=True,
@@ -618,7 +753,7 @@ def _connection_profile_label(connection: dict) -> str:
     mode = str(connection.get("mode") or "").strip().lower()
     variant = str(connection.get("variant") or "").strip() or "V?"
     try:
-        return connection_profile_label(protocol, mode, variant)
+        return connection_profile_display_label(protocol, mode, variant)
     except Exception:
         return f"{variant} | {_connection_family_name(protocol, mode)}"
 
@@ -761,7 +896,7 @@ def _format_config_delivery_message(
 ) -> str:
     if has_primary_uri:
         next_steps = [
-            "1. Скопируйте ссылку из следующего сообщения и импортируйте её в клиент.",
+            "1. Скопируйте ссылку одной строкой из следующего сообщения и импортируйте её в клиент.",
             "2. Или используйте QR из сообщения ниже.",
         ]
         if has_attachment:
@@ -899,6 +1034,18 @@ async def _cleanup_related_messages(
             await callback.bot.delete_message(chat_id=int(ref["chat_id"]), message_id=int(ref["message_id"]))
         except Exception:
             continue
+
+
+async def _cleanup_connection_messages(callback: CallbackQuery, connection_ids: object) -> None:
+    if not isinstance(connection_ids, list):
+        return
+    seen: set[str] = set()
+    for raw_connection_id in connection_ids:
+        connection_id = str(raw_connection_id or "").strip()
+        if not connection_id or connection_id in seen:
+            continue
+        seen.add(connection_id)
+        await _cleanup_related_messages(callback, connection_id=connection_id)
 
 
 async def _send_client_config(callback: CallbackQuery, revision: dict, *, context: str = "default") -> None:
@@ -1112,11 +1259,7 @@ async def welcome_continue_2(callback: CallbackQuery, state: FSMContext) -> None
 
 @router.message(Command("guide"))
 async def guide(message: Message) -> None:
-    await message.answer(
-        _emoji_text("📘", _load_guide_text()),
-        disable_web_page_preview=True,
-        reply_markup=guide_keyboard(),
-    )
+    await _answer_guide(message)
 
 
 @router.message(Command("welcome"))
@@ -1131,22 +1274,14 @@ async def welcome(message: Message) -> None:
 @router.callback_query(F.data == "help_open")
 async def help_open(callback: CallbackQuery, state: FSMContext) -> None:
     await state.clear()
-    await callback.message.edit_text(
-        _help_text(),
-        disable_web_page_preview=True,
-        reply_markup=help_keyboard(),
-    )
+    await _edit_or_answer_guide(callback)
     await callback.answer()
 
 
 @router.callback_query(F.data == "guide_open")
 async def guide_open(callback: CallbackQuery, state: FSMContext) -> None:
     await state.clear()
-    await callback.message.edit_text(
-        _emoji_text("📘", _load_guide_text()),
-        disable_web_page_preview=True,
-        reply_markup=guide_keyboard(),
-    )
+    await _edit_or_answer_guide(callback)
     await callback.answer()
 
 
@@ -1196,8 +1331,8 @@ async def feedback_start(callback: CallbackQuery, state: FSMContext) -> None:
     await state.set_state(FeedbackFlow.waiting_for_message)
     await callback.message.answer(
         _msg_prompt(
-            "Напишите сообщение для команды Tracegate.\n"
-            "Его увидят администраторы проекта, а ваш Telegram ID будет приложен.\n"
+            "Напиши сообщение в обратную связь.\n"
+            "Его получат администраторы, а твой Telegram ID будет приложен.\n"
             "/cancel для отмены."
         ),
         reply_markup=cancel_only_keyboard(cancel_callback_data="menu"),
@@ -1255,13 +1390,13 @@ async def feedback_message(message: Message, state: FSMContext) -> None:
         if failed:
             await message.answer(
                 _msg_ok(
-                    "Сообщение передано команде Tracegate.\n"
+                    "Сообщение передано администраторам.\n"
                     f"Доставлено: {sent}\n"
                     f"Ошибки: {failed}"
                 )
             )
         else:
-            await message.answer(_msg_ok("Сообщение передано команде Tracegate."))
+            await message.answer(_msg_ok("Сообщение передано администраторам."))
         await _send_main_menu(message)
     except ApiClientError as exc:
         await message.answer(_msg_error(exc))
@@ -1393,7 +1528,7 @@ async def connection_create_menu(callback: CallbackQuery, state: FSMContext) -> 
         "🔌 Создание подключения\n\n"
         f"Активное устройство: {active.get('name')}\n"
         "Выберите категорию профиля:",
-        reply_markup=connection_create_categories_keyboard(),
+        reply_markup=connection_create_categories_keyboard_for(enabled_specs=_enabled_profile_specs()),
     )
     await callback.answer()
 
@@ -1410,12 +1545,25 @@ async def connection_create_category(callback: CallbackQuery) -> None:
     if category not in {"direct", "chain", "other"}:
         await callback.answer(_msg_warn("Неизвестный тип подключения."), show_alert=True)
         return
+    enabled_specs = _enabled_profile_specs()
+    category_specs = {
+        "direct": {"v1direct", "v2direct", "v3direct"},
+        "chain": {"v1chain", "v2chain", "v3chain"},
+        "other": {"v0ws", "v0grpc", "v0wgws"},
+    }[category]
+    if not (enabled_specs & category_specs):
+        await callback.answer(_msg_warn("Эта категория сейчас отключена."), show_alert=True)
+        return
     await callback.message.edit_text(
         "🔌 Создание подключения\n\n"
         f"Активное устройство: {active.get('name')}\n"
         f"Категория: {category}\n"
         "Выберите конкретный профиль:",
-        reply_markup=connection_create_profiles_keyboard(category=category, device_id=str(active["id"])),
+        reply_markup=connection_create_profiles_keyboard(
+            category=category,
+            device_id=str(active["id"]),
+            enabled_specs=enabled_specs,
+        ),
     )
     await callback.answer()
 
@@ -1457,6 +1605,7 @@ async def admin_reset_connections_confirm(callback: CallbackQuery, state: FSMCon
         result = await api.reset_all_connections(actor_telegram_id=callback.from_user.id)
         revoked = int(result.get("revoked_connections") or 0)
         revoked_mtproto = int(result.get("revoked_mtproto_accesses") or 0)
+        await _cleanup_connection_messages(callback, result.get("revoked_connection_ids"))
         await callback.message.answer(
             _msg_ok(
                 "Глобальный отзыв завершен.\n"
@@ -1481,6 +1630,7 @@ async def grafana_otp(callback: CallbackQuery) -> None:
         otp = await api.create_grafana_otp(user["telegram_id"], scope=scope)
         await callback.message.answer(
             _format_grafana_otp_message(scope=scope, otp=otp),
+            reply_markup=_grafana_otp_keyboard(otp),
             disable_web_page_preview=True,
         )
     except ApiClientError as exc:
@@ -1506,6 +1656,7 @@ async def grafana_otp_admin(callback: CallbackQuery) -> None:
         otp = await api.create_grafana_otp(user["telegram_id"], scope=scope)
         await callback.message.answer(
             _format_grafana_otp_message(scope=scope, otp=otp),
+            reply_markup=_grafana_otp_keyboard(otp),
             disable_web_page_preview=True,
         )
     except ApiClientError as exc:
@@ -1833,6 +1984,7 @@ async def admin_user_revoke_notify(callback: CallbackQuery, state: FSMContext) -
         revoked_connections = int(result.get("revoked_connections") or 0)
         revoked_devices = int(result.get("revoked_devices") or 0)
         revoked_mtproto = bool(result.get("revoked_mtproto_access"))
+        await _cleanup_connection_messages(callback, result.get("revoked_connection_ids"))
         await callback.message.answer(
             _msg_ok(
                 f"Доступ отозван для {target_label or user_label(target)}.\n"
@@ -2109,11 +2261,40 @@ def _profile(spec: str) -> tuple[ConnectionProtocol, ConnectionMode, ConnectionV
     raise ValueError("unknown profile")
 
 
+def _profile_key(spec: str) -> str:
+    normalized = str(spec or "").strip().lower()
+    aliases = {
+        "v1": "v1direct",
+        "v2": "v1chain",
+        "v3": "v2direct",
+        "v4": "v2chain",
+        "v5": "v3direct",
+        "v6": "v3chain",
+        "v7": "v0wgws",
+        "v1ws": "v0ws",
+        "v1grpc": "v0grpc",
+    }
+    key = aliases.get(normalized, normalized)
+    if key not in supported_profile_specs():
+        raise ValueError("unknown profile")
+    return key
+
+
+def _enabled_profile_specs() -> set[str]:
+    return enabled_profile_keys(settings.enabled_client_profiles)
+
+
+def _ensure_profile_enabled(spec: str) -> None:
+    if _profile_key(spec) not in _enabled_profile_specs():
+        raise ValueError("Этот профиль сейчас отключен в текущем развертывании.")
+
+
 @router.callback_query(F.data.startswith("new:"))
 async def new_connection(callback: CallbackQuery) -> None:
     _, spec, device_id = callback.data.split(":", 2)
 
     try:
+        _ensure_profile_enabled(spec)
         protocol, _, _ = _profile(spec)
         if protocol == ConnectionProtocol.VLESS_REALITY:
             await callback.message.edit_text(
@@ -2155,6 +2336,12 @@ async def vless_new(callback: CallbackQuery) -> None:
         spec = "v1direct" if spec == "v1" else "v1chain"
     if spec not in {"v1direct", "v1chain"}:
         await callback.message.answer(_msg_error("Неизвестный профиль VLESS."))
+        await callback.answer()
+        return
+    try:
+        _ensure_profile_enabled(spec)
+    except Exception as exc:  # noqa: BLE001
+        await callback.message.answer(_msg_error(exc))
         await callback.answer()
         return
 
@@ -2593,7 +2780,15 @@ async def sni_catalog_input(message: Message, state: FSMContext) -> None:
         if note:
             out += f"\n\n{note}"
 
-        await _edit_or_send(out, sni_catalog_action_keyboard(sni_id=sni_id, provider=provider, page=page))
+        await _edit_or_send(
+            out,
+            sni_catalog_action_keyboard(
+                sni_id=sni_id,
+                provider=provider,
+                page=page,
+                enabled_specs=_enabled_profile_specs(),
+            ),
+        )
         return
 
     # Treat as search query (fqdn substring).
@@ -2638,7 +2833,12 @@ async def _render_sni_catalog_actions(
     out = f"✅ Выбран SNI\n\n{fqdn}"
     if note:
         out += f"\n\n{note}"
-    return out, sni_catalog_action_keyboard(sni_id=sni_id, provider=provider, page=page)
+    return out, sni_catalog_action_keyboard(
+        sni_id=sni_id,
+        provider=provider,
+        page=page,
+        enabled_specs=_enabled_profile_specs(),
+    )
 
 
 @router.callback_query(F.data.startswith("catsel:"))
@@ -2667,6 +2867,7 @@ async def sni_catalog_new_pick_device(callback: CallbackQuery) -> None:
         return
     _, spec, sni_id_raw, provider, page_raw = parts
     try:
+        _ensure_profile_enabled(spec)
         sni_id = int(sni_id_raw)
         page = int(page_raw)
         user = await ensure_user(callback.from_user.id)
@@ -2698,6 +2899,7 @@ async def sni_catalog_new_connection(callback: CallbackQuery, state: FSMContext)
     # catnew:<v1|v2>:<device_id>:<sni_id>
     _, spec, device_id, sni_id_raw = callback.data.split(":", 3)
     try:
+        _ensure_profile_enabled(spec)
         user = await ensure_user(callback.from_user.id)
         protocol, mode, variant = _profile(spec)
         connection, revision = await api.create_connection_and_revision(
@@ -2742,7 +2944,12 @@ async def sni_catalog_issue_pick_connection(callback: CallbackQuery) -> None:
         if not vless_connections:
             await callback.message.edit_text(
                 _msg_info("Нет VLESS-подключений, для которых можно выпустить ревизию."),
-                reply_markup=sni_catalog_action_keyboard(sni_id=sni_id, provider=provider, page=page),
+                reply_markup=sni_catalog_action_keyboard(
+                    sni_id=sni_id,
+                    provider=provider,
+                    page=page,
+                    enabled_specs=_enabled_profile_specs(),
+                ),
             )
             await callback.answer()
             return

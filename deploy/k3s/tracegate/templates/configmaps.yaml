@@ -9,7 +9,7 @@ data:
   tracegate-2.2-runtime.yaml: |
     architecture: Tracegate 2.2
     runtimeProfile: {{ .Values.global.runtimeProfile }}
-    zeroRestartRule: "user and connection mutations must use live APIs or narrow reload hooks"
+    zeroRestartRule: "user and connection mutations must use live APIs or read-through state only; reload hooks are base/topology only"
     localSocksAuth: {{ .Values.transportProfiles.socks5.required | ternary "required" "disabled" }}
     rollout:
       gatewayStrategy: {{ .Values.gateway.strategy }}
@@ -309,8 +309,8 @@ data:
           enabled: true
           mode: salamander-plus-scoped-paired-obfs
           portSplit:
-            publicUdpPort: 8443
-            forbidUdp443: true
+            publicUdpPort: {{ int .Values.gateway.roles.transit.ports.publicUdp }}
+            forbidUdp443: false
             forbidTcp8443: true
           requiredLayers:
             - hysteria2-quic
@@ -443,6 +443,24 @@ data:
 {{- if and $.Values.gateway.enabled $role.enabled }}
 {{- $linkOuterCarrier := $.Values.interconnect.entryTransit.outerCarrier }}
 {{- $linkWssCarrierEnabled := and $.Values.interconnect.entryTransit.enabled $linkOuterCarrier.enabled (eq (toString $linkOuterCarrier.mode) "wss") }}
+{{- $tlsAdapterServerNames := concat (list $role.tls.serverName) ($role.tls.extraServerNames | default (list)) | uniq }}
+{{- $realityMultiInboundGroups := $.Values.gateway.realityMultiInboundGroups | default (list) }}
+{{- $chainBridge := $.Values.interconnect.emergencyXrayChain }}
+{{- $chainBridgeSni := $chainBridge.serverName | default (first $.Values.gateway.roles.transit.reality.serverNames) }}
+{{- $chainBridgePublicKey := $.Values.controlPlane.env.realityPublicKeyTransit | default $.Values.controlPlane.env.realityPublicKey }}
+{{- $chainBridgeShortId := $.Values.controlPlane.env.realityShortIdTransit | default (first $.Values.gateway.roles.transit.reality.shortIds) }}
+{{- $hysteriaListenHost := toString (dig "hysteria" "listenHost" "" $role) }}
+{{- $roleShadowtlsServerName := ternary $.Values.shadowsocks2022.shadowtls.serverNameEntry $.Values.shadowsocks2022.shadowtls.serverNameTransit (eq $roleName "entry") }}
+{{- $userTrafficInbounds := list "entry-in" "entry-chain-socks-in" "ss2022-in" "vless-reality-in" "vless-ws-in" "vless-grpc-in" }}
+{{- $grafanaHost := toString $.Values.controlPlane.env.grafanaHost }}
+{{- $ruBypassDomains := list "geosite:category-ru" "full:cp.cloudflare.com" "regexp:(?i)\\.ru$" "regexp:(?i)\\.su$" "regexp:(?i)\\.xn--p1ai$" "regexp:(?i)\\.рф$" "regexp:(?i)\\.moscow$" "regexp:(?i)\\.xn--80adxhks$" "regexp:(?i)\\.москва$" "regexp:(?i)\\.tatar$" "regexp:(?i)\\.xn--p1acf$" "regexp:(?i)\\.рус$" "regexp:(?i)\\.xn--d1acj3b$" "regexp:(?i)\\.дети$" }}
+{{- range $line := splitList "\n" ($.Files.Get "files/russia-mobile-internet-whitelist.txt") }}
+{{- $domain := trim $line }}
+{{- if and $domain (not (hasPrefix "#" $domain)) }}
+{{- $ruBypassDomains = append $ruBypassDomains (printf "domain:%s" $domain) }}
+{{- end }}
+{{- end }}
+{{- $ruBypassDomains = uniq $ruBypassDomains }}
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -469,9 +487,14 @@ data:
 
     frontend fe_tracegate_{{ $roleName }}_tls
       bind :{{ int $role.ports.publicTcp }}
+{{- range $bind := ($role.ports.publicTcpExtraBinds | default (list)) }}
+      bind {{ $bind }}
+{{- end }}
       tcp-request inspect-delay 5s
       tcp-request content accept if { req.ssl_hello_type 1 }
-      acl tls_adapter_sni req.ssl_sni -i {{ $role.tls.serverName }}
+      tcp-request content accept if { req.ssl_sni -m found }
+      tcp-request content accept if WAIT_END
+      acl tls_adapter_sni req.ssl_sni -i {{ join " " $tlsAdapterServerNames }}
 {{- if and (eq $roleName "transit") $linkWssCarrierEnabled }}
       acl bridge_wss_sni req.ssl_sni -i {{ $linkOuterCarrier.serverName }}
       use_backend be_https_adapter if bridge_wss_sni
@@ -483,11 +506,31 @@ data:
       use_backend be_mtproto if mtproto_sni
 {{- end }}
 {{- end }}
+{{- if and $.Values.shadowsocks2022.enabled $roleShadowtlsServerName }}
+      acl shadowtls_sni req.ssl_sni -i {{ $roleShadowtlsServerName }}
+      use_backend be_shadowtls if shadowtls_sni
+{{- end }}
+{{- range $group := $realityMultiInboundGroups }}
+{{- $groupName := regexReplaceAll "[^a-z0-9_]+" (lower (toString $group.id)) "_" | trimAll "_" }}
+      acl reality_{{ $groupName }}_sni req.ssl_sni -i {{ join " " $group.snis }}
+      use_backend be_reality_{{ $groupName }} if reality_{{ $groupName }}_sni
+{{- end }}
       use_backend be_https_adapter if tls_adapter_sni
       default_backend be_reality
 
     backend be_reality
       server xray_reality 127.0.0.1:{{ int $role.ports.reality }} check
+{{- range $group := $realityMultiInboundGroups }}
+{{- $groupName := regexReplaceAll "[^a-z0-9_]+" (lower (toString $group.id)) "_" | trimAll "_" }}
+
+    backend be_reality_{{ $groupName }}
+      server xray_reality_{{ $groupName }} 127.0.0.1:{{ int $group.port }} check
+{{- end }}
+{{- if and $.Values.shadowsocks2022.enabled $roleShadowtlsServerName }}
+
+    backend be_shadowtls
+      server shadowtls_v3 127.0.0.1:{{ int $.Values.shadowsocks2022.shadowtls.listenPort }} check
+{{- end }}
 
     backend be_https_adapter
       server nginx_https 127.0.0.1:{{ int $role.ports.httpsAdapter }} check
@@ -519,6 +562,9 @@ data:
       default_type application/octet-stream;
       sendfile on;
       keepalive_timeout 65;
+      client_max_body_size 0;
+      absolute_redirect off;
+      port_in_redirect off;
 
 {{- if eq $roleName "transit" }}
       server {
@@ -527,7 +573,37 @@ data:
         root {{ $.Values.decoy.mountPath }};
         index index.html;
 
+        location ^~ /.well-known/acme-challenge/ {
+          default_type text/plain;
+          try_files $uri =404;
+        }
+
+        location = /grafana {
+          return 302 /grafana/;
+        }
+
+        location ^~ /grafana/ {
+          proxy_pass {{ printf "http://%s-api:%d" (include "tracegate.fullname" $) (int $.Values.controlPlane.service.port) }};
+          proxy_http_version 1.1;
+          proxy_connect_timeout 5s;
+          proxy_read_timeout 5m;
+          proxy_send_timeout 5m;
+          proxy_set_header Host $host;
+          proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+          proxy_set_header X-Forwarded-Proto $scheme;
+          proxy_set_header X-Forwarded-Host $host;
+        }
+
+        location ^~ /v1/decoy/ {
+          return 301 https://$host$request_uri;
+        }
+
         location / {
+{{- if $grafanaHost }}
+          if ($host = "{{ $grafanaHost }}") {
+            return 302 /grafana/;
+          }
+{{- end }}
           try_files $uri $uri/ /index.html;
         }
       }
@@ -535,7 +611,7 @@ data:
 
       server {
         listen 127.0.0.1:{{ int $role.ports.httpsAdapter }} ssl http2;
-        server_name {{ $role.tls.serverName }}{{ if and (eq $roleName "transit") $linkWssCarrierEnabled }} {{ $linkOuterCarrier.serverName }}{{ end }};
+        server_name {{ join " " $tlsAdapterServerNames }}{{ if and (eq $roleName "transit") $linkWssCarrierEnabled }} {{ $linkOuterCarrier.serverName }}{{ end }};
 
         ssl_certificate /etc/tracegate/tls/tls.crt;
         ssl_certificate_key /etc/tracegate/tls/tls.key;
@@ -546,6 +622,11 @@ data:
 
         root {{ $.Values.decoy.mountPath }};
         index index.html;
+
+        location ^~ /.well-known/acme-challenge/ {
+          default_type text/plain;
+          try_files $uri =404;
+        }
 
         location {{ $.Values.controlPlane.env.vlessWsPath }} {
           proxy_pass http://127.0.0.1:{{ int $role.ports.vlessWs }};
@@ -598,12 +679,47 @@ data:
 
 {{- end }}
 {{- if eq $roleName "transit" }}
+        location = /grafana {
+          return 302 /grafana/;
+        }
+
+        location ^~ /grafana/ {
+          proxy_pass {{ printf "http://%s-api:%d" (include "tracegate.fullname" $) (int $.Values.controlPlane.service.port) }};
+          proxy_http_version 1.1;
+          proxy_connect_timeout 5s;
+          proxy_read_timeout 5m;
+          proxy_send_timeout 5m;
+          proxy_set_header Host $host;
+          proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+          proxy_set_header X-Forwarded-Proto https;
+          proxy_set_header X-Forwarded-Host $host;
+        }
+
         location = /vault/mtproto {
           return 302 /vault/mtproto/;
+        }
+
+        location ^~ /v1/decoy/ {
+          proxy_pass http://127.0.0.1:{{ int $.Values.gateway.agent.port }};
+          proxy_http_version 1.1;
+          proxy_connect_timeout 5s;
+          proxy_read_timeout 20s;
+          proxy_send_timeout 20s;
+          proxy_set_header Host $host;
+          proxy_set_header X-Real-IP $remote_addr;
+          proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+          proxy_set_header X-Forwarded-Proto https;
         }
 {{- end }}
 
         location / {
+{{- if eq $roleName "transit" }}
+{{- if $grafanaHost }}
+          if ($host = "{{ $grafanaHost }}") {
+            return 302 /grafana/;
+          }
+{{- end }}
+{{- end }}
           try_files $uri $uri/ /index.html;
         }
       }
@@ -619,7 +735,7 @@ metadata:
     app.kubernetes.io/component: gateway-{{ $roleName }}
 data:
   server.yaml: |
-    listen: :{{ int $role.ports.publicUdp }}
+    listen: {{ if $hysteriaListenHost }}{{ printf "%s:%d" $hysteriaListenHost (int $role.ports.publicUdp) }}{{ else }}:{{ int $role.ports.publicUdp }}{{ end }}
     tls:
       cert: /etc/tracegate/tls/tls.crt
       key: /etc/tracegate/tls/tls.key
@@ -640,6 +756,13 @@ data:
     trafficStats:
       listen: 127.0.0.1:9999
       secret: REPLACE_HYSTERIA_STATS_SECRET
+{{- if and (eq $roleName "entry") $chainBridge.enabled }}
+    outbounds:
+      - name: chain-via-transit
+        type: socks5
+        socks5:
+          addr: 127.0.0.1:{{ int $chainBridge.socksPort }}
+{{- end }}
     quic:
       maxIdleTimeout: 30s
       disablePathMTUDiscovery: false
@@ -685,12 +808,44 @@ data:
       },
       "inbounds": [
         {"tag": "api", "listen": "127.0.0.1", "port": {{ int $role.ports.xrayApi }}, "protocol": "dokodemo-door", "settings": {"address": "127.0.0.1"}},
+{{- if and (eq $roleName "entry") $chainBridge.enabled }}
+        {
+          "tag": "entry-chain-socks-in",
+          "listen": "127.0.0.1",
+          "port": {{ int $chainBridge.socksPort }},
+          "protocol": "socks",
+          "settings": {"auth": "noauth", "udp": true},
+          "sniffing": {"enabled": true, "destOverride": ["http", "tls", "quic"]}
+        },
+{{- end }}
+{{- if $.Values.shadowsocks2022.enabled }}
+        {
+          "tag": "ss2022-in",
+          "listen": "127.0.0.1",
+          "port": {{ int $.Values.shadowsocks2022.listenPort }},
+          "protocol": "shadowsocks",
+          "settings": {
+            "network": "tcp",
+            "method": {{ $.Values.shadowsocks2022.method | quote }},
+            "password": "REPLACE_SHADOWSOCKS2022_PASSWORD",
+            "clients": []
+          },
+          "sniffing": {"enabled": true, "destOverride": ["http", "tls"]}
+        },
+{{- end }}
         {
           "tag": "{{ ternary "entry-in" "vless-reality-in" (eq $roleName "entry") }}",
           "listen": "127.0.0.1",
           "port": {{ int $role.ports.reality }},
           "protocol": "vless",
-          "settings": {"clients": [], "decryption": "none"},
+          "settings": {
+            "clients": [
+{{- if and (eq $roleName "transit") $chainBridge.enabled }}
+              {"id": "REPLACE_XRAY_CHAIN_BRIDGE_CLIENT_ID", "email": "Tracegate Entry-Transit Chain Bridge"}
+{{- end }}
+            ],
+            "decryption": "none"
+          },
           "streamSettings": {
             "network": "xhttp",
             "security": "reality",
@@ -702,7 +857,7 @@ data:
               "privateKey": "REPLACE_REALITY_PRIVATE_KEY",
               "shortIds": {{ toJson $role.reality.shortIds }}
             },
-            "xhttpSettings": {"mode": "packet-up", "path": "/api/v1/update"}
+            "xhttpSettings": {"mode": "auto", "path": "/api/v1/update"}
           },
           "sniffing": {"enabled": true, "destOverride": ["http", "tls", "quic"]}
         },
@@ -726,15 +881,49 @@ data:
         }
       ],
       "outbounds": [
-        {"tag": "api", "protocol": "freedom"},
-        {"tag": "direct", "protocol": "freedom"},
+{{- if and (eq $roleName "entry") $chainBridge.enabled }}
+        {
+          "tag": "chain-to-transit",
+          "protocol": "vless",
+          "settings": {
+            "vnext": [
+              {
+                "address": {{ $.Values.controlPlane.env.defaultTransitHost | quote }},
+                "port": 443,
+                "users": [{"id": "REPLACE_XRAY_CHAIN_BRIDGE_CLIENT_ID", "encryption": "none"}]
+              }
+            ]
+          },
+          "streamSettings": {
+            "network": "xhttp",
+            "security": "reality",
+            "realitySettings": {
+              "serverName": {{ $chainBridgeSni | quote }},
+              "fingerprint": "chrome",
+              "publicKey": {{ $chainBridgePublicKey | quote }},
+              "shortId": {{ $chainBridgeShortId | quote }},
+              "spiderX": "/"
+            },
+            "xhttpSettings": {"mode": "auto", "path": "/api/v1/update"}
+          }
+        },
+{{- end }}
+        {"tag": "direct", "protocol": "freedom", "settings": {"domainStrategy": "UseIPv4"}},
+        {"tag": "api", "protocol": "freedom", "settings": {"domainStrategy": "UseIPv4"}},
         {"tag": "block", "protocol": "blackhole"}
       ],
       "routing": {
         "domainStrategy": "IPIfNonMatch",
         "rules": [
           {"type": "field", "inboundTag": ["api"], "outboundTag": "api"},
-          {"type": "field", "inboundTag": ["entry-in", "vless-reality-in", "vless-ws-in", "vless-grpc-in"], "protocol": ["bittorrent"], "outboundTag": "block"},
+          {"type": "field", "inboundTag": {{ toJson $userTrafficInbounds }}, "protocol": ["bittorrent"], "outboundTag": "block"},
+{{- if eq $roleName "entry" }}
+          {"type": "field", "inboundTag": {{ toJson $userTrafficInbounds }}, "domain": {{ toJson $ruBypassDomains }}, "outboundTag": "direct"},
+          {"type": "field", "inboundTag": {{ toJson $userTrafficInbounds }}, "ip": ["geoip:ru"], "outboundTag": "direct"},
+{{- end }}
+{{- if and (eq $roleName "entry") $chainBridge.enabled }}
+          {"type": "field", "inboundTag": {{ toJson $userTrafficInbounds }}, "outboundTag": "chain-to-transit"},
+{{- end }}
           {"type": "field", "ip": ["geoip:private"], "outboundTag": "block"}
         ]
       }

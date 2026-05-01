@@ -1,5 +1,6 @@
 import pytest
 
+from tracegate.constants import TRACEGATE_PUBLIC_UDP_PORT
 from tracegate.agent import system
 
 
@@ -71,6 +72,41 @@ def test_check_port_falls_back_to_proc_net_when_ss_missing(monkeypatch, tmp_path
     assert "/proc/net/tcp port=443" in details
 
 
+def test_check_port_matches_ss_port_exactly(monkeypatch):
+    class _Proc:
+        returncode = 0
+        stdout = (
+            "Netid State Recv-Q Send-Q Local Address:Port Peer Address:Port Process\n"
+            "udp   UNCONN 0      0                  *:44392           *:*\n"
+        )
+        stderr = ""
+
+    monkeypatch.setattr(system.subprocess, "run", lambda *_args, **_kwargs: _Proc())
+    monkeypatch.setattr(system, "_proc_net_has_listener", lambda protocol, port: (False, f"{protocol}/{port} fallback"))
+
+    ok, details = system.check_port("udp", 443)
+
+    assert ok is False
+    assert details == "udp/443 fallback"
+
+
+def test_check_port_accepts_exact_ss_listener(monkeypatch):
+    class _Proc:
+        returncode = 0
+        stdout = (
+            "Netid State  Recv-Q Send-Q Local Address:Port Peer Address:Port Process\n"
+            "tcp   LISTEN 0      4096              [::]:443             [::]:*\n"
+        )
+        stderr = ""
+
+    monkeypatch.setattr(system.subprocess, "run", lambda *_args, **_kwargs: _Proc())
+
+    ok, details = system.check_port("tcp", 443)
+
+    assert ok is True
+    assert "[::]:443" in details
+
+
 def test_check_port_blocked_rejects_listener(monkeypatch):
     monkeypatch.setattr(system, "check_port", lambda protocol, port: (True, f"{protocol}:{port}"))
 
@@ -90,7 +126,7 @@ def test_check_port_blocked_accepts_no_listener(monkeypatch):
 
 
 def _tracegate22_port_check(protocol: str, port: int) -> tuple[bool, str]:
-    return (protocol, port) in {("tcp", 443), ("udp", 8443)}, f"{protocol}:{port}"
+    return (protocol, port) in {("tcp", 443), ("udp", TRACEGATE_PUBLIC_UDP_PORT)}, f"{protocol}:{port}"
 
 
 def test_proc_has_process_from_comm(tmp_path):
@@ -207,8 +243,7 @@ async def test_gather_health_checks_entry_legacy_container_runtime(monkeypatch):
 
     names = [row["name"] for row in checks]
     assert "listen tcp/443" in names
-    assert "listen udp/8443" in names
-    assert "blocked udp/443" in names
+    assert f"listen udp/{TRACEGATE_PUBLIC_UDP_PORT}" in names
     assert "blocked tcp/8443" in names
     assert "process xray" in names
     assert "process haproxy" in names
@@ -238,8 +273,7 @@ async def test_gather_health_checks_transit_legacy_container_runtime(monkeypatch
 
     names = [row["name"] for row in checks]
     assert "listen tcp/443" in names
-    assert "listen udp/8443" in names
-    assert "blocked udp/443" in names
+    assert f"listen udp/{TRACEGATE_PUBLIC_UDP_PORT}" in names
     assert "blocked tcp/8443" in names
     assert "process xray" in names
     assert "process haproxy" in names
@@ -267,8 +301,7 @@ async def test_gather_health_checks_default_profile_is_tracegate22(monkeypatch):
 
     names = [row["name"] for row in checks]
     assert "listen tcp/443" in names
-    assert "listen udp/8443" in names
-    assert "blocked udp/443" in names
+    assert f"listen udp/{TRACEGATE_PUBLIC_UDP_PORT}" in names
     assert "blocked tcp/8443" in names
     assert "process xray" in names
     assert "process hysteria" in names
@@ -297,8 +330,7 @@ async def test_gather_health_checks_transit_xray_centric_profile_skips_hysteria_
 
     names = [row["name"] for row in checks]
     assert "listen tcp/443" in names
-    assert "listen udp/8443" in names
-    assert "blocked udp/443" in names
+    assert f"listen udp/{TRACEGATE_PUBLIC_UDP_PORT}" in names
     assert "blocked tcp/8443" in names
     assert "process xray" in names
     assert "process haproxy" in names

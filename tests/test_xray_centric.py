@@ -22,7 +22,7 @@ def test_render_xray_centric_entry_keeps_xray_native_hysteria_inbound() -> None:
     hy2_in = next(row for row in rendered["inbounds"] if isinstance(row, dict) and row.get("tag") == "hy2-in")
     assert hy2_in["protocol"] == "hysteria"
     assert hy2_in["listen"] == "0.0.0.0"
-    assert hy2_in["port"] == 8443
+    assert hy2_in["port"] == 4443
     assert hy2_in["settings"]["version"] == 2
     assert hy2_in["settings"]["clients"] == []
     assert hy2_in["streamSettings"]["security"] == "tls"

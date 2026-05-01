@@ -160,7 +160,7 @@ def test_reconcile_xray_centric_updates_vless_and_hysteria_inbounds(tmp_path: Pa
                     {
                         "tag": "hy2-in",
                         "listen": "0.0.0.0",
-                        "port": 8443,
+                        "port": 443,
                         "protocol": "hysteria",
                         "settings": {"clients": []},
                         "streamSettings": {
@@ -315,6 +315,16 @@ def test_reconcile_proxy_passthrough_components(tmp_path: Path) -> None:
     assert "haproxy" not in changed2
     assert "nginx" not in changed2
 
+    runtime_nginx = tmp_path / "runtime/nginx/nginx.conf"
+    runtime_inode = runtime_nginx.stat().st_ino
+    _write(tmp_path / "base/nginx/nginx.conf", "events {}\nhttp { client_max_body_size 0; }\n")
+
+    changed3 = reconcile_all(settings)
+
+    assert "nginx" in changed3
+    assert runtime_nginx.read_text(encoding="utf-8") == "events {}\nhttp { client_max_body_size 0; }\n"
+    assert runtime_nginx.stat().st_ino == runtime_inode
+
 
 def test_reconcile_syncs_base_decoy_tree_into_active_runtime_root(tmp_path: Path) -> None:
     decoy_root = tmp_path / "public-decoy"
@@ -413,7 +423,7 @@ def test_reconcile_tracegate22_passthroughs_standalone_hysteria_and_strips_xray_
             }
         ),
     )
-    _write(tmp_path / "base/hysteria/server.yaml", "listen: :8443\nobfs:\n  type: salamander\n")
+    _write(tmp_path / "base/hysteria/server.yaml", "listen: :443\nobfs:\n  type: salamander\n")
 
     changed = reconcile_all(settings)
 
@@ -423,7 +433,7 @@ def test_reconcile_tracegate22_passthroughs_standalone_hysteria_and_strips_xray_
     assert [row["tag"] for row in rendered_xray["inbounds"]] == ["vless-reality-in"]
     assert rendered_xray["routing"]["rules"][0]["inboundTag"] == ["vless-reality-in"]
     assert (tmp_path / "runtime/hysteria/server.yaml").read_text(encoding="utf-8") == (
-        "listen: :8443\nobfs:\n  type: salamander\n"
+        "listen: :443\nobfs:\n  type: salamander\n"
     )
 
 
@@ -555,6 +565,66 @@ def test_reconcile_xray_populates_xray_native_hysteria_inbound_clients(tmp_path:
     assert changed2 == []
 
 
+def test_reconcile_xray_populates_xray_native_shadowsocks2022_clients(tmp_path: Path) -> None:
+    _write(
+        tmp_path / "base/xray/config.json",
+        json.dumps(
+            {
+                "inbounds": [
+                    {
+                        "tag": "ss2022-in",
+                        "listen": "127.0.0.1",
+                        "port": 18443,
+                        "protocol": "shadowsocks",
+                        "settings": {
+                            "network": "tcp",
+                            "method": "2022-blake3-aes-128-gcm",
+                            "password": "server-key",
+                            "clients": [],
+                        },
+                    }
+                ],
+                "outbounds": [{"tag": "direct", "protocol": "freedom"}],
+            }
+        ),
+    )
+    _write(
+        tmp_path / "users/123/connection-conn-v3.json",
+        json.dumps(
+            {
+                "user_id": "123",
+                "connection_id": "conn-v3",
+                "revision_id": "rev-v3",
+                "protocol": "shadowsocks2022_shadowtls",
+                "variant": "V3",
+                "mode": "direct",
+                "config": {
+                    "password": "server-key:user-key",
+                    "method": "2022-blake3-aes-128-gcm",
+                },
+            }
+        ),
+    )
+    settings = Settings(
+        agent_data_root=str(tmp_path),
+        agent_role="TRANSIT",
+        agent_runtime_profile="tracegate-2.2",
+    )
+
+    changed = reconcile_all(settings)
+
+    assert "xray" in changed
+    runtime = json.loads((tmp_path / "runtime/xray/config.json").read_text(encoding="utf-8"))
+    inbound = next(row for row in runtime["inbounds"] if row.get("tag") == "ss2022-in")
+    assert inbound["settings"]["clients"] == [
+        {
+            "password": "user-key",
+            "email": "V3 - 123 - conn-v3",
+        }
+    ]
+    assert reconcile_all(settings) == []
+
+
 def test_reconcile_xray_centric_prunes_stale_hysteria_runtime_state(tmp_path: Path) -> None:
     settings = Settings(
         agent_data_root=str(tmp_path),
@@ -590,7 +660,7 @@ def test_reconcile_xray_centric_prunes_stale_hysteria_runtime_state(tmp_path: Pa
             }
         ),
     )
-    _write(tmp_path / "runtime/hysteria/config.yaml", "listen: :443\n")
+    _write(tmp_path / "runtime/hysteria/config.yaml", "listen: :4443\n")
     _write(
         tmp_path / "runtime/hysteria/auth.json",
         json.dumps({"legacy-user": {"password": "secret", "id": "legacy-user", "token": "legacy-token"}}),
@@ -622,7 +692,7 @@ def test_reconcile_runtime_contract_exposes_private_wrapper_state(tmp_path: Path
         agent_runtime_mode="systemd",
         agent_role="TRANSIT",
         agent_runtime_profile="xray-centric",
-        mtproto_domain="proxied.tracegate.su",
+        mtproto_domain="proxied.tracegate.test",
     )
 
     _write(
@@ -695,11 +765,11 @@ def test_reconcile_runtime_contract_exposes_private_wrapper_state(tmp_path: Path
     assert runtime_contract["contract"]["hysteriaMetricsSource"] == "xray_stats"
     assert runtime_contract["contract"]["expectedPorts"] == [
         {"protocol": "tcp", "port": 443, "name": "listen tcp/443"},
-        {"protocol": "udp", "port": 8443, "name": "listen udp/8443"},
+        {"protocol": "udp", "port": 4443, "name": "listen udp/4443"},
     ]
     assert runtime_contract["contract"]["forbiddenPorts"] == [
-        {"protocol": "udp", "port": 443, "name": "blocked udp/443"},
         {"protocol": "tcp", "port": 8443, "name": "blocked tcp/8443"},
+        {"protocol": "udp", "port": 8443, "name": "blocked udp/8443"},
     ]
     assert runtime_contract["rollout"] == {
         "gatewayStrategy": "RollingUpdate",
@@ -714,18 +784,17 @@ def test_reconcile_runtime_contract_exposes_private_wrapper_state(tmp_path: Path
     }
     assert runtime_contract["fronting"] == {
         "tcp443Owner": "haproxy",
-        "publicUdpPort": 8443,
+        "publicUdpPort": 4443,
         "publicUdpOwner": "xray",
         "udp443Owner": "xray",
-        "udpPublicPort": 8443,
-        "forbiddenUdp443": True,
+        "udpPublicPort": 4443,
+        "forbiddenUdp443": False,
         "forbiddenTcp8443": True,
         "forbiddenPublicPorts": [
-            {"protocol": "udp", "port": 443, "action": "drop"},
             {"protocol": "tcp", "port": 8443, "action": "drop"},
         ],
         "touchUdp443": False,
-        "mtprotoDomain": "proxied.tracegate.su",
+        "mtprotoDomain": "proxied.tracegate.test",
         "mtprotoPublicPort": 443,
         "mtprotoFrontingMode": "dedicated-dns-only",
     }
@@ -826,8 +895,8 @@ def test_reconcile_materializes_private_runtime_handoff_surfaces_for_transit(tmp
         agent_runtime_mode="systemd",
         agent_role="TRANSIT",
         agent_runtime_profile="xray-centric",
-        default_transit_host="nlconn.tracegate.su",
-        mtproto_domain="proxied.tracegate.su",
+        default_transit_host="nlconn.tracegate.test",
+        mtproto_domain="proxied.tracegate.test",
         private_mtproto_secret_file=str(tmp_path / "secrets" / "mtproto.txt"),
     )
 
@@ -928,8 +997,8 @@ def test_reconcile_materializes_private_runtime_handoff_surfaces_for_transit(tmp
     ) == []
 
     fronting_cfg = (private_root / "fronting" / "runtime" / "haproxy.cfg").read_text(encoding="utf-8")
-    assert "acl mtproto_sni req.ssl_sni -i proxied.tracegate.su" in fronting_cfg
-    assert "acl ws_tls_sni req.ssl_sni -i nlconn.tracegate.su" in fronting_cfg
+    assert "acl mtproto_sni req.ssl_sni -i proxied.tracegate.test" in fronting_cfg
+    assert "acl ws_tls_sni req.ssl_sni -i nlconn.tracegate.test" in fronting_cfg
 
     assert mtproto_state.issued_state_file == str(private_root / "mtproto" / "issued.json")
     issued = json.loads((private_root / "mtproto" / "issued.json").read_text(encoding="utf-8"))
@@ -942,8 +1011,8 @@ def test_reconcile_preserves_existing_mtproto_issued_state(tmp_path: Path) -> No
         agent_runtime_mode="systemd",
         agent_role="TRANSIT",
         agent_runtime_profile="xray-centric",
-        default_transit_host="nlconn.tracegate.su",
-        mtproto_domain="proxied.tracegate.su",
+        default_transit_host="nlconn.tracegate.test",
+        mtproto_domain="proxied.tracegate.test",
         private_mtproto_secret_file=str(tmp_path / "secrets" / "mtproto.txt"),
     )
 
@@ -1120,7 +1189,7 @@ def _write_tracegate21_profile_artifacts(root: Path) -> None:
                     "port": 443,
                     "sni": "cdn.tracegate.test",
                     "method": "2022-blake3-aes-128-gcm",
-                    "password": "ss-v5-secret",
+                    "password": "ss-server-secret:ss-v5-secret",
                     "shadowtls": {
                         "version": 3,
                         "server_name": "cdn.tracegate.test",
@@ -1152,7 +1221,7 @@ def _write_tracegate21_profile_artifacts(root: Path) -> None:
                     "port": 443,
                     "sni": "front.tracegate.test",
                     "method": "2022-blake3-aes-128-gcm",
-                    "password": "ss-v6-secret",
+                    "password": "ss-server-secret:ss-v6-secret",
                     "shadowtls": {
                         "version": 3,
                         "server_name": "front.tracegate.test",
@@ -1167,11 +1236,11 @@ def _write_tracegate21_profile_artifacts(root: Path) -> None:
                         "entry": "entry.tracegate.test",
                         "transit": "transit.tracegate.test",
                         "link_class": "entry-transit",
-                        "carrier": "mieru",
-                        "preferred_outer": "wss-carrier",
-                        "outer_carrier": "websocket-tls",
-                        "optional_packet_shaping": "zapret2-scoped",
-                        "managed_by": "link-crypto",
+                        "carrier": "xray-vless-reality",
+                        "preferred_outer": "reality-xhttp",
+                        "outer_carrier": "tcp-reality-xhttp",
+                        "optional_packet_shaping": None,
+                        "managed_by": "xray-chain",
                         "selected_profiles": ["V1", "V3"],
                         "inner_transport": "shadowsocks2022-shadowtls-v3",
                         "xray_backhaul": False,
@@ -1262,9 +1331,9 @@ def test_reconcile_materializes_private_profile_handoff_for_transit(tmp_path: Pa
     ]
     assert shadowtls_by_mode["direct"]["stage"] == "direct-transit-public"
     assert shadowtls_by_mode["chain"]["stage"] == "transit-private-terminator"
-    assert shadowtls_by_mode["chain"]["chain"]["preferredOuter"] == "wss-carrier"
-    assert shadowtls_by_mode["chain"]["chain"]["outerCarrier"] == "websocket-tls"
-    assert shadowtls_by_mode["chain"]["chain"]["managedBy"] == "link-crypto"
+    assert shadowtls_by_mode["chain"]["chain"]["preferredOuter"] == "reality-xhttp"
+    assert shadowtls_by_mode["chain"]["chain"]["outerCarrier"] == "tcp-reality-xhttp"
+    assert shadowtls_by_mode["chain"]["chain"]["managedBy"] == "xray-chain"
     assert shadowtls_by_mode["chain"]["chain"]["selectedProfiles"] == ["V1", "V3"]
     assert shadowtls_by_mode["chain"]["chain"]["xrayBackhaul"] is False
     assert "password" not in shadowtls_by_mode["direct"]["shadowtls"]
@@ -1282,12 +1351,13 @@ def test_reconcile_materializes_private_profile_handoff_for_transit(tmp_path: Pa
     assert state["wireguardWSTunnel"][0]["wireguard"]["clientRouteAllowedIps"] == ["0.0.0.0/0", "::/0"]
     assert state["wireguardWSTunnel"][0]["sync"] == {
         "strategy": "wg-set",
-        "interface": "wg0",
+        "interface": "wg",
         "applyMode": "live-peer-sync",
         "removeStalePeers": True,
         "restartWireGuard": False,
         "restartWSTunnel": False,
     }
+    assert state["wireguardWSTunnel"][0]["obfuscation"]["packetShaping"] == "none"
     assert state["wireguardWSTunnel"][0]["obfuscation"]["hostWideInterception"] is False
     assert "TRACEGATE_PROFILE_COUNT='3'" in env
     assert profile_path.stat().st_mode & 0o777 == 0o600
@@ -1325,8 +1395,8 @@ def test_reconcile_materializes_only_chain_profile_handoff_for_entry(tmp_path: P
     assert state["shadowsocks2022ShadowTLS"][0]["shadowtls"]["restartOnUserChange"] is False
     assert state["shadowsocks2022ShadowTLS"][0]["obfuscation"] == {
         "scope": "entry-transit-private-relay",
-        "outer": "wss-carrier",
-        "packetShaping": "zapret2-scoped",
+        "outer": "reality-xhttp",
+        "packetShaping": "none",
         "hostWideInterception": False,
     }
 
@@ -1470,7 +1540,7 @@ def test_reconcile_materializes_link_crypto_handoff_without_private_secrets(tmp_
     assert state["udpLinks"][0]["xrayBackhaul"] is False
     assert state["udpLinks"][0]["remote"] == {
         "role": "TRANSIT",
-        "endpoint": "transit.tracegate.test:8443",
+        "endpoint": "transit.tracegate.test:443",
         "protocol": "udp-quic",
     }
     assert state["udpLinks"][0]["local"]["protocol"] == "udp"
@@ -1520,7 +1590,7 @@ def test_reconcile_materializes_link_crypto_handoff_without_private_secrets(tmp_
     assert "TRACEGATE_LINK_CRYPTO_UDP_COUNT='1'" in env
     assert "TRACEGATE_LINK_CRYPTO_UDP_CLASSES='entry-transit-udp'" in env
     assert "TRACEGATE_LINK_CRYPTO_UDP_CARRIER='hysteria2'" in env
-    assert "TRACEGATE_LINK_CRYPTO_UDP_REMOTE_PORT='8443'" in env
+    assert "TRACEGATE_LINK_CRYPTO_UDP_REMOTE_PORT='443'" in env
     assert "TRACEGATE_LINK_CRYPTO_UDP_SALAMANDER_REQUIRED='true'" in env
     assert "TRACEGATE_LINK_CRYPTO_UDP_HARDENING_ENABLED='true'" in env
     assert "TRACEGATE_LINK_CRYPTO_UDP_ANTI_REPLAY_ENABLED='true'" in env
@@ -1803,7 +1873,7 @@ def test_reconcile_materializes_router_transit_link_crypto_without_entry_transit
             "ENTRY",
             "private_udp_link_router_entry_enabled",
             "router-entry-udp",
-            "entry.tracegate.test:8443",
+            "entry.tracegate.test:443",
             ["V2"],
             14483,
         ),
@@ -1811,7 +1881,7 @@ def test_reconcile_materializes_router_transit_link_crypto_without_entry_transit
             "TRANSIT",
             "private_udp_link_router_transit_enabled",
             "router-transit-udp",
-            "transit.tracegate.test:8443",
+            "transit.tracegate.test:443",
             ["V2"],
             14484,
         ),
@@ -2048,7 +2118,7 @@ def test_reconcile_entry_forces_transit_port_443(tmp_path: Path) -> None:
         agent_runtime_mode="kubernetes",
         agent_role="ENTRY",
         agent_runtime_profile="xray-centric",
-        default_transit_host="tracegate.su",
+        default_transit_host="tracegate.test",
     )
 
     _write(
@@ -2078,7 +2148,7 @@ def test_reconcile_entry_forces_transit_port_443(tmp_path: Path) -> None:
     assert changed == ["xray"]
 
     rendered = json.loads((tmp_path / "runtime/xray/config.json").read_text(encoding="utf-8"))
-    assert rendered["outbounds"][0]["settings"]["vnext"][0]["address"] == "tracegate.su"
+    assert rendered["outbounds"][0]["settings"]["vnext"][0]["address"] == "tracegate.test"
     assert rendered["outbounds"][0]["settings"]["vnext"][0]["port"] == 443
 
 
@@ -2121,7 +2191,7 @@ def test_reconcile_entry_adds_sticky_transit_outbounds_per_v2_connection(tmp_pat
         ),
     )
     for connection_id, path_name, host in (
-        ("a", "public_ipv4", "176.124.198.228"),
+        ("a", "public_ipv4", "203.0.113.10"),
         ("b", "manual", "10.200.0.1"),
     ):
         _write(
@@ -2176,7 +2246,7 @@ def test_reconcile_entry_reality_dest_follows_latest_selected_sni(tmp_path: Path
                         "streamSettings": {
                             "security": "reality",
                             "realitySettings": {
-                                "dest": "splitter.wb.ru:8443",
+                                "dest": "splitter.wb.ru:443",
                                 "serverNames": [],
                             },
                         },
@@ -2464,7 +2534,7 @@ def test_reconcile_tracegate21_strips_legacy_xray_backhaul_from_runtime(tmp_path
                     {
                         "tag": "to-transit-public-ipv4",
                         "protocol": "vless",
-                        "settings": {"vnext": [{"address": "176.124.198.228", "port": 443, "users": []}]},
+                        "settings": {"vnext": [{"address": "203.0.113.10", "port": 443, "users": []}]},
                     },
                 ],
                 "routing": {
@@ -2628,7 +2698,7 @@ def test_reconcile_reality_multi_inbound_groups_assign_by_sni_and_keep_fallback(
     fallback_ids = {row.get("id") for row in inbounds["entry-in"]["settings"]["clients"]}
     shared_a_ids = {row.get("id") for row in inbounds["entry-in-shared-a"]["settings"]["clients"]}
     shared_b_ids = {row.get("id") for row in inbounds["entry-in-shared-b"]["settings"]["clients"]}
-    assert fallback_ids == {"legacy"}
+    assert fallback_ids == {"a", "b", "legacy"}
     assert shared_a_ids == {"a"}
     assert shared_b_ids == {"b"}
 

@@ -46,11 +46,22 @@ def test_inventory_collector_exports_mtproto_access_metric() -> None:
         m.InventorySnapshot(
             refreshed_at=datetime(2026, 4, 18, 12, 0, 0, tzinfo=timezone.utc),
             users=[
-                m.UserRow(user_pid="user-1", user_handle="@alice", role="user"),
+                m.UserRow(
+                    telegram_id="123456789",
+                    user_pid="user-1",
+                    user_handle="@alice",
+                    role="user",
+                    entitlement_status="active",
+                    bot_blocked="false",
+                    has_active_connection="false",
+                    devices_total=1,
+                    active_connections_total=0,
+                ),
             ],
             connections=[],
             mtproto_access=[
                 m.MTProtoAccessRow(
+                    telegram_id="123456789",
                     user_pid="user-1",
                     user_handle="@alice",
                     label="@alice",
@@ -71,14 +82,14 @@ def test_inventory_collector_exports_mtproto_access_metric() -> None:
     mtproto_synced = next(row for row in out if getattr(row, "name", "") == "tracegate_mtproto_access_last_sync_at_seconds")
 
     assert mtproto_metric.samples == [
-        (["user-1", "@alice", "@alice", "bot"], 1.0),
+        (["123456789", "user-1", "@alice", "@alice", "bot"], 1.0),
     ]
     assert mtproto_created.samples == [
-        (["user-1", "@alice", "@alice", "bot"], 1_713_441_600.0),
+        (["123456789", "user-1", "@alice", "@alice", "bot"], 1_713_441_600.0),
     ]
     assert mtproto_updated.samples == [
-        (["user-1", "@alice", "@alice", "bot"], 1_713_528_000.0),
+        (["123456789", "user-1", "@alice", "@alice", "bot"], 1_713_528_000.0),
     ]
     assert mtproto_synced.samples == [
-        (["user-1", "@alice", "@alice", "bot"], 1_713_531_600.0),
+        (["123456789", "user-1", "@alice", "@alice", "bot"], 1_713_531_600.0),
     ]

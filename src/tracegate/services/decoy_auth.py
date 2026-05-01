@@ -132,6 +132,7 @@ def load_mtproto_public_profile(settings: Settings) -> dict[str, Any]:
     https_url = str(raw.get("httpsUrl") or "").strip()
     domain = str(raw.get("domain") or "").strip()
     profile = str(raw.get("profile") or MTPROTO_FAKE_TLS_PROFILE_NAME).strip() or MTPROTO_FAKE_TLS_PROFILE_NAME
+    secret_policy = str(raw.get("secretPolicy") or "").strip()
 
     try:
         port = int(raw.get("port") or 0)
@@ -143,7 +144,7 @@ def load_mtproto_public_profile(settings: Settings) -> dict[str, Any]:
     if not server or port <= 0 or not transport or not client_secret_hex or not tg_uri or not https_url:
         raise DecoyAuthConfigError(f"incomplete mtproto public profile payload: {path}")
 
-    return {
+    payload = {
         "protocol": "mtproto",
         "server": server,
         "port": port,
@@ -154,6 +155,9 @@ def load_mtproto_public_profile(settings: Settings) -> dict[str, Any]:
         "tgUri": tg_uri,
         "httpsUrl": https_url,
     }
+    if secret_policy:
+        payload["secretPolicy"] = secret_policy
+    return payload
 
 
 def _github_click_script(repo_url: str) -> str:

@@ -29,8 +29,8 @@ def _write_profile(path: Path, **overrides: object) -> Path:
         "TRACEGATE_UDP_OBFS_FAIL_CLOSED": "true",
         "TRACEGATE_UDP_OBFS_NO_HOST_WIDE_INTERCEPTION": "true",
         "TRACEGATE_UDP_OBFS_NO_NFQUEUE": "true",
-        "TRACEGATE_UDP_OBFS_PUBLIC_UDP_PORT": "8443",
-        "TRACEGATE_UDP_OBFS_FORBID_UDP_443": "true",
+        "TRACEGATE_UDP_OBFS_PUBLIC_UDP_PORT": "4443",
+        "TRACEGATE_UDP_OBFS_FORBID_UDP_443": "false",
         "TRACEGATE_UDP_OBFS_FORBID_TCP_8443": "true",
         "TRACEGATE_UDP_OBFS_DPI_MODE": "salamander-plus-scoped-paired-obfs",
         "TRACEGATE_UDP_OBFS_PACKET_SHAPE": "bounded-profile",
@@ -56,15 +56,14 @@ def test_paired_udp_obfs_runner_builds_redacted_udp2raw_client_plan(tmp_path: Pa
     assert plan["security"]["requiresBothSides"] is True
     assert plan["security"]["failClosed"] is True
     assert plan["security"]["forbiddenPublicPorts"] == [
-        {"protocol": "udp", "port": 443, "action": "drop"},
         {"protocol": "tcp", "port": 8443, "action": "drop"},
     ]
     assert plan["dpiResistance"] == {
         "enabled": True,
         "mode": "salamander-plus-scoped-paired-obfs",
         "portSplit": {
-            "publicUdpPort": 8443,
-            "forbidUdp443": True,
+            "publicUdpPort": 4443,
+            "forbidUdp443": False,
             "forbidTcp8443": True,
         },
         "packetShape": {
@@ -119,7 +118,7 @@ def test_paired_udp_obfs_runner_accepts_server_loopback_target(tmp_path: Path) -
         ({"TRACEGATE_UDP_OBFS_CIPHER_MODE": "none"}, "CIPHER_MODE"),
         ({"TRACEGATE_UDP_OBFS_AUTO_FIREWALL": "true"}, "AUTO_FIREWALL"),
         ({"TRACEGATE_UDP_OBFS_PUBLIC_UDP_PORT": "443"}, "PUBLIC_UDP_PORT"),
-        ({"TRACEGATE_UDP_OBFS_FORBID_UDP_443": "false"}, "FORBID_UDP_443"),
+        ({"TRACEGATE_UDP_OBFS_FORBID_UDP_443": "true"}, "FORBID_UDP_443"),
         ({"TRACEGATE_UDP_OBFS_FORBID_TCP_8443": "false"}, "FORBID_TCP_8443"),
         ({"TRACEGATE_UDP_OBFS_DPI_MODE": "plain"}, "DPI_MODE"),
         ({"TRACEGATE_UDP_OBFS_PACKET_SHAPE": "none"}, "PACKET_SHAPE"),

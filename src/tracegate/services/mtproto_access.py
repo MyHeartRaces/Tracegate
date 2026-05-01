@@ -14,6 +14,28 @@ from tracegate.services.mtproto import MTPROTO_FAKE_TLS_PROFILE_NAME, MTProtoCon
 from tracegate.settings import Settings, effective_mtproto_issued_state_file
 
 
+def _mtproto_secret_policy(base_profile: dict[str, Any]) -> str:
+    raw = str(base_profile.get("secretPolicy") or "").strip().lower()
+    if raw:
+        return raw
+    if base_profile.get("perUserSecrets") is False:
+        return "shared"
+    return "per-user"
+
+
+def _raw_secret_from_client_secret(base_profile: dict[str, Any]) -> str:
+    client_secret = "".join(
+        ch for ch in str(base_profile.get("clientSecretHex") or "").strip().lower() if ch in "0123456789abcdef"
+    )
+    if len(client_secret) == 32:
+        return client_secret
+    if client_secret.startswith("ee") and len(client_secret) > 34:
+        return client_secret[2:34]
+    if client_secret.startswith("dd") and len(client_secret) == 34:
+        return client_secret[2:]
+    raise DecoyAuthConfigError("base MTProto profile does not expose a usable server secret")
+
+
 def _state_path(settings: Settings) -> Path:
     return Path(effective_mtproto_issued_state_file(settings))
 
@@ -161,6 +183,10 @@ def issue_mtproto_access_profile(
     effective_now = now or _utc_now()
     normalized_label = str(label or "").strip()
     normalized_issued_by = str(issued_by or "").strip()
+    secret_policy = _mtproto_secret_policy(base_profile)
+    if secret_policy not in {"per-user", "shared"}:
+        raise DecoyAuthConfigError(f"unsupported MTProto secret policy: {secret_policy}")
+    shared_secret_hex = _raw_secret_from_client_secret(base_profile) if secret_policy == "shared" else ""
 
     changed = False
     with _locked_state(settings) as path:
@@ -168,11 +194,11 @@ def issue_mtproto_access_profile(
         by_telegram_id = {int(entry["telegramId"]): dict(entry) for entry in previous_entries}
         current = by_telegram_id.get(int(telegram_id))
 
-        if current is None or rotate:
+        if current is None or rotate or (secret_policy == "shared" and current.get("secretHex") != shared_secret_hex):
             changed = True
             current = {
                 "telegramId": int(telegram_id),
-                "secretHex": secrets.token_hex(16),
+                "secretHex": shared_secret_hex if secret_policy == "shared" else secrets.token_hex(16),
                 "issuedAt": _iso(effective_now),
                 "updatedAt": _iso(effective_now),
             }
@@ -186,11 +212,12 @@ def issue_mtproto_access_profile(
         next_entries = sorted(by_telegram_id.values(), key=_entry_sort_key)
 
     try:
+        secret_hex = str(base_profile["clientSecretHex"]) if secret_policy == "shared" else str(current["secretHex"])
         links = build_mtproto_share_links(
             server=str(base_profile["server"]),
             port=int(base_profile["port"]),
-            secret_hex=str(current["secretHex"]),
-            transport=str(base_profile.get("transport") or "tls"),
+            secret_hex=secret_hex,
+            transport=None if secret_policy == "shared" else str(base_profile.get("transport") or "tls"),
             domain=str(base_profile.get("domain") or base_profile["server"]),
         )
     except (KeyError, TypeError, ValueError, MTProtoConfigError) as exc:
@@ -213,6 +240,7 @@ def issue_mtproto_access_profile(
         "issuedAt": str(current["issuedAt"]),
         "updatedAt": str(current["updatedAt"]),
         "reused": not changed,
+        "secretPolicy": secret_policy,
     }
     if current.get("label"):
         profile["label"] = str(current["label"])

@@ -235,6 +235,96 @@ def _profiles_summary(
     }
 
 
+def _split_shadowsocks2022_password(value: object) -> tuple[str, str]:
+    raw = str(value or "").strip()
+    server_key, sep, user_key = raw.rpartition(":")
+    if not sep:
+        raise K3sPrivateReloadError("Shadowsocks-2022 V3 password must use server-key:user-key format")
+    server_key = server_key.strip()
+    user_key = user_key.strip()
+    if not server_key or not user_key:
+        raise K3sPrivateReloadError("Shadowsocks-2022 V3 password contains an empty server or user key")
+    return server_key, user_key
+
+
+def _write_shadowsocks2022_runtime_config(*, state: PrivateProfileState, root: Path, role_lower: str) -> None:
+    rows = list(state.shadowsocks2022_shadowtls)
+    config_path = root / "runtime" / f"shadowsocks2022-{role_lower}-server.json"
+    if not rows:
+        try:
+            config_path.unlink()
+        except FileNotFoundError:
+            pass
+        return
+
+    method = _row_string(_nested_dict(rows[0], "shadowsocks2022"), "method") or "2022-blake3-aes-128-gcm"
+    server_password = ""
+    users: list[dict[str, str]] = []
+    for row in rows:
+        ss2022 = _nested_dict(row, "shadowsocks2022")
+        row_method = _row_string(ss2022, "method") or method
+        if row_method != method:
+            raise K3sPrivateReloadError("all V3 Shadowsocks-2022 rows for one role must use the same method")
+        row_server_password, row_user_password = _split_shadowsocks2022_password(ss2022.get("password"))
+        if not server_password:
+            server_password = row_server_password
+        elif row_server_password != server_password:
+            raise K3sPrivateReloadError("all V3 Shadowsocks-2022 rows for one role must share the same server key")
+        users.append(
+            {
+                "name": _row_string(row, "connectionId") or f"v3-{len(users) + 1}",
+                "password": row_user_password,
+            }
+        )
+
+    server = {
+        "server": "127.0.0.1",
+        "server_port": 18443,
+        "method": method,
+        "password": server_password,
+        "users": users,
+        "timeout": 300,
+        "mode": "tcp_only",
+    }
+    if role_lower == "entry":
+        payload = {
+            "log": {"level": "info"},
+            "inbounds": [
+                {
+                    "type": "shadowsocks",
+                    "tag": "ss2022-in",
+                    "listen": "127.0.0.1",
+                    "listen_port": 18443,
+                    "network": "tcp",
+                    "method": method,
+                    "password": server_password,
+                    "users": users,
+                }
+            ],
+            "outbounds": [
+                {
+                    "type": "socks",
+                    "tag": "chain-to-transit",
+                    "server": "127.0.0.1",
+                    "server_port": 11082,
+                    "version": "5",
+                    "network": "tcp",
+                }
+            ],
+            "route": {
+                "rules": [{"inbound": ["ss2022-in"], "outbound": "chain-to-transit"}],
+                "final": "chain-to-transit",
+            },
+        }
+    else:
+        payload = {"servers": [server]}
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = config_path.with_suffix(config_path.suffix + ".tmp")
+    tmp.write_text(json.dumps(payload, ensure_ascii=True, indent=2) + "\n", encoding="utf-8")
+    tmp.replace(config_path)
+    config_path.chmod(0o600)
+
+
 def _link_crypto_zapret2_summary(rows: list[dict[str, Any]]) -> dict[str, object]:
     zapret_rows = [_nested_dict(row, "zapret2") for row in rows]
     return {
@@ -549,6 +639,7 @@ def _validate_profiles(*, role: str, root: Path, contract_path: Path) -> dict[st
         ),
     ]
     _raise_for_errors(findings, component="profiles")
+    _write_shadowsocks2022_runtime_config(state=state, root=root, role_lower=role_lower)
     return _profiles_summary(state, env, findings=findings)
 
 

@@ -38,9 +38,24 @@ def _q(s: str) -> str:
     return quote(s, safe="")
 
 
+def _b64url_no_padding(raw: str) -> str:
+    return base64.urlsafe_b64encode(raw.encode("utf-8")).decode("ascii").rstrip("=")
+
+
 def _encode_query(params: dict[str, Any], *, safe: str = "") -> str:
     # `path=/ws` is more interoperable than `%2Fws` for some clients.
     return urlencode(params, safe=safe)
+
+
+def _normalize_alpn(value: object, *, default: tuple[str, ...]) -> list[str]:
+    if isinstance(value, str):
+        items = [value]
+    elif isinstance(value, (list, tuple)):
+        items = [str(item) for item in value]
+    else:
+        items = list(default)
+    normalized = [item.strip() for item in items if item.strip()]
+    return normalized or list(default)
 
 
 def _safe_filename_fragment(value: str) -> str:
@@ -68,6 +83,10 @@ def _is_ip_literal(host: str) -> bool:
         return True
     except ValueError:
         return False
+
+
+def _client_connect_server(effective: dict[str, Any]) -> str:
+    return str(effective.get("connect_host") or effective.get("server") or "").strip()
 
 
 def _default_local_socks_port(effective: dict[str, Any]) -> int:
@@ -356,7 +375,7 @@ def _export_vless_reality(effective: dict[str, Any]) -> ExportResult:
         "spx": "/",
         # Tracegate VLESS/REALITY is xhttp-only.
         "type": "xhttp",
-        "mode": xhttp_mode or "packet-up",
+        "mode": xhttp_mode or "auto",
     }
     params["path"] = xhttp_path or "/api/v1/update"
 
@@ -387,7 +406,7 @@ def _export_vless_reality(effective: dict[str, Any]) -> ExportResult:
                     "spiderX": "/",
                 },
                 "xhttpSettings": {
-                    "mode": xhttp_mode or "packet-up",
+                    "mode": xhttp_mode or "auto",
                     "path": xhttp_path or "/api/v1/update",
                 },
             },
@@ -405,7 +424,8 @@ def _export_vless_reality(effective: dict[str, Any]) -> ExportResult:
 
 
 def _export_vless_ws_tls(effective: dict[str, Any]) -> ExportResult:
-    server = effective.get("server")
+    logical_server = str(effective.get("server") or "").strip()
+    server = _client_connect_server(effective)
     port = int(effective.get("port") or 443)
     uuid = effective.get("uuid")
     sni = (effective.get("sni") or "").strip()
@@ -414,12 +434,13 @@ def _export_vless_ws_tls(effective: dict[str, Any]) -> ExportResult:
     ws_host = (ws.get("host") or "").strip()
     tls = effective.get("tls") or {}
     insecure = bool(tls.get("insecure", False))
+    alpn = _normalize_alpn(tls.get("alpn"), default=("http/1.1",))
 
     if not server or not uuid:
         raise V2RayNExportError("Missing fields for VLESS+WS+TLS export")
     if not sni:
         # Some clients allow empty SNI (use server host), but make it explicit to avoid interop issues.
-        sni = str(server)
+        sni = logical_server or str(server)
     if not ws_host:
         ws_host = sni
 
@@ -439,6 +460,7 @@ def _export_vless_ws_tls(effective: dict[str, Any]) -> ExportResult:
     tls_settings: dict[str, Any] = {
         "serverName": sni,
         "fingerprint": "chrome",
+        "alpn": alpn,
     }
     if insecure:
         tls_settings["allowInsecure"] = True
@@ -480,15 +502,17 @@ def _export_vless_ws_tls(effective: dict[str, Any]) -> ExportResult:
 
 
 def _export_vless_grpc_tls(effective: dict[str, Any]) -> ExportResult:
-    server = effective.get("server")
+    logical_server = str(effective.get("server") or "").strip()
+    server = _client_connect_server(effective)
     port = int(effective.get("port") or 443)
     uuid = effective.get("uuid")
-    sni = str(effective.get("sni") or server or "").strip()
+    sni = str(effective.get("sni") or logical_server or server or "").strip()
     grpc = effective.get("grpc") or {}
     service_name = str(grpc.get("service_name") or "tracegate.v1.Edge").strip() or "tracegate.v1.Edge"
     authority = str(grpc.get("authority") or sni or server or "").strip()
     tls = effective.get("tls") or {}
     insecure = bool(tls.get("insecure", False))
+    alpn = _normalize_alpn(tls.get("alpn"), default=("h2",))
 
     if not server or not uuid:
         raise V2RayNExportError("Missing fields for VLESS+gRPC+TLS export")
@@ -501,9 +525,8 @@ def _export_vless_grpc_tls(effective: dict[str, Any]) -> ExportResult:
         "type": "grpc",
         "sni": sni,
         "serviceName": service_name,
+        "mode": "gun",
     }
-    if authority:
-        params["authority"] = authority
     if insecure:
         params["allowInsecure"] = "1"
 
@@ -512,6 +535,7 @@ def _export_vless_grpc_tls(effective: dict[str, Any]) -> ExportResult:
     tls_settings: dict[str, Any] = {
         "serverName": sni,
         "fingerprint": "chrome",
+        "alpn": alpn,
     }
     if insecure:
         tls_settings["allowInsecure"] = True
@@ -584,22 +608,24 @@ def _export_hysteria2(effective: dict[str, Any]) -> ExportResult:
     # Keep the URI aligned with the official Hysteria 2 scheme:
     # token auth is a single opaque auth component, percent-encoded as needed.
     params = {
-        "insecure": "1" if insecure else "0",
         "obfs": "salamander",
         "obfs-password": obfs_password,
     }
+    if insecure:
+        params["insecure"] = "1"
     if sni:
         params["sni"] = sni
-        params["peer"] = sni
     if alpn_values and alpn_values != ["h3"]:
         params["alpn"] = ",".join(alpn_values)
 
     name = effective.get("profile") or "tracegate-hysteria2"
+    alternate_uri: str | None = None
+    alternate_title: str | None = None
     if auth_type == "userpass":
         if not username or not password:
             raise V2RayNExportError("Missing userpass fields for Hysteria2 export")
-        authority = f"{_q(username)}:{_q(password)}"
         share_auth = f"{username}:{password}"
+        authority = f"{_q(username)}:{_q(password)}"
     else:
         if not token:
             raise V2RayNExportError("Missing token field for Hysteria2 export")
@@ -633,6 +659,8 @@ def _export_hysteria2(effective: dict[str, Any]) -> ExportResult:
         kind="uri",
         title="Hysteria2 link",
         content=uri,
+        alternate_title=alternate_title,
+        alternate_content=alternate_uri,
         extra_messages=(_local_socks_extra_message(effective),),
         attachment_content=attachment_content,
         attachment_filename=attachment_filename,
@@ -684,41 +712,25 @@ def _export_shadowsocks2022_shadowtls(effective: dict[str, Any]) -> ExportResult
     if not server or not password or not shadowtls_password:
         raise V2RayNExportError("Missing fields for Shadowsocks-2022 + ShadowTLS export")
 
-    attachment_content, attachment_filename = _build_singbox_client_attachment(
-        effective,
+    userinfo = _b64url_no_padding(f"{method}:{password}")
+    plugin_opts = _encode_query(
         {
-            "type": "shadowsocks",
-            "tag": "proxy",
-            "method": method,
-            "password": password,
-            "detour": "shadowtls-out",
-        },
-    )
-    attachment = json.loads(attachment_content.decode("utf-8"))
-    attachment["outbounds"].append(
-        {
-            "type": "shadowtls",
-            "tag": "shadowtls-out",
-            "server": server,
-            "server_port": port,
-            "version": int(shadowtls.get("version") or 3),
-            "password": shadowtls_password,
-            "tls": {
-                "enabled": True,
-                "server_name": shadowtls_server_name,
-            },
+            "plugin": ";".join(
+                [
+                    "shadow-tls",
+                    f"host={shadowtls_server_name}",
+                    f"password={shadowtls_password}",
+                    "version=3",
+                ]
+            )
         }
     )
-    attachment_content = json.dumps(attachment, ensure_ascii=True, indent=2).encode("utf-8")
+    uri = f"ss://{userinfo}@{server}:{port}?{plugin_opts}#{_q(profile)}"
 
     return ExportResult(
-        kind="attachment",
-        title="Shadowsocks-2022 + ShadowTLS config",
-        content=f"Use the attached sing-box config for {profile}. Local SOCKS5 authentication is required.",
-        extra_messages=(_local_socks_extra_message(effective),),
-        attachment_content=attachment_content,
-        attachment_filename=attachment_filename,
-        attachment_mime="application/json",
+        kind="uri",
+        title="Shadowsocks-2022 + ShadowTLS",
+        content=uri,
     )
 
 

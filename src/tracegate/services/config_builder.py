@@ -7,7 +7,11 @@ from dataclasses import dataclass
 from ipaddress import ip_address
 from typing import Any
 
-from tracegate.constants import TRACEGATE_PUBLIC_UDP_PORT
+from tracegate.constants import (
+    TRACEGATE_FORBIDDEN_PUBLIC_TCP_PORT,
+    TRACEGATE_FORBIDDEN_PUBLIC_UDP_PORT,
+    TRACEGATE_PUBLIC_UDP_PORT,
+)
 from tracegate.enums import ConnectionMode, ConnectionProtocol, ConnectionVariant
 from tracegate.models import Connection, Device, User
 from tracegate.services.connection_profiles import (
@@ -17,6 +21,12 @@ from tracegate.services.connection_profiles import (
 )
 from tracegate.services.hysteria_credentials import build_hysteria_auth_payload
 from tracegate.services.sni_catalog import SniCatalogEntry
+from tracegate.services.wireguard_keys import (
+    derive_wireguard_client_address,
+    derive_wireguard_public_key,
+    generate_wireguard_keypair,
+    generate_wireguard_preshared_key,
+)
 
 _LOCAL_SOCKS_PORT_BASE = 20000
 _LOCAL_SOCKS_PORT_SPAN = 40000
@@ -56,6 +66,8 @@ class EndpointSet:
     shadowtls_password_entry: str = ""
     shadowtls_password_transit: str = ""
     shadowsocks2022_method: str = "2022-blake3-aes-128-gcm"
+    shadowsocks2022_password_entry: str = ""
+    shadowsocks2022_password_transit: str = ""
     wireguard_server_public_key: str = ""
     wireguard_client_address: str = ""
     wireguard_dns: str = "1.1.1.1"
@@ -117,6 +129,10 @@ def _is_loopback_host(host: str) -> bool:
         return ip_address(normalized).is_loopback
     except ValueError:
         return False
+
+
+def _is_placeholder(value: object) -> bool:
+    return str(value or "").strip().upper().startswith("REPLACE_")
 
 
 def _is_ip_literal(host: str) -> bool:
@@ -272,22 +288,85 @@ def _hysteria_salamander_password(*, endpoints: EndpointSet, is_chain: bool) -> 
     return password or "REPLACE_HYSTERIA2_SALAMANDER_PASSWORD"
 
 
+def _hysteria_masquerade_payload() -> dict[str, Any]:
+    return {
+        "type": "file",
+        "mode": "server_file_decoy",
+        "required": True,
+        "serves_decoy": True,
+    }
+
+
+def _hysteria_hygiene_payload(*, is_chain: bool, public_udp_port: int) -> dict[str, Any]:
+    return {
+        "required": True,
+        "required_layers": [
+            "hysteria2",
+            "salamander",
+            "file-masquerade",
+            "dns-san-sni-guard",
+            "http-auth-loopback",
+            "reject-anonymous",
+            "traffic-stats-loopback",
+            "udp-enabled",
+            "quic-pmtu",
+            "udp-idle-timeout",
+            "sniff",
+        ],
+        "server": {
+            "auth_backend": "http-loopback",
+            "anonymous": "reject",
+            "sni_guard": "dns-san",
+            "traffic_stats": "loopback-secret",
+            "masquerade": "file-decoy",
+            "sniff": True,
+            "congestion": "bbr",
+        },
+        "udp": {
+            "public_port": public_udp_port,
+            "enabled": True,
+            "idle_timeout": "60s",
+            "path_mtu_discovery": True,
+            "anti_replay": True,
+            "anti_amplification": True,
+            "rate_limit": {
+                "handshake_per_minute": 120,
+                "new_session_per_minute": 60,
+            },
+            "mtu": {
+                "mode": "clamp",
+                "max_packet_size": 1252,
+            },
+            "source_validation": "profile-bound-remote" if is_chain else "auth-bound-client",
+        },
+        "client": {
+            "local_socks_auth": "required",
+            "anonymous_local_proxy": "forbidden",
+        },
+        "forbidden_public_ports": [
+            {"protocol": "udp", "port": TRACEGATE_FORBIDDEN_PUBLIC_UDP_PORT, "action": "drop"},
+            {"protocol": "tcp", "port": TRACEGATE_FORBIDDEN_PUBLIC_TCP_PORT, "action": "drop"},
+        ],
+        "entry_transit_relay": bool(is_chain),
+    }
+
+
 def _entry_transit_private_relay(
     *,
     endpoints: EndpointSet,
     inner_transport: str,
 ) -> dict[str, Any]:
     is_udp = inner_transport == "hysteria2-quic"
-    return {
+    relay = {
         "type": "entry_transit_private_relay",
         "entry": endpoints.entry_host,
         "transit": endpoints.transit_host,
         "link_class": "entry-transit-udp" if is_udp else "entry-transit",
-        "carrier": "hysteria2-salamander" if is_udp else "mieru",
-        "preferred_outer": "udp-quic-salamander" if is_udp else "wss-carrier",
-        "outer_carrier": "udp-quic" if is_udp else "websocket-tls",
-        "optional_packet_shaping": "paired-udp-obfs" if is_udp else "zapret2-scoped",
-        "managed_by": "link-crypto",
+        "carrier": "hysteria2-salamander" if is_udp else "xray-vless-reality",
+        "preferred_outer": "udp-quic-salamander" if is_udp else "reality-xhttp",
+        "outer_carrier": "udp-quic" if is_udp else "tcp-reality-xhttp",
+        "optional_packet_shaping": "paired-udp-obfs" if is_udp else None,
+        "managed_by": "link-crypto" if is_udp else "xray-chain",
         "selected_profiles": udp_chain_selected_profiles() if is_udp else tcp_chain_selected_profiles(),
         "inner_transport": inner_transport,
         "xray_backhaul": False,
@@ -296,11 +375,23 @@ def _entry_transit_private_relay(
         "paired_obfs_supported": is_udp,
         "dpi_resistance": {
             "required": is_udp,
-            "mode": "salamander-plus-scoped-paired-obfs" if is_udp else "wss-zapret2-scoped",
-            "forbid_udp_443": is_udp,
+            "mode": "salamander-plus-scoped-paired-obfs" if is_udp else "reality-xhttp",
+            "forbid_udp_443": False,
             "forbid_tcp_8443": is_udp,
         },
     }
+    if is_udp:
+        relay["hygiene"] = {
+            "required": True,
+            "carrier": "hysteria2",
+            "obfs": "salamander",
+            "anti_replay": True,
+            "anti_amplification": True,
+            "source_validation": "profile-bound-remote",
+            "mtu": {"mode": "clamp", "max_packet_size": 1252},
+        }
+    return relay
+
 
 
 def build_effective_config(
@@ -333,7 +424,7 @@ def build_effective_config(
             "protocol": "vless",
             "transport": "reality",
             "xhttp": {
-                "mode": "packet-up",
+                "mode": "auto",
                 "path": "/api/v1/update",
             },
             "port": 443,
@@ -381,8 +472,8 @@ def build_effective_config(
                     "fixed_port_tcp": 443,
                     "entry_role_required": True,
                     "transit_role_required": True,
-                    "private_interconnect": "mieru-wss-zapret2",
-                    "backhaul_outside_xray": True,
+                    "private_interconnect": "xray-vless-reality",
+                    "backhaul_outside_xray": False,
                 },
             }
 
@@ -399,14 +490,25 @@ def build_effective_config(
         if not tls_server_name and selected_sni is not None:
             tls_server_name = selected_sni.fqdn
 
-        # Direct TLS compatibility must terminate on Transit endpoint, not on Entry host.
-        transit_host = str(endpoints.transit_host or "").strip()
+        # Client configs must use the direct Transit connection hostname, not the
+        # public/proxied site hostname. Operators can still override per connection.
+        transit_host = str(overrides.get("server") or endpoints.transit_host).strip()
+        connect_host = str(overrides.get("connect_host") or "").strip()
         tls_termination_host = transit_host
         if not tls_server_name:
             tls_server_name = tls_termination_host
 
         ws_path = str(overrides.get("ws_path") or endpoints.vless_ws_path or "/ws").strip() or "/ws"
         ws_host = str(overrides.get("ws_host") or tls_server_name or "").strip()
+        default_alpn = ["h2"] if is_grpc else ["http/1.1"]
+        alpn_raw = overrides.get("alpn", default_alpn)
+        tls_alpn = (
+            [str(alpn_raw).strip()]
+            if isinstance(alpn_raw, str)
+            else [str(item).strip() for item in alpn_raw if str(item).strip()]
+        )
+        if not tls_alpn:
+            tls_alpn = default_alpn
         grpc_service_name = (
             str(overrides.get("grpc_service_name") or endpoints.vless_grpc_service_name or "tracegate.v1.Edge").strip()
             or "tracegate.v1.Edge"
@@ -416,6 +518,7 @@ def build_effective_config(
         common = {
             "protocol": "vless",
             "transport": "grpc_tls" if is_grpc else "ws_tls",
+            "connect_host": connect_host,
             "port": int((endpoints.vless_grpc_tls_port if is_grpc else endpoints.vless_ws_tls_port) or 443),
             "uuid": str(connection.id),
             "device_id": str(device.id),
@@ -423,6 +526,7 @@ def build_effective_config(
             "tls": {
                 "server_name": tls_server_name,
                 "insecure": bool(overrides.get("tls_insecure", False)),
+                "alpn": tls_alpn,
             },
             "ws": {
                 "path": ws_path,
@@ -515,6 +619,8 @@ def build_effective_config(
                 "password": salamander_password,
                 "required": True,
             },
+            "masquerade": _hysteria_masquerade_payload(),
+            "hygiene": _hysteria_hygiene_payload(is_chain=is_chain, public_udp_port=hysteria_port),
             "client_mode": mode,
             "up_mbps": overrides.get("up_mbps", 100),
             "down_mbps": overrides.get("down_mbps", 100),
@@ -532,7 +638,14 @@ def build_effective_config(
             "design_constraints": {
                 "fixed_port_udp": hysteria_port,
                 "masquerade_mode": "file",
+                "masquerade_required": True,
                 "salamander_required": True,
+                "hygiene_required": True,
+                "server_sni_guard": "dns-san",
+                "auth_backend": "http-loopback",
+                "anonymous_rejected": True,
+                "traffic_stats": "loopback-secret",
+                "udp_hygiene": "anti-replay+anti-amplification+rate-limit+mtu-clamp+source-validation",
                 "entry_role_required": is_chain,
                 "private_interconnect": "hysteria2-salamander-udp-link" if is_chain else None,
                 "backhaul_outside_xray": is_chain,
@@ -574,6 +687,21 @@ def build_effective_config(
                 length=32,
             )
         ).strip()
+        shadowsocks2022_server_password = str(
+            endpoints.shadowsocks2022_password_entry if is_chain else endpoints.shadowsocks2022_password_transit
+        ).strip()
+        shadowsocks2022_user_password = str(
+            overrides.get("password")
+            or _shadowsocks2022_password(
+                user=user,
+                device=device,
+                connection=connection,
+                method=method,
+            )
+        ).strip()
+        shadowsocks2022_client_password = shadowsocks2022_user_password
+        if shadowsocks2022_server_password and ":" not in shadowsocks2022_user_password:
+            shadowsocks2022_client_password = f"{shadowsocks2022_server_password}:{shadowsocks2022_user_password}"
 
         return {
             "protocol": "shadowsocks2022",
@@ -583,15 +711,7 @@ def build_effective_config(
             "port": 443,
             "sni": shadowtls_server_name,
             "method": method,
-            "password": str(
-                overrides.get("password")
-                or _shadowsocks2022_password(
-                    user=user,
-                    device=device,
-                    connection=connection,
-                    method=method,
-                )
-            ),
+            "password": shadowsocks2022_client_password,
             "shadowtls": {
                 "version": 3,
                 "server_name": shadowtls_server_name,
@@ -609,7 +729,7 @@ def build_effective_config(
                 "fixed_port_tcp": 443,
                 "shadowtls_version": 3,
                 "entry_role_required": is_chain,
-                "private_interconnect": "mieru-wss-zapret2",
+                "private_interconnect": "xray-vless-reality" if is_chain else None,
             },
             "chain": (
                 _entry_transit_private_relay(endpoints=endpoints, inner_transport="shadowsocks2022-shadowtls-v3")
@@ -622,7 +742,7 @@ def build_effective_config(
         if (connection.mode, connection.variant) != (ConnectionMode.DIRECT, ConnectionVariant.V0):
             raise ValueError("WireGuard over WSTunnel supports only V0 direct")
 
-        server = str(overrides.get("server") or endpoints.transit_proxy_host or endpoints.transit_host).strip()
+        server = str(overrides.get("server") or endpoints.transit_host).strip()
         tls_server_name = str(overrides.get("tls_server_name") or server).strip()
         allowed_ips_raw = overrides.get("allowed_ips", endpoints.wireguard_allowed_ips)
         allowed_ips = (
@@ -648,6 +768,30 @@ def build_effective_config(
             min_value=0,
             max_value=60,
         )
+        private_key = str(overrides.get("wireguard_private_key") or "").strip()
+        public_key = str(overrides.get("wireguard_public_key") or "").strip()
+        if not private_key or _is_placeholder(private_key):
+            generated_keypair = generate_wireguard_keypair()
+            private_key = generated_keypair.private_key
+            public_key = generated_keypair.public_key
+        elif not public_key or _is_placeholder(public_key):
+            public_key = derive_wireguard_public_key(private_key)
+
+        preshared_key = str(overrides.get("wireguard_preshared_key") or "").strip()
+        if not preshared_key or _is_placeholder(preshared_key):
+            preshared_key = generate_wireguard_preshared_key()
+
+        server_public_key = str(
+            overrides.get("wireguard_server_public_key") or endpoints.wireguard_server_public_key or ""
+        ).strip()
+        if not server_public_key or _is_placeholder(server_public_key):
+            raise ValueError("wireguard_server_public_key is required for WireGuard over WSTunnel")
+
+        wireguard_address = str(
+            overrides.get("wireguard_address")
+            or endpoints.wireguard_client_address
+            or derive_wireguard_client_address(connection.id)
+        ).strip()
 
         return {
             "protocol": "wireguard",
@@ -667,14 +811,11 @@ def build_effective_config(
                 ),
             },
             "wireguard": {
-                "private_key": overrides.get("wireguard_private_key", "REPLACE_CLIENT_WIREGUARD_PRIVATE_KEY"),
-                "public_key": overrides.get("wireguard_public_key", "REPLACE_CLIENT_WIREGUARD_PUBLIC_KEY"),
-                "preshared_key": overrides.get("wireguard_preshared_key", ""),
-                "server_public_key": endpoints.wireguard_server_public_key or "REPLACE_WIREGUARD_SERVER_PUBLIC_KEY",
-                "address": overrides.get(
-                    "wireguard_address",
-                    endpoints.wireguard_client_address or "REPLACE_CLIENT_WIREGUARD_ADDRESS",
-                ),
+                "private_key": private_key,
+                "public_key": public_key,
+                "preshared_key": preshared_key,
+                "server_public_key": server_public_key,
+                "address": wireguard_address,
                 "allowed_ips": allowed_ips,
                 "dns": overrides.get("dns", endpoints.wireguard_dns),
                 "mtu": mtu,

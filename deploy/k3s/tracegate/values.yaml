@@ -45,6 +45,18 @@ controlPlane:
     logLevel: INFO
     defaultEntryHost: entry.example.com
     defaultTransitHost: transit.example.com
+    realityPublicKey: ""
+    realityShortId: ""
+    realityPublicKeyEntry: ""
+    realityShortIdEntry: ""
+    realityPublicKeyTransit: ""
+    realityShortIdTransit: ""
+    wireguardServerPublicKey: ""
+    wireguardDns: "1.1.1.1"
+    wireguardAllowedIps:
+      - "0.0.0.0/0"
+      - "::/0"
+    wireguardMtu: 1280
     vlessWsPath: /ws
     vlessGrpcServiceName: tracegate.v1.Edge
     vlessGrpcPath: /tracegate.v1.Edge/
@@ -58,7 +70,21 @@ controlPlane:
     botGuideMessageSecret:
       name: tracegate-bot-guide
       key: message
+    enabledClientProfiles: null
     superadminTelegramIds: []
+    grafanaEnabled: false
+    grafanaInternalUrl: http://tracegate-grafana:3000
+    grafanaPublicBaseUrl: ""
+    grafanaHost: ""
+    grafanaAdminUser: admin
+    grafanaOtpHandoffUrl: ""
+    grafanaAlertsWebhookUrl: ""
+    grafanaAdminPasswordSecret:
+      name: ""
+      key: admin-password
+    grafanaCookieSecretSecret:
+      name: ""
+      key: cookie-secret
   resources:
     api: {}
     dispatcher: {}
@@ -68,6 +94,26 @@ controlPlane:
   tolerations: []
   affinity: {}
   terminationGracePeriodSeconds: 30
+
+observability:
+  prometheus:
+    enabled: false
+    name: tracegate-prometheus
+    image:
+      repository: prom/prometheus
+      tag: v2.55.1
+      pullPolicy: IfNotPresent
+    retention: 15d
+    storage:
+      size: 10Gi
+      storageClassName: ""
+  nodeExporter:
+    enabled: false
+    name: tracegate-node-exporter
+    image:
+      repository: prom/node-exporter
+      tag: v1.8.2
+      pullPolicy: IfNotPresent
 
 privateProfiles:
   required: true
@@ -82,6 +128,7 @@ privateProfiles:
     hysteriaSalamanderTransit: hysteria/transit-salamander-password
     hysteriaStatsEntry: hysteria/entry-stats-secret
     hysteriaStatsTransit: hysteria/transit-stats-secret
+    xrayChainBridgeClientId: xray/chain-bridge-client-id
     mieruClient: mieru/client.json
     mieruServer: mieru/server.json
     zapretEntry: zapret/entry.env
@@ -91,9 +138,13 @@ privateProfiles:
     shadowsocks2022: shadowsocks2022/server.json
     shadowsocks2022Entry: shadowsocks2022/entry-server.json
     shadowsocks2022Transit: shadowsocks2022/transit-server.json
+    shadowsocks2022PasswordEntry: credentials/ss2022-entry-password
+    shadowsocks2022PasswordTransit: credentials/ss2022-transit-password
     shadowtls: shadowtls/config.yaml
     shadowtlsEntry: shadowtls/entry-config.yaml
     shadowtlsTransit: shadowtls/transit-config.yaml
+    shadowtlsPasswordEntry: credentials/shadowtls-entry-password
+    shadowtlsPasswordTransit: credentials/shadowtls-transit-password
     wireguard: wireguard/wg.conf
     mtproto: mtproto/secret.txt
     labMieruDirect: lab/mieru-direct-server.json
@@ -107,6 +158,7 @@ privateProfiles:
     hysteriaSalamanderTransit: hysteria-transit-salamander-password
     hysteriaStatsEntry: hysteria-entry-stats-secret
     hysteriaStatsTransit: hysteria-transit-stats-secret
+    xrayChainBridgeClientId: xray-chain-bridge-client-id
     mieruClient: mieru-client-json
     mieruServer: mieru-server-json
     zapretEntry: zapret-entry-env
@@ -116,9 +168,13 @@ privateProfiles:
     shadowsocks2022: shadowsocks2022-server-json
     shadowsocks2022Entry: shadowsocks2022-entry-server-json
     shadowsocks2022Transit: shadowsocks2022-transit-server-json
+    shadowsocks2022PasswordEntry: shadowsocks2022-entry-password
+    shadowsocks2022PasswordTransit: shadowsocks2022-transit-password
     shadowtls: shadowtls-config-yaml
     shadowtlsEntry: shadowtls-entry-config-yaml
     shadowtlsTransit: shadowtls-transit-config-yaml
+    shadowtlsPasswordEntry: shadowtls-entry-password
+    shadowtlsPasswordTransit: shadowtls-transit-password
     wireguard: wireguard-wg-conf
     mtproto: mtproto-secret-txt
     labMieruDirect: lab-mieru-direct-server-json
@@ -334,14 +390,21 @@ gateway:
         cpu: 100m
         memory: 128Mi
     wireguard: {}
+    wireguardSync: {}
     wstunnel: {}
     shadowtls: {}
     shadowsocks: {}
     mtproto: {}
     singbox: {}
+  # Optional static REALITY SNI demux table. Each group becomes a dedicated
+  # loopback Xray inbound, and HAProxy routes clients there by ClientHello SNI.
+  # Keep this table stable: adding/removing rows is structural and requires a
+  # one-time gateway reload, while user issuance only changes inbound clients.
+  realityMultiInboundGroups: []
   agent:
     port: 8070
     dryRun: false
+    corsOrigins: []
     dataHostPathPrefix: /var/lib/tracegate
     reloadCommands:
       xray: "sh -lc 'pkill -HUP xray || true'"
@@ -411,9 +474,10 @@ gateway:
       affinity: {}
       ports:
         publicTcp: 443
-        publicUdp: 8443
+        publicTcpExtraBinds: []
+        publicUdp: 443
         reality: 2443
-        httpsAdapter: 4443
+        httpsAdapter: 10443
         vlessWs: 10000
         vlessGrpc: 10001
         xrayApi: 8080
@@ -431,6 +495,8 @@ gateway:
           key: private-key
       routing:
         chainToTransit: true
+      hysteria:
+        listenHost: ""
       resources: {}
     transit:
       enabled: true
@@ -442,9 +508,10 @@ gateway:
       ports:
         publicHttp: 80
         publicTcp: 443
-        publicUdp: 8443
+        publicTcpExtraBinds: []
+        publicUdp: 443
         reality: 2443
-        httpsAdapter: 4443
+        httpsAdapter: 10443
         vlessWs: 10000
         vlessGrpc: 10001
         xrayApi: 8080
@@ -463,9 +530,15 @@ gateway:
           key: private-key
       routing:
         chainToTransit: false
+      hysteria:
+        listenHost: ""
       resources: {}
 
 interconnect:
+  emergencyXrayChain:
+    enabled: false
+    socksPort: 11082
+    serverName: www.microsoft.com
   entryTransit:
     enabled: true
     primary: mieru
@@ -505,7 +578,7 @@ interconnect:
       enabled: true
       carrier: hysteria2
       transport: udp-quic
-      remotePort: 8443
+      remotePort: 443
       entryPort: 14481
       transitPort: 14482
       routerEntryPort: 14483
@@ -584,12 +657,17 @@ wireguard:
 
 shadowsocks2022:
   enabled: false
+  method: 2022-blake3-aes-128-gcm
+  listenPort: 18443
   variants:
     direct: V3
     chain: V3
   shadowtls:
     enabled: true
     version: 3
+    serverNameEntry: www.microsoft.com
+    serverNameTransit: www.microsoft.com
+    listenPort: 14443
 
 mtproto:
   enabled: true

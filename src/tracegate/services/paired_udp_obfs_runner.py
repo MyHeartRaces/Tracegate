@@ -9,11 +9,7 @@ from pathlib import Path
 import shlex
 from typing import Any
 
-from tracegate.constants import (
-    TRACEGATE_FORBIDDEN_PUBLIC_TCP_PORT,
-    TRACEGATE_FORBIDDEN_PUBLIC_UDP_PORT,
-    TRACEGATE_PUBLIC_UDP_PORT,
-)
+from tracegate.constants import TRACEGATE_FORBIDDEN_PUBLIC_TCP_PORT, TRACEGATE_PUBLIC_UDP_PORT
 
 
 class PairedUdpObfsRunnerError(RuntimeError):
@@ -217,11 +213,14 @@ def load_paired_udp_obfs_profile(
 
     public_udp_port = _env_int(payload, "TRACEGATE_UDP_OBFS_PUBLIC_UDP_PORT", default=TRACEGATE_PUBLIC_UDP_PORT)
     if public_udp_port != TRACEGATE_PUBLIC_UDP_PORT:
-        raise PairedUdpObfsRunnerError("TRACEGATE_UDP_OBFS_PUBLIC_UDP_PORT must stay 8443")
+        raise PairedUdpObfsRunnerError(f"TRACEGATE_UDP_OBFS_PUBLIC_UDP_PORT must stay {TRACEGATE_PUBLIC_UDP_PORT}")
 
-    forbid_udp_443 = _env_bool(payload, "TRACEGATE_UDP_OBFS_FORBID_UDP_443", default=True)
-    if not forbid_udp_443:
-        raise PairedUdpObfsRunnerError("TRACEGATE_UDP_OBFS_FORBID_UDP_443 must stay true")
+    forbid_udp_443_expected = False
+    forbid_udp_443 = _env_bool(payload, "TRACEGATE_UDP_OBFS_FORBID_UDP_443", default=forbid_udp_443_expected)
+    if forbid_udp_443 != forbid_udp_443_expected:
+        raise PairedUdpObfsRunnerError(
+            f"TRACEGATE_UDP_OBFS_FORBID_UDP_443 must stay {str(forbid_udp_443_expected).lower()}"
+        )
 
     forbid_tcp_8443 = _env_bool(payload, "TRACEGATE_UDP_OBFS_FORBID_TCP_8443", default=True)
     if not forbid_tcp_8443:
@@ -335,7 +334,6 @@ def build_paired_udp_obfs_runner_plan(
             "cipherMode": profile.cipher_mode,
             "authMode": profile.auth_mode,
             "forbiddenPublicPorts": [
-                {"protocol": "udp", "port": TRACEGATE_FORBIDDEN_PUBLIC_UDP_PORT, "action": "drop"},
                 {"protocol": "tcp", "port": TRACEGATE_FORBIDDEN_PUBLIC_TCP_PORT, "action": "drop"},
             ],
         },

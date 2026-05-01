@@ -49,11 +49,13 @@ COPY bundles /app/bundles
 # - procps: pgrep/pkill
 # - iproute2: ss
 # - nftables: nft (host firewall apply)
+# - wireguard-tools: live WireGuard peer sync via wg set
 RUN apt-get update \
     && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
         procps \
         iproute2 \
         nftables \
+        wireguard-tools \
         ca-certificates \
     && rm -rf /var/lib/apt/lists/* \
     && pip install --no-cache-dir --upgrade pip \

@@ -16,6 +16,7 @@ from tracegate.settings import Settings
 from .system import apply_files, run_command
 from .transit_assignment import assign_sticky_transit_if_needed
 from .reconcile import (
+    ReconcileAllResult,
     _reconcile_all_result,
     reconcile_all,
     remove_connection_artifact_index,
@@ -158,6 +159,18 @@ def _reload_commands_for_changed(
     if "link-crypto" in changed:
         cmds.append(settings.agent_reload_link_crypto_cmd)
     return cmds
+
+
+def _reconcile_user_lifecycle_without_reload(settings: Settings) -> ReconcileAllResult:
+    """
+    Apply user/connection state to live-managed surfaces without process reloads.
+
+    User lifecycle events are allowed to update runtime state, Xray HandlerService
+    clients, Hysteria HTTP-auth artifacts, and private desired-state handoffs. They
+    must not execute reload hooks, because those hooks can restart protocol
+    processes and drop existing client sessions.
+    """
+    return _reconcile_all_result(settings)
 
 
 def _apply_firewall_bundle(settings: Settings, *, bundle_root: Path) -> bool:
@@ -339,15 +352,11 @@ def handle_upsert_user(settings: Settings, payload: dict[str, Any]) -> str:
     target.write_text(json.dumps(payload, ensure_ascii=True, indent=2), encoding="utf-8")
     upsert_user_artifact_index(settings, payload)
 
-    reconcile_result = _reconcile_all_result(settings)
-    changed = set(reconcile_result.changed)
-    if changed:
-        _run_reload_commands(
-            settings,
-            _reload_commands_for_changed(settings, changed, force_xray_reload=reconcile_result.force_xray_reload),
-        )
+    reconcile_result = _reconcile_user_lifecycle_without_reload(settings)
+    reconciled = ",".join(sorted(reconcile_result.changed))
+    suffix = f"; live_reconciled={reconciled}; reloads=0" if reconciled else "; reloads=0"
 
-    return f"upserted user payload for user={user_id} connection={connection_id}"
+    return f"upserted user payload for user={user_id} connection={connection_id}{suffix}"
 
 
 def handle_revoke_user(settings: Settings, payload: dict[str, Any]) -> str:
@@ -360,15 +369,11 @@ def handle_revoke_user(settings: Settings, payload: dict[str, Any]) -> str:
         shutil.rmtree(path)
     remove_user_artifact_index(settings, user_id)
 
-    reconcile_result = _reconcile_all_result(settings)
-    changed = set(reconcile_result.changed)
-    if changed:
-        _run_reload_commands(
-            settings,
-            _reload_commands_for_changed(settings, changed, force_xray_reload=reconcile_result.force_xray_reload),
-        )
+    reconcile_result = _reconcile_user_lifecycle_without_reload(settings)
+    reconciled = ",".join(sorted(reconcile_result.changed))
+    suffix = f"; live_reconciled={reconciled}; reloads=0" if reconciled else "; reloads=0"
 
-    return f"revoked user artifacts for {user_id}"
+    return f"revoked user artifacts for {user_id}{suffix}"
 
 
 def handle_revoke_connection(settings: Settings, payload: dict[str, Any]) -> str:
@@ -412,15 +417,11 @@ def handle_revoke_connection(settings: Settings, payload: dict[str, Any]) -> str
         extra={"user_id": user_id_s, "connection_id": connection_id_s},
     )
 
-    reconcile_result = _reconcile_all_result(settings)
-    changed = set(reconcile_result.changed)
-    if changed:
-        _run_reload_commands(
-            settings,
-            _reload_commands_for_changed(settings, changed, force_xray_reload=reconcile_result.force_xray_reload),
-        )
+    reconcile_result = _reconcile_user_lifecycle_without_reload(settings)
+    reconciled = ",".join(sorted(reconcile_result.changed))
+    suffix = f"; live_reconciled={reconciled}; reloads=0" if reconciled else "; reloads=0"
 
-    return f"revoked connection artifacts for user={user_id_s} connection={connection_id_s}"
+    return f"revoked connection artifacts for user={user_id_s} connection={connection_id_s}{suffix}"
 
 
 def dispatch_event(settings: Settings, event_type: OutboxEventType, payload: dict[str, Any]) -> str:

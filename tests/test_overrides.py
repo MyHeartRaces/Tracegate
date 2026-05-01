@@ -60,10 +60,33 @@ def test_local_socks_credential_overrides_are_allowed_only_as_required_pair(prot
 def test_vless_grpc_overrides_whitelist() -> None:
     result = validate_overrides(
         ConnectionProtocol.VLESS_GRPC_TLS,
-        {"grpc_service_name": "tracegate.v1.Edge", "tls_server_name": "edge.example.com"},
+        {
+            "connect_host": "edge-connect.tracegate.test",
+            "grpc_service_name": "tracegate.v1.Edge",
+            "tls_server_name": "edge.example.com",
+        },
     )
 
     assert result["grpc_service_name"] == "tracegate.v1.Edge"
+    assert result["connect_host"] == "edge-connect.tracegate.test"
+
+
+def test_vless_ws_connect_host_override_is_allowed() -> None:
+    result = validate_overrides(
+        ConnectionProtocol.VLESS_WS_TLS,
+        {
+            "connect_host": "edge-connect.tracegate.test",
+            "ws_host": "endpoint.tracegate.test",
+            "tls_server_name": "endpoint.tracegate.test",
+        },
+    )
+
+    assert result["connect_host"] == "edge-connect.tracegate.test"
+
+
+def test_vless_connect_host_override_must_not_include_port() -> None:
+    with pytest.raises(OverrideValidationError, match="must not include a port"):
+        validate_overrides(ConnectionProtocol.VLESS_WS_TLS, {"connect_host": "edge-connect.tracegate.test:443"})
 
 
 def test_hysteria_security_override_rejected() -> None:

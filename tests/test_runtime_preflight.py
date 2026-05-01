@@ -106,7 +106,6 @@ def _runtime_contract(
             "managedComponents": managed_components if managed_components is not None else default_managed_components,
             "xrayBackhaulAllowed": runtime_profile not in {"tracegate-2.1", "tracegate-2.2"},
             "forbiddenPorts": [
-                {"protocol": "udp", "port": TRACEGATE_FORBIDDEN_PUBLIC_UDP_PORT, "name": "blocked udp/443"},
                 {"protocol": "tcp", "port": TRACEGATE_FORBIDDEN_PUBLIC_TCP_PORT, "name": "blocked tcp/8443"},
             ],
         },
@@ -127,14 +126,13 @@ def _runtime_contract(
             "publicUdpOwner": "xray" if runtime_profile == "xray-centric" else "hysteria",
             "udp443Owner": "xray" if runtime_profile == "xray-centric" else "hysteria",
             "udpPublicPort": TRACEGATE_PUBLIC_UDP_PORT,
-            "forbiddenUdp443": True,
+            "forbiddenUdp443": False,
             "forbiddenTcp8443": True,
             "forbiddenPublicPorts": [
-                {"protocol": "udp", "port": TRACEGATE_FORBIDDEN_PUBLIC_UDP_PORT, "action": "drop"},
                 {"protocol": "tcp", "port": TRACEGATE_FORBIDDEN_PUBLIC_TCP_PORT, "action": "drop"},
             ],
             "touchUdp443": touch_udp_443,
-            "mtprotoDomain": "proxied.tracegate.su" if role == "TRANSIT" else "",
+            "mtprotoDomain": "proxied.tracegate.test" if role == "TRANSIT" else "",
             "mtprotoPublicPort": 443,
             "mtprotoFrontingMode": "dedicated-dns-only",
         },
@@ -192,7 +190,45 @@ def _runtime_contract(
             "quic": {"disablePathMTUDiscovery": False, "maxIdleTimeout": "30s"},
             "congestion": {"type": "bbr"},
             "sniff": {"enabled": True, "timeout": "2s"},
+            "masquerade": {"type": "file", "dirs": default_split_hysteria_dirs, "required": True},
             "masqueradeDirs": default_split_hysteria_dirs,
+            "hygiene": {
+                "required": True,
+                "enabled": True,
+                "checks": {
+                    "listen_udp_443": True,
+                    "http_auth_loopback": True,
+                    "auth_insecure_disabled": True,
+                    "reject_anonymous": True,
+                    "salamander": True,
+                    "file_masquerade": True,
+                    "traffic_stats_loopback": True,
+                    "sni_guard_dns_san": True,
+                    "udp_enabled": True,
+                    "udp_idle_timeout": True,
+                    "quic_pmtu": True,
+                    "quic_idle_timeout": True,
+                    "congestion_bbr": True,
+                    "sniff": True,
+                },
+                "requiredLayers": [
+                    "hysteria2",
+                    "salamander",
+                    "file-masquerade",
+                    "dns-san-sni-guard",
+                    "http-auth-loopback",
+                    "reject-anonymous",
+                    "traffic-stats-loopback",
+                    "udp-enabled",
+                    "quic-pmtu",
+                    "udp-idle-timeout",
+                    "sniff",
+                ],
+                "forbiddenPublicPorts": [
+                    {"protocol": "udp", "port": TRACEGATE_FORBIDDEN_PUBLIC_UDP_PORT, "action": "drop"},
+                    {"protocol": "tcp", "port": TRACEGATE_FORBIDDEN_PUBLIC_TCP_PORT, "action": "drop"},
+                ],
+            },
         },
     }
 
@@ -205,7 +241,7 @@ def _write_zapret_profile(tmp_path: Path, file_name: str, **overrides: str) -> P
             "TRACEGATE_ZAPRET_CPU_BUDGET": "low",
             "TRACEGATE_ZAPRET_APPLY_MODE": "selective",
             "TRACEGATE_ZAPRET_TARGET_TCP_PORTS": "443",
-            "TRACEGATE_ZAPRET_TARGET_UDP_PORTS": "8443",
+            "TRACEGATE_ZAPRET_TARGET_UDP_PORTS": str(TRACEGATE_PUBLIC_UDP_PORT),
             "TRACEGATE_ZAPRET_TARGET_PROTOCOLS": "v2,v4,v6",
             "TRACEGATE_ZAPRET_TARGET_SURFACES": "vless_reality,hysteria2,shadowtls_v3",
             "TRACEGATE_ZAPRET_TOUCH_UNRELATED_SYSTEM_TRAFFIC": "false",
@@ -218,7 +254,7 @@ def _write_zapret_profile(tmp_path: Path, file_name: str, **overrides: str) -> P
             "TRACEGATE_ZAPRET_CPU_BUDGET": "low",
             "TRACEGATE_ZAPRET_APPLY_MODE": "selective",
             "TRACEGATE_ZAPRET_TARGET_TCP_PORTS": "443",
-            "TRACEGATE_ZAPRET_TARGET_UDP_PORTS": "8443",
+            "TRACEGATE_ZAPRET_TARGET_UDP_PORTS": str(TRACEGATE_PUBLIC_UDP_PORT),
             "TRACEGATE_ZAPRET_TARGET_PROTOCOLS": "v1,v3,v5,v7",
             "TRACEGATE_ZAPRET_TARGET_SURFACES": "vless_reality,vless_ws_tls,vless_grpc_tls,hysteria2,shadowtls_v3,wstunnel",
             "TRACEGATE_ZAPRET_TOUCH_UNRELATED_SYSTEM_TRAFFIC": "false",
@@ -231,7 +267,7 @@ def _write_zapret_profile(tmp_path: Path, file_name: str, **overrides: str) -> P
             "TRACEGATE_ZAPRET_CPU_BUDGET": "low",
             "TRACEGATE_ZAPRET_APPLY_MODE": "selective",
             "TRACEGATE_ZAPRET_TARGET_TCP_PORTS": "443",
-            "TRACEGATE_ZAPRET_TARGET_UDP_PORTS": "8443",
+            "TRACEGATE_ZAPRET_TARGET_UDP_PORTS": str(TRACEGATE_PUBLIC_UDP_PORT),
             "TRACEGATE_ZAPRET_TARGET_PROTOCOLS": "v2,v4,v6",
             "TRACEGATE_ZAPRET_TARGET_SURFACES": "entry_transit_private_relay,link_crypto_outer,mieru_outer,wss_carrier",
             "TRACEGATE_ZAPRET_TOUCH_UNRELATED_SYSTEM_TRAFFIC": "false",
@@ -492,7 +528,7 @@ def _write_fronting_state(
         "mtprotoUpstream": "127.0.0.1:9443",
         "mtprotoProfileFile": "/etc/tracegate/private/zapret/mtproto-extra.env",
         "touchUdp443": False,
-        "mtprotoDomain": "proxied.tracegate.su",
+        "mtprotoDomain": "proxied.tracegate.test",
         "mtprotoFrontingMode": "dedicated-dns-only",
         "tcp443Owner": "haproxy",
         "publicUdpPort": TRACEGATE_PUBLIC_UDP_PORT,
@@ -500,7 +536,7 @@ def _write_fronting_state(
         "udp443Owner": "xray",
         "cfgFile": "/var/lib/tracegate/private/fronting/runtime/haproxy.cfg",
         "pidFile": "/var/lib/tracegate/private/fronting/runtime/haproxy.pid",
-        "wsSni": "nlconn.tracegate.su",
+        "wsSni": "nlconn.tracegate.test",
     }
     if overrides:
         payload.update(overrides)
@@ -522,7 +558,7 @@ def _write_mtproto_state(
         "action": "start",
         "role": "TRANSIT",
         "backend": "private",
-        "domain": "proxied.tracegate.su",
+        "domain": "proxied.tracegate.test",
         "publicPort": 443,
         "upstreamHost": "127.0.0.1",
         "upstreamPort": 9443,
@@ -544,13 +580,13 @@ def _write_mtproto_public_profile(tmp_path: Path, file_name: str, *, overrides: 
     payload = {
         "protocol": "mtproto",
         "profile": "MTProto-FakeTLS-Direct",
-        "server": "proxied.tracegate.su",
+        "server": "proxied.tracegate.test",
         "port": 443,
         "transport": "tls",
-        "domain": "proxied.tracegate.su",
+        "domain": "proxied.tracegate.test",
         "clientSecretHex": "ee00112233445566778899aabbccddeeff70726f786965642e7472616365676174652e7375",
-        "tgUri": "tg://proxy?server=proxied.tracegate.su&port=443&secret=ee0011",
-        "httpsUrl": "https://t.me/proxy?server=proxied.tracegate.su&port=443&secret=ee0011",
+        "tgUri": "tg://proxy?server=proxied.tracegate.test&port=443&secret=ee0011",
+        "httpsUrl": "https://t.me/proxy?server=proxied.tracegate.test&port=443&secret=ee0011",
     }
     if overrides:
         payload.update(overrides)
@@ -576,7 +612,7 @@ def _write_fronting_env(tmp_path: Path, file_name: str, **overrides: str) -> Pat
         "TRACEGATE_FRONTING_RUNTIME_DIR": "/var/lib/tracegate/private/fronting/runtime",
         "TRACEGATE_FRONTING_RUNNER": "/opt/fronting-private/tracegate-fronting-gateway",
         "TRACEGATE_FRONTING_HAPROXY_BIN": "/usr/sbin/haproxy",
-        "TRACEGATE_FRONTING_WS_SNI": "nlconn.tracegate.su",
+        "TRACEGATE_FRONTING_WS_SNI": "nlconn.tracegate.test",
         "TRACEGATE_FRONTING_MTPROTO_DOMAIN_OVERRIDE": "",
         "TRACEGATE_FRONTING_TOUCH_UDP_443": "false",
         "TRACEGATE_FRONTING_NOTES": "test fronting env",
@@ -594,7 +630,7 @@ def _write_mtproto_env(tmp_path: Path, file_name: str, **overrides: str) -> Path
         "TRACEGATE_MTPROTO_BACKEND": "private",
         "TRACEGATE_MTPROTO_RUNTIME_STATE_JSON": str(tmp_path / "transit-runtime-state.json"),
         "TRACEGATE_MTPROTO_PROFILE_FILE": str(tmp_path / "mtproto-extra.env"),
-        "TRACEGATE_MTPROTO_DOMAIN": "proxied.tracegate.su",
+        "TRACEGATE_MTPROTO_DOMAIN": "proxied.tracegate.test",
         "TRACEGATE_MTPROTO_PUBLIC_PORT": "443",
         "TRACEGATE_MTPROTO_UPSTREAM_HOST": "127.0.0.1",
         "TRACEGATE_MTPROTO_UPSTREAM_PORT": "9443",
@@ -690,7 +726,7 @@ def _private_shadowtls_profile(
         "sni": "cdn.tracegate.test",
         "shadowsocks2022": {
             "method": "2022-blake3-aes-128-gcm",
-            "password": f"ss-secret-{variant_upper.lower()}-{mode_lower}",
+            "password": f"ss-server-secret:ss-secret-{variant_upper.lower()}-{mode_lower}",
         },
         "shadowtls": {
             "version": 3,
@@ -716,11 +752,11 @@ def _private_shadowtls_profile(
                 "entry": "entry.tracegate.test",
                 "transit": "transit.tracegate.test",
                 "linkClass": "entry-transit",
-                "carrier": "mieru",
-                "preferredOuter": "wss-carrier",
-                "outerCarrier": "websocket-tls",
-                "optionalPacketShaping": "zapret2-scoped",
-                "managedBy": "link-crypto",
+                "carrier": "xray-vless-reality",
+                "preferredOuter": "reality-xhttp",
+                "outerCarrier": "tcp-reality-xhttp",
+                "optionalPacketShaping": "",
+                "managedBy": "xray-chain",
                 "selectedProfiles": ["V1", "V3"],
                 "innerTransport": "shadowsocks2022-shadowtls-v3",
                 "xrayBackhaul": False,
@@ -730,8 +766,8 @@ def _private_shadowtls_profile(
         ),
         "obfuscation": {
             "scope": "entry-transit-private-relay" if is_chain else "public-tcp-443",
-            "outer": "wss-carrier" if is_chain else "shadowtls-v3",
-            "packetShaping": "zapret2-scoped",
+            "outer": "reality-xhttp" if is_chain else "shadowtls-v3",
+            "packetShaping": "none",
             "hostWideInterception": False,
         },
     }
@@ -778,7 +814,7 @@ def _private_wireguard_profile(overrides: dict | None = None) -> dict:
         },
         "sync": {
             "strategy": "wg-set",
-            "interface": "wg0",
+            "interface": "wg",
             "applyMode": "live-peer-sync",
             "removeStalePeers": True,
             "restartWireGuard": False,
@@ -789,7 +825,7 @@ def _private_wireguard_profile(overrides: dict | None = None) -> dict:
         "obfuscation": {
             "scope": "public-wss-443",
             "outer": "wstunnel",
-            "packetShaping": "zapret2-scoped",
+            "packetShaping": "none",
             "hostWideInterception": False,
         },
     }
@@ -1071,7 +1107,7 @@ def _link_crypto_udp_dpi_resistance() -> dict:
         "mode": "salamander-plus-scoped-paired-obfs",
         "portSplit": {
             "publicUdpPort": TRACEGATE_PUBLIC_UDP_PORT,
-            "forbidUdp443": True,
+            "forbidUdp443": False,
             "forbidTcp8443": True,
         },
         "requiredLayers": [
@@ -1142,7 +1178,11 @@ def _link_crypto_udp_row(
         },
         "remote": {
             "role": remote_role,
-            "endpoint": "transit.tracegate.test:8443" if role_upper == "ENTRY" else "entry.tracegate.test:8443",
+            "endpoint": (
+                f"transit.tracegate.test:{TRACEGATE_PUBLIC_UDP_PORT}"
+                if role_upper == "ENTRY"
+                else f"entry.tracegate.test:{TRACEGATE_PUBLIC_UDP_PORT}"
+            ),
             "protocol": "udp-quic",
         },
         "datagram": {
@@ -1436,7 +1476,7 @@ def _router_udp_link(*, role: str) -> dict:
         role=role_upper,
         link_class=link_class,
         overrides={
-            "remote": {"role": "ROUTER", "endpoint": f"{endpoint_host}:8443", "protocol": "udp-quic"},
+            "remote": {"role": "ROUTER", "endpoint": f"{endpoint_host}:443", "protocol": "udp-quic"},
         },
     )
 
@@ -1886,16 +1926,23 @@ def test_validate_runtime_contract_pair_rejects_missing_forbidden_public_ports()
     entry = _runtime_contract(role="ENTRY", runtime_profile="tracegate-2.2")
     transit = _runtime_contract(role="TRANSIT", runtime_profile="tracegate-2.2")
     entry["contract"]["forbiddenPorts"] = [{"protocol": "udp", "port": 8443, "name": "listen udp/8443"}]
-    entry["fronting"]["forbiddenUdp443"] = False
     entry["fronting"]["forbiddenPublicPorts"] = [{"protocol": "tcp", "port": 443, "action": "accept"}]
 
     findings = validate_runtime_contract_pair(entry, transit)
 
     by_code = {finding.code: finding for finding in findings}
-    assert by_code["entry-forbidden-udp-443"].severity == "error"
     assert by_code["entry-forbidden-tcp-8443"].severity == "error"
-    assert by_code["entry-fronting-forbidden-udp-443"].severity == "error"
     assert by_code["entry-fronting-forbidden-tcp-8443"].severity == "error"
+
+
+def test_validate_runtime_contract_pair_rejects_forbidden_udp443_flag() -> None:
+    entry = _runtime_contract(role="ENTRY", runtime_profile="tracegate-2.2")
+    transit = _runtime_contract(role="TRANSIT", runtime_profile="tracegate-2.2")
+    entry["fronting"]["forbiddenUdp443"] = True
+
+    findings = validate_runtime_contract_pair(entry, transit)
+
+    by_code = {finding.code: finding for finding in findings}
     assert by_code["entry-fronting-forbidden-udp-443-flag"].severity == "error"
 
 
@@ -1913,6 +1960,7 @@ def test_validate_runtime_contract_pair_rejects_tracegate22_unsafe_hysteria_conf
     entry["hysteria"]["tls"]["sniGuard"] = "disabled"
     entry["hysteria"]["quic"]["disablePathMTUDiscovery"] = True
     entry["hysteria"]["sniff"]["enabled"] = False
+    entry["hysteria"]["hygiene"]["enabled"] = False
 
     findings = validate_runtime_contract_pair(entry, transit)
 
@@ -1929,6 +1977,7 @@ def test_validate_runtime_contract_pair_rejects_tracegate22_unsafe_hysteria_conf
     assert by_code["entry-hysteria-sni-guard"].severity == "error"
     assert by_code["entry-hysteria-quic-pmtu"].severity == "error"
     assert by_code["entry-hysteria-sniff"].severity == "error"
+    assert by_code["entry-hysteria-hygiene-enabled"].severity == "error"
 
 
 def test_validate_runtime_contract_single_rejects_tracegate22_missing_hysteria_config() -> None:
@@ -2349,7 +2398,7 @@ def test_validate_private_profile_state_rejects_wstunnel_url_drift(tmp_path: Pat
         overrides={
             "wstunnel": {
                 "mode": "wireguard-over-websocket",
-                "url": "wss://transit.tracegate.test:8443/other-path",
+                "url": "wss://transit.tracegate.test:4443/other-path",
                 "path": "/cdn-cgi/tracegate",
                 "tlsServerName": "transit.tracegate.test",
                 "localUdpListen": "127.0.0.1:51820",
@@ -2708,7 +2757,7 @@ def test_validate_link_crypto_state_accepts_udp_hysteria2_handoff(tmp_path: Path
             "profileSource": "private-file-reference",
             "secretMaterial": False,
             "xrayBackhaul": False,
-            "remotePort": 8443,
+            "remotePort": TRACEGATE_PUBLIC_UDP_PORT,
             "obfs": {"type": "salamander", "required": True},
             "pairedObfs": {
                 "enabled": True,
@@ -2851,10 +2900,10 @@ def test_validate_link_crypto_state_rejects_unsafe_udp_handoff(tmp_path: Path) -
                 },
                 "sourceValidation": {"enabled": False, "mode": "none"},
             },
-            "dpiResistance": {
-                "enabled": False,
-                "mode": "off",
-                "portSplit": {"publicUdpPort": 443, "forbidUdp443": False, "forbidTcp8443": False},
+                "dpiResistance": {
+                    "enabled": False,
+                    "mode": "off",
+                    "portSplit": {"publicUdpPort": 443, "forbidUdp443": True, "forbidTcp8443": False},
                 "requiredLayers": ["hysteria2-quic"],
                 "pairedObfs": {
                     "supported": False,
@@ -2914,10 +2963,10 @@ def test_validate_link_crypto_state_rejects_unsafe_udp_handoff(tmp_path: Path) -
                 },
                 "sourceValidation": {"enabled": False, "mode": "none"},
             },
-            "dpiResistance": {
-                "enabled": False,
-                "mode": "off",
-                "portSplit": {"publicUdpPort": 443, "forbidUdp443": False, "forbidTcp8443": False},
+                "dpiResistance": {
+                    "enabled": False,
+                    "mode": "off",
+                    "portSplit": {"publicUdpPort": 443, "forbidUdp443": True, "forbidTcp8443": False},
                 "requiredLayers": ["hysteria2-quic"],
                 "pairedObfs": {
                     "supported": False,
@@ -3079,7 +3128,7 @@ def test_validate_link_crypto_state_detects_runtime_contract_alignment_drift(tmp
         "secretMaterial": True,
         "xrayBackhaul": True,
         "generation": 2,
-        "remotePort": 8443,
+        "remotePort": 4443,
         "outerCarrier": {
             "enabled": True,
             "mode": "direct",
@@ -4303,7 +4352,7 @@ def test_validate_fronting_and_mtproto_states_detect_divergence(tmp_path: Path) 
             runtime_state_json=str(tmp_path / "other-runtime-state.json"),
             overrides={
                 "role": "ENTRY",
-                "domain": "panel.tracegate.su",
+                "domain": "panel.tracegate.test",
                 "publicPort": 8443,
                 "upstreamHost": "10.0.0.5",
                 "upstreamPort": 0,
@@ -4318,13 +4367,13 @@ def test_validate_fronting_and_mtproto_states_detect_divergence(tmp_path: Path) 
             tmp_path,
             "public-profile.json",
             overrides={
-                "server": "panel.tracegate.su",
+                "server": "panel.tracegate.test",
                 "port": 8443,
                 "transport": "random_padding",
                 "profile": "MTProto-TCP443-Direct",
-                "domain": "panel.tracegate.su",
-                "tgUri": "tg://proxy?server=panel.tracegate.su&port=8443&secret=ee0011",
-                "httpsUrl": "https://t.me/proxy?server=panel.tracegate.su&port=8443&secret=ee0011",
+                "domain": "panel.tracegate.test",
+                "tgUri": "tg://proxy?server=panel.tracegate.test&port=8443&secret=ee0011",
+                "httpsUrl": "https://t.me/proxy?server=panel.tracegate.test&port=8443&secret=ee0011",
             },
         )
     )
@@ -4503,8 +4552,8 @@ def test_validate_fronting_and_mtproto_env_contracts_detect_divergence(tmp_path:
             TRACEGATE_FRONTING_RUNTIME_DIR="/var/lib/tracegate/private/fronting-runtime",
             TRACEGATE_FRONTING_RUNNER="/opt/fronting-private/custom-runner",
             TRACEGATE_FRONTING_HAPROXY_BIN="/usr/local/sbin/haproxy",
-            TRACEGATE_FRONTING_WS_SNI="other.tracegate.su",
-            TRACEGATE_FRONTING_MTPROTO_DOMAIN_OVERRIDE="panel.tracegate.su",
+            TRACEGATE_FRONTING_WS_SNI="other.tracegate.test",
+            TRACEGATE_FRONTING_MTPROTO_DOMAIN_OVERRIDE="panel.tracegate.test",
             TRACEGATE_FRONTING_TOUCH_UDP_443="true",
         )
     )
@@ -4516,7 +4565,7 @@ def test_validate_fronting_and_mtproto_env_contracts_detect_divergence(tmp_path:
             TRACEGATE_MTPROTO_BACKEND="custom",
             TRACEGATE_MTPROTO_RUNTIME_STATE_JSON=str(tmp_path / "other-runtime-state.json"),
             TRACEGATE_MTPROTO_PROFILE_FILE=str(tmp_path / "third-mtproto.env"),
-            TRACEGATE_MTPROTO_DOMAIN="panel.tracegate.su",
+            TRACEGATE_MTPROTO_DOMAIN="panel.tracegate.test",
             TRACEGATE_MTPROTO_PUBLIC_PORT="8443",
             TRACEGATE_MTPROTO_UPSTREAM_HOST="10.0.0.5",
             TRACEGATE_MTPROTO_UPSTREAM_PORT="0",

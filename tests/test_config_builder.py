@@ -1,8 +1,14 @@
+import base64
 from datetime import datetime, timezone
 from uuid import uuid4
 
 import pytest
 
+from tracegate.constants import (
+    TRACEGATE_FORBIDDEN_PUBLIC_TCP_PORT,
+    TRACEGATE_FORBIDDEN_PUBLIC_UDP_PORT,
+    TRACEGATE_PUBLIC_UDP_PORT,
+)
 from tracegate.enums import ConnectionMode, ConnectionProtocol, ConnectionVariant, EntitlementStatus, RecordStatus
 from tracegate.models import Connection, Device, User
 from tracegate.services.config_builder import EndpointSet, build_effective_config
@@ -60,19 +66,19 @@ def test_chain_reality_enters_via_entry_and_points_to_transit() -> None:
     assert cfg["server"] == "entry.example.com"
     assert cfg["reality"]["public_key"] == "pub-e"
     assert cfg["reality"]["short_id"] == "sid-e"
-    assert cfg["xhttp"]["mode"] == "packet-up"
+    assert cfg["xhttp"]["mode"] == "auto"
     assert cfg["xhttp"]["path"] == "/api/v1/update"
     assert cfg["chain"]["type"] == "entry_transit_private_relay"
     assert cfg["chain"]["entry"] == "entry.example.com"
     assert cfg["chain"]["transit"] == "transit.example.com"
-    assert cfg["chain"]["carrier"] == "mieru"
-    assert cfg["chain"]["optional_packet_shaping"] == "zapret2-scoped"
-    assert cfg["chain"]["managed_by"] == "link-crypto"
+    assert cfg["chain"]["carrier"] == "xray-vless-reality"
+    assert cfg["chain"]["optional_packet_shaping"] is None
+    assert cfg["chain"]["managed_by"] == "xray-chain"
     assert cfg["chain"]["selected_profiles"] == ["V1", "V3"]
     assert cfg["chain"]["inner_transport"] == "vless-reality-xhttp"
     assert cfg["chain"]["xray_backhaul"] is False
-    assert cfg["design_constraints"]["private_interconnect"] == "mieru-wss-zapret2"
-    assert cfg["design_constraints"]["backhaul_outside_xray"] is True
+    assert cfg["design_constraints"]["private_interconnect"] == "xray-vless-reality"
+    assert cfg["design_constraints"]["backhaul_outside_xray"] is False
     assert cfg["local_socks"]["auth"]["required"] is True
     assert cfg["local_socks"]["auth"]["mode"] == "username_password"
     assert cfg["local_socks"]["auth"]["username"].startswith("tg_v1_")
@@ -228,7 +234,7 @@ def test_default_local_socks_port_is_stable_high_port() -> None:
     assert port != 1080
 
 
-def test_hysteria_uses_fixed_port_8443_and_salamander() -> None:
+def test_hysteria_uses_fixed_public_udp_port_and_salamander() -> None:
     user = _user()
     device = _device(user.telegram_id)
     conn = Connection(
@@ -251,7 +257,7 @@ def test_hysteria_uses_fixed_port_8443_and_salamander() -> None:
         endpoints=EndpointSet(transit_host="transit.example.com", entry_host="entry.example.com"),
     )
 
-    assert cfg["port"] == 8443
+    assert cfg["port"] == TRACEGATE_PUBLIC_UDP_PORT
     assert cfg["profile"] == "v2-direct-quic-hysteria"
     assert cfg["tls"]["insecure"] is False
     assert cfg["obfs"] == {
@@ -259,8 +265,44 @@ def test_hysteria_uses_fixed_port_8443_and_salamander() -> None:
         "password": "REPLACE_HYSTERIA2_SALAMANDER_PASSWORD",
         "required": True,
     }
-    assert cfg["design_constraints"]["fixed_port_udp"] == 8443
+    assert cfg["design_constraints"]["fixed_port_udp"] == TRACEGATE_PUBLIC_UDP_PORT
     assert cfg["design_constraints"]["salamander_required"] is True
+    assert cfg["design_constraints"]["masquerade_required"] is True
+    assert cfg["design_constraints"]["hygiene_required"] is True
+    assert cfg["design_constraints"]["server_sni_guard"] == "dns-san"
+    assert cfg["design_constraints"]["auth_backend"] == "http-loopback"
+    assert cfg["design_constraints"]["anonymous_rejected"] is True
+    assert cfg["masquerade"] == {
+        "type": "file",
+        "mode": "server_file_decoy",
+        "required": True,
+        "serves_decoy": True,
+    }
+    assert cfg["hygiene"]["required"] is True
+    assert cfg["hygiene"]["required_layers"] == [
+        "hysteria2",
+        "salamander",
+        "file-masquerade",
+        "dns-san-sni-guard",
+        "http-auth-loopback",
+        "reject-anonymous",
+        "traffic-stats-loopback",
+        "udp-enabled",
+        "quic-pmtu",
+        "udp-idle-timeout",
+        "sniff",
+    ]
+    assert cfg["hygiene"]["server"]["sni_guard"] == "dns-san"
+    assert cfg["hygiene"]["server"]["auth_backend"] == "http-loopback"
+    assert cfg["hygiene"]["server"]["masquerade"] == "file-decoy"
+    assert cfg["hygiene"]["udp"]["public_port"] == TRACEGATE_PUBLIC_UDP_PORT
+    assert cfg["hygiene"]["udp"]["anti_replay"] is True
+    assert cfg["hygiene"]["udp"]["anti_amplification"] is True
+    assert cfg["hygiene"]["udp"]["mtu"] == {"mode": "clamp", "max_packet_size": 1252}
+    assert cfg["hygiene"]["forbidden_public_ports"] == [
+        {"protocol": "udp", "port": TRACEGATE_FORBIDDEN_PUBLIC_UDP_PORT, "action": "drop"},
+        {"protocol": "tcp", "port": TRACEGATE_FORBIDDEN_PUBLIC_TCP_PORT, "action": "drop"},
+    ]
     assert cfg["local_socks"]["auth"]["required"] is True
     assert cfg["local_socks"]["auth"]["username"].startswith("tg_v2_")
 
@@ -405,7 +447,7 @@ def test_hysteria_chain_v4_enters_via_entry_and_marks_backhaul() -> None:
     assert cfg["auth"]["username"].startswith("v2_1_")
     assert " " not in cfg["auth"]["username"]
     assert cfg["auth"]["token"].startswith(cfg["auth"]["username"] + ":")
-    assert cfg["port"] == 8443
+    assert cfg["port"] == TRACEGATE_PUBLIC_UDP_PORT
     assert cfg["obfs"]["type"] == "salamander"
     assert cfg["obfs"]["required"] is True
     assert cfg["chain"]["type"] == "entry_transit_private_relay"
@@ -424,10 +466,21 @@ def test_hysteria_chain_v4_enters_via_entry_and_marks_backhaul() -> None:
     assert cfg["chain"]["dpi_resistance"] == {
         "required": True,
         "mode": "salamander-plus-scoped-paired-obfs",
-        "forbid_udp_443": True,
+        "forbid_udp_443": False,
         "forbid_tcp_8443": True,
     }
+    assert cfg["chain"]["hygiene"] == {
+        "required": True,
+        "carrier": "hysteria2",
+        "obfs": "salamander",
+        "anti_replay": True,
+        "anti_amplification": True,
+        "source_validation": "profile-bound-remote",
+        "mtu": {"mode": "clamp", "max_packet_size": 1252},
+    }
     assert cfg["chain"]["transit"] == "myheartraces.space"
+    assert cfg["hygiene"]["entry_transit_relay"] is True
+    assert cfg["hygiene"]["udp"]["source_validation"] == "profile-bound-remote"
     assert cfg["design_constraints"]["entry_role_required"] is True
     assert cfg["design_constraints"]["private_interconnect"] == "hysteria2-salamander-udp-link"
     assert cfg["design_constraints"]["backhaul_outside_xray"] is True
@@ -600,6 +653,7 @@ def test_ws_tls_direct_ignores_proxy_host_and_uses_transit_host() -> None:
     assert cfg["profile"] == "v0-ws-vless"
     assert cfg["sni"] == "transit.example.com"
     assert cfg["ws"]["host"] == "transit.example.com"
+    assert cfg["tls"]["alpn"] == ["http/1.1"]
 
 
 def test_ws_tls_direct_uses_transit_host_without_proxy() -> None:
@@ -670,7 +724,74 @@ def test_grpc_tls_direct_uses_transit_host_and_service_name() -> None:
         "service_name": "tracegate.custom.Edge",
         "authority": "transit.example.com",
     }
+    assert cfg["tls"]["alpn"] == ["h2"]
     assert cfg["local_socks"]["auth"]["required"] is True
+
+
+def test_grpc_tls_direct_keeps_direct_transit_when_proxy_host_is_available() -> None:
+    user = _user()
+    device = _device(user.telegram_id)
+    conn = Connection(
+        id=uuid4(),
+        user_id=user.telegram_id,
+        device_id=device.id,
+        protocol=ConnectionProtocol.VLESS_GRPC_TLS,
+        mode=ConnectionMode.DIRECT,
+        variant=ConnectionVariant.V0,
+        profile_name="v0-grpc-vless",
+        custom_overrides_json={},
+        status=RecordStatus.ACTIVE,
+    )
+
+    cfg = build_effective_config(
+        user=user,
+        device=device,
+        connection=conn,
+        selected_sni=None,
+        endpoints=EndpointSet(
+            transit_host="transit.example.com",
+            entry_host="entry.example.com",
+            transit_proxy_host="proxy-transit.example.com",
+        ),
+    )
+
+    assert cfg["server"] == "transit.example.com"
+    assert cfg["sni"] == "transit.example.com"
+    assert cfg["grpc"]["authority"] == "transit.example.com"
+    assert cfg["tls"]["alpn"] == ["h2"]
+
+
+def test_vless_tls_direct_preserves_optional_connect_host() -> None:
+    user = _user()
+    device = _device(user.telegram_id)
+    conn = Connection(
+        id=uuid4(),
+        user_id=user.telegram_id,
+        device_id=device.id,
+        protocol=ConnectionProtocol.VLESS_WS_TLS,
+        mode=ConnectionMode.DIRECT,
+        variant=ConnectionVariant.V0,
+        profile_name="v0-ws-vless",
+        custom_overrides_json={
+            "connect_host": "edge-connect.tracegate.test",
+            "tls_server_name": "endpoint.tracegate.test",
+            "ws_host": "endpoint.tracegate.test",
+        },
+        status=RecordStatus.ACTIVE,
+    )
+
+    cfg = build_effective_config(
+        user=user,
+        device=device,
+        connection=conn,
+        selected_sni=None,
+        endpoints=EndpointSet(transit_host="endpoint.tracegate.test", entry_host="entry.example.com"),
+    )
+
+    assert cfg["server"] == "endpoint.tracegate.test"
+    assert cfg["connect_host"] == "edge-connect.tracegate.test"
+    assert cfg["sni"] == "endpoint.tracegate.test"
+    assert cfg["ws"]["host"] == "endpoint.tracegate.test"
 
 
 def test_shadowsocks2022_shadowtls_direct_v5_config_requires_local_socks_auth() -> None:
@@ -694,7 +815,12 @@ def test_shadowsocks2022_shadowtls_direct_v5_config_requires_local_socks_auth() 
         device=device,
         connection=conn,
         selected_sni=sni,
-        endpoints=EndpointSet(transit_host="transit.example.com", entry_host="entry.example.com"),
+        endpoints=EndpointSet(
+            transit_host="transit.example.com",
+            entry_host="entry.example.com",
+            shadowtls_password_transit="shadowtls-static",
+            shadowsocks2022_password_transit="ss-server-key",
+        ),
     )
 
     assert cfg["protocol"] == "shadowsocks2022"
@@ -703,7 +829,8 @@ def test_shadowsocks2022_shadowtls_direct_v5_config_requires_local_socks_auth() 
     assert cfg["server"] == "transit.example.com"
     assert cfg["sni"] == "www.microsoft.com"
     assert cfg["shadowtls"]["version"] == 3
-    assert cfg["password"]
+    assert cfg["password"].startswith("ss-server-key:")
+    assert cfg["shadowtls"]["password"] == "shadowtls-static"
     assert cfg["local_socks"]["listen"] == "127.0.0.1:18081"
     assert cfg["local_socks"]["auth"]["required"] is True
     assert cfg["local_socks"]["auth"]["username"].startswith("tg_v3_")
@@ -733,6 +860,8 @@ def test_shadowsocks2022_shadowtls_chain_v6_marks_private_interconnect() -> None
             transit_host="transit.example.com",
             entry_host="entry.example.com",
             shadowtls_server_name_entry="cdn.example.com",
+            shadowtls_password_entry="shadowtls-entry-static",
+            shadowsocks2022_password_entry="ss-entry-key",
         ),
     )
 
@@ -740,15 +869,17 @@ def test_shadowsocks2022_shadowtls_chain_v6_marks_private_interconnect() -> None
     assert cfg["server"] == "entry.example.com"
     assert cfg["sni"] == "cdn.example.com"
     assert cfg["chain"]["type"] == "entry_transit_private_relay"
-    assert cfg["chain"]["carrier"] == "mieru"
-    assert cfg["chain"]["preferred_outer"] == "wss-carrier"
-    assert cfg["chain"]["outer_carrier"] == "websocket-tls"
-    assert cfg["chain"]["optional_packet_shaping"] == "zapret2-scoped"
-    assert cfg["chain"]["managed_by"] == "link-crypto"
+    assert cfg["chain"]["carrier"] == "xray-vless-reality"
+    assert cfg["chain"]["preferred_outer"] == "reality-xhttp"
+    assert cfg["chain"]["outer_carrier"] == "tcp-reality-xhttp"
+    assert cfg["chain"]["optional_packet_shaping"] is None
+    assert cfg["chain"]["managed_by"] == "xray-chain"
     assert cfg["chain"]["selected_profiles"] == ["V1", "V3"]
     assert cfg["chain"]["inner_transport"] == "shadowsocks2022-shadowtls-v3"
     assert cfg["chain"]["xray_backhaul"] is False
-    assert cfg["design_constraints"]["private_interconnect"] == "mieru-wss-zapret2"
+    assert cfg["password"].startswith("ss-entry-key:")
+    assert cfg["shadowtls"]["password"] == "shadowtls-entry-static"
+    assert cfg["design_constraints"]["private_interconnect"] == "xray-vless-reality"
     assert cfg["local_socks"]["auth"]["username"].startswith("tg_v3_")
 
 
@@ -789,8 +920,8 @@ def test_wireguard_wstunnel_v7_config_requires_local_socks_auth() -> None:
     assert cfg["protocol"] == "wireguard"
     assert cfg["transport"] == "wstunnel"
     assert cfg["profile"] == "v0-wgws-wireguard"
-    assert cfg["server"] == "edge.example.com"
-    assert cfg["wstunnel"]["url"] == "wss://edge.example.com:443/cdn/ws"
+    assert cfg["server"] == "transit.example.com"
+    assert cfg["wstunnel"]["url"] == "wss://transit.example.com:443/cdn/ws"
     assert cfg["wireguard"]["private_key"] == "client-private"
     assert cfg["wireguard"]["public_key"] == "client-public"
     assert cfg["wireguard"]["preshared_key"] == "wg-psk"
@@ -798,6 +929,43 @@ def test_wireguard_wstunnel_v7_config_requires_local_socks_auth() -> None:
     assert cfg["wireguard"]["address"] == "10.70.0.2/32"
     assert cfg["local_socks"]["auth"]["required"] is True
     assert cfg["local_socks"]["auth"]["username"].startswith("tg_v0_")
+
+
+def test_wireguard_wstunnel_generates_client_material_without_overrides() -> None:
+    user = _user()
+    device = _device(user.telegram_id)
+    connection_id = uuid4()
+    conn = Connection(
+        id=connection_id,
+        user_id=user.telegram_id,
+        device_id=device.id,
+        protocol=ConnectionProtocol.WIREGUARD_WSTUNNEL,
+        mode=ConnectionMode.DIRECT,
+        variant=ConnectionVariant.V0,
+        profile_name="v0-wgws-wireguard",
+        custom_overrides_json={},
+        status=RecordStatus.ACTIVE,
+    )
+
+    cfg = build_effective_config(
+        user=user,
+        device=device,
+        connection=conn,
+        selected_sni=None,
+        endpoints=EndpointSet(
+            transit_host="transit.example.com",
+            entry_host="entry.example.com",
+            wireguard_server_public_key="server-public",
+        ),
+    )
+
+    assert cfg["wireguard"]["server_public_key"] == "server-public"
+    assert cfg["wireguard"]["address"].startswith("10.70.")
+    assert cfg["wireguard"]["address"].endswith("/32")
+    assert "REPLACE_" not in str(cfg)
+    assert len(base64.b64decode(cfg["wireguard"]["private_key"], validate=True)) == 32
+    assert len(base64.b64decode(cfg["wireguard"]["public_key"], validate=True)) == 32
+    assert len(base64.b64decode(cfg["wireguard"]["preshared_key"], validate=True)) == 32
 
 
 def test_wireguard_rejects_non_loopback_local_udp_listener() -> None:

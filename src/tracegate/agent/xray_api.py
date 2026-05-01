@@ -96,6 +96,41 @@ def _build_hysteria_user(*, email: str, auth: str) -> user_pb2.User:
     )
 
 
+def _serialize_string_field(field_number: int, value: str) -> bytes:
+    payload = str(value or "").encode("utf-8")
+    if field_number < 1:
+        raise ValueError("protobuf field number must be positive")
+    key = (field_number << 3) | 2
+    out = bytearray()
+    while key >= 0x80:
+        out.append((key & 0x7F) | 0x80)
+        key >>= 7
+    out.append(key)
+    length = len(payload)
+    while length >= 0x80:
+        out.append((length & 0x7F) | 0x80)
+        length >>= 7
+    out.append(length)
+    out.extend(payload)
+    return bytes(out)
+
+
+def _build_shadowsocks2022_user(*, email: str, key: str) -> user_pb2.User:
+    email_s = str(email or "").strip()
+    key_s = str(key or "").strip()
+    if not email_s or not key_s:
+        raise ValueError("email/key are required to build a Shadowsocks-2022 user")
+
+    return user_pb2.User(
+        level=0,
+        email=email_s,
+        account=typed_message_pb2.TypedMessage(
+            type="xray.proxy.shadowsocks_2022.Account",
+            value=_serialize_string_field(1, key_s),
+        ),
+    )
+
+
 def _add_user(settings: Settings, *, inbound_tag: str, email: str, user: user_pb2.User) -> None:
     email_s = str(email or "").strip()
     if not email_s:
@@ -163,6 +198,15 @@ def add_hysteria_user(settings: Settings, *, inbound_tag: str, email: str, auth:
     _add_user(settings, inbound_tag=inbound_tag, email=email, user=_build_hysteria_user(email=email, auth=auth))
 
 
+def add_shadowsocks2022_user(settings: Settings, *, inbound_tag: str, email: str, key: str) -> None:
+    _add_user(
+        settings,
+        inbound_tag=inbound_tag,
+        email=email,
+        user=_build_shadowsocks2022_user(email=email, key=key),
+    )
+
+
 def remove_user(settings: Settings, *, inbound_tag: str, email: str) -> None:
     email_s = str(email or "").strip()
     if not email_s:
@@ -221,6 +265,12 @@ def sync_inbound_users(settings: Settings, *, inbound_tag: str, desired_email_to
             if not auth_s:
                 continue
             desired[email_s] = {"protocol": "hysteria", "auth": auth_s}
+            continue
+        if protocol == "shadowsocks2022":
+            key_s = str(raw_spec.get("key") or "").strip()
+            if not key_s:
+                continue
+            desired[email_s] = {"protocol": "shadowsocks2022", "key": key_s}
 
     try:
         current = list_inbound_user_emails(settings, inbound_tag=inbound_tag)
@@ -237,6 +287,13 @@ def sync_inbound_users(settings: Settings, *, inbound_tag: str, desired_email_to
         protocol = str(spec.get("protocol") or "").strip().lower()
         if protocol == "hysteria":
             add_hysteria_user(settings, inbound_tag=inbound_tag, email=email, auth=str(spec.get("auth") or "").strip())
+        elif protocol == "shadowsocks2022":
+            add_shadowsocks2022_user(
+                settings,
+                inbound_tag=inbound_tag,
+                email=email,
+                key=str(spec.get("key") or "").strip(),
+            )
         else:
             add_vless_user(settings, inbound_tag=inbound_tag, email=email, uuid=str(spec.get("uuid") or "").strip())
     for email in to_remove:

@@ -98,9 +98,10 @@ TRACEGATE22_CLIENT_PROFILES = (
 )
 
 _TRACEGATE_FORBIDDEN_PUBLIC_PORTS = (
-    ("udp", TRACEGATE_FORBIDDEN_PUBLIC_UDP_PORT, "blocked udp/443"),
-    ("tcp", TRACEGATE_FORBIDDEN_PUBLIC_TCP_PORT, "blocked tcp/8443"),
+    ("tcp", TRACEGATE_FORBIDDEN_PUBLIC_TCP_PORT, f"blocked tcp/{TRACEGATE_FORBIDDEN_PUBLIC_TCP_PORT}"),
+    ("udp", TRACEGATE_FORBIDDEN_PUBLIC_UDP_PORT, f"blocked udp/{TRACEGATE_FORBIDDEN_PUBLIC_UDP_PORT}"),
 )
+_TRACEGATE_PUBLIC_UDP_LISTENER = f"listen udp/{TRACEGATE_PUBLIC_UDP_PORT}"
 
 
 _XRAY_CENTRIC_CONTRACT = AgentRuntimeContract(
@@ -112,11 +113,11 @@ _XRAY_CENTRIC_CONTRACT = AgentRuntimeContract(
     hysteria_metrics_source="xray_stats",
     expected_ports_entry=(
         ("tcp", TRACEGATE_PUBLIC_TCP_PORT, "listen tcp/443"),
-        ("udp", TRACEGATE_PUBLIC_UDP_PORT, "listen udp/8443"),
+        ("udp", TRACEGATE_PUBLIC_UDP_PORT, _TRACEGATE_PUBLIC_UDP_LISTENER),
     ),
     expected_ports_transit=(
         ("tcp", TRACEGATE_PUBLIC_TCP_PORT, "listen tcp/443"),
-        ("udp", TRACEGATE_PUBLIC_UDP_PORT, "listen udp/8443"),
+        ("udp", TRACEGATE_PUBLIC_UDP_PORT, _TRACEGATE_PUBLIC_UDP_LISTENER),
     ),
     forbidden_ports_entry=_TRACEGATE_FORBIDDEN_PUBLIC_PORTS,
     forbidden_ports_transit=_TRACEGATE_FORBIDDEN_PUBLIC_PORTS,
@@ -142,11 +143,11 @@ _TRACEGATE21_CONTRACT = AgentRuntimeContract(
     hysteria_metrics_source="xray_stats",
     expected_ports_entry=(
         ("tcp", TRACEGATE_PUBLIC_TCP_PORT, "listen tcp/443"),
-        ("udp", TRACEGATE_PUBLIC_UDP_PORT, "listen udp/8443"),
+        ("udp", TRACEGATE_PUBLIC_UDP_PORT, _TRACEGATE_PUBLIC_UDP_LISTENER),
     ),
     expected_ports_transit=(
         ("tcp", TRACEGATE_PUBLIC_TCP_PORT, "listen tcp/443"),
-        ("udp", TRACEGATE_PUBLIC_UDP_PORT, "listen udp/8443"),
+        ("udp", TRACEGATE_PUBLIC_UDP_PORT, _TRACEGATE_PUBLIC_UDP_LISTENER),
     ),
     forbidden_ports_entry=_TRACEGATE_FORBIDDEN_PUBLIC_PORTS,
     forbidden_ports_transit=_TRACEGATE_FORBIDDEN_PUBLIC_PORTS,
@@ -172,11 +173,11 @@ _TRACEGATE22_CONTRACT = AgentRuntimeContract(
     hysteria_metrics_source="hysteria_stats",
     expected_ports_entry=(
         ("tcp", TRACEGATE_PUBLIC_TCP_PORT, "listen tcp/443"),
-        ("udp", TRACEGATE_PUBLIC_UDP_PORT, "listen udp/8443"),
+        ("udp", TRACEGATE_PUBLIC_UDP_PORT, _TRACEGATE_PUBLIC_UDP_LISTENER),
     ),
     expected_ports_transit=(
         ("tcp", TRACEGATE_PUBLIC_TCP_PORT, "listen tcp/443"),
-        ("udp", TRACEGATE_PUBLIC_UDP_PORT, "listen udp/8443"),
+        ("udp", TRACEGATE_PUBLIC_UDP_PORT, _TRACEGATE_PUBLIC_UDP_LISTENER),
     ),
     forbidden_ports_entry=_TRACEGATE_FORBIDDEN_PUBLIC_PORTS,
     forbidden_ports_transit=_TRACEGATE_FORBIDDEN_PUBLIC_PORTS,

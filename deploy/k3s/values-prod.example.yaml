@@ -24,6 +24,8 @@ controlPlane:
     defaultEntryHost: entry.example.com
     defaultTransitHost: transit.example.com
     mtprotoDomain: mtproto.example.com
+    grafanaPublicBaseUrl: https://grafana.example.com
+    grafanaHost: grafana.example.com
     botWelcomeMessageSecret:
       name: tracegate-bot-welcome
       key: message
@@ -65,6 +67,11 @@ network:
 
 gateway:
   terminationGracePeriodSeconds: 60
+  agent:
+    corsOrigins:
+      - https://tracegate.example.com
+      - https://entry.example.com
+      - https://transit.example.com
   pdb:
     enabled: true
     minAvailable: 1
@@ -97,6 +104,10 @@ gateway:
           key: private-key
         shortIds:
           - "0123456789abcdef"
+      hysteria:
+        # Optional. Bind Hysteria UDP replies to a specific ingress IP on
+        # multi-IP nodes instead of wildcard :publicUdp.
+        listenHost: ""
     transit:
       nodeSelector:
         tracegate.io/role: transit
@@ -112,6 +123,9 @@ gateway:
           key: private-key
         shortIds:
           - "fedcba9876543210"
+      hysteria:
+        # Set to the endpoint ingress IP on multi-IP endpoint nodes.
+        listenHost: ""
 
 interconnect:
   entryTransit:

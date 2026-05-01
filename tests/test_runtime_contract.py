@@ -1,5 +1,6 @@
 import pytest
 
+from tracegate.constants import TRACEGATE_FORBIDDEN_PUBLIC_UDP_PORT, TRACEGATE_PUBLIC_UDP_PORT
 from tracegate.services.runtime_contract import (
     RuntimeContractError,
     TRACEGATE21_CLIENT_PROFILES,
@@ -22,19 +23,19 @@ def test_resolve_current_runtime_contract_and_aliases() -> None:
     assert contract.xray_backhaul_allowed is True
     assert contract.expected_ports("ENTRY") == (
         ("tcp", 443, "listen tcp/443"),
-        ("udp", 8443, "listen udp/8443"),
+        ("udp", TRACEGATE_PUBLIC_UDP_PORT, f"listen udp/{TRACEGATE_PUBLIC_UDP_PORT}"),
     )
     assert contract.forbidden_ports("ENTRY") == (
-        ("udp", 443, "blocked udp/443"),
         ("tcp", 8443, "blocked tcp/8443"),
+        ("udp", TRACEGATE_FORBIDDEN_PUBLIC_UDP_PORT, f"blocked udp/{TRACEGATE_FORBIDDEN_PUBLIC_UDP_PORT}"),
     )
     assert contract.expected_ports("TRANSIT") == (
         ("tcp", 443, "listen tcp/443"),
-        ("udp", 8443, "listen udp/8443"),
+        ("udp", TRACEGATE_PUBLIC_UDP_PORT, f"listen udp/{TRACEGATE_PUBLIC_UDP_PORT}"),
     )
     assert contract.forbidden_ports("TRANSIT") == (
-        ("udp", 443, "blocked udp/443"),
         ("tcp", 8443, "blocked tcp/8443"),
+        ("udp", TRACEGATE_FORBIDDEN_PUBLIC_UDP_PORT, f"blocked udp/{TRACEGATE_FORBIDDEN_PUBLIC_UDP_PORT}"),
     )
     assert contract.requires_transit_stats_secret("ENTRY") is False
     assert contract.requires_transit_stats_secret("TRANSIT") is False
@@ -59,11 +60,11 @@ def test_tracegate22_runtime_contract_is_default_profile() -> None:
     assert any(row.name == "process hysteria" for row in contract.process_checks("TRANSIT"))
     assert contract.expected_ports("ENTRY") == (
         ("tcp", 443, "listen tcp/443"),
-        ("udp", 8443, "listen udp/8443"),
+        ("udp", TRACEGATE_PUBLIC_UDP_PORT, f"listen udp/{TRACEGATE_PUBLIC_UDP_PORT}"),
     )
     assert contract.forbidden_ports("ENTRY") == (
-        ("udp", 443, "blocked udp/443"),
         ("tcp", 8443, "blocked tcp/8443"),
+        ("udp", TRACEGATE_FORBIDDEN_PUBLIC_UDP_PORT, f"blocked udp/{TRACEGATE_FORBIDDEN_PUBLIC_UDP_PORT}"),
     )
 
 
@@ -79,11 +80,11 @@ def test_xray_centric_runtime_contract_is_legacy_profile() -> None:
     assert contract.requires_transit_stats_secret("TRANSIT") is False
     assert contract.expected_ports("ENTRY") == (
         ("tcp", 443, "listen tcp/443"),
-        ("udp", 8443, "listen udp/8443"),
+        ("udp", TRACEGATE_PUBLIC_UDP_PORT, f"listen udp/{TRACEGATE_PUBLIC_UDP_PORT}"),
     )
     assert contract.forbidden_ports("ENTRY") == (
-        ("udp", 443, "blocked udp/443"),
         ("tcp", 8443, "blocked tcp/8443"),
+        ("udp", TRACEGATE_FORBIDDEN_PUBLIC_UDP_PORT, f"blocked udp/{TRACEGATE_FORBIDDEN_PUBLIC_UDP_PORT}"),
     )
 
 
@@ -103,11 +104,11 @@ def test_tracegate21_runtime_contract_is_k3s_profile_without_xray_backhaul() -> 
     assert contract.requires_transit_stats_secret("TRANSIT") is False
     assert contract.expected_ports("TRANSIT") == (
         ("tcp", 443, "listen tcp/443"),
-        ("udp", 8443, "listen udp/8443"),
+        ("udp", TRACEGATE_PUBLIC_UDP_PORT, f"listen udp/{TRACEGATE_PUBLIC_UDP_PORT}"),
     )
     assert contract.forbidden_ports("TRANSIT") == (
-        ("udp", 443, "blocked udp/443"),
         ("tcp", 8443, "blocked tcp/8443"),
+        ("udp", TRACEGATE_FORBIDDEN_PUBLIC_UDP_PORT, f"blocked udp/{TRACEGATE_FORBIDDEN_PUBLIC_UDP_PORT}"),
     )
 
 

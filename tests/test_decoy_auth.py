@@ -65,14 +65,14 @@ def test_load_mtproto_public_profile_returns_sanitized_payload(tmp_path) -> None
         json.dumps(
             {
                 "protocol": "mtproto",
-                "server": "proxied.tracegate.su",
+                "server": "proxied.tracegate.test",
                 "port": 443,
                 "transport": "tls",
-                "domain": "proxied.tracegate.su",
+                "domain": "proxied.tracegate.test",
                 "secret": "00112233445566778899aabbccddeeff",
                 "clientSecretHex": "ee00112233445566778899aabbccddeeff70726f786965642e7472616365676174652e7375",
-                "tgUri": "tg://proxy?server=proxied.tracegate.su&port=443&secret=ee0011",
-                "httpsUrl": "https://t.me/proxy?server=proxied.tracegate.su&port=443&secret=ee0011",
+                "tgUri": "tg://proxy?server=proxied.tracegate.test&port=443&secret=ee0011",
+                "httpsUrl": "https://t.me/proxy?server=proxied.tracegate.test&port=443&secret=ee0011",
             },
             ensure_ascii=True,
             indent=2,
@@ -85,14 +85,14 @@ def test_load_mtproto_public_profile_returns_sanitized_payload(tmp_path) -> None
 
     assert profile == {
         "protocol": "mtproto",
-        "server": "proxied.tracegate.su",
+        "server": "proxied.tracegate.test",
         "port": 443,
         "transport": "tls",
         "profile": "MTProto-FakeTLS-Direct",
-        "domain": "proxied.tracegate.su",
+        "domain": "proxied.tracegate.test",
         "clientSecretHex": "ee00112233445566778899aabbccddeeff70726f786965642e7472616365676174652e7375",
-        "tgUri": "tg://proxy?server=proxied.tracegate.su&port=443&secret=ee0011",
-        "httpsUrl": "https://t.me/proxy?server=proxied.tracegate.su&port=443&secret=ee0011",
+        "tgUri": "tg://proxy?server=proxied.tracegate.test&port=443&secret=ee0011",
+        "httpsUrl": "https://t.me/proxy?server=proxied.tracegate.test&port=443&secret=ee0011",
     }
     assert "secret" not in profile
 
@@ -100,7 +100,7 @@ def test_load_mtproto_public_profile_returns_sanitized_payload(tmp_path) -> None
 def test_load_mtproto_public_profile_rejects_invalid_payload(tmp_path) -> None:
     profile_path = tmp_path / "public-profile.json"
     profile_path.write_text(
-        json.dumps({"protocol": "mtproto", "server": "proxied.tracegate.su", "port": 443}, ensure_ascii=True),
+        json.dumps({"protocol": "mtproto", "server": "proxied.tracegate.test", "port": 443}, ensure_ascii=True),
         encoding="utf-8",
     )
     settings = Settings(mtproto_public_profile_file=str(profile_path))

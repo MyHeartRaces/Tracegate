@@ -119,6 +119,20 @@ def _validate_absolute_http_path_override(overrides: dict[str, Any], key: str) -
         raise OverrideValidationError(f"{key} must be a clean HTTP path")
 
 
+def _validate_host_override(overrides: dict[str, Any], key: str) -> None:
+    if key not in overrides or overrides.get(key) is None:
+        return
+    value = str(overrides.get(key) or "").strip()
+    if not value:
+        raise OverrideValidationError(f"{key} must not be empty")
+    if "://" in value or "/" in value or any(ch.isspace() for ch in value):
+        raise OverrideValidationError(f"{key} must be a hostname or IP address")
+    if value.startswith("[") and value.endswith("]"):
+        return
+    if ":" in value:
+        raise OverrideValidationError(f"{key} must not include a port")
+
+
 def _validate_int_range_override(overrides: dict[str, Any], key: str, *, min_value: int, max_value: int) -> None:
     if key in overrides and overrides.get(key) is not None:
         _parse_int_range(overrides[key], field_name=key, min_value=min_value, max_value=max_value)
@@ -159,6 +173,7 @@ def validate_overrides(protocol: ConnectionProtocol, overrides: dict[str, Any]) 
             "local_socks_username",
             "local_socks_password",
             "tcp_fast_open",
+            "connect_host",
             # WS+TLS specifics
             "ws_path",
             "ws_host",
@@ -167,6 +182,7 @@ def validate_overrides(protocol: ConnectionProtocol, overrides: dict[str, Any]) 
         }
         forbidden = {"port", "server_port"}
         _ensure_keys(overrides, allowed, forbidden)
+        _validate_host_override(overrides, "connect_host")
         _validate_local_socks_port(overrides)
         _validate_local_socks_credentials(overrides)
 
@@ -178,6 +194,7 @@ def validate_overrides(protocol: ConnectionProtocol, overrides: dict[str, Any]) 
             "local_socks_username",
             "local_socks_password",
             "tcp_fast_open",
+            "connect_host",
             "grpc_service_name",
             "grpc_authority",
             "tls_server_name",
@@ -185,6 +202,7 @@ def validate_overrides(protocol: ConnectionProtocol, overrides: dict[str, Any]) 
         }
         forbidden = {"port", "server_port", "grpc_port"}
         _ensure_keys(overrides, allowed, forbidden)
+        _validate_host_override(overrides, "connect_host")
         _validate_local_socks_port(overrides)
         _validate_local_socks_credentials(overrides)
 

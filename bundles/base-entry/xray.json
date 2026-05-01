@@ -63,7 +63,7 @@
           ]
         },
         "xhttpSettings": {
-          "mode": "packet-up",
+          "mode": "auto",
           "path": "/api/v1/update"
         }
       },
@@ -130,7 +130,7 @@
     {
       "tag": "hy2-in",
       "listen": "0.0.0.0",
-      "port": 8443,
+      "port": 443,
       "protocol": "hysteria",
       "settings": {
         "version": 2,
@@ -173,11 +173,17 @@
   "outbounds": [
     {
       "tag": "api",
-      "protocol": "freedom"
+      "protocol": "freedom",
+      "settings": {
+        "domainStrategy": "UseIPv4"
+      }
     },
     {
       "tag": "direct",
-      "protocol": "freedom"
+      "protocol": "freedom",
+      "settings": {
+        "domainStrategy": "UseIPv4"
+      }
     },
     {
       "tag": "to-transit",
@@ -207,7 +213,7 @@
           "shortId": "0123456789abcdef"
         },
         "xhttpSettings": {
-          "mode": "packet-up",
+          "mode": "auto",
           "path": "/api/v1/update"
         }
       }

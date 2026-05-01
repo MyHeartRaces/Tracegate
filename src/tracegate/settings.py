@@ -94,54 +94,95 @@ class Settings(BaseSettings):
     # come from private runtime storage or a Kubernetes Secret, not from Git.
     bot_guide_path: str = ""
     bot_guide_message: str = (
-        "📘 Tracegate 2.2: гайдлайн\n\n"
-        "Базовый порядок работы:\n"
-        "1. В «Устройствах» выберите активное устройство. Все новые подключения будут выпускаться именно для него.\n"
-        "2. В «Подключениях» создайте профиль, покажите активный конфиг или переключите ревизию.\n"
-        "3. Импортируйте выданный URI, QR или JSON в клиент на активном устройстве.\n\n"
-        "🔌 Типы подключений:\n"
-        "Direct - прямой профиль до Transit: v1 Reality/VLESS, v2 QUIC/Hysteria2, v3 ShadowTLS/Shadowsocks.\n"
-        "Chain - вход через Entry и приватный межнодовый тоннель до Transit: v1, v2 или v3.\n"
-        "Other - совместимые прямые профили: v0-ws-vless, v0-grpc-vless, v0-wgws-wireguard.\n\n"
-        "📏 Лимиты:\n"
-        "- до 5 устройств на пользователя;\n"
-        "- до 4 подключений на устройство;\n"
-        "- до 2 активных ревизий на подключение: текущая и запасная.\n\n"
-        "⚠️ Важно: Hysteria2 работает на UDP/8443 с Salamander. UDP/443 и TCP/8443 намеренно закрыты."
+        "Tracegate 2: гайдлайн\n\n"
+        "Базовый порядок:\n"
+        "1. Открой «Устройства» и выбери активное устройство.\n"
+        "2. Открой «Подключения» и создай профиль для этого устройства.\n"
+        "3. Импортируй ссылку, QR или JSON-файл в клиент на этом же устройстве.\n"
+        "4. Если меняешь телефон, ноутбук или клиент, сначала переключи активное устройство.\n\n"
+        "Как это устроено:\n"
+        "Устройство - телефон, ноутбук, планшет или отдельный клиент. Подключение - профиль для выбранного "
+        "устройства. Ревизия - версия конфига внутри подключения. Если нужно сменить SNI или обновить параметры, "
+        "перевыпусти ревизию, а не создавай дубли.\n\n"
+        "Какой профиль выбрать:\n"
+        "V1-Chain-Reality-VLESS - основной выбор для мобильного интернета.\n"
+        "V1-Direct-Reality-VLESS - прямой Reality/VLESS до Transit для стабильных сетей.\n"
+        "V2-Direct-QUIC-Hysteria - быстрый UDP-профиль; зависит от качества UDP у оператора.\n"
+        "V2-Chain-QUIC-Hysteria - Hysteria через Entry и Transit, если прямой UDP работает хуже.\n"
+        "V3-Direct/Chain-ShadowTLS-Shadowsocks - запасной TCP-вариант.\n"
+        "V0-WS/gRPC-VLESS - совместимость со старыми схемами и клиентами.\n"
+        "Telegram Proxy - отдельный MTProto-доступ для Telegram, не замена VPN-профилю.\n\n"
+        "Клиенты:\n"
+        "Рекомендуемые клиенты: Karing, INCY, Shadowrocket.\n"
+        "Нормальные варианты для десктопа: Karing, INCY, Throne.\n"
+        "Нерекомендуемые приложения - в первую очередь для мобильного телефона: Happ, Hiddify, v2rayNG, "
+        "NekoBox/NekoRay и их мобильные форки, V2RayTun, V2BOX, Exclave, а также Clash/Mihomo/V2Ray-клиенты "
+        "с открытым локальным SOCKS5/mixed/http proxy без авторизации, внешним controller/API без пароля "
+        "или HandlerService без защиты. На компьютере с такими клиентами проще, но локальные proxy/API "
+        "всё равно должны быть закрыты и защищены.\n\n"
+        "Что обязательно ограничить:\n"
+        "Не включай LAN Sharing / Port Sharing / Proxy Sharing без необходимости.\n"
+        "Если нужен локальный SOCKS5/HTTP/mixed proxy, держи bind только на 127.0.0.1 и включай логин/пароль, "
+        "если клиент это поддерживает.\n"
+        "External controller/API, web dashboard, debug API и HandlerService должны быть выключены либо слушать "
+        "только localhost с паролем или токеном.\n"
+        "Не импортируй один и тот же конфиг на несколько устройств или в несколько клиентов одновременно: "
+        "для каждого телефона, ноутбука, планшета и отдельного клиента выпускай отдельное подключение.\n\n"
+        "Рекомендуемые настройки:\n"
+        "Для Karing: включай VPN/TUN mode, не включай Port Sharing / LAN Sharing и не открывай локальный proxy "
+        "для других приложений без необходимости.\n"
+        "Для INCY: предпочитай VPN/TUN mode, а не proxy-only режим; не включай LAN Sharing / Port Sharing. "
+        "Если включаешь локальный SOCKS5/HTTP proxy, держи bind только на 127.0.0.1 и включай логин/пароль, "
+        "если клиент дает такую настройку.\n"
+        "Для Shadowrocket: не включай Proxy Sharing / Allow Connect From LAN и не держи локальный HTTP/SOCKS "
+        "proxy открытым для сети.\n\n"
+        "Ссылки на приложения:\n"
+        "Karing: https://karing.app/en/download/\n"
+        "INCY: https://incy.cc\n"
+        "Shadowrocket: https://apps.apple.com/us/app/shadowrocket/id932747118\n"
+        "Throne: https://throneproj.github.io/get_started/installation/\n\n"
+        "Если не работает:\n"
+        "Проверь активное устройство, перевыпусти ревизию и попробуй другой SNI. Для мобильной сети сначала "
+        "пробуй V1-Chain-Reality-VLESS. Если UDP режется, не начинай с V2/Hysteria.\n\n"
+        "GitHub: https://github.com/MyHeartRaces/Tracegate"
     )
     # Welcome text shown before the normal /start flow. Deployments can still
     # override it from private env/Secrets.
     bot_welcome_required: bool = True
     bot_welcome_version: str = "tracegate-2.2-ui-v3"
     bot_welcome_message: str = (
-        "👋 Добро пожаловать в Tracegate 2.2\n\n"
-        "В этой версии изменилась логика работы с устройствами и подключениями.\n\n"
-        "Что изменилось:\n"
-        "- сначала выберите активное устройство в разделе «Устройства»;\n"
-        "- затем создавайте и обслуживайте профили в разделе «Подключения»;\n"
-        "- каждое подключение привязано к конкретному устройству;\n"
-        "- у подключения есть активная и запасная ревизия.\n\n"
-        "🔌 Стек профилей:\n"
-        "- v1 - Reality/VLESS;\n"
-        "- v2 - Hysteria2/QUIC с Salamander на UDP/8443;\n"
-        "- v3 - Shadowsocks-2022/ShadowTLS;\n"
-        "- v0 - совместимые Other-профили: WebSocket, gRPC, WGWS.\n\n"
-        "Это сообщение будет показано один раз после обновления. Позже его можно открыть в «Справка» -> «Приветствие»."
+        "Добро пожаловать в Tracegate 2.\n\n"
+        "Этот бот выпускает подключения для твоих устройств, показывает актуальные конфиги и помогает "
+        "перевыпускать ревизии без ручной настройки сервера.\n\n"
+        "Базовый порядок простой: сначала добавь или выбери активное устройство, затем создай подключение "
+        "для него и импортируй профиль в клиент на этом же устройстве.\n\n"
+        "Важное правило: один профиль - одно устройство и один клиент. Если меняешь телефон, ноутбук "
+        "или приложение, сначала переключи активное устройство или добавь новое.\n\n"
+        "Подробный гайд по клиентам, ограничениям и профилям доступен в меню через кнопку «Справка»."
     )
     bot_welcome_message_file: str = ""
     # /clear command tries to delete last N messages in chat (best-effort).
     bot_clean_max_messages: int = 150
     # Auto-prune regular users with no devices and no connections when listing users.
     users_auto_prune_empty: bool = True
+    # Optional environment-specific availability gate. When unset, every built-in
+    # Tracegate profile remains creatable. Production overlays can set this to a
+    # JSON list of profile labels so disabled runtime surfaces are not issued.
+    enabled_client_profiles: list[str] | None = Field(
+        default=None,
+        validation_alias=AliasChoices("ENABLED_CLIENT_PROFILES", "CLIENT_PROFILE_NAMES"),
+    )
 
     # Observability (Grafana is optional; can be deployed via Helm).
     grafana_enabled: bool = False
     grafana_internal_url: str = "http://tracegate-grafana:3000"
+    grafana_public_base_url: str = ""
     grafana_admin_user: str = "admin"
     grafana_admin_password: str = ""
     grafana_cookie_secret: str = ""
     grafana_otp_ttl_seconds: int = 300
     grafana_session_ttl_seconds: int = 3600
+    grafana_otp_handoff_url: str = ""
     # Internal webhook (Grafana Alerting -> Tracegate API -> Telegram admins/superadmins).
     grafana_alerts_webhook_url: str = ""
     grafana_alerts_webhook_token: str = ""
@@ -220,6 +261,7 @@ class Settings(BaseSettings):
     agent_reload_profiles_cmd: str = ""
     # Optional private link-crypto reload hook used by Mieru / router relay wrappers.
     agent_reload_link_crypto_cmd: str = ""
+    agent_cors_origins: list[str] = Field(default_factory=list)
     # Optional private handoff roots/state used by host-local wrappers.
     private_runtime_root: str = ""
     private_obfuscation_backend: str = "zapret2"
@@ -261,7 +303,7 @@ class Settings(BaseSettings):
     private_udp_link_transit_port: int = 14482
     private_udp_link_router_entry_port: int = 14483
     private_udp_link_router_transit_port: int = 14484
-    private_udp_link_remote_port: int = 8443
+    private_udp_link_remote_port: int = 443
     private_udp_link_profile_dir: str = "/etc/tracegate/private/udp-link"
     private_udp_link_client_profile: str = "client.yaml"
     private_udp_link_server_profile: str = "server.yaml"
@@ -301,7 +343,7 @@ class Settings(BaseSettings):
     private_fronting_listen_addr: str = "127.0.0.1:10443"
     private_fronting_protocol: str = "tcp"
     private_fronting_reality_upstream: str = "127.0.0.1:2443"
-    private_fronting_ws_tls_upstream: str = "127.0.0.1:4443"
+    private_fronting_ws_tls_upstream: str = "127.0.0.1:10443"
     private_fronting_mtproto_upstream: str = "127.0.0.1:9443"
     private_fronting_ws_sni: str = ""
     private_fronting_mtproto_domain_override: str = ""
@@ -310,7 +352,7 @@ class Settings(BaseSettings):
     private_mtproto_upstream_port: int = 9443
     private_mtproto_secret_file: str = "/etc/tracegate/private/mtproto/secret.txt"
     # Future private MTProto/fronting hints exposed via runtime-contract.json for host-local wrappers.
-    # Keep MTProto on a dedicated real domain and avoid claiming public UDP/8443 in the private TCP demux layer.
+    # Keep MTProto on a dedicated real domain and avoid claiming the public UDP/Hysteria surface in the private TCP demux layer.
     mtproto_domain: str = ""
     mtproto_public_port: int = 443
     mtproto_fronting_mode: str = "dedicated-dns-only"
@@ -384,8 +426,8 @@ class Settings(BaseSettings):
     # Optional VLESS over WebSocket+TLS settings (operator-controlled; must match Xray inbound settings).
     vless_ws_path: str = "/ws"
     vless_ws_tls_port: int = 443
-    # Hysteria2 public UDP surface. Tracegate 2.2 keeps it away from TCP/443.
-    hysteria_udp_port: int = 8443
+    # Hysteria2 public UDP surface. TCP/443 stays reserved for fronting/demux.
+    hysteria_udp_port: int = 443
     # Salamander is mandatory for Tracegate Hysteria2. Keep real values in private env/Secrets.
     hysteria_salamander_password_entry: str = Field(
         default="",
@@ -411,6 +453,52 @@ class Settings(BaseSettings):
     hysteria_ech_force_query_transit: str = Field(
         default="",
         validation_alias=AliasChoices("HYSTERIA_ECH_FORCE_QUERY_TRANSIT", "HYSTERIA_ECH_FORCE_QUERY"),
+    )
+    # Shadowsocks-2022 + ShadowTLS V3 uses static node-side outer credentials,
+    # while Shadowsocks user keys remain per connection.
+    shadowtls_server_name_entry: str = Field(
+        default="www.microsoft.com",
+        validation_alias=AliasChoices("SHADOWTLS_SERVER_NAME_ENTRY", "SHADOWTLS_SERVER_NAME"),
+    )
+    shadowtls_server_name_transit: str = Field(
+        default="www.microsoft.com",
+        validation_alias=AliasChoices("SHADOWTLS_SERVER_NAME_TRANSIT", "SHADOWTLS_SERVER_NAME"),
+    )
+    shadowtls_password_entry: str = Field(
+        default="",
+        validation_alias=AliasChoices("SHADOWTLS_PASSWORD_ENTRY", "SHADOWTLS_PASSWORD"),
+    )
+    shadowtls_password_transit: str = Field(
+        default="",
+        validation_alias=AliasChoices("SHADOWTLS_PASSWORD_TRANSIT", "SHADOWTLS_PASSWORD"),
+    )
+    shadowsocks2022_password_entry: str = Field(
+        default="",
+        validation_alias=AliasChoices("SHADOWSOCKS2022_PASSWORD_ENTRY", "SHADOWSOCKS2022_PASSWORD"),
+    )
+    shadowsocks2022_password_transit: str = Field(
+        default="",
+        validation_alias=AliasChoices("SHADOWSOCKS2022_PASSWORD_TRANSIT", "SHADOWSOCKS2022_PASSWORD"),
+    )
+    shadowsocks2022_method: str = Field(
+        default="2022-blake3-aes-128-gcm",
+        validation_alias=AliasChoices("SHADOWSOCKS2022_METHOD", "SS2022_METHOD"),
+    )
+    # WireGuard over WSTunnel V0 direct surface. The server public key is safe
+    # for client configs; private server material stays in private profiles.
+    wireguard_server_public_key: str = Field(
+        default="",
+        validation_alias=AliasChoices("WIREGUARD_SERVER_PUBLIC_KEY", "WG_SERVER_PUBLIC_KEY"),
+    )
+    wireguard_dns: str = Field(default="1.1.1.1", validation_alias=AliasChoices("WIREGUARD_DNS", "WG_DNS"))
+    wireguard_allowed_ips: list[str] = Field(
+        default_factory=lambda: ["0.0.0.0/0", "::/0"],
+        validation_alias=AliasChoices("WIREGUARD_ALLOWED_IPS", "WG_ALLOWED_IPS"),
+    )
+    wireguard_mtu: int = Field(default=1280, validation_alias=AliasChoices("WIREGUARD_MTU", "WG_MTU"))
+    wireguard_wstunnel_path: str = Field(
+        default="/cdn-cgi/tracegate",
+        validation_alias=AliasChoices("WIREGUARD_WSTUNNEL_PATH", "WG_WSTUNNEL_PATH"),
     )
 
     @field_validator("agent_runtime_profile", mode="before")

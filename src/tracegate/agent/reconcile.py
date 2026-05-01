@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 import json
+import os
 from dataclasses import dataclass
 from pathlib import Path
 import threading
@@ -93,6 +94,19 @@ def _safe_dump_text(path: Path, content: str) -> None:
     tmp = path.with_suffix(path.suffix + ".tmp")
     tmp.write_text(content, encoding="utf-8")
     tmp.replace(path)
+
+
+def _overwrite_text_preserving_inode(path: Path, content: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if not path.exists():
+        _safe_dump_text(path, content)
+        return
+    with path.open("r+", encoding="utf-8") as handle:
+        handle.seek(0)
+        handle.write(content)
+        handle.truncate()
+        handle.flush()
+        os.fsync(handle.fileno())
 
 
 def _safe_dump_bytes(path: Path, content: bytes) -> None:
@@ -349,6 +363,16 @@ def _hysteria_secret_configured(value: object) -> bool:
     return bool(raw) and not normalized.startswith("REPLACE_") and normalized not in {"CHANGE_ME", "CHANGEME", "TODO", "TBD"}
 
 
+def _hysteria_http_loopback_url(value: object) -> bool:
+    raw = str(value or "").strip().lower()
+    return raw.startswith(("http://127.", "http://localhost:", "http://[::1]:"))
+
+
+def _hysteria_loopback_endpoint(value: object) -> bool:
+    raw = str(value or "").strip().lower()
+    return raw.startswith(("127.", "localhost:", "[::1]:"))
+
+
 def _collect_hysteria_runtime_state(runtime_hysteria: dict[str, object], *, config_path: Path) -> dict[str, object]:
     auth = runtime_hysteria.get("auth")
     auth_block = auth if isinstance(auth, dict) else {}
@@ -368,46 +392,108 @@ def _collect_hysteria_runtime_state(runtime_hysteria: dict[str, object], *, conf
     congestion_block = congestion if isinstance(congestion, dict) else {}
     sniff = runtime_hysteria.get("sniff")
     sniff_block = sniff if isinstance(sniff, dict) else {}
+    masquerade = runtime_hysteria.get("masquerade")
+    masquerade_block = masquerade if isinstance(masquerade, dict) else {}
+    masquerade_dirs = _extract_masquerade_dirs(masquerade)
     listen = str(runtime_hysteria.get("listen") or "").strip()
+    auth_type = str(auth_block.get("type") or "").strip().lower()
+    auth_url = str(auth_http_block.get("url") or "").strip()
+    auth_insecure = bool(auth_http_block.get("insecure", False))
+    obfs_type = str(obfs_block.get("type") or "").strip().lower()
+    salamander_password_configured = _hysteria_secret_configured(salamander_block.get("password"))
+    stats_listen = str(traffic_stats_block.get("listen") or "").strip()
+    stats_secret_configured = _hysteria_secret_configured(traffic_stats_block.get("secret"))
+    sni_guard = str(tls_block.get("sniGuard") or "").strip().lower()
+    udp_enabled = not bool(runtime_hysteria.get("disableUDP", False))
+    udp_idle_timeout = str(runtime_hysteria.get("udpIdleTimeout") or "").strip()
+    pmtu_enabled = not bool(quic_block.get("disablePathMTUDiscovery", False))
+    quic_idle_timeout = str(quic_block.get("maxIdleTimeout") or "").strip()
+    congestion_type = str(congestion_block.get("type") or "").strip().lower()
+    sniff_enabled = bool(sniff_block.get("enable", False))
+    sniff_timeout = str(sniff_block.get("timeout") or "").strip()
+    masquerade_type = str(masquerade_block.get("type") or "").strip().lower()
+    hygiene_checks = {
+        "listen_udp_443": _hysteria_listen_port(listen) == TRACEGATE_PUBLIC_UDP_PORT,
+        "http_auth_loopback": auth_type == "http" and _hysteria_http_loopback_url(auth_url),
+        "auth_insecure_disabled": not auth_insecure,
+        "reject_anonymous": auth_type == "http",
+        "salamander": obfs_type == "salamander" and salamander_password_configured,
+        "file_masquerade": masquerade_type == "file" and bool(masquerade_dirs),
+        "traffic_stats_loopback": _hysteria_loopback_endpoint(stats_listen) and stats_secret_configured,
+        "sni_guard_dns_san": sni_guard == "dns-san",
+        "udp_enabled": udp_enabled,
+        "udp_idle_timeout": udp_idle_timeout == "60s",
+        "quic_pmtu": pmtu_enabled,
+        "quic_idle_timeout": quic_idle_timeout in {"30s", ""},
+        "congestion_bbr": congestion_type in {"bbr", ""},
+        "sniff": sniff_enabled,
+    }
     return {
         "configPath": str(config_path),
         "configPresent": bool(runtime_hysteria),
         "listen": listen,
         "listenPort": _hysteria_listen_port(listen),
         "auth": {
-            "type": str(auth_block.get("type") or "").strip().lower(),
-            "httpUrl": str(auth_http_block.get("url") or "").strip(),
-            "httpInsecure": bool(auth_http_block.get("insecure", False)),
+            "type": auth_type,
+            "httpUrl": auth_url,
+            "httpInsecure": auth_insecure,
         },
         "obfs": {
-            "type": str(obfs_block.get("type") or "").strip().lower(),
-            "salamanderPasswordConfigured": _hysteria_secret_configured(salamander_block.get("password")),
+            "type": obfs_type,
+            "salamanderPasswordConfigured": salamander_password_configured,
         },
         "trafficStats": {
-            "listen": str(traffic_stats_block.get("listen") or "").strip(),
-            "secretConfigured": _hysteria_secret_configured(traffic_stats_block.get("secret")),
+            "listen": stats_listen,
+            "secretConfigured": stats_secret_configured,
         },
         "tls": {
             "certConfigured": bool(str(tls_block.get("cert") or "").strip()),
             "keyConfigured": bool(str(tls_block.get("key") or "").strip()),
-            "sniGuard": str(tls_block.get("sniGuard") or "").strip().lower(),
+            "sniGuard": sni_guard,
         },
         "udp": {
-            "enabled": not bool(runtime_hysteria.get("disableUDP", False)),
-            "idleTimeout": str(runtime_hysteria.get("udpIdleTimeout") or "").strip(),
+            "enabled": udp_enabled,
+            "idleTimeout": udp_idle_timeout,
         },
         "quic": {
-            "disablePathMTUDiscovery": bool(quic_block.get("disablePathMTUDiscovery", False)),
-            "maxIdleTimeout": str(quic_block.get("maxIdleTimeout") or "").strip(),
+            "disablePathMTUDiscovery": not pmtu_enabled,
+            "maxIdleTimeout": quic_idle_timeout,
         },
         "congestion": {
-            "type": str(congestion_block.get("type") or "").strip().lower(),
+            "type": congestion_type,
         },
         "sniff": {
-            "enabled": bool(sniff_block.get("enable", False)),
-            "timeout": str(sniff_block.get("timeout") or "").strip(),
+            "enabled": sniff_enabled,
+            "timeout": sniff_timeout,
         },
-        "masqueradeDirs": _extract_masquerade_dirs(runtime_hysteria.get("masquerade")),
+        "masquerade": {
+            "type": masquerade_type,
+            "dirs": masquerade_dirs,
+            "required": True,
+        },
+        "masqueradeDirs": masquerade_dirs,
+        "hygiene": {
+            "required": True,
+            "enabled": bool(runtime_hysteria) and all(hygiene_checks.values()),
+            "checks": hygiene_checks,
+            "requiredLayers": [
+                "hysteria2",
+                "salamander",
+                "file-masquerade",
+                "dns-san-sni-guard",
+                "http-auth-loopback",
+                "reject-anonymous",
+                "traffic-stats-loopback",
+                "udp-enabled",
+                "quic-pmtu",
+                "udp-idle-timeout",
+                "sniff",
+            ],
+            "forbiddenPublicPorts": [
+                {"protocol": "udp", "port": TRACEGATE_FORBIDDEN_PUBLIC_UDP_PORT, "action": "drop"},
+                {"protocol": "tcp", "port": TRACEGATE_FORBIDDEN_PUBLIC_TCP_PORT, "action": "drop"},
+            ],
+        },
     }
 
 
@@ -622,7 +708,7 @@ def _build_link_crypto_contract_payload(settings: Settings) -> dict[str, object]
         "mode": "salamander-plus-scoped-paired-obfs",
         "portSplit": {
             "publicUdpPort": TRACEGATE_PUBLIC_UDP_PORT,
-            "forbidUdp443": True,
+            "forbidUdp443": False,
             "forbidTcp8443": True,
         },
         "requiredLayers": [
@@ -680,7 +766,7 @@ def _build_link_crypto_contract_payload(settings: Settings) -> dict[str, object]
             "profileSource": "private-file-reference",
             "secretMaterial": False,
             "xrayBackhaul": False,
-            "remotePort": int(settings.private_udp_link_remote_port or 8443),
+            "remotePort": int(settings.private_udp_link_remote_port or TRACEGATE_PUBLIC_UDP_PORT),
             "obfs": {
                 "type": "salamander",
                 "required": True,
@@ -820,10 +906,9 @@ def _build_runtime_contract_payload(settings: Settings) -> dict[str, object]:
             "publicUdpOwner": public_udp_owner,
             "udp443Owner": public_udp_owner,
             "udpPublicPort": TRACEGATE_PUBLIC_UDP_PORT,
-            "forbiddenUdp443": True,
+            "forbiddenUdp443": False,
             "forbiddenTcp8443": True,
             "forbiddenPublicPorts": [
-                {"protocol": "udp", "port": TRACEGATE_FORBIDDEN_PUBLIC_UDP_PORT, "action": "drop"},
                 {"protocol": "tcp", "port": TRACEGATE_FORBIDDEN_PUBLIC_TCP_PORT, "action": "drop"},
             ],
             "touchUdp443": bool(settings.fronting_touch_udp_443),
@@ -1021,6 +1106,31 @@ def _merge_hysteria_clients(existing: list[dict] | None, dynamic: list[dict]) ->
         if not isinstance(row, dict):
             continue
         key = str(row.get("email") or row.get("auth") or "").strip()
+        if not key:
+            continue
+        out[key] = row
+    return [out[key] for key in sorted(out, key=str)]
+
+
+def _merge_shadowsocks2022_clients(existing: list[dict] | None, dynamic: list[dict]) -> list[dict]:
+    """
+    Merge Xray Shadowsocks-2022 client rows by email/password.
+
+    The public SS2022 server key is static; per-connection user keys are applied
+    live through Xray HandlerService and persisted in the runtime config.
+    """
+    out: dict[str, dict] = {}
+    for row in existing or []:
+        if not isinstance(row, dict):
+            continue
+        key = str(row.get("email") or row.get("password") or "").strip()
+        if not key:
+            continue
+        out[key] = row
+    for row in dynamic:
+        if not isinstance(row, dict):
+            continue
+        key = str(row.get("email") or row.get("password") or "").strip()
         if not key:
             continue
         out[key] = row
@@ -1632,6 +1742,7 @@ def reconcile_xray(settings: Settings) -> ReconcileXrayResult:
     clients_reality_by_group: dict[str, list[dict]] = {group.id: [] for group in groups}
     clients_ws: list[dict] = []
     clients_grpc: list[dict] = []
+    clients_ss2022: list[dict] = []
     xray_public_artifacts = [row for row in artifacts if _artifact_applies_to_xray_public_runtime(settings, row)]
     clients_hysteria_xray = build_hysteria_xray_clients(xray_public_artifacts)
     selected_reality_sni: str | None = None
@@ -1645,6 +1756,14 @@ def reconcile_xray(settings: Settings) -> ReconcileXrayResult:
         connection_id = str(row.get("connection_id") or "").strip() or "?"
         return f"{variant} - {user_id} - {connection_id}"
 
+    def _ss2022_user_key(row: dict) -> str:
+        cfg = row.get("config") if isinstance(row.get("config"), dict) else {}
+        raw = str(cfg.get("password") or "").strip()
+        if ":" in raw:
+            _server_key, _sep, user_key = raw.rpartition(":")
+            return user_key.strip()
+        return raw
+
     # Prefer a stable, pre-seeded REALITY SNI allow-list.
     # In grouped mode each inbound owns its own SNI list.
     server_names_legacy: set[str] = set([str(s).strip().lower() for s in (settings.sni_seed or []) if str(s).strip()])
@@ -1653,6 +1772,8 @@ def reconcile_xray(settings: Settings) -> ReconcileXrayResult:
         group.id: set([str(s).strip().lower() for s in group.snis if str(s).strip()])
         for group in groups
     }
+    for group in groups:
+        fallback_server_names.update(str(s).strip().lower() for s in group.snis if str(s).strip())
     if not groups:
         for row in load_catalog():
             if row.enabled and row.fqdn:
@@ -1662,6 +1783,20 @@ def reconcile_xray(settings: Settings) -> ReconcileXrayResult:
         if not _artifact_applies_to_xray_public_runtime(settings, row):
             continue
         proto = (row.get("protocol") or "").strip().lower()
+        if proto == "shadowsocks2022_shadowtls":
+            role_upper = str(settings.agent_role or "").strip().upper()
+            mode = str(row.get("mode") or "").strip().lower()
+            if (mode == "chain" and role_upper != "ENTRY") or (mode != "chain" and role_upper != "TRANSIT"):
+                continue
+            user_key = _ss2022_user_key(row)
+            if user_key:
+                clients_ss2022.append(
+                    {
+                        "password": user_key,
+                        "email": _connection_marker(row),
+                    }
+                )
+            continue
         if proto not in {"vless_reality", "vless_ws_tls", "vless_grpc_tls"}:
             continue
         cfg = row.get("config") or {}
@@ -1691,14 +1826,14 @@ def reconcile_xray(settings: Settings) -> ReconcileXrayResult:
                 "id": uuid,
                 "email": _connection_marker(row),
             }
-            if groups and sni:
-                group_id = sni_to_group_id.get(sni)
+            if groups:
+                # Compatibility fallback for clients/paths whose REALITY ClientHello does not expose
+                # SNI early enough for HAProxy demux. The SNI-specific inbounds remain primary, but
+                # the base inbound can still authenticate the client without changing topology.
+                clients_reality_fallback.append(client_row)
+                group_id = sni_to_group_id.get(sni) if sni else None
                 if group_id:
                     clients_reality_by_group.setdefault(group_id, []).append(client_row)
-                else:
-                    clients_reality_fallback.append(client_row)
-            elif groups:
-                clients_reality_fallback.append(client_row)
             else:
                 clients_reality.append(client_row)
         elif proto == "vless_ws_tls":
@@ -1723,6 +1858,7 @@ def reconcile_xray(settings: Settings) -> ReconcileXrayResult:
         bucket.sort(key=lambda c: str(c.get("id") or ""))
     clients_ws.sort(key=lambda c: str(c.get("id") or ""))
     clients_grpc.sort(key=lambda c: str(c.get("id") or ""))
+    clients_ss2022.sort(key=lambda c: str(c.get("email") or c.get("password") or ""))
 
     inbounds = base.get("inbounds", [])
     if not isinstance(inbounds, list):
@@ -1731,6 +1867,7 @@ def reconcile_xray(settings: Settings) -> ReconcileXrayResult:
     managed_reality_tags = {"vless-reality-in", "entry-in"}
     managed_ws_tags = {"vless-ws-in"}
     managed_grpc_tags = {"vless-grpc-in"}
+    managed_ss2022_tags = {"ss2022-in", "shadowsocks2022-in"}
     has_tagged_reality = any(str((row or {}).get("tag") or "").strip() in managed_reality_tags for row in inbounds)
     has_tagged_ws = any(str((row or {}).get("tag") or "").strip() in managed_ws_tags for row in inbounds)
     has_tagged_grpc = any(str((row or {}).get("tag") or "").strip() in managed_grpc_tags for row in inbounds)
@@ -1926,6 +2063,29 @@ def reconcile_xray(settings: Settings) -> ReconcileXrayResult:
                         desired[email] = {"protocol": "hysteria", "auth": auth}
                 desired_by_tag[tag] = desired
 
+        is_ss2022 = str(inbound.get("protocol") or "").strip().lower() == "shadowsocks"
+        if is_ss2022:
+            inbound_settings = inbound.setdefault("settings", {})
+            method = str(inbound_settings.get("method") or "").strip().lower()
+            should_manage_ss2022 = tag in managed_ss2022_tags and "2022" in method
+            if not should_manage_ss2022:
+                continue
+            merged_clients = _merge_shadowsocks2022_clients(
+                inbound_settings.get("clients") if isinstance(inbound_settings.get("clients"), list) else [],
+                clients_ss2022,
+            )
+            inbound_settings["clients"] = merged_clients
+            if tag:
+                desired: dict[str, dict[str, str]] = {}
+                for row in merged_clients:
+                    if not isinstance(row, dict):
+                        continue
+                    email = str(row.get("email") or "").strip()
+                    key = str(row.get("password") or "").strip()
+                    if email and key:
+                        desired[email] = {"protocol": "shadowsocks2022", "key": key}
+                desired_by_tag[tag] = desired
+
     if contract.xray_backhaul_allowed:
         outbounds = base.get("outbounds", [])
         transit_host, transit_port = _default_transit_target(settings)
@@ -2001,7 +2161,7 @@ def _reconcile_passthrough_component(
     if current == desired:
         return False
 
-    _safe_dump_text(runtime_path, desired)
+    _overwrite_text_preserving_inode(runtime_path, desired)
     return True
 
 

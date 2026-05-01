@@ -47,63 +47,63 @@ def upgrade() -> None:
         """
         UPDATE connection
         SET variant = 'V0', profile_name = 'v0-ws-vless'
-        WHERE protocol = 'vless_ws_tls';
+        WHERE protocol = 'VLESS_WS_TLS';
         """
     )
     op.execute(
         """
         UPDATE connection
         SET variant = 'V0', profile_name = 'v0-grpc-vless'
-        WHERE protocol = 'vless_grpc_tls';
+        WHERE protocol = 'VLESS_GRPC_TLS';
         """
     )
     op.execute(
         """
         UPDATE connection
         SET variant = 'V1', profile_name = 'v1-chain-reality-vless'
-        WHERE protocol = 'vless_reality' AND mode = 'chain';
+        WHERE protocol = 'VLESS_REALITY' AND mode = 'CHAIN';
         """
     )
     op.execute(
         """
         UPDATE connection
         SET variant = 'V1', profile_name = 'v1-direct-reality-vless'
-        WHERE protocol = 'vless_reality' AND mode = 'direct';
+        WHERE protocol = 'VLESS_REALITY' AND mode = 'DIRECT';
         """
     )
     op.execute(
         """
         UPDATE connection
         SET variant = 'V2', profile_name = 'v2-direct-quic-hysteria'
-        WHERE protocol = 'hysteria2' AND mode = 'direct';
+        WHERE protocol = 'HYSTERIA2' AND mode = 'DIRECT';
         """
     )
     op.execute(
         """
         UPDATE connection
         SET variant = 'V2', profile_name = 'v2-chain-quic-hysteria'
-        WHERE protocol = 'hysteria2' AND mode = 'chain';
+        WHERE protocol = 'HYSTERIA2' AND mode = 'CHAIN';
         """
     )
     op.execute(
         """
         UPDATE connection
         SET variant = 'V3', profile_name = 'v3-direct-shadowtls-shadowsocks'
-        WHERE protocol = 'shadowsocks2022_shadowtls' AND mode = 'direct';
+        WHERE protocol = 'SHADOWSOCKS2022_SHADOWTLS' AND mode = 'DIRECT';
         """
     )
     op.execute(
         """
         UPDATE connection
         SET variant = 'V3', profile_name = 'v3-chain-shadowtls-shadowsocks'
-        WHERE protocol = 'shadowsocks2022_shadowtls' AND mode = 'chain';
+        WHERE protocol = 'SHADOWSOCKS2022_SHADOWTLS' AND mode = 'CHAIN';
         """
     )
     op.execute(
         """
         UPDATE connection
         SET variant = 'V0', profile_name = 'v0-wgws-wireguard'
-        WHERE protocol = 'wireguard_wstunnel';
+        WHERE protocol = 'WIREGUARD_WSTUNNEL';
         """
     )
 

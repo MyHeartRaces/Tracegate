@@ -1,4 +1,6 @@
+import base64
 import json
+from urllib.parse import parse_qs, urlparse
 
 import pytest
 
@@ -19,7 +21,7 @@ def test_export_vless_reality_uri() -> None:
         "uuid": "11111111-2222-3333-4444-555555555555",
         "sni": "google.com",
         "reality": {"public_key": "PUBKEY", "short_id": "abcd"},
-        "xhttp": {"mode": "packet-up", "path": "/api/v1/update"},
+        "xhttp": {"mode": "auto", "path": "/api/v1/update"},
         "profile": "V1-VLESS-Reality-Direct",
     }
     out = export_v2rayn(effective)
@@ -27,7 +29,7 @@ def test_export_vless_reality_uri() -> None:
     assert out.content.startswith("vless://11111111-2222-3333-4444-555555555555@t.example.com:443?")
     assert "security=reality" in out.content
     assert "type=xhttp" in out.content
-    assert "mode=packet-up" in out.content
+    assert "mode=auto" in out.content
     assert "path=/api/v1/update" in out.content
     assert "sni=google.com" in out.content
     assert "pbk=PUBKEY" in out.content
@@ -49,20 +51,20 @@ def test_export_hysteria2_uri() -> None:
     effective = {
         "protocol": "hysteria2",
         "server": "t.example.com",
-        "port": 8443,
+        "port": 4443,
         "auth": {"type": "userpass", "username": "u", "password": "p"},
         "obfs": {"type": "salamander", "password": "obfs-secret"},
         "profile": "V3-Hysteria2-QUIC-Direct",
     }
     out = export_v2rayn(effective)
     assert out.kind == "uri"
-    assert out.content.startswith("hysteria2://u:p@t.example.com:8443/")
-    assert "insecure=0" in out.content
+    assert out.content.startswith("hysteria2://u:p@t.example.com:4443/")
+    assert "insecure=0" not in out.content
     assert "obfs=salamander" in out.content
     assert "obfs-password=obfs-secret" in out.content
     assert "alpn=" not in out.content
     assert "sni=t.example.com" in out.content
-    assert "peer=t.example.com" in out.content
+    assert "peer=t.example.com" not in out.content
     assert "#V3-Hysteria2-QUIC-Direct" in out.content
     assert out.alternate_title is None
     assert out.alternate_content is None
@@ -81,7 +83,7 @@ def test_export_hysteria2_rejects_missing_salamander() -> None:
     effective = {
         "protocol": "hysteria2",
         "server": "t.example.com",
-        "port": 8443,
+        "port": 4443,
         "auth": {"type": "userpass", "username": "u", "password": "p"},
         "profile": "V3-Hysteria2-QUIC-Direct",
     }
@@ -94,7 +96,7 @@ def test_export_hysteria2_token_uri() -> None:
     effective = {
         "protocol": "hysteria2",
         "server": "t.example.com",
-        "port": 8443,
+        "port": 4443,
         "auth": {
             "type": "token",
             "token": "client-token:device-token",
@@ -105,11 +107,11 @@ def test_export_hysteria2_token_uri() -> None:
     }
     out = export_v2rayn(effective)
     assert out.kind == "uri"
-    assert out.content.startswith("hysteria2://client-token%3Adevice-token@t.example.com:8443/")
-    assert "insecure=0" in out.content
+    assert out.content.startswith("hysteria2://client-token%3Adevice-token@t.example.com:4443/")
+    assert "insecure=0" not in out.content
     assert "alpn=" not in out.content
     assert "sni=t.example.com" in out.content
-    assert "peer=t.example.com" in out.content
+    assert "peer=t.example.com" not in out.content
     assert "#V3-Hysteria2-QUIC-Direct" in out.content
     assert out.alternate_title is None
     assert out.alternate_content is None
@@ -124,20 +126,20 @@ def test_export_hysteria2_token_uri_falls_back_to_raw_token_when_it_is_not_split
     effective = {
         "protocol": "hysteria2",
         "server": "t.example.com",
-        "port": 8443,
+        "port": 4443,
         "auth": {"type": "token", "token": "opaque-token", "client_id": "client-token"},
         "obfs": {"type": "salamander", "password": "obfs-secret"},
         "profile": "V3-Hysteria2-QUIC-Direct",
     }
     out = export_v2rayn(effective)
-    assert out.content.startswith("hysteria2://opaque-token@t.example.com:8443/")
+    assert out.content.startswith("hysteria2://opaque-token@t.example.com:4443/")
 
 
 def test_export_hysteria2_ip_sni_forces_insecure_tls() -> None:
     effective = {
         "protocol": "hysteria2",
         "server": "138.124.29.105",
-        "port": 8443,
+        "port": 4443,
         "sni": "138.124.29.105",
         "tls": {"server_name": "138.124.29.105", "insecure": False},
         "auth": {"type": "token", "token": "opaque-token", "client_id": "client-token"},
@@ -155,17 +157,17 @@ def test_export_hysteria2_ip_sni_forces_insecure_tls() -> None:
 def test_export_mtproto_tls_link() -> None:
     effective = {
         "protocol": "mtproto",
-        "server": "proxied.tracegate.su",
+        "server": "proxied.tracegate.test",
         "port": 443,
         "secret": "95f0d81f7539ecbe1bd880f48b6a739a",
         "transport": "tls",
-        "domain": "proxied.tracegate.su",
+        "domain": "proxied.tracegate.test",
         "profile": "MTProto-FakeTLS-Direct",
     }
     out = export_v2rayn(effective)
     assert out.kind == "uri"
     assert out.title == "Telegram Proxy link · MTProto-FakeTLS-Direct"
-    assert out.content.startswith("https://t.me/proxy?server=proxied.tracegate.su&port=443&secret=ee95f0")
+    assert out.content.startswith("https://t.me/proxy?server=proxied.tracegate.test&port=443&secret=ee95f0")
 
 
 def test_export_vless_ws_tls_uri() -> None:
@@ -195,7 +197,30 @@ def test_export_vless_ws_tls_uri() -> None:
     assert attachment["inbounds"][0]["settings"]["auth"] == "password"
     assert attachment["inbounds"][0]["settings"]["accounts"][0]["user"].startswith("tg_")
     assert attachment["outbounds"][0]["streamSettings"]["wsSettings"]["path"] == "/ws"
-    assert "alpn" not in attachment["outbounds"][0]["streamSettings"]["tlsSettings"]
+    assert attachment["outbounds"][0]["streamSettings"]["tlsSettings"]["alpn"] == ["http/1.1"]
+
+
+def test_export_vless_ws_tls_can_use_alternate_connect_host_with_domain_sni() -> None:
+    effective = {
+        "protocol": "vless",
+        "transport": "ws_tls",
+        "server": "endpoint.tracegate.test",
+        "connect_host": "edge-connect.tracegate.test",
+        "port": 443,
+        "uuid": "11111111-2222-3333-4444-555555555555",
+        "sni": "endpoint.tracegate.test",
+        "ws": {"path": "/ws", "host": "endpoint.tracegate.test"},
+        "profile": "V0-WS-VLESS",
+    }
+
+    out = export_v2rayn(effective)
+    attachment = json.loads((out.attachment_content or b"").decode("utf-8"))
+
+    assert out.content.startswith("vless://11111111-2222-3333-4444-555555555555@edge-connect.tracegate.test:443?")
+    assert "sni=endpoint.tracegate.test" in out.content
+    assert "host=endpoint.tracegate.test" in out.content
+    assert attachment["outbounds"][0]["settings"]["vnext"][0]["address"] == "edge-connect.tracegate.test"
+    assert attachment["outbounds"][0]["streamSettings"]["tlsSettings"]["serverName"] == "endpoint.tracegate.test"
 
 
 def test_export_vless_grpc_tls_uri() -> None:
@@ -215,13 +240,40 @@ def test_export_vless_grpc_tls_uri() -> None:
     assert out.content.startswith("vless://11111111-2222-3333-4444-555555555555@t.example.com:443?")
     assert "security=tls" in out.content
     assert "type=grpc" in out.content
+    assert "alpn=" not in out.content
+    assert "fp=" not in out.content
     assert "serviceName=tracegate.v1.Edge" in out.content
-    assert "authority=t.example.com" in out.content
+    assert "mode=gun" in out.content
+    assert "authority=" not in out.content
     assert out.attachment_filename == "v1-vless-grpc-tls-direct.xray.json"
     attachment = json.loads((out.attachment_content or b"").decode("utf-8"))
     assert attachment["inbounds"][0]["settings"]["auth"] == "password"
     assert attachment["outbounds"][0]["streamSettings"]["network"] == "grpc"
+    assert attachment["outbounds"][0]["streamSettings"]["tlsSettings"]["alpn"] == ["h2"]
     assert attachment["outbounds"][0]["streamSettings"]["grpcSettings"]["serviceName"] == "tracegate.v1.Edge"
+
+
+def test_export_vless_grpc_tls_can_use_alternate_connect_host_with_domain_sni() -> None:
+    effective = {
+        "protocol": "vless",
+        "transport": "grpc_tls",
+        "server": "endpoint.tracegate.test",
+        "connect_host": "edge-connect.tracegate.test",
+        "port": 443,
+        "uuid": "11111111-2222-3333-4444-555555555555",
+        "sni": "endpoint.tracegate.test",
+        "grpc": {"service_name": "tracegate.v1.Edge", "authority": "endpoint.tracegate.test"},
+        "profile": "V0-gRPC-VLESS",
+    }
+
+    out = export_v2rayn(effective)
+    attachment = json.loads((out.attachment_content or b"").decode("utf-8"))
+
+    assert out.content.startswith("vless://11111111-2222-3333-4444-555555555555@edge-connect.tracegate.test:443?")
+    assert "sni=endpoint.tracegate.test" in out.content
+    assert "serviceName=tracegate.v1.Edge" in out.content
+    assert attachment["outbounds"][0]["settings"]["vnext"][0]["address"] == "edge-connect.tracegate.test"
+    assert attachment["outbounds"][0]["streamSettings"]["tlsSettings"]["serverName"] == "endpoint.tracegate.test"
 
 
 def test_export_uses_explicit_local_socks_credentials() -> None:
@@ -273,7 +325,7 @@ def test_export_rejects_disabled_local_socks_auth() -> None:
     effective = {
         "protocol": "hysteria2",
         "server": "t.example.com",
-        "port": 8443,
+        "port": 4443,
         "auth": {"type": "userpass", "username": "u", "password": "p"},
         "obfs": {"type": "salamander", "password": "obfs-secret"},
         "profile": "V3-Hysteria2-QUIC-Direct",
@@ -303,14 +355,14 @@ def test_export_rejects_client_side_xray_handler_service() -> None:
         export_v2rayn(effective)
 
 
-def test_export_shadowsocks2022_shadowtls_attachment_requires_local_auth() -> None:
+def test_export_shadowsocks2022_shadowtls_single_line_uri() -> None:
     effective = {
         "protocol": "shadowsocks2022",
         "transport": "shadowtls_v3",
         "server": "t.example.com",
         "port": 443,
         "method": "2022-blake3-aes-128-gcm",
-        "password": "ss-password",
+        "password": "server-password:user-password",
         "shadowtls": {
             "version": 3,
             "server_name": "www.microsoft.com",
@@ -324,16 +376,25 @@ def test_export_shadowsocks2022_shadowtls_attachment_requires_local_auth() -> No
     }
 
     out = export_v2rayn(effective)
-    attachment = json.loads((out.attachment_content or b"").decode("utf-8"))
 
-    assert out.kind == "attachment"
-    assert out.attachment_filename == "v5-shadowsocks2022-shadowtls-direct.singbox.json"
-    assert "Local SOCKS5 credentials" in dict(out.extra_messages)
-    assert attachment["inbounds"][0]["users"] == [{"username": "local-user", "password": "local-pass"}]
-    assert attachment["outbounds"][0]["type"] == "shadowsocks"
-    assert attachment["outbounds"][0]["detour"] == "shadowtls-out"
-    assert attachment["outbounds"][1]["type"] == "shadowtls"
-    assert attachment["outbounds"][1]["version"] == 3
+    assert out.kind == "uri"
+    assert out.content.startswith("ss://")
+    assert "\n" not in out.content
+    assert "shadow-tls=" not in out.content
+    assert "@t.example.com:443" in out.content
+    assert "#V5-Shadowsocks2022-ShadowTLS-Direct" in out.content
+    assert out.title == "Shadowsocks-2022 + ShadowTLS"
+    assert out.alternate_content is None
+    assert out.attachment_content is None
+    assert out.extra_messages == ()
+
+    parsed = urlparse(out.content)
+    assert base64.urlsafe_b64decode(f"{parsed.username}==").decode("utf-8") == (
+        "2022-blake3-aes-128-gcm:server-password:user-password"
+    )
+    assert parse_qs(parsed.query) == {
+        "plugin": ["shadow-tls;host=www.microsoft.com;password=shadowtls-password;version=3"]
+    }
 
 
 def test_export_wireguard_wstunnel_attachment_requires_local_auth() -> None:
@@ -502,19 +563,10 @@ def test_export_wireguard_wstunnel_rejects_unsafe_mtu() -> None:
         {
             "protocol": "hysteria2",
             "server": "t.example.com",
-            "port": 8443,
+            "port": 4443,
             "auth": {"type": "userpass", "username": "u", "password": "p"},
             "obfs": {"type": "salamander", "password": "obfs-secret"},
             "profile": "V3-Hysteria2-QUIC-Direct",
-        },
-        {
-            "protocol": "shadowsocks2022",
-            "server": "t.example.com",
-            "port": 443,
-            "method": "2022-blake3-aes-128-gcm",
-            "password": "ss-password",
-            "shadowtls": {"version": 3, "server_name": "www.microsoft.com", "password": "shadowtls-password"},
-            "profile": "V5-Shadowsocks2022-ShadowTLS-Direct",
         },
         {
             "protocol": "wireguard",
@@ -569,5 +621,5 @@ def test_export_vless_reality_uri_defaults_to_xhttp_without_xhttp_block() -> Non
     assert out.kind == "uri"
     assert "security=reality" in out.content
     assert "type=xhttp" in out.content
-    assert "mode=packet-up" in out.content
+    assert "mode=auto" in out.content
     assert "path=/api/v1/update" in out.content

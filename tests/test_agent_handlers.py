@@ -141,6 +141,98 @@ def test_reload_commands_force_xray_reload_even_when_api_mode_is_enabled() -> No
     assert cmds == ["reload-xray"]
 
 
+def test_handle_upsert_user_reconciles_without_reload_commands(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    monkeypatch.setattr(
+        handlers,
+        "_reconcile_user_lifecycle_without_reload",
+        lambda _settings: handlers.ReconcileAllResult(
+            changed=["xray", "profiles", "hysteria"],
+            force_xray_reload=True,
+        ),
+    )
+    monkeypatch.setattr(
+        handlers,
+        "_run_reload_commands",
+        lambda _settings, _cmds: pytest.fail("user lifecycle must not run reload commands"),
+    )
+    settings = Settings(
+        agent_data_root=str(tmp_path),
+        agent_reload_xray_cmd="reload-xray",
+        agent_reload_hysteria_cmd="reload-hysteria",
+        agent_reload_profiles_cmd="reload-profiles",
+    )
+
+    msg = handlers.handle_upsert_user(
+        settings,
+        {
+            "user_id": "1",
+            "connection_id": "c1",
+            "revision_id": "r1",
+            "op_ts": "2026-02-12T00:00:01+00:00",
+            "config": {"protocol": "vless"},
+        },
+    )
+
+    assert "live_reconciled=hysteria,profiles,xray" in msg
+    assert "reloads=0" in msg
+
+
+def test_handle_revoke_user_reconciles_without_reload_commands(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    monkeypatch.setattr(
+        handlers,
+        "_reconcile_user_lifecycle_without_reload",
+        lambda _settings: handlers.ReconcileAllResult(
+            changed=["profiles"],
+            force_xray_reload=False,
+        ),
+    )
+    monkeypatch.setattr(
+        handlers,
+        "_run_reload_commands",
+        lambda _settings, _cmds: pytest.fail("user lifecycle must not run reload commands"),
+    )
+    settings = Settings(
+        agent_data_root=str(tmp_path),
+        agent_reload_profiles_cmd="reload-profiles",
+    )
+
+    msg = handlers.handle_revoke_user(settings, {"user_id": "1"})
+
+    assert "live_reconciled=profiles" in msg
+    assert "reloads=0" in msg
+
+
+def test_handle_revoke_connection_reconciles_without_reload_commands(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    monkeypatch.setattr(
+        handlers,
+        "_reconcile_user_lifecycle_without_reload",
+        lambda _settings: handlers.ReconcileAllResult(
+            changed=["xray"],
+            force_xray_reload=True,
+        ),
+    )
+    monkeypatch.setattr(
+        handlers,
+        "_run_reload_commands",
+        lambda _settings, _cmds: pytest.fail("user lifecycle must not run reload commands"),
+    )
+    settings = Settings(agent_data_root=str(tmp_path), agent_reload_xray_cmd="reload-xray")
+
+    msg = handlers.handle_revoke_connection(
+        settings,
+        {"user_id": "1", "connection_id": "c1"},
+    )
+
+    assert "live_reconciled=xray" in msg
+    assert "reloads=0" in msg
+
+
 def test_handle_apply_bundle_applies_firewall_when_nftables_conf_present(
     monkeypatch: pytest.MonkeyPatch, tmp_path
 ) -> None:
@@ -528,14 +620,14 @@ def test_handle_apply_bundle_tracegate22_syncs_standalone_hysteria_base(
         {
             "bundle_name": "base-transit",
             "files": {
-                "hysteria/server.yaml": "listen: :8443\nobfs:\n  type: salamander\n",
+                "hysteria/server.yaml": "listen: :4443\nobfs:\n  type: salamander\n",
             },
             "commands": [],
         },
     )
 
     assert (tmp_path / "base/hysteria/server.yaml").read_text(encoding="utf-8") == (
-        "listen: :8443\nobfs:\n  type: salamander\n"
+        "listen: :4443\nobfs:\n  type: salamander\n"
     )
     assert reload_calls == [["reload-hysteria"]]
     assert "base_sync=hysteria" in msg
@@ -585,7 +677,11 @@ def test_out_of_order_revoke_then_upsert_is_ignored(
     monkeypatch: pytest.MonkeyPatch, tmp_path
 ) -> None:
     # Avoid touching real reconcilers / reload hooks in this unit test.
-    monkeypatch.setattr(handlers, "reconcile_all", lambda _settings: [])
+    monkeypatch.setattr(
+        handlers,
+        "_reconcile_user_lifecycle_without_reload",
+        lambda _settings: handlers.ReconcileAllResult(changed=[], force_xray_reload=False),
+    )
     monkeypatch.setattr(handlers, "_run_reload_commands", lambda _settings, _cmds: None)
 
     settings = Settings(agent_data_root=str(tmp_path), agent_dry_run=True)
@@ -626,7 +722,11 @@ def test_out_of_order_revoke_then_upsert_is_ignored(
 def test_out_of_order_upsert_does_not_roll_back(
     monkeypatch: pytest.MonkeyPatch, tmp_path
 ) -> None:
-    monkeypatch.setattr(handlers, "reconcile_all", lambda _settings: [])
+    monkeypatch.setattr(
+        handlers,
+        "_reconcile_user_lifecycle_without_reload",
+        lambda _settings: handlers.ReconcileAllResult(changed=[], force_xray_reload=False),
+    )
     monkeypatch.setattr(handlers, "_run_reload_commands", lambda _settings, _cmds: None)
 
     settings = Settings(agent_data_root=str(tmp_path), agent_dry_run=True)

@@ -18,10 +18,10 @@ def test_build_mtproto_client_secret_for_tls_transport() -> None:
     value = build_mtproto_client_secret(
         "95f0d81f7539ecbe1bd880f48b6a739a",
         transport="tls",
-        domain="proxied.tracegate.su",
+        domain="proxied.tracegate.test",
     )
 
-    assert value == "ee95f0d81f7539ecbe1bd880f48b6a739a70726f786965642e7472616365676174652e7375"
+    assert value == "ee95f0d81f7539ecbe1bd880f48b6a739a70726f786965642e7472616365676174652e74657374"
 
 
 def test_build_mtproto_client_secret_for_random_padding() -> None:
@@ -34,22 +34,22 @@ def test_build_mtproto_client_secret_for_random_padding() -> None:
 
 
 def test_resolve_mtproto_client_secret_accepts_prebuilt_tls_secret() -> None:
-    prebuilt = "ee95f0d81f7539ecbe1bd880f48b6a739a70726f786965642e7472616365676174652e7375"
+    prebuilt = "ee95f0d81f7539ecbe1bd880f48b6a739a70726f786965642e7472616365676174652e74657374"
     assert resolve_mtproto_client_secret(prebuilt) == prebuilt
 
 
 def test_build_mtproto_share_links_produces_tg_and_https_variants() -> None:
     links = build_mtproto_share_links(
-        server="proxied.tracegate.su",
+        server="proxied.tracegate.test",
         port=443,
         secret_hex="95f0d81f7539ecbe1bd880f48b6a739a",
         transport="tls",
-        domain="proxied.tracegate.su",
+        domain="proxied.tracegate.test",
     )
 
     assert links.client_secret_hex.startswith("ee95f0d81f7539ecbe1bd880f48b6a739a")
-    assert links.tg_uri.startswith("tg://proxy?server=proxied.tracegate.su&port=443&secret=ee95f0")
-    assert links.https_url.startswith("https://t.me/proxy?server=proxied.tracegate.su&port=443&secret=ee95f0")
+    assert links.tg_uri.startswith("tg://proxy?server=proxied.tracegate.test&port=443&secret=ee95f0")
+    assert links.https_url.startswith("https://t.me/proxy?server=proxied.tracegate.test&port=443&secret=ee95f0")
 
 
 def test_normalize_mtproto_domain_converts_idna() -> None:
@@ -126,7 +126,7 @@ def test_build_mtproto_official_proxy_command_accepts_primary_and_issued_secrets
         workers=1,
         proxy_tag="tg-tag",
         tls_mode="private-fronting",
-        domain="proxied.tracegate.su",
+        domain="proxied.tracegate.test",
     )
 
     assert command.accepted_secret_hexes == (
@@ -143,7 +143,7 @@ def test_build_mtproto_official_proxy_command_accepts_primary_and_issued_secrets
         "9443",
     )
     assert "--domain" in command.argv
-    assert "proxied.tracegate.su" in command.argv
+    assert "proxied.tracegate.test" in command.argv
     assert "--address" in command.argv
     assert "127.0.0.1" in command.argv
     assert "--nat-info" in command.argv
@@ -166,7 +166,7 @@ def test_build_mtproto_official_proxy_command_rejects_invalid_nat_info() -> None
             proxy_config_file="/var/lib/tracegate/private/mtproto/runtime/proxy-multi.conf",
             workers=1,
             tls_mode="private-fronting",
-            domain="proxied.tracegate.su",
+            domain="proxied.tracegate.test",
         )
 
 
@@ -181,7 +181,7 @@ def test_build_mtproto_official_proxy_command_allows_zero_workers() -> None:
         proxy_config_file="/var/lib/tracegate/private/mtproto/runtime/proxy-multi.conf",
         workers=0,
         tls_mode="private-fronting",
-        domain="proxied.tracegate.su",
+        domain="proxied.tracegate.test",
     )
 
     assert "-M" not in command.argv

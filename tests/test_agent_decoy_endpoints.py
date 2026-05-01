@@ -54,13 +54,13 @@ def _write_profile(path: Path) -> None:
         json.dumps(
             {
                 "protocol": "mtproto",
-                "server": "proxied.tracegate.su",
+                "server": "proxied.tracegate.test",
                 "port": 443,
                 "transport": "tls",
-                "domain": "proxied.tracegate.su",
+                "domain": "proxied.tracegate.test",
                 "clientSecretHex": "ee00112233445566778899aabbccddeeff70726f786965642e7472616365676174652e7375",
-                "tgUri": "tg://proxy?server=proxied.tracegate.su&port=443&secret=ee0011",
-                "httpsUrl": "https://t.me/proxy?server=proxied.tracegate.su&port=443&secret=ee0011",
+                "tgUri": "tg://proxy?server=proxied.tracegate.test&port=443&secret=ee0011",
+                "httpsUrl": "https://t.me/proxy?server=proxied.tracegate.test&port=443&secret=ee0011",
             },
             ensure_ascii=True,
             indent=2,
@@ -68,6 +68,12 @@ def _write_profile(path: Path) -> None:
         + "\n",
         encoding="utf-8",
     )
+
+
+def _mark_profile_shared(path: Path) -> None:
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload["secretPolicy"] = "shared"
+    path.write_text(json.dumps(payload, ensure_ascii=True, indent=2) + "\n", encoding="utf-8")
 
 
 def _settings(tmp_path: Path) -> Settings:
@@ -129,7 +135,7 @@ def test_decoy_login_session_and_mtproto_fetch(monkeypatch, tmp_path) -> None:
         payload = profile.json()
         assert payload["ok"] is True
         assert payload["profile"]["protocol"] == "mtproto"
-        assert payload["profile"]["server"] == "proxied.tracegate.su"
+        assert payload["profile"]["server"] == "proxied.tracegate.test"
 
 
 def test_hysteria_http_auth_accepts_role_scoped_userpass(monkeypatch, tmp_path) -> None:
@@ -169,10 +175,16 @@ def test_hysteria_http_auth_accepts_role_scoped_userpass(monkeypatch, tmp_path) 
 
     with TestClient(agent_main.app) as client:
         accepted = client.post("/v1/hysteria/auth", json={"addr": "198.51.100.10:40000", "auth": "hy_user:hy_pass", "tx": 0})
+        accepted_password_only = client.post(
+            "/v1/hysteria/auth",
+            json={"addr": "198.51.100.10:40000", "auth": "hy_pass", "tx": 0},
+        )
         rejected = client.post("/v1/hysteria/auth", json={"addr": "198.51.100.10:40000", "auth": "bad", "tx": 0})
 
     assert accepted.status_code == 200
     assert accepted.json() == {"ok": True, "id": "hy_user"}
+    assert accepted_password_only.status_code == 200
+    assert accepted_password_only.json() == {"ok": True, "id": "hy_user"}
     assert rejected.status_code == 200
     assert rejected.json() == {"ok": False, "id": None}
 
@@ -198,14 +210,14 @@ def test_agent_mtproto_access_issue_persists_user_bound_profile(monkeypatch, tmp
     assert payload["changed"] is True
     assert payload["profile"]["telegramId"] == 101
     assert payload["profile"]["ephemeral"] is False
-    assert reload_calls == ["reload"]
+    assert reload_calls == []
     entries = load_mtproto_access_entries(settings)
     assert len(entries) == 1
     assert entries[0]["telegramId"] == 101
     assert entries[0]["label"] == "@user101"
 
 
-def test_agent_mtproto_access_issue_rolls_back_when_reload_fails(monkeypatch, tmp_path) -> None:
+def test_agent_mtproto_access_issue_does_not_reload_or_roll_back(monkeypatch, tmp_path) -> None:
     settings = _settings(tmp_path)
     _write_profile(Path(settings.mtproto_public_profile_file))
     reload_calls: list[str] = []
@@ -224,10 +236,34 @@ def test_agent_mtproto_access_issue_rolls_back_when_reload_fails(monkeypatch, tm
             json={"telegram_id": 101, "issued_by": "bot"},
         )
 
-    assert response.status_code == 500
-    assert response.json()["detail"] == "reload failed"
-    assert reload_calls == ["reload", "reload"]
-    assert load_mtproto_access_entries(settings) == []
+    assert response.status_code == 200
+    assert response.json()["ok"] is True
+    assert reload_calls == []
+    assert len(load_mtproto_access_entries(settings)) == 1
+
+
+def test_agent_mtproto_access_issue_shared_secret_does_not_reload(monkeypatch, tmp_path) -> None:
+    settings = _settings(tmp_path)
+    profile_path = Path(settings.mtproto_public_profile_file)
+    _write_profile(profile_path)
+    _mark_profile_shared(profile_path)
+    reload_calls: list[str] = []
+
+    monkeypatch.setattr(agent_main, "settings", settings)
+    monkeypatch.setattr(agent_main, "_apply_mtproto_reload", lambda: reload_calls.append("reload"))
+
+    with TestClient(agent_main.app) as client:
+        response = client.post(
+            "/v1/mtproto/access/issue",
+            headers={"x-agent-token": "test-agent-token"},
+            json={"telegram_id": 101, "label": "@user101", "issued_by": "bot"},
+        )
+
+    assert response.status_code == 200
+    assert response.json()["changed"] is True
+    assert response.json()["profile"]["secretPolicy"] == "shared"
+    assert reload_calls == []
+    assert load_mtproto_access_entries(settings)[0]["telegramId"] == 101
 
 
 def test_agent_mtproto_access_revoke_removes_profile(monkeypatch, tmp_path) -> None:
@@ -260,5 +296,31 @@ def test_agent_mtproto_access_revoke_removes_profile(monkeypatch, tmp_path) -> N
 
     assert revoke.status_code == 200
     assert revoke.json() == {"ok": True, "removed": True}
-    assert reload_calls == ["reload", "reload"]
+    assert reload_calls == []
+    assert load_mtproto_access_entries(settings) == []
+
+
+def test_agent_mtproto_access_revoke_shared_secret_does_not_reload(monkeypatch, tmp_path) -> None:
+    settings = _settings(tmp_path)
+    profile_path = Path(settings.mtproto_public_profile_file)
+    _write_profile(profile_path)
+    _mark_profile_shared(profile_path)
+    reload_calls: list[str] = []
+
+    monkeypatch.setattr(agent_main, "settings", settings)
+    monkeypatch.setattr(agent_main, "_apply_mtproto_reload", lambda: reload_calls.append("reload"))
+
+    with TestClient(agent_main.app) as client:
+        issue = client.post(
+            "/v1/mtproto/access/issue",
+            headers={"x-agent-token": "test-agent-token"},
+            json={"telegram_id": 101},
+        )
+        assert issue.status_code == 200
+
+        revoke = client.delete("/v1/mtproto/access/101", headers={"x-agent-token": "test-agent-token"})
+
+    assert revoke.status_code == 200
+    assert revoke.json() == {"ok": True, "removed": True}
+    assert reload_calls == []
     assert load_mtproto_access_entries(settings) == []

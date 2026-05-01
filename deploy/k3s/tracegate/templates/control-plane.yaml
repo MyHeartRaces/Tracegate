@@ -3,6 +3,8 @@
 {{- if and (not $databaseUrl) .Values.controlPlane.database.embedded.enabled -}}
 {{- $databaseUrl = printf "postgresql+psycopg://%s:%s@%s-postgres:5432/%s" .Values.controlPlane.database.embedded.username .Values.controlPlane.database.embedded.password (include "tracegate.fullname" .) .Values.controlPlane.database.embedded.database -}}
 {{- end }}
+{{- $entryRealityShortId := .Values.controlPlane.env.realityShortIdEntry | default (index .Values.gateway.roles.entry.reality.shortIds 0) -}}
+{{- $transitRealityShortId := .Values.controlPlane.env.realityShortIdTransit | default (index .Values.gateway.roles.transit.reality.shortIds 0) -}}
 {{- if .Values.controlPlane.database.embedded.enabled }}
 apiVersion: apps/v1
 kind: StatefulSet
@@ -127,7 +129,67 @@ spec:
         - name: migrate-db
           image: {{ include "tracegate.image" .Values.global.image | quote }}
           imagePullPolicy: {{ .Values.global.image.pullPolicy }}
-          command: ["tracegate-migrate-db"]
+          command: ["/bin/sh", "-lc"]
+          args:
+            - |
+              python - <<'PY'
+              from pathlib import Path
+
+              path = Path("/app/alembic/env.py")
+              old = """    # Use an explicit outer transaction so advisory lock + migrations commit atomically.
+                  with connectable.begin() as connection:
+                      context.configure(
+                          connection=connection,
+                          target_metadata=target_metadata,
+                          compare_type=True,
+                      )
+
+                      with context.begin_transaction():
+                          if connection.dialect.name == "postgresql":
+                              # Transaction-scoped advisory lock avoids concurrent runners and is auto-released on commit/rollback.
+                              connection.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": MIGRATION_ADVISORY_LOCK_KEY})
+                          context.run_migrations()
+              """
+              new = """    with connectable.connect() as lock_connection:
+                      if lock_connection.dialect.name == "postgresql":
+                          lock_connection.execute(text("SELECT pg_advisory_lock(:key)"), {"key": MIGRATION_ADVISORY_LOCK_KEY})
+                          lock_connection.commit()
+                      try:
+                          with connectable.connect() as connection:
+                              context.configure(
+                                  connection=connection,
+                                  target_metadata=target_metadata,
+                                  compare_type=True,
+                              )
+
+                              with context.begin_transaction():
+                                  context.run_migrations()
+                      finally:
+                          if lock_connection.dialect.name == "postgresql":
+                              lock_connection.execute(text("SELECT pg_advisory_unlock(:key)"), {"key": MIGRATION_ADVISORY_LOCK_KEY})
+                              lock_connection.commit()
+              """
+              text = path.read_text()
+              if old in text:
+                  path.write_text(text.replace(old, new))
+
+              migration = Path("/app/alembic/versions/f6b7c8d9e012_add_v0_connection_variant.py")
+              replacements = {
+                  "'vless_ws_tls'": "'VLESS_WS_TLS'",
+                  "'vless_grpc_tls'": "'VLESS_GRPC_TLS'",
+                  "'vless_reality'": "'VLESS_REALITY'",
+                  "'hysteria2'": "'HYSTERIA2'",
+                  "'shadowsocks2022_shadowtls'": "'SHADOWSOCKS2022_SHADOWTLS'",
+                  "'wireguard_wstunnel'": "'WIREGUARD_WSTUNNEL'",
+                  "'direct'": "'DIRECT'",
+                  "'chain'": "'CHAIN'",
+              }
+              migration_text = migration.read_text()
+              for needle, replacement in replacements.items():
+                  migration_text = migration_text.replace(needle, replacement)
+              migration.write_text(migration_text)
+              PY
+              exec tracegate-migrate-db
           env:
             - name: DATABASE_URL
 {{- if .Values.controlPlane.database.externalUrlSecret.name }}
@@ -167,6 +229,11 @@ spec:
                 secretKeyRef:
                   name: {{ include "tracegate.controlPlaneSecretName" . }}
                   key: api-internal-token
+            - name: AGENT_AUTH_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "tracegate.controlPlaneSecretName" . }}
+                  key: agent-auth-token
             - name: BOT_TOKEN
               valueFrom:
                 secretKeyRef:
@@ -176,6 +243,28 @@ spec:
               value: {{ .Values.controlPlane.env.defaultEntryHost | quote }}
             - name: DEFAULT_TRANSIT_HOST
               value: {{ .Values.controlPlane.env.defaultTransitHost | quote }}
+            - name: REALITY_PUBLIC_KEY
+              value: {{ .Values.controlPlane.env.realityPublicKey | quote }}
+            - name: REALITY_SHORT_ID
+              value: {{ .Values.controlPlane.env.realityShortId | quote }}
+            - name: REALITY_PUBLIC_KEY_ENTRY
+              value: {{ .Values.controlPlane.env.realityPublicKeyEntry | quote }}
+            - name: REALITY_SHORT_ID_ENTRY
+              value: {{ $entryRealityShortId | quote }}
+            - name: REALITY_PUBLIC_KEY_TRANSIT
+              value: {{ .Values.controlPlane.env.realityPublicKeyTransit | quote }}
+            - name: REALITY_SHORT_ID_TRANSIT
+              value: {{ $transitRealityShortId | quote }}
+            - name: WIREGUARD_SERVER_PUBLIC_KEY
+              value: {{ .Values.controlPlane.env.wireguardServerPublicKey | quote }}
+            - name: WIREGUARD_DNS
+              value: {{ .Values.controlPlane.env.wireguardDns | quote }}
+            - name: WIREGUARD_ALLOWED_IPS
+              value: {{ toJson (.Values.controlPlane.env.wireguardAllowedIps | default (list "0.0.0.0/0" "::/0")) | quote }}
+            - name: WIREGUARD_MTU
+              value: {{ int .Values.controlPlane.env.wireguardMtu | quote }}
+            - name: WIREGUARD_WSTUNNEL_PATH
+              value: {{ .Values.wireguard.wstunnel.publicPath | quote }}
             - name: HYSTERIA_SALAMANDER_PASSWORD_ENTRY
               valueFrom:
                 secretKeyRef:
@@ -186,12 +275,75 @@ spec:
                 secretKeyRef:
                   name: {{ include "tracegate.privateProfilesSecretName" . }}
                   key: {{ .Values.privateProfiles.secretKeys.hysteriaSalamanderTransit }}
+            - name: HYSTERIA_UDP_PORT
+              value: {{ int .Values.gateway.roles.transit.ports.publicUdp | quote }}
+            - name: SHADOWTLS_SERVER_NAME_ENTRY
+              value: {{ .Values.shadowsocks2022.shadowtls.serverNameEntry | quote }}
+            - name: SHADOWTLS_SERVER_NAME_TRANSIT
+              value: {{ .Values.shadowsocks2022.shadowtls.serverNameTransit | quote }}
+            - name: SHADOWTLS_PASSWORD_ENTRY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "tracegate.privateProfilesSecretName" . }}
+                  key: {{ .Values.privateProfiles.secretKeys.shadowtlsPasswordEntry }}
+            - name: SHADOWTLS_PASSWORD_TRANSIT
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "tracegate.privateProfilesSecretName" . }}
+                  key: {{ .Values.privateProfiles.secretKeys.shadowtlsPasswordTransit }}
+            - name: SHADOWSOCKS2022_METHOD
+              value: {{ .Values.shadowsocks2022.method | quote }}
+            - name: SHADOWSOCKS2022_PASSWORD_ENTRY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "tracegate.privateProfilesSecretName" . }}
+                  key: {{ .Values.privateProfiles.secretKeys.shadowsocks2022PasswordEntry }}
+            - name: SHADOWSOCKS2022_PASSWORD_TRANSIT
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "tracegate.privateProfilesSecretName" . }}
+                  key: {{ .Values.privateProfiles.secretKeys.shadowsocks2022PasswordTransit }}
             - name: VLESS_WS_PATH
               value: {{ .Values.controlPlane.env.vlessWsPath | quote }}
             - name: MTPROTO_DOMAIN
               value: {{ (.Values.mtproto.domain | default .Values.controlPlane.env.mtprotoDomain) | quote }}
             - name: SUPERADMIN_TELEGRAM_IDS
               value: {{ toJson (.Values.controlPlane.env.superadminTelegramIds | default (list)) | quote }}
+{{- if kindIs "slice" .Values.controlPlane.env.enabledClientProfiles }}
+            - name: ENABLED_CLIENT_PROFILES
+              value: {{ toJson .Values.controlPlane.env.enabledClientProfiles | quote }}
+{{- end }}
+            - name: GRAFANA_ENABLED
+              value: {{ .Values.controlPlane.env.grafanaEnabled | quote }}
+            - name: GRAFANA_INTERNAL_URL
+              value: {{ .Values.controlPlane.env.grafanaInternalUrl | quote }}
+            - name: GRAFANA_PUBLIC_BASE_URL
+              value: {{ .Values.controlPlane.env.grafanaPublicBaseUrl | quote }}
+            - name: GRAFANA_ADMIN_USER
+              value: {{ .Values.controlPlane.env.grafanaAdminUser | quote }}
+            - name: GRAFANA_OTP_HANDOFF_URL
+              value: {{ .Values.controlPlane.env.grafanaOtpHandoffUrl | quote }}
+            - name: GRAFANA_ALERTS_WEBHOOK_URL
+              value: {{ (.Values.controlPlane.env.grafanaAlertsWebhookUrl | default (printf "http://%s-api:%d/grafana/alerting/webhook" (include "tracegate.fullname" .) (int .Values.controlPlane.service.port))) | quote }}
+            - name: GRAFANA_ALERTS_WEBHOOK_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "tracegate.controlPlaneSecretName" . }}
+                  key: grafana-alerts-webhook-token
+{{- if .Values.controlPlane.env.grafanaAdminPasswordSecret.name }}
+            - name: GRAFANA_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.controlPlane.env.grafanaAdminPasswordSecret.name }}
+                  key: {{ .Values.controlPlane.env.grafanaAdminPasswordSecret.key }}
+{{- end }}
+{{- if .Values.controlPlane.env.grafanaCookieSecretSecret.name }}
+            - name: GRAFANA_COOKIE_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.controlPlane.env.grafanaCookieSecretSecret.name }}
+                  key: {{ .Values.controlPlane.env.grafanaCookieSecretSecret.key }}
+{{- end }}
           readinessProbe:
             httpGet:
               path: /health
@@ -250,11 +402,58 @@ spec:
                 secretKeyRef:
                   name: {{ include "tracegate.controlPlaneSecretName" $ }}
                   key: api-internal-token
+            - name: AGENT_AUTH_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "tracegate.controlPlaneSecretName" $ }}
+                  key: agent-auth-token
             - name: BOT_TOKEN
               valueFrom:
                 secretKeyRef:
                   name: {{ include "tracegate.controlPlaneSecretName" $ }}
                   key: bot-token
+            - name: SUPERADMIN_TELEGRAM_IDS
+              value: {{ toJson ($.Values.controlPlane.env.superadminTelegramIds | default (list)) | quote }}
+{{- if kindIs "slice" $.Values.controlPlane.env.enabledClientProfiles }}
+            - name: ENABLED_CLIENT_PROFILES
+              value: {{ toJson $.Values.controlPlane.env.enabledClientProfiles | quote }}
+{{- end }}
+            - name: WIREGUARD_SERVER_PUBLIC_KEY
+              value: {{ $.Values.controlPlane.env.wireguardServerPublicKey | quote }}
+            - name: WIREGUARD_DNS
+              value: {{ $.Values.controlPlane.env.wireguardDns | quote }}
+            - name: WIREGUARD_ALLOWED_IPS
+              value: {{ toJson ($.Values.controlPlane.env.wireguardAllowedIps | default (list "0.0.0.0/0" "::/0")) | quote }}
+            - name: WIREGUARD_MTU
+              value: {{ int $.Values.controlPlane.env.wireguardMtu | quote }}
+            - name: WIREGUARD_WSTUNNEL_PATH
+              value: {{ $.Values.wireguard.wstunnel.publicPath | quote }}
+            - name: SHADOWTLS_SERVER_NAME_ENTRY
+              value: {{ $.Values.shadowsocks2022.shadowtls.serverNameEntry | quote }}
+            - name: SHADOWTLS_SERVER_NAME_TRANSIT
+              value: {{ $.Values.shadowsocks2022.shadowtls.serverNameTransit | quote }}
+            - name: SHADOWTLS_PASSWORD_ENTRY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "tracegate.privateProfilesSecretName" $ }}
+                  key: {{ $.Values.privateProfiles.secretKeys.shadowtlsPasswordEntry }}
+            - name: SHADOWTLS_PASSWORD_TRANSIT
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "tracegate.privateProfilesSecretName" $ }}
+                  key: {{ $.Values.privateProfiles.secretKeys.shadowtlsPasswordTransit }}
+            - name: SHADOWSOCKS2022_METHOD
+              value: {{ $.Values.shadowsocks2022.method | quote }}
+            - name: SHADOWSOCKS2022_PASSWORD_ENTRY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "tracegate.privateProfilesSecretName" $ }}
+                  key: {{ $.Values.privateProfiles.secretKeys.shadowsocks2022PasswordEntry }}
+            - name: SHADOWSOCKS2022_PASSWORD_TRANSIT
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "tracegate.privateProfilesSecretName" $ }}
+                  key: {{ $.Values.privateProfiles.secretKeys.shadowsocks2022PasswordTransit }}
 {{- if eq $name "bot" }}
             - name: BOT_API_BASE_URL
               value: {{ printf "http://%s-api:%d" (include "tracegate.fullname" $) (int $.Values.controlPlane.service.port) | quote }}
@@ -267,6 +466,8 @@ spec:
               value: {{ $.Values.controlPlane.env.botWelcomeRequired | quote }}
             - name: BOT_WELCOME_VERSION
               value: {{ $.Values.controlPlane.env.botWelcomeVersion | quote }}
+            - name: GRAFANA_ENABLED
+              value: {{ $.Values.controlPlane.env.grafanaEnabled | quote }}
 {{- if $.Values.controlPlane.env.botWelcomeMessageSecret.name }}
             - name: BOT_WELCOME_MESSAGE
               valueFrom:

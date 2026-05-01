@@ -1,0 +1,352 @@
+{{- $prometheusName := .Values.observability.prometheus.name | default "tracegate-prometheus" -}}
+{{- $nodeExporterName := .Values.observability.nodeExporter.name | default "tracegate-node-exporter" -}}
+{{- if .Values.observability.prometheus.enabled }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ $prometheusName }}
+  namespace: {{ include "tracegate.namespace" . }}
+  labels:
+    {{- include "tracegate.labels" . | nindent 4 }}
+    app.kubernetes.io/component: prometheus
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ $prometheusName }}
+  labels:
+    {{- include "tracegate.labels" . | nindent 4 }}
+    app.kubernetes.io/component: prometheus
+rules:
+  - apiGroups: [""]
+    resources: ["nodes", "nodes/proxy", "nodes/metrics", "services", "endpoints", "pods", "namespaces"]
+    verbs: ["get", "list", "watch"]
+  - nonResourceURLs: ["/metrics", "/metrics/cadvisor"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ $prometheusName }}
+  labels:
+    {{- include "tracegate.labels" . | nindent 4 }}
+    app.kubernetes.io/component: prometheus
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ $prometheusName }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ $prometheusName }}
+    namespace: {{ include "tracegate.namespace" . }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $prometheusName }}-config
+  namespace: {{ include "tracegate.namespace" . }}
+  labels:
+    {{- include "tracegate.labels" . | nindent 4 }}
+    app.kubernetes.io/component: prometheus
+data:
+  prometheus.yml: |
+    global:
+      scrape_interval: 15s
+      evaluation_interval: 15s
+      external_labels:
+        cluster: tracegate
+    scrape_configs:
+      - job_name: tracegate-api
+        metrics_path: /metrics
+        authorization:
+          credentials_file: /etc/prometheus/secrets/api-internal-token
+        static_configs:
+          - targets: ["{{ include "tracegate.fullname" . }}-api:{{ int .Values.controlPlane.service.port }}"]
+            labels:
+              namespace: {{ include "tracegate.namespace" . }}
+              component: api
+      - job_name: tracegate-agent
+        metrics_path: /metrics
+        authorization:
+          credentials_file: /etc/prometheus/secrets/agent-auth-token
+        kubernetes_sd_configs:
+          - role: pod
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_namespace]
+            action: keep
+            regex: {{ include "tracegate.namespace" . }}
+          - source_labels: [__meta_kubernetes_pod_label_app_kubernetes_io_component]
+            action: keep
+            regex: gateway-.+
+          - source_labels: [__meta_kubernetes_pod_ip]
+            regex: (.+)
+            replacement: $1:8070
+            target_label: __address__
+          - source_labels: [__meta_kubernetes_pod_name]
+            target_label: pod
+          - source_labels: [__meta_kubernetes_pod_node_name]
+            target_label: node
+          - source_labels: [__meta_kubernetes_pod_label_app_kubernetes_io_component]
+            target_label: component
+          - source_labels: [__meta_kubernetes_namespace]
+            target_label: namespace
+      - job_name: tracegate-bot
+        metrics_path: /metrics
+        kubernetes_sd_configs:
+          - role: pod
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_namespace]
+            action: keep
+            regex: {{ include "tracegate.namespace" . }}
+          - source_labels: [__meta_kubernetes_pod_label_app_kubernetes_io_component]
+            action: keep
+            regex: bot
+          - source_labels: [__meta_kubernetes_pod_ip]
+            regex: (.+)
+            replacement: $1:9092
+            target_label: __address__
+          - source_labels: [__meta_kubernetes_pod_name]
+            target_label: pod
+          - source_labels: [__meta_kubernetes_pod_node_name]
+            target_label: node
+          - source_labels: [__meta_kubernetes_pod_label_app_kubernetes_io_component]
+            target_label: component
+          - source_labels: [__meta_kubernetes_namespace]
+            target_label: namespace
+      - job_name: tracegate-dispatcher
+        metrics_path: /metrics
+        kubernetes_sd_configs:
+          - role: pod
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_namespace]
+            action: keep
+            regex: {{ include "tracegate.namespace" . }}
+          - source_labels: [__meta_kubernetes_pod_label_app_kubernetes_io_component]
+            action: keep
+            regex: dispatcher
+          - source_labels: [__meta_kubernetes_pod_ip]
+            regex: (.+)
+            replacement: $1:9091
+            target_label: __address__
+          - source_labels: [__meta_kubernetes_pod_name]
+            target_label: pod
+          - source_labels: [__meta_kubernetes_pod_node_name]
+            target_label: node
+          - source_labels: [__meta_kubernetes_pod_label_app_kubernetes_io_component]
+            target_label: component
+          - source_labels: [__meta_kubernetes_namespace]
+            target_label: namespace
+      - job_name: tracegate-node-exporter
+        kubernetes_sd_configs:
+          - role: pod
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_namespace]
+            action: keep
+            regex: {{ include "tracegate.namespace" . }}
+          - source_labels: [__meta_kubernetes_pod_label_app_kubernetes_io_name]
+            action: keep
+            regex: {{ $nodeExporterName }}
+          - source_labels: [__meta_kubernetes_pod_ip]
+            regex: (.+)
+            replacement: $1:9100
+            target_label: __address__
+          - source_labels: [__meta_kubernetes_pod_name]
+            target_label: pod
+          - source_labels: [__meta_kubernetes_pod_node_name]
+            target_label: node
+          - source_labels: [__meta_kubernetes_namespace]
+            target_label: namespace
+      - job_name: kubernetes-cadvisor
+        scheme: https
+        metrics_path: /metrics/cadvisor
+        kubernetes_sd_configs:
+          - role: node
+        bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+        tls_config:
+          insecure_skip_verify: true
+        relabel_configs:
+          - action: labelmap
+            regex: __meta_kubernetes_node_label_(.+)
+          - target_label: __address__
+            replacement: kubernetes.default.svc:443
+          - source_labels: [__meta_kubernetes_node_name]
+            regex: (.+)
+            target_label: __metrics_path__
+            replacement: /api/v1/nodes/${1}/proxy/metrics/cadvisor
+          - source_labels: [__meta_kubernetes_node_name]
+            target_label: node
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ $prometheusName }}-data
+  namespace: {{ include "tracegate.namespace" . }}
+  labels:
+    {{- include "tracegate.labels" . | nindent 4 }}
+    app.kubernetes.io/component: prometheus
+spec:
+  accessModes: ["ReadWriteOnce"]
+{{- if .Values.observability.prometheus.storage.storageClassName }}
+  storageClassName: {{ .Values.observability.prometheus.storage.storageClassName | quote }}
+{{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.observability.prometheus.storage.size | quote }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $prometheusName }}
+  namespace: {{ include "tracegate.namespace" . }}
+  labels:
+    {{- include "tracegate.labels" . | nindent 4 }}
+    app.kubernetes.io/component: prometheus
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ $prometheusName }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ $prometheusName }}
+        app.kubernetes.io/part-of: tracegate
+    spec:
+      serviceAccountName: {{ $prometheusName }}
+      containers:
+        - name: prometheus
+          image: {{ include "tracegate.image" .Values.observability.prometheus.image | quote }}
+          imagePullPolicy: {{ .Values.observability.prometheus.image.pullPolicy }}
+          args:
+            - --config.file=/etc/prometheus/prometheus.yml
+            - --storage.tsdb.path=/prometheus
+            - --storage.tsdb.retention.time={{ .Values.observability.prometheus.retention }}
+            - --web.enable-lifecycle
+          ports:
+            - name: http
+              containerPort: 9090
+          readinessProbe:
+            httpGet:
+              path: /-/ready
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /-/healthy
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          volumeMounts:
+            - name: config
+              mountPath: /etc/prometheus/prometheus.yml
+              subPath: prometheus.yml
+              readOnly: true
+            - name: auth
+              mountPath: /etc/prometheus/secrets
+              readOnly: true
+            - name: data
+              mountPath: /prometheus
+      volumes:
+        - name: config
+          configMap:
+            name: {{ $prometheusName }}-config
+        - name: auth
+          secret:
+            secretName: {{ include "tracegate.controlPlaneSecretName" . }}
+            items:
+              - key: api-internal-token
+                path: api-internal-token
+              - key: agent-auth-token
+                path: agent-auth-token
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ $prometheusName }}-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $prometheusName }}
+  namespace: {{ include "tracegate.namespace" . }}
+  labels:
+    {{- include "tracegate.labels" . | nindent 4 }}
+    app.kubernetes.io/component: prometheus
+spec:
+  selector:
+    app.kubernetes.io/name: {{ $prometheusName }}
+  ports:
+    - name: http
+      port: 9090
+      targetPort: http
+{{- end }}
+{{- if .Values.observability.nodeExporter.enabled }}
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: {{ $nodeExporterName }}
+  namespace: {{ include "tracegate.namespace" . }}
+  labels:
+    {{- include "tracegate.labels" . | nindent 4 }}
+    app.kubernetes.io/component: node-exporter
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ $nodeExporterName }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ $nodeExporterName }}
+        app.kubernetes.io/part-of: tracegate
+    spec:
+      hostNetwork: true
+      hostPID: true
+      tolerations:
+        - operator: Exists
+      containers:
+        - name: node-exporter
+          image: {{ include "tracegate.image" .Values.observability.nodeExporter.image | quote }}
+          imagePullPolicy: {{ .Values.observability.nodeExporter.image.pullPolicy }}
+          args:
+            - --path.procfs=/host/proc
+            - --path.sysfs=/host/sys
+            - --path.rootfs=/host/root
+            - --collector.filesystem.mount-points-exclude=^/(dev|proc|sys|var/lib/docker/.+|var/lib/kubelet/.+)($|/)
+            - --collector.netdev.device-exclude=^(veth.*|cali.*|flannel.*|lo)$
+          ports:
+            - name: metrics
+              containerPort: 9100
+              hostPort: 9100
+          resources:
+            requests:
+              cpu: 20m
+              memory: 32Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+          securityContext:
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 65534
+          volumeMounts:
+            - name: proc
+              mountPath: /host/proc
+              readOnly: true
+            - name: sys
+              mountPath: /host/sys
+              readOnly: true
+            - name: root
+              mountPath: /host/root
+              readOnly: true
+              mountPropagation: HostToContainer
+      volumes:
+        - name: proc
+          hostPath:
+            path: /proc
+        - name: sys
+          hostPath:
+            path: /sys
+        - name: root
+          hostPath:
+            path: /
+{{- end }}

@@ -301,6 +301,7 @@ class AdminResetConnectionsRequest(BaseModel):
 class AdminResetConnectionsResult(BaseModel):
     revoked_connections: int
     revoked_mtproto_accesses: int = 0
+    revoked_connection_ids: list[UUID] = Field(default_factory=list)
 
 
 class AdminRevokeUserAccessRequest(BaseModel):
@@ -313,6 +314,7 @@ class AdminRevokeUserAccessResult(BaseModel):
     revoked_connections: int
     revoked_devices: int
     revoked_mtproto_access: bool = False
+    revoked_connection_ids: list[UUID] = Field(default_factory=list)
 
 
 class AgentEventEnvelope(BaseModel):

@@ -2,7 +2,25 @@
 
 ## Unreleased
 
-No unreleased changes.
+### Runtime and Deployment
+
+- Aligned the public k3s chart with the current production runtime surface:
+  Grafana OTP routing, observability manifests, WGWS/WireGuard peer sync,
+  Shadowsocks-2022 + ShadowTLS handling and role-aware runtime reload hooks.
+- Moved production-specific Grafana host routing and agent CORS origins behind
+  private values instead of hardcoded live domains.
+
+### Bot and Observability
+
+- Refreshed the welcome/help flow, split application links from the main guide
+  message and kept Grafana access behind bot-issued one-time links.
+- Tuned Grafana alert delivery so non-critical signals do not create bot noise.
+
+### Public Repository Hygiene
+
+- Rewrote public documentation around a clear public/private boundary.
+- Replaced live-domain and live-address test fixtures with reserved examples.
+- Kept client configuration artifacts out of the public repository.
 
 ## v2.2.1 - 2026-04-28
 

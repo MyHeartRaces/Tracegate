@@ -10,8 +10,13 @@
 {{- $roleZapretSecretKey := ternary $.Values.privateProfiles.secretKeys.zapretEntry $.Values.privateProfiles.secretKeys.zapretTransit (eq $roleName "entry") }}
 {{- $roleShadowsocks2022Key := ternary $.Values.privateProfiles.keys.shadowsocks2022Entry $.Values.privateProfiles.keys.shadowsocks2022Transit (eq $roleName "entry") }}
 {{- $roleShadowsocks2022SecretKey := ternary $.Values.privateProfiles.secretKeys.shadowsocks2022Entry $.Values.privateProfiles.secretKeys.shadowsocks2022Transit (eq $roleName "entry") }}
+{{- $roleShadowsocks2022PasswordKey := ternary $.Values.privateProfiles.keys.shadowsocks2022PasswordEntry $.Values.privateProfiles.keys.shadowsocks2022PasswordTransit (eq $roleName "entry") }}
+{{- $roleShadowsocks2022PasswordSecretKey := ternary $.Values.privateProfiles.secretKeys.shadowsocks2022PasswordEntry $.Values.privateProfiles.secretKeys.shadowsocks2022PasswordTransit (eq $roleName "entry") }}
 {{- $roleShadowtlsKey := ternary $.Values.privateProfiles.keys.shadowtlsEntry $.Values.privateProfiles.keys.shadowtlsTransit (eq $roleName "entry") }}
 {{- $roleShadowtlsSecretKey := ternary $.Values.privateProfiles.secretKeys.shadowtlsEntry $.Values.privateProfiles.secretKeys.shadowtlsTransit (eq $roleName "entry") }}
+{{- $roleShadowtlsPasswordKey := ternary $.Values.privateProfiles.keys.shadowtlsPasswordEntry $.Values.privateProfiles.keys.shadowtlsPasswordTransit (eq $roleName "entry") }}
+{{- $roleShadowtlsPasswordSecretKey := ternary $.Values.privateProfiles.secretKeys.shadowtlsPasswordEntry $.Values.privateProfiles.secretKeys.shadowtlsPasswordTransit (eq $roleName "entry") }}
+{{- $roleShadowtlsServerName := ternary $.Values.shadowsocks2022.shadowtls.serverNameEntry $.Values.shadowsocks2022.shadowtls.serverNameTransit (eq $roleName "entry") }}
 {{- $roleLabTuicKey := ternary $.Values.privateProfiles.keys.labTuicEntry $.Values.privateProfiles.keys.labTuicTransit (eq $roleName "entry") }}
 {{- $roleLabTuicSecretKey := ternary $.Values.privateProfiles.secretKeys.labTuicEntry $.Values.privateProfiles.secretKeys.labTuicTransit (eq $roleName "entry") }}
 {{- $roleProfileState := printf "/var/lib/tracegate/private/profiles/%s/desired-state.json" $roleName }}
@@ -82,8 +87,16 @@ spec:
     type: {{ $roleGatewayStrategy }}
 {{- if eq $roleGatewayStrategy "RollingUpdate" }}
     rollingUpdate:
+{{- if regexMatch "^[0-9]+$" (toString $roleRollingMaxUnavailable) }}
+      maxUnavailable: {{ int $roleRollingMaxUnavailable }}
+{{- else }}
       maxUnavailable: {{ $roleRollingMaxUnavailable | quote }}
+{{- end }}
+{{- if regexMatch "^[0-9]+$" (toString $roleRollingMaxSurge) }}
+      maxSurge: {{ int $roleRollingMaxSurge }}
+{{- else }}
       maxSurge: {{ $roleRollingMaxSurge | quote }}
+{{- end }}
 {{- end }}
   progressDeadlineSeconds: {{ int $.Values.gateway.progressDeadlineSeconds }}
   replicas: 1
@@ -161,6 +174,10 @@ spec:
                 path: {{ $roleHysteriaSalamanderKey }}
               - key: {{ $roleHysteriaStatsSecretKey }}
                 path: {{ $roleHysteriaStatsKey }}
+{{- if $.Values.interconnect.emergencyXrayChain.enabled }}
+              - key: {{ $.Values.privateProfiles.secretKeys.xrayChainBridgeClientId }}
+                path: {{ $.Values.privateProfiles.keys.xrayChainBridgeClientId }}
+{{- end }}
 {{- if $roleLinkCryptoClientEnabled }}
               - key: {{ $.Values.privateProfiles.secretKeys.mieruClient }}
                 path: {{ $.Values.privateProfiles.keys.mieruClient }}
@@ -184,8 +201,12 @@ spec:
 {{- if $.Values.shadowsocks2022.enabled }}
               - key: {{ $roleShadowsocks2022SecretKey }}
                 path: {{ $roleShadowsocks2022Key }}
+              - key: {{ $roleShadowsocks2022PasswordSecretKey }}
+                path: {{ $roleShadowsocks2022PasswordKey }}
               - key: {{ $roleShadowtlsSecretKey }}
                 path: {{ $roleShadowtlsKey }}
+              - key: {{ $roleShadowtlsPasswordSecretKey }}
+                path: {{ $roleShadowtlsPasswordKey }}
 {{- end }}
 {{- if and (eq $roleName "transit") $.Values.wireguard.enabled }}
               - key: {{ $.Values.privateProfiles.secretKeys.wireguard }}
@@ -228,6 +249,10 @@ spec:
             - {{ $roleHysteriaSalamanderKey | quote }}
             - --required-file
             - {{ $roleHysteriaStatsKey | quote }}
+{{- if $.Values.interconnect.emergencyXrayChain.enabled }}
+            - --required-file
+            - {{ $.Values.privateProfiles.keys.xrayChainBridgeClientId | quote }}
+{{- end }}
 {{- if $roleLinkCryptoClientEnabled }}
             - --required-file
             - {{ $.Values.privateProfiles.keys.mieruClient | quote }}
@@ -240,7 +265,11 @@ spec:
             - --required-file
             - {{ $roleShadowsocks2022Key | quote }}
             - --required-file
+            - {{ $roleShadowsocks2022PasswordKey | quote }}
+            - --required-file
             - {{ $roleShadowtlsKey | quote }}
+            - --required-file
+            - {{ $roleShadowtlsPasswordKey | quote }}
 {{- end }}
 {{- if and (eq $roleName "transit") $.Values.wireguard.enabled }}
             - --required-file
@@ -318,12 +347,18 @@ spec:
                 tr -d '\r\n' < "${path}"
               }
               replace_xray_literal REPLACE_REALITY_PRIVATE_KEY "${REALITY_PRIVATE_KEY}"
+{{- if $.Values.interconnect.emergencyXrayChain.enabled }}
+              replace_xray_literal REPLACE_XRAY_CHAIN_BRIDGE_CLIENT_ID "$(read_secret_file "{{ $.Values.privateProfiles.mountPath }}/{{ $.Values.privateProfiles.keys.xrayChainBridgeClientId }}")"
+{{- end }}
+{{- if $.Values.shadowsocks2022.enabled }}
+              replace_xray_literal REPLACE_SHADOWSOCKS2022_PASSWORD "$(read_secret_file "{{ $.Values.privateProfiles.mountPath }}/{{ $roleShadowsocks2022PasswordKey }}")"
+{{- end }}
               replace_hysteria_literal REPLACE_HYSTERIA_SALAMANDER_PASSWORD "$(read_secret_file "{{ $.Values.privateProfiles.mountPath }}/{{ $roleHysteriaSalamanderKey }}")"
               replace_hysteria_literal REPLACE_HYSTERIA_STATS_SECRET "$(read_secret_file "{{ $.Values.privateProfiles.mountPath }}/{{ $roleHysteriaStatsKey }}")"
               cp /base/haproxy/haproxy.cfg /state/base/haproxy/haproxy.cfg
               cp /base/nginx/nginx.conf /state/base/nginx/nginx.conf
               [ -f /state/runtime/xray/config.json ] || cp /state/base/xray/config.json /state/runtime/xray/config.json
-              [ -f /state/runtime/hysteria/server.yaml ] || cp /state/base/hysteria/server.yaml /state/runtime/hysteria/server.yaml
+              cp /state/base/hysteria/server.yaml /state/runtime/hysteria/server.yaml
               [ -f /state/runtime/haproxy/haproxy.cfg ] || cp /state/base/haproxy/haproxy.cfg /state/runtime/haproxy/haproxy.cfg
               [ -f /state/runtime/nginx/nginx.conf ] || cp /state/base/nginx/nginx.conf /state/runtime/nginx/nginx.conf
           env:
@@ -436,10 +471,14 @@ spec:
               value: /var/lib/tracegate
             - name: AGENT_DRY_RUN
               value: {{ $.Values.gateway.agent.dryRun | quote }}
+            - name: AGENT_CORS_ORIGINS
+              value: {{ toJson ($.Values.gateway.agent.corsOrigins | default (list)) | quote }}
             - name: AGENT_XRAY_API_ENABLED
               value: "true"
             - name: AGENT_XRAY_API_SERVER
               value: {{ printf "127.0.0.1:%d" (int $role.ports.xrayApi) | quote }}
+            - name: REALITY_MULTI_INBOUND_GROUPS
+              value: {{ toJson ($.Values.gateway.realityMultiInboundGroups | default (list)) | quote }}
             - name: AGENT_STATS_URL
               value: "http://127.0.0.1:9999/traffic"
             - name: AGENT_STATS_SECRET
@@ -462,7 +501,11 @@ spec:
             - name: AGENT_RELOAD_PROFILES_CMD
               value: {{ $.Values.gateway.agent.reloadCommands.profiles | quote }}
             - name: AGENT_RELOAD_LINK_CRYPTO_CMD
+{{- if $roleLinkCryptoEnabled }}
               value: {{ $.Values.gateway.agent.reloadCommands.linkCrypto | quote }}
+{{- else }}
+              value: "sh -lc 'true'"
+{{- end }}
             - name: API_INTERNAL_TOKEN
               valueFrom:
                 secretKeyRef:
@@ -549,6 +592,10 @@ spec:
         - name: haproxy
           image: {{ include "tracegate.image" $.Values.gateway.images.haproxy | quote }}
           imagePullPolicy: {{ $.Values.gateway.images.haproxy.pullPolicy }}
+          securityContext:
+            runAsUser: 0
+            capabilities:
+              add: ["NET_BIND_SERVICE"]
           command: ["haproxy", "-W", "-db", "-f", "/usr/local/etc/haproxy/haproxy.cfg"]
 {{- with (index $roleContainerResources "haproxy") }}
           resources:
@@ -640,20 +687,23 @@ spec:
               protocol: TCP
 {{- if $.Values.gateway.probes.enabled }}
           startupProbe:
-            exec:
-              command: ["sh", "-lc", "test -s /etc/xray/config.json"]
+            tcpSocket:
+              host: 127.0.0.1
+              port: reality
             periodSeconds: {{ int $.Values.gateway.probes.startup.periodSeconds }}
             failureThreshold: {{ int $.Values.gateway.probes.startup.failureThreshold }}
             timeoutSeconds: {{ int $.Values.gateway.probes.startup.timeoutSeconds }}
           readinessProbe:
-            exec:
-              command: ["sh", "-lc", "test -s /etc/xray/config.json"]
+            tcpSocket:
+              host: 127.0.0.1
+              port: reality
             periodSeconds: {{ int $.Values.gateway.probes.readiness.periodSeconds }}
             failureThreshold: {{ int $.Values.gateway.probes.readiness.failureThreshold }}
             timeoutSeconds: {{ int $.Values.gateway.probes.readiness.timeoutSeconds }}
           livenessProbe:
-            exec:
-              command: ["sh", "-lc", "test -s /etc/xray/config.json"]
+            tcpSocket:
+              host: 127.0.0.1
+              port: reality
             periodSeconds: {{ int $.Values.gateway.probes.liveness.periodSeconds }}
             failureThreshold: {{ int $.Values.gateway.probes.liveness.failureThreshold }}
             timeoutSeconds: {{ int $.Values.gateway.probes.liveness.timeoutSeconds }}
@@ -798,9 +848,9 @@ spec:
               set -eu
               until {{ $roleLinkCryptoReadyTest }}; do sleep 2; done
 {{- if eq $roleName "entry" }}
-              exec wstunnel client --http-upgrade-path-prefix "{{ $linkOuterCarrierPathPrefix }}" -L "tcp://127.0.0.1:{{ int $linkOuterCarrier.clientLocalPort }}:127.0.0.1:{{ int $.Values.interconnect.mieru.localSocks.transitPort }}" "wss://{{ $linkOuterCarrier.serverName }}:{{ int $linkOuterCarrier.publicPort }}"
+              exec /home/app/wstunnel client --http-upgrade-path-prefix "{{ $linkOuterCarrierPathPrefix }}" -L "tcp://127.0.0.1:{{ int $linkOuterCarrier.clientLocalPort }}:127.0.0.1:{{ int $.Values.interconnect.mieru.localSocks.transitPort }}" "wss://{{ $linkOuterCarrier.serverName }}:{{ int $linkOuterCarrier.publicPort }}"
 {{- else }}
-              exec wstunnel server "ws://127.0.0.1:{{ int $linkOuterCarrier.serverLocalPort }}" --restrict-to "127.0.0.1:{{ int $.Values.interconnect.mieru.localSocks.transitPort }}"
+              exec /home/app/wstunnel server "ws://127.0.0.1:{{ int $linkOuterCarrier.serverLocalPort }}" --restrict-to "127.0.0.1:{{ int $.Values.interconnect.mieru.localSocks.transitPort }}"
 {{- end }}
           env:
             - name: TRACEGATE_LINK_CRYPTO_ROLE
@@ -901,7 +951,18 @@ spec:
         - name: mtproto
           image: {{ include "tracegate.image" $.Values.gateway.images.mtproto | quote }}
           imagePullPolicy: {{ $.Values.gateway.images.mtproto.pullPolicy }}
-          command: ["sh", "-lc", "mtg run {{ $.Values.privateProfiles.mountPath }}/{{ $.Values.privateProfiles.keys.mtproto }} --bind 127.0.0.1:{{ int $.Values.mtproto.backendPort }}"]
+          command:
+            - /mtg
+          args:
+            - simple-run
+            - {{ printf "127.0.0.1:%d" (int $.Values.mtproto.backendPort) | quote }}
+            - "$(MTPROTO_SECRET)"
+          env:
+            - name: MTPROTO_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "tracegate.privateProfilesSecretName" $ }}
+                  key: mtproto-proxy-secret
 {{- with (index $roleContainerResources "mtproto") }}
           resources:
             {{- toYaml . | nindent 12 }}
@@ -915,34 +976,22 @@ spec:
               readOnly: true
 {{- end }}
 {{- if $.Values.shadowsocks2022.enabled }}
-        - name: shadowsocks-2022
-          image: {{ include "tracegate.image" $.Values.gateway.images.shadowsocks | quote }}
-          imagePullPolicy: {{ $.Values.gateway.images.shadowsocks.pullPolicy }}
-          command: ["sh", "-lc", "until {{ $roleProfileReadyTest }}; do sleep 2; done; ssserver -c {{ $.Values.privateProfiles.mountPath }}/{{ $roleShadowsocks2022Key }}"]
-          env:
-            - name: TRACEGATE_PROFILE_ROLE
-              value: {{ $role.role | quote }}
-            - name: TRACEGATE_PROFILE_STATE_JSON
-              value: {{ $roleProfileState | quote }}
-            - name: TRACEGATE_PROFILE_STATE_ENV
-              value: {{ $roleProfileEnv | quote }}
-            - name: TRACEGATE_PROFILE_RELOAD_MARKER
-              value: {{ $roleProfileReloadMarker | quote }}
-{{- with (index $roleContainerResources "shadowsocks") }}
-          resources:
-            {{- toYaml . | nindent 12 }}
-{{- end }}
-          volumeMounts:
-            - name: private-profiles
-              mountPath: {{ $.Values.privateProfiles.mountPath }}
-              readOnly: true
-            - name: gateway-state
-              mountPath: /var/lib/tracegate
-              readOnly: true
         - name: shadowtls-v3
           image: {{ include "tracegate.image" $.Values.gateway.images.shadowtls | quote }}
           imagePullPolicy: {{ $.Values.gateway.images.shadowtls.pullPolicy }}
-          command: ["sh", "-lc", "until {{ $roleProfileReadyTest }}; do sleep 2; done; shadow-tls --config {{ $.Values.privateProfiles.mountPath }}/{{ $roleShadowtlsKey }}"]
+          command:
+            - sh
+            - -lc
+            - |
+              set -eu
+              password_file="{{ $.Values.privateProfiles.mountPath }}/{{ $roleShadowtlsPasswordKey }}"
+              until {{ $roleProfileReadyTest }} && [ -s "${password_file}" ]; do sleep 2; done
+              password="$(tr -d '\r\n' < "${password_file}")"
+              exec shadow-tls --v3 server \
+                --listen "127.0.0.1:{{ int $.Values.shadowsocks2022.shadowtls.listenPort }}" \
+                --server "127.0.0.1:{{ int $.Values.shadowsocks2022.listenPort }}" \
+                --tls "{{ $roleShadowtlsServerName }}:443" \
+                --password "${password}"
           env:
             - name: TRACEGATE_PROFILE_ROLE
               value: {{ $role.role | quote }}
@@ -1003,10 +1052,34 @@ spec:
             - name: gateway-state
               mountPath: /var/lib/tracegate
               readOnly: true
+        - name: wireguard-sync
+          image: {{ include "tracegate.image" $.Values.global.image | quote }}
+          imagePullPolicy: {{ $.Values.global.image.pullPolicy }}
+          securityContext:
+            capabilities:
+              add: ["NET_ADMIN", "NET_RAW"]
+          command: ["tracegate-wireguard-sync-runner"]
+          env:
+            - name: WIREGUARD_SYNC_STATE
+              value: {{ $roleProfileState | quote }}
+            - name: WIREGUARD_SYNC_INTERFACE
+              value: "wg"
+            - name: WIREGUARD_SYNC_INTERVAL_SECONDS
+              value: "2"
+            - name: WIREGUARD_SYNC_KEEP_STALE_PEERS
+              value: "false"
+{{- with (index $roleContainerResources "wireguardSync") }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+{{- end }}
+          volumeMounts:
+            - name: gateway-state
+              mountPath: /var/lib/tracegate
+              readOnly: true
         - name: wstunnel-wireguard
           image: {{ include "tracegate.image" $.Values.gateway.images.wstunnel | quote }}
           imagePullPolicy: {{ $.Values.gateway.images.wstunnel.pullPolicy }}
-          command: ["sh", "-lc", "until {{ $roleProfileReadyTest }}; do sleep 2; done; wstunnel server ws://127.0.0.1:{{ int $.Values.wireguard.wstunnel.websocketPort }} --restrict-to 127.0.0.1:{{ int $.Values.wireguard.wstunnel.localWireguardPort }}"]
+          command: ["sh", "-lc", "until {{ $roleProfileReadyTest }}; do sleep 2; done; /home/app/wstunnel server ws://127.0.0.1:{{ int $.Values.wireguard.wstunnel.websocketPort }} --restrict-to 127.0.0.1:{{ int $.Values.wireguard.wstunnel.localWireguardPort }}"]
           env:
             - name: TRACEGATE_PROFILE_ROLE
               value: {{ $role.role | quote }}

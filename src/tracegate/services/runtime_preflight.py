@@ -2304,6 +2304,64 @@ def _validate_hysteria_runtime(contract: dict[str, Any], *, role_prefix: str) ->
     if not _string_list(hysteria.get("masqueradeDirs")):
         findings.append(_finding("warning", f"{role_prefix}-hysteria-masquerade", f"{role_prefix} Hysteria masquerade dir is missing"))
 
+    masquerade = _row_dict(hysteria, "masquerade")
+    if masquerade and _row_string(masquerade, "type") != "file":
+        findings.append(_finding("error", f"{role_prefix}-hysteria-masquerade-type", f"{role_prefix} Hysteria masquerade.type must stay file"))
+
+    hygiene = _row_dict(hysteria, "hygiene")
+    if not hygiene:
+        findings.append(_finding("error", f"{role_prefix}-hysteria-hygiene", f"{role_prefix} Hysteria hygiene contract is missing"))
+    else:
+        if not bool(hygiene.get("required", False)):
+            findings.append(_finding("error", f"{role_prefix}-hysteria-hygiene-required", f"{role_prefix} Hysteria hygiene.required must stay true"))
+        if not bool(hygiene.get("enabled", False)):
+            findings.append(_finding("error", f"{role_prefix}-hysteria-hygiene-enabled", f"{role_prefix} Hysteria hygiene.enabled must stay true"))
+
+        required_layers = set(_string_list(hygiene.get("requiredLayers") or hygiene.get("required_layers")))
+        for layer in (
+            "hysteria2",
+            "salamander",
+            "file-masquerade",
+            "dns-san-sni-guard",
+            "http-auth-loopback",
+            "reject-anonymous",
+            "traffic-stats-loopback",
+            "udp-enabled",
+            "quic-pmtu",
+            "udp-idle-timeout",
+            "sniff",
+        ):
+            if layer not in required_layers:
+                findings.append(
+                    _finding(
+                        "error",
+                        f"{role_prefix}-hysteria-hygiene-layer-{layer}",
+                        f"{role_prefix} Hysteria hygiene must require {layer}",
+                    )
+                )
+
+        forbidden_ports = {
+            (str(row.get("protocol") or "").strip().lower(), _row_int(row, "port"))
+            for row in hygiene.get("forbiddenPublicPorts", [])
+            if isinstance(row, dict)
+        }
+        if ("udp", TRACEGATE_FORBIDDEN_PUBLIC_UDP_PORT) not in forbidden_ports:
+            findings.append(
+                _finding(
+                    "error",
+                    f"{role_prefix}-hysteria-hygiene-forbidden-udp-4443",
+                    f"{role_prefix} Hysteria hygiene must declare udp/{TRACEGATE_FORBIDDEN_PUBLIC_UDP_PORT} blocked",
+                )
+            )
+        if ("tcp", TRACEGATE_FORBIDDEN_PUBLIC_TCP_PORT) not in forbidden_ports:
+            findings.append(
+                _finding(
+                    "error",
+                    f"{role_prefix}-hysteria-hygiene-forbidden-tcp-8443",
+                    f"{role_prefix} Hysteria hygiene must declare tcp/{TRACEGATE_FORBIDDEN_PUBLIC_TCP_PORT} blocked",
+                )
+            )
+
     return findings
 
 
@@ -3543,11 +3601,18 @@ def _validate_private_obfuscation(
     if bool(obfuscation.get("hostWideInterception", True)):
         findings.append(_finding("error", f"{code_prefix}-host-wide-interception", f"{label} must not enable host-wide interception"))
     packet_shaping = str(obfuscation.get("packetShaping") or "").strip().lower()
-    if packet_shaping != "zapret2-scoped":
-        findings.append(_finding("error", f"{code_prefix}-packet-shaping", f"{label} must keep zapret2-scoped packet shaping"))
     outer = str(obfuscation.get("outer") or "").strip().lower()
     if expected_outer and outer != expected_outer:
         findings.append(_finding("error", f"{code_prefix}-outer", f"{label} obfuscation outer must be {expected_outer}"))
+    expected_packet_shaping = "none" if expected_outer in {"wstunnel", "reality-xhttp", "shadowtls-v3"} else "zapret2-scoped"
+    if packet_shaping != expected_packet_shaping:
+        findings.append(
+            _finding(
+                "error",
+                f"{code_prefix}-packet-shaping",
+                f"{label} packet shaping must be {expected_packet_shaping}",
+            )
+        )
     return findings
 
 
@@ -3645,7 +3710,7 @@ def _validate_private_shadowtls_profile(
         findings.append(_finding("error", f"{code_prefix}-shadowtls-restart-on-user-change", f"{label} ShadowTLS must not restart on user change"))
 
     findings.extend(_validate_private_local_socks(row=row, code_prefix=code_prefix, label=label))
-    expected_outer = "wss-carrier" if is_chain else "shadowtls-v3"
+    expected_outer = "reality-xhttp" if is_chain else "shadowtls-v3"
     findings.extend(_validate_private_obfuscation(row=row, code_prefix=code_prefix, label=label, expected_outer=expected_outer))
 
     if is_chain:
@@ -3656,16 +3721,16 @@ def _validate_private_shadowtls_profile(
                 findings.append(_finding("error", f"{code_prefix}-chain-type", f"{label} chain type must be entry_transit_private_relay"))
             if str(chain.get("linkClass") or "").strip() != "entry-transit":
                 findings.append(_finding("error", f"{code_prefix}-chain-class", f"{label} chain linkClass must be entry-transit"))
-            if str(chain.get("carrier") or "").strip().lower() != "mieru":
-                findings.append(_finding("error", f"{code_prefix}-chain-carrier", f"{label} chain carrier must be mieru"))
-            if str(chain.get("preferredOuter") or "").strip().lower() != "wss-carrier":
-                findings.append(_finding("error", f"{code_prefix}-chain-outer", f"{label} chain preferredOuter must be wss-carrier"))
-            if str(chain.get("outerCarrier") or "").strip().lower() != "websocket-tls":
-                findings.append(_finding("error", f"{code_prefix}-chain-outer-carrier", f"{label} chain outerCarrier must be websocket-tls"))
-            if str(chain.get("optionalPacketShaping") or "").strip().lower() != "zapret2-scoped":
-                findings.append(_finding("error", f"{code_prefix}-chain-packet-shaping", f"{label} chain packet shaping must be zapret2-scoped"))
-            if str(chain.get("managedBy") or "").strip() != "link-crypto":
-                findings.append(_finding("error", f"{code_prefix}-chain-managed-by", f"{label} chain must be managed by link-crypto"))
+            if str(chain.get("carrier") or "").strip().lower() != "xray-vless-reality":
+                findings.append(_finding("error", f"{code_prefix}-chain-carrier", f"{label} chain carrier must be xray-vless-reality"))
+            if str(chain.get("preferredOuter") or "").strip().lower() != "reality-xhttp":
+                findings.append(_finding("error", f"{code_prefix}-chain-outer", f"{label} chain preferredOuter must be reality-xhttp"))
+            if str(chain.get("outerCarrier") or "").strip().lower() != "tcp-reality-xhttp":
+                findings.append(_finding("error", f"{code_prefix}-chain-outer-carrier", f"{label} chain outerCarrier must be tcp-reality-xhttp"))
+            if str(chain.get("optionalPacketShaping") or "").strip().lower():
+                findings.append(_finding("error", f"{code_prefix}-chain-packet-shaping", f"{label} chain packet shaping must be empty"))
+            if str(chain.get("managedBy") or "").strip() != "xray-chain":
+                findings.append(_finding("error", f"{code_prefix}-chain-managed-by", f"{label} chain must be managed by xray-chain"))
             selected_profiles = chain.get("selectedProfiles")
             if not isinstance(selected_profiles, list) or not {"V1", "V3"}.issubset(
                 {str(item).strip() for item in selected_profiles}
@@ -4502,8 +4567,14 @@ def _validate_link_crypto_contract_alignment(
             findings.append(_finding("error", f"{prefix}-udp-contract-secret-material", f"{prefix.replace('-', ' ')} UDP runtime-contract must not embed secret material"))
         if bool(udp_contract.get("xrayBackhaul", False)):
             findings.append(_finding("error", f"{prefix}-udp-contract-xray-backhaul", f"{prefix.replace('-', ' ')} UDP runtime-contract must stay outside Xray backhaul"))
-        if _row_int(udp_contract, "remotePort") not in {0, 8443}:
-            findings.append(_finding("error", f"{prefix}-udp-contract-remote-port", f"{prefix.replace('-', ' ')} UDP remotePort must stay 8443"))
+        if _row_int(udp_contract, "remotePort") not in {0, TRACEGATE_PUBLIC_UDP_PORT}:
+            findings.append(
+                _finding(
+                    "error",
+                    f"{prefix}-udp-contract-remote-port",
+                    f"{prefix.replace('-', ' ')} UDP remotePort must stay {TRACEGATE_PUBLIC_UDP_PORT}",
+                )
+            )
         udp_obfs = _row_dict(udp_contract, "obfs")
         if udp_obfs and (_row_string(udp_obfs, "type").lower() != "salamander" or not bool(udp_obfs.get("required", False))):
             findings.append(_finding("error", f"{prefix}-udp-contract-salamander", f"{prefix.replace('-', ' ')} UDP contract must require Salamander"))
@@ -4954,8 +5025,9 @@ def _validate_link_crypto_udp_dpi_resistance(
                 f"{label} DPI resistance public UDP port must stay {TRACEGATE_PUBLIC_UDP_PORT}",
             )
         )
-    if not bool(port_split.get("forbidUdp443", False)):
-        findings.append(_finding("error", f"{code_prefix}-dpi-resistance-udp443", f"{label} must forbid UDP/443"))
+    forbid_udp_443_expected = False
+    if bool(port_split.get("forbidUdp443", False)) != forbid_udp_443_expected:
+        findings.append(_finding("error", f"{code_prefix}-dpi-resistance-udp443", f"{label} must keep UDP/443 unclaimed by V2"))
     if not bool(port_split.get("forbidTcp8443", False)):
         findings.append(_finding("error", f"{code_prefix}-dpi-resistance-tcp8443", f"{label} must forbid TCP/8443"))
 
@@ -6067,7 +6139,7 @@ def validate_fronting_runtime_state(
     if state.protocol != "tcp":
         findings.append(_finding("error", "fronting-protocol", f"fronting runtime-state must keep TCP-only demux, got {state.protocol or 'missing'}"))
     if state.touch_udp_443:
-        findings.append(_finding("error", "fronting-touch-udp-443", "fronting runtime-state must not claim public udp/8443"))
+        findings.append(_finding("error", "fronting-touch-udp-443", "fronting runtime-state must not claim public udp/443"))
 
     fronting = _fronting_block(transit_contract)
     if state.mtproto_domain != str(fronting.get("mtprotoDomain") or "").strip():
@@ -6120,7 +6192,7 @@ def validate_fronting_env_contract(
     if env.protocol != "tcp":
         findings.append(_finding("error", "fronting-env-protocol", f"fronting env must keep tcp demux, got {env.protocol or 'missing'}"))
     if env.touch_udp_443:
-        findings.append(_finding("error", "fronting-env-touch-udp-443", "fronting env must not claim public udp/8443"))
+        findings.append(_finding("error", "fronting-env-touch-udp-443", "fronting env must not claim public udp/443"))
     if not env.backend:
         findings.append(_finding("warning", "fronting-env-backend", "fronting env does not advertise a backend"))
     elif env.backend != "private":
@@ -6507,8 +6579,7 @@ def _validate_forbidden_public_ports(contract: dict[str, Any], *, role_prefix: s
         for row in rows
     }
     required = {
-        ("udp", TRACEGATE_FORBIDDEN_PUBLIC_UDP_PORT): "blocked udp/443",
-        ("tcp", TRACEGATE_FORBIDDEN_PUBLIC_TCP_PORT): "blocked tcp/8443",
+        ("tcp", TRACEGATE_FORBIDDEN_PUBLIC_TCP_PORT): f"blocked tcp/{TRACEGATE_FORBIDDEN_PUBLIC_TCP_PORT}",
     }
     for (protocol, port), expected_name in required.items():
         actual_name = actual.get((protocol, port))
@@ -6536,12 +6607,12 @@ def _validate_forbidden_public_ports(contract: dict[str, Any], *, role_prefix: s
                 )
             )
 
-    if not bool(fronting.get("forbiddenUdp443", False)):
+    if bool(fronting.get("forbiddenUdp443", False)):
         findings.append(
             _finding(
                 "error",
                 f"{role_prefix}-fronting-forbidden-udp-443-flag",
-                f"{role_prefix} fronting contract must keep forbiddenUdp443=true",
+                f"{role_prefix} fronting contract has an invalid forbiddenUdp443 flag",
             )
         )
     if not bool(fronting.get("forbiddenTcp8443", False)):
@@ -6605,7 +6676,7 @@ def validate_runtime_contract_single(
             _finding(
                 "error",
                 f"{role_prefix}-fronting-touch-udp-443",
-                f"{role_prefix} private fronting must not claim public udp/8443; keep udp/8443 on the runtime owner",
+                f"{role_prefix} private fronting must not claim public udp/{TRACEGATE_PUBLIC_UDP_PORT}; keep it on the runtime owner",
             )
         )
 
@@ -6731,7 +6802,7 @@ def validate_runtime_contract_pair(
                 _finding(
                     "error",
                     f"{role_name}-fronting-touch-udp-443",
-                    f"{role_name} private fronting must not claim public udp/8443; keep udp/8443 on the runtime owner",
+                    f"{role_name} private fronting must not claim public udp/{TRACEGATE_PUBLIC_UDP_PORT}; keep it on the runtime owner",
                 )
             )
 

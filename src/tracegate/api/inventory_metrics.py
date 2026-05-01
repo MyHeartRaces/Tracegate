@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import threading
+from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
@@ -23,13 +24,21 @@ _REGISTERED = False
 
 @dataclass(frozen=True)
 class UserRow:
+    telegram_id: str
     user_pid: str
     user_handle: str
     role: str
+    entitlement_status: str
+    bot_blocked: str
+    has_active_connection: str
+    devices_total: int
+    active_connections_total: int
 
 
 @dataclass(frozen=True)
 class ConnectionRow:
+    telegram_id: str
+    connection_id: str
     connection_pid: str
     connection_marker: str
     user_pid: str
@@ -40,10 +49,12 @@ class ConnectionRow:
     device_name: str
     profile_name: str
     connection_label: str
+    created_at_seconds: float
 
 
 @dataclass(frozen=True)
 class MTProtoAccessRow:
+    telegram_id: str
     user_pid: str
     user_handle: str
     label: str
@@ -138,17 +149,55 @@ class InventoryCollector:
 
         users = GaugeMetricFamily(
             "tracegate_user_info",
-            "Tracegate users (pseudo-id keyed) exported by control-plane",
-            labels=["user_pid", "user_handle", "role"],
+            "Tracegate users exported by control-plane",
+            labels=[
+                "telegram_id",
+                "user_pid",
+                "user_handle",
+                "role",
+                "entitlement_status",
+                "bot_blocked",
+                "has_active_connection",
+            ],
         )
         for row in snap.users:
-            users.add_metric([row.user_pid, row.user_handle, row.role], 1)
+            users.add_metric(
+                [
+                    row.telegram_id,
+                    row.user_pid,
+                    row.user_handle,
+                    row.role,
+                    row.entitlement_status,
+                    row.bot_blocked,
+                    row.has_active_connection,
+                ],
+                1,
+            )
         yield users
+
+        user_devices = GaugeMetricFamily(
+            "tracegate_user_devices_total",
+            "Number of devices known for a Tracegate user",
+            labels=["telegram_id", "user_pid", "user_handle", "role"],
+        )
+        user_connections = GaugeMetricFamily(
+            "tracegate_user_active_connections_total",
+            "Number of active connections owned by a Tracegate user",
+            labels=["telegram_id", "user_pid", "user_handle", "role"],
+        )
+        for row in snap.users:
+            labels = [row.telegram_id, row.user_pid, row.user_handle, row.role]
+            user_devices.add_metric(labels, row.devices_total)
+            user_connections.add_metric(labels, row.active_connections_total)
+        yield user_devices
+        yield user_connections
 
         conns = GaugeMetricFamily(
             "tracegate_connection_active",
             "Active connections (pseudo-id keyed) exported by control-plane",
             labels=[
+                "telegram_id",
+                "connection_id",
                 "connection_pid",
                 "connection_marker",
                 "user_pid",
@@ -164,6 +213,8 @@ class InventoryCollector:
         for row in snap.connections:
             conns.add_metric(
                 [
+                    row.telegram_id,
+                    row.connection_id,
                     row.connection_pid,
                     row.connection_marker,
                     row.user_pid,
@@ -179,32 +230,54 @@ class InventoryCollector:
             )
         yield conns
 
+        conn_created = GaugeMetricFamily(
+            "tracegate_connection_created_at_seconds",
+            "Unix timestamp when an active Tracegate connection was created",
+            labels=["telegram_id", "connection_id", "connection_pid", "user_pid", "user_handle", "protocol", "mode", "variant", "connection_label"],
+        )
+        for row in snap.connections:
+            conn_created.add_metric(
+                [
+                    row.telegram_id,
+                    row.connection_id,
+                    row.connection_pid,
+                    row.user_pid,
+                    row.user_handle,
+                    row.protocol,
+                    row.mode,
+                    row.variant,
+                    row.connection_label,
+                ],
+                row.created_at_seconds,
+            )
+        yield conn_created
+
         mtproto = GaugeMetricFamily(
             "tracegate_mtproto_access_active",
             "Active persistent MTProto access grants exported by control-plane",
-            labels=["user_pid", "user_handle", "label", "issued_by"],
+            labels=["telegram_id", "user_pid", "user_handle", "label", "issued_by"],
         )
         for row in snap.mtproto_access:
-            mtproto.add_metric([row.user_pid, row.user_handle, row.label, row.issued_by], 1)
+            mtproto.add_metric([row.telegram_id, row.user_pid, row.user_handle, row.label, row.issued_by], 1)
         yield mtproto
 
         mtproto_created = GaugeMetricFamily(
             "tracegate_mtproto_access_created_at_seconds",
             "Unix timestamp when the persistent MTProto access grant was created",
-            labels=["user_pid", "user_handle", "label", "issued_by"],
+            labels=["telegram_id", "user_pid", "user_handle", "label", "issued_by"],
         )
         mtproto_updated = GaugeMetricFamily(
             "tracegate_mtproto_access_updated_at_seconds",
             "Unix timestamp when the persistent MTProto access grant was last updated",
-            labels=["user_pid", "user_handle", "label", "issued_by"],
+            labels=["telegram_id", "user_pid", "user_handle", "label", "issued_by"],
         )
         mtproto_synced = GaugeMetricFamily(
             "tracegate_mtproto_access_last_sync_at_seconds",
             "Unix timestamp when the persistent MTProto access grant was last synced to runtime",
-            labels=["user_pid", "user_handle", "label", "issued_by"],
+            labels=["telegram_id", "user_pid", "user_handle", "label", "issued_by"],
         )
         for row in snap.mtproto_access:
-            labels = [row.user_pid, row.user_handle, row.label, row.issued_by]
+            labels = [row.telegram_id, row.user_pid, row.user_handle, row.label, row.issued_by]
             mtproto_created.add_metric(labels, row.created_at_seconds)
             mtproto_updated.add_metric(labels, row.updated_at_seconds)
             if row.last_sync_at_seconds is not None:
@@ -224,6 +297,8 @@ def register_inventory_metrics() -> None:
 
 async def _build_snapshot(settings: Settings) -> InventorySnapshot:
     async with get_sessionmaker()() as session:
+        all_users = (await session.execute(select(User).order_by(User.created_at.asc()))).scalars().all()
+        device_rows = (await session.execute(select(Device).where(Device.status == RecordStatus.ACTIVE))).scalars().all()
         connection_rows = (
             await session.execute(
                 select(Connection, Device, User)
@@ -242,14 +317,43 @@ async def _build_snapshot(settings: Settings) -> InventorySnapshot:
             )
         ).all()
 
-        users_by_pid: dict[str, UserRow] = {}
+        now = datetime.now(timezone.utc)
+        devices_by_user: dict[int, int] = defaultdict(int)
+        for device in device_rows:
+            devices_by_user[int(device.user_id)] += 1
+
+        active_connections_by_user: dict[int, int] = defaultdict(int)
+        for conn, _device, _user in connection_rows:
+            active_connections_by_user[int(conn.user_id)] += 1
+
+        users: list[UserRow] = []
         connections: list[ConnectionRow] = []
         mtproto_access: list[MTProtoAccessRow] = []
+
+        for user in all_users:
+            telegram_id = int(user.telegram_id)
+            blocked_until = user.bot_blocked_until
+            blocked_until_aware = blocked_until
+            if blocked_until_aware is not None and blocked_until_aware.tzinfo is None:
+                blocked_until_aware = blocked_until_aware.replace(tzinfo=timezone.utc)
+            active_connections_total = active_connections_by_user[telegram_id]
+            users.append(
+                UserRow(
+                    telegram_id=str(telegram_id),
+                    user_pid=user_pid(settings, telegram_id),
+                    user_handle=_user_handle(user),
+                    role=str(user.role.value),
+                    entitlement_status=str(user.entitlement_status.value),
+                    bot_blocked="true" if blocked_until_aware is not None and blocked_until_aware > now else "false",
+                    has_active_connection="true" if active_connections_total > 0 else "false",
+                    devices_total=devices_by_user[telegram_id],
+                    active_connections_total=active_connections_total,
+                )
+            )
 
         for conn, device, user in connection_rows:
             upid = user_pid(settings, user.telegram_id)
             uhandle = _user_handle(user)
-            users_by_pid.setdefault(upid, UserRow(user_pid=upid, user_handle=uhandle, role=str(user.role.value)))
 
             cpid = connection_pid(settings, str(conn.id))
             protocol = str(conn.protocol.value)
@@ -269,6 +373,8 @@ async def _build_snapshot(settings: Settings) -> InventorySnapshot:
 
             connections.append(
                 ConnectionRow(
+                    telegram_id=str(user.telegram_id),
+                    connection_id=str(conn.id),
                     connection_pid=cpid,
                     connection_marker=marker,
                     user_pid=upid,
@@ -279,17 +385,18 @@ async def _build_snapshot(settings: Settings) -> InventorySnapshot:
                     device_name=device_name,
                     profile_name=profile_name,
                     connection_label=label,
+                    created_at_seconds=float(conn.created_at.timestamp()),
                 )
             )
 
         for grant, user in mtproto_rows:
             upid = user_pid(settings, user.telegram_id)
             uhandle = _user_handle(user)
-            users_by_pid.setdefault(upid, UserRow(user_pid=upid, user_handle=uhandle, role=str(user.role.value)))
             label = str(grant.label or "").strip() or str(user.telegram_id)
             issued_by = str(grant.issued_by or "").strip() or "unknown"
             mtproto_access.append(
                 MTProtoAccessRow(
+                    telegram_id=str(user.telegram_id),
                     user_pid=upid,
                     user_handle=uhandle,
                     label=label,
@@ -301,8 +408,8 @@ async def _build_snapshot(settings: Settings) -> InventorySnapshot:
             )
 
         return InventorySnapshot(
-            refreshed_at=datetime.now(timezone.utc),
-            users=sorted(users_by_pid.values(), key=lambda row: (row.user_handle.lower(), row.user_pid)),
+            refreshed_at=now,
+            users=sorted(users, key=lambda row: (row.user_handle.lower(), row.telegram_id)),
             connections=connections,
             mtproto_access=mtproto_access,
         )

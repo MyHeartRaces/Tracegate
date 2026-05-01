@@ -350,7 +350,7 @@ def _udp_link_dpi_resistance(settings: Settings) -> dict[str, Any]:
         "mode": "salamander-plus-scoped-paired-obfs",
         "portSplit": {
             "publicUdpPort": TRACEGATE_PUBLIC_UDP_PORT,
-            "forbidUdp443": True,
+            "forbidUdp443": False,
             "forbidTcp8443": True,
         },
         "requiredLayers": [
@@ -693,7 +693,7 @@ def _link_crypto_payload(
     links: list[dict[str, Any]] = []
     remote_port = int(settings.private_link_crypto_remote_port or 443)
     udp_links: list[dict[str, Any]] = []
-    udp_remote_port = int(settings.private_udp_link_remote_port or 8443)
+    udp_remote_port = int(settings.private_udp_link_remote_port or TRACEGATE_PUBLIC_UDP_PORT)
     entry_transit_udp_enabled = bool(settings.private_link_crypto_enabled and settings.private_udp_link_enabled)
 
     if role_upper == "ENTRY":
@@ -900,7 +900,7 @@ def _write_link_crypto_state(
         f"TRACEGATE_LINK_CRYPTO_UDP_COUNT={_shell_quote(payload.get('udpCounts', {}).get('total', 0))}",
         f"TRACEGATE_LINK_CRYPTO_UDP_CLASSES={_shell_quote(':'.join(udp_link_classes))}",
         f"TRACEGATE_LINK_CRYPTO_UDP_CARRIER={_shell_quote('hysteria2')}",
-        f"TRACEGATE_LINK_CRYPTO_UDP_REMOTE_PORT={_shell_quote(int(settings.private_udp_link_remote_port or 8443))}",
+        f"TRACEGATE_LINK_CRYPTO_UDP_REMOTE_PORT={_shell_quote(int(settings.private_udp_link_remote_port or TRACEGATE_PUBLIC_UDP_PORT))}",
         f"TRACEGATE_LINK_CRYPTO_UDP_SALAMANDER_REQUIRED={_shell_quote(_bool_text(True))}",
         f"TRACEGATE_LINK_CRYPTO_UDP_PAIRED_OBFS_ENABLED={_shell_quote(_bool_text(bool(settings.private_udp_link_paired_obfs_enabled)))}",
         f"TRACEGATE_LINK_CRYPTO_UDP_PAIRED_OBFS_MODE={_shell_quote(str(settings.private_udp_link_paired_obfs_mode or '').strip() or 'udp2raw-faketcp')}",
@@ -1317,7 +1317,8 @@ def _render_fronting_cfg(
         "frontend fe_tracegate_private_fronting",
         f"  bind {listen_addr}",
         "  tcp-request inspect-delay 5s",
-        "  tcp-request content accept if { req.ssl_hello_type 1 }",
+        "  tcp-request content accept if { req.ssl_sni -m found }",
+        "  tcp-request content accept if WAIT_END",
     ]
     if mtproto_domain:
         lines.append(f"  acl mtproto_sni req.ssl_sni -i {mtproto_domain}")
@@ -1382,7 +1383,7 @@ def _write_fronting_state(
         "listenAddr": str(settings.private_fronting_listen_addr or "").strip() or "127.0.0.1:10443",
         "protocol": str(settings.private_fronting_protocol or "").strip().lower() or "tcp",
         "realityUpstream": str(settings.private_fronting_reality_upstream or "").strip() or "127.0.0.1:2443",
-        "wsTlsUpstream": str(settings.private_fronting_ws_tls_upstream or "").strip() or "127.0.0.1:4443",
+        "wsTlsUpstream": str(settings.private_fronting_ws_tls_upstream or "").strip() or "127.0.0.1:10443",
         "mtprotoUpstream": str(settings.private_fronting_mtproto_upstream or "").strip() or "127.0.0.1:9443",
         "mtprotoProfileFile": _mtproto_profile_path(settings),
         "touchUdp443": bool(fronting.get("touchUdp443", settings.fronting_touch_udp_443)),
@@ -1471,6 +1472,7 @@ def _write_mtproto_state(
                 "port": int(payload["publicPort"]),
                 "transport": "tls",
                 "domain": normalized_domain,
+                "secretPolicy": "shared",
                 "clientSecretHex": share.client_secret_hex,
                 "tgUri": share.tg_uri,
                 "httpsUrl": share.https_url,
@@ -1580,6 +1582,15 @@ def _chain_state(config: dict[str, Any]) -> dict[str, Any] | None:
 
 def _obfuscation_policy(*, protocol: str, mode: str, chain: dict[str, Any] | None) -> dict[str, Any]:
     if str(mode or "").strip().lower() == "chain" or chain is not None:
+        managed_by = str((chain or {}).get("managedBy") or "").strip().lower()
+        preferred_outer = str((chain or {}).get("preferredOuter") or "").strip().lower()
+        if managed_by == "xray-chain" or preferred_outer == "reality-xhttp":
+            return {
+                "scope": "entry-transit-private-relay",
+                "outer": "reality-xhttp",
+                "packetShaping": "none",
+                "hostWideInterception": False,
+            }
         return {
             "scope": "entry-transit-private-relay",
             "outer": "wss-carrier",
@@ -1590,13 +1601,13 @@ def _obfuscation_policy(*, protocol: str, mode: str, chain: dict[str, Any] | Non
         return {
             "scope": "public-wss-443",
             "outer": "wstunnel",
-            "packetShaping": "zapret2-scoped",
+            "packetShaping": "none",
             "hostWideInterception": False,
         }
     return {
         "scope": "public-tcp-443",
         "outer": "shadowtls-v3",
-        "packetShaping": "zapret2-scoped",
+        "packetShaping": "none",
         "hostWideInterception": False,
     }
 
@@ -1685,7 +1696,7 @@ def _wireguard_profile_state(row: dict[str, Any], *, role_upper: str) -> dict[st
         },
         "sync": {
             "strategy": "wg-set",
-            "interface": str(wireguard.get("interface") or "wg0").strip(),
+            "interface": str(wireguard.get("interface") or "wg").strip(),
             "applyMode": "live-peer-sync",
             "removeStalePeers": True,
             "restartWireGuard": False,

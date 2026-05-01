@@ -90,6 +90,20 @@ def _proc_net_has_listener(protocol: str, port: int, *, proc_net_root: Path = Pa
     return False, f"{protocol}/{port} is not listening ({details})"
 
 
+def _ss_local_port(line: str) -> int | None:
+    parts = line.split()
+    if len(parts) < 5:
+        return None
+    local = parts[4]
+    if ":" not in local:
+        return None
+    raw_port = local.rsplit(":", 1)[-1].strip("[]")
+    try:
+        return int(raw_port)
+    except ValueError:
+        return None
+
+
 def check_port(protocol: str, port: int) -> tuple[bool, str]:
     # Be strict: the generic ss -lntup output mixes TCP/UDP, which can cause false positives.
     normalized = str(protocol or "").strip().lower()
@@ -104,9 +118,13 @@ def check_port(protocol: str, port: int) -> tuple[bool, str]:
             return ok, details
         return False, f"cannot run ss: {proc.stderr.strip() or details}"
 
-    needle = f":{port}"
+    try:
+        expected_port = int(port)
+    except (TypeError, ValueError):
+        return False, f"invalid port: {port}"
+
     for line in proc.stdout.splitlines():
-        if needle in line:
+        if _ss_local_port(line) == expected_port:
             return True, line.strip()
     return _proc_net_has_listener(normalized, port)
 

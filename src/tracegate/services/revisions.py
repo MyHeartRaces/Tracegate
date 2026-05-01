@@ -21,6 +21,9 @@ from tracegate.services.sni_catalog import SniCatalogEntry, get_by_id, load_cata
 from tracegate.settings import get_settings
 
 
+DEFAULT_V1_REALITY_SNI = "yandex.ru"
+
+
 class RevisionError(RuntimeError):
     pass
 
@@ -82,6 +85,9 @@ async def _resolve_sni(
 
     sni_id = requested_sni_id or overrides.get("camouflage_sni_id")
     if sni_id is None:
+        default_row = next((row for row in load_catalog() if row.enabled and row.fqdn == DEFAULT_V1_REALITY_SNI), None)
+        if default_row is not None:
+            return default_row
         for row in load_catalog():
             if row.enabled:
                 return row
@@ -152,6 +158,18 @@ async def _resolve_endpoints(session: AsyncSession) -> EndpointSet:
         hysteria_ech_config_list_transit=settings.hysteria_ech_config_list_transit,
         hysteria_ech_force_query_entry=settings.hysteria_ech_force_query_entry,
         hysteria_ech_force_query_transit=settings.hysteria_ech_force_query_transit,
+        shadowtls_server_name_entry=settings.shadowtls_server_name_entry,
+        shadowtls_server_name_transit=settings.shadowtls_server_name_transit,
+        shadowtls_password_entry=settings.shadowtls_password_entry,
+        shadowtls_password_transit=settings.shadowtls_password_transit,
+        shadowsocks2022_method=settings.shadowsocks2022_method,
+        shadowsocks2022_password_entry=settings.shadowsocks2022_password_entry,
+        shadowsocks2022_password_transit=settings.shadowsocks2022_password_transit,
+        wireguard_server_public_key=settings.wireguard_server_public_key,
+        wireguard_dns=settings.wireguard_dns,
+        wireguard_allowed_ips=tuple(settings.wireguard_allowed_ips),
+        wireguard_mtu=settings.wireguard_mtu,
+        wstunnel_path=settings.wireguard_wstunnel_path,
     )
 
 

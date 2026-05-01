@@ -8,10 +8,16 @@ from tracegate.enums import ApiScope, ConnectionMode, ConnectionProtocol, Connec
 from tracegate.models import Connection, Device, User
 from tracegate.schemas import ConnectionCreate, ConnectionRead, ConnectionUpdate
 from tracegate.security import require_api_scope
-from tracegate.services.connection_profiles import MAX_CONNECTIONS_PER_DEVICE, is_supported_profile
+from tracegate.services.connection_profiles import (
+    MAX_CONNECTIONS_PER_DEVICE,
+    connection_profile_sort_key,
+    is_enabled_profile,
+    is_supported_profile,
+)
 from tracegate.services.aliases import connection_alias, user_display
 from tracegate.services.connections import ConnectionRevokeError, revoke_connection
 from tracegate.services.overrides import OverrideValidationError, validate_overrides
+from tracegate.settings import get_settings
 
 router = APIRouter(
     prefix="/connections",
@@ -32,6 +38,7 @@ _SENSITIVE_OVERRIDE_KEY_FRAGMENTS = (
     "token",
 )
 _REDACTED_OVERRIDE_VALUE = "REDACTED"
+_ENABLED_CLIENT_PROFILES_UNSET = object()
 
 
 def _is_sensitive_override_key(key: object) -> bool:
@@ -144,11 +151,23 @@ def _to_connection_read(connection: Connection, *, user: User | None, device: De
     )
 
 
-def validate_variant(protocol: ConnectionProtocol, mode: ConnectionMode, variant: ConnectionVariant) -> None:
-    if is_supported_profile(protocol, mode, variant):
-        return
+def validate_variant(
+    protocol: ConnectionProtocol,
+    mode: ConnectionMode,
+    variant: ConnectionVariant,
+    *,
+    enabled_client_profiles: list[str] | None | object = _ENABLED_CLIENT_PROFILES_UNSET,
+) -> None:
+    if not is_supported_profile(protocol, mode, variant):
+        raise ConnectionValidationError("Unsupported protocol/mode/variant combination")
 
-    raise ConnectionValidationError("Unsupported protocol/mode/variant combination")
+    configured_profiles = (
+        get_settings().enabled_client_profiles
+        if enabled_client_profiles is _ENABLED_CLIENT_PROFILES_UNSET
+        else enabled_client_profiles
+    )
+    if not is_enabled_profile(protocol, mode, variant, configured_profiles):  # type: ignore[arg-type]
+        raise ConnectionValidationError("Connection profile is disabled in this deployment")
 
 
 @router.get("/by-device/{device_id}", response_model=list[ConnectionRead])
@@ -161,6 +180,14 @@ async def list_connections(
     if not include_revoked:
         q = q.where(Connection.status == RecordStatus.ACTIVE)
     rows = (await session.execute(q)).scalars().all()
+    rows = sorted(
+        rows,
+        key=lambda row: (
+            *connection_profile_sort_key(row.protocol, row.mode, row.variant),
+            str(row.created_at or ""),
+            str(row.id),
+        ),
+    )
     device = await session.get(Device, device_id)
     user = await session.get(User, device.user_id) if device is not None else None
     return [_to_connection_read(row, user=user, device=device) for row in rows]

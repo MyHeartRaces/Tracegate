@@ -45,7 +45,7 @@ def _udp_dpi_resistance() -> dict:
     return {
         "enabled": True,
         "mode": "salamander-plus-scoped-paired-obfs",
-        "portSplit": {"publicUdpPort": 8443, "forbidUdp443": True, "forbidTcp8443": True},
+        "portSplit": {"publicUdpPort": 4443, "forbidUdp443": False, "forbidTcp8443": True},
         "requiredLayers": [
             "hysteria2-quic",
             "salamander",
@@ -208,7 +208,7 @@ def _contract(path: Path) -> dict:
                 "profileSource": "private-file-reference",
                 "secretMaterial": False,
                 "xrayBackhaul": False,
-                "remotePort": 8443,
+                "remotePort": 4443,
                 "obfs": {"type": "salamander", "required": True},
                 "pairedObfs": {
                     "enabled": False,
@@ -307,7 +307,7 @@ def _state(path: Path, *, contract: dict, contract_path: Path, paired_obfs_enabl
                     "secretMaterial": True,
                 },
                 "local": {"listen": "127.0.0.1:14481", "protocol": "udp", "auth": {"required": True, "mode": "private-profile"}},
-                "remote": {"role": "TRANSIT", "endpoint": "transit.example.com:8443", "protocol": "udp-quic"},
+                "remote": {"role": "TRANSIT", "endpoint": "transit.example.com:4443", "protocol": "udp-quic"},
                 "datagram": {"udpCapable": True, "innerTransports": ["hysteria2-quic"], "preferredForProfiles": ["V2"]},
                 "obfs": {
                     "type": "salamander",
@@ -377,8 +377,8 @@ def test_link_crypto_runner_builds_mieru_and_hysteria_plan(tmp_path: Path) -> No
         "mode": "profile-bound-remote",
     }
     assert by_kind["hysteria2"]["dpiResistance"]["portSplit"] == {
-        "publicUdpPort": 8443,
-        "forbidUdp443": True,
+        "publicUdpPort": 4443,
+        "forbidUdp443": False,
         "forbidTcp8443": True,
     }
 
