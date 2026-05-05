@@ -128,10 +128,14 @@ async def test_load_github_repo_frame_html_uses_cache(monkeypatch) -> None:
     calls = []
 
     class _Response:
-        text = "<html><head></head><body><div>Tracegate</div></body></html>"
+        def __init__(self, payload):
+            self._payload = payload
 
         def raise_for_status(self) -> None:
             return None
+
+        def json(self):
+            return self._payload
 
     class _Client:
         async def __aenter__(self):
@@ -140,9 +144,32 @@ async def test_load_github_repo_frame_html_uses_cache(monkeypatch) -> None:
         async def __aexit__(self, exc_type, exc, tb):
             return False
 
-        async def get(self, url, headers=None):
-            calls.append((url, headers))
-            return _Response()
+        async def get(self, url, headers=None, params=None):
+            calls.append((url, headers, params))
+            if url.endswith("/contents"):
+                return _Response(
+                    [
+                        {
+                            "name": "README.md",
+                            "path": "README.md",
+                            "type": "file",
+                            "html_url": "https://github.com/MyHeartRaces/Tracegate/blob/main/README.md",
+                        }
+                    ]
+                )
+            return _Response(
+                {
+                    "full_name": "MyHeartRaces/Tracegate",
+                    "html_url": "https://github.com/MyHeartRaces/Tracegate",
+                    "default_branch": "main",
+                    "description": "Tracegate public source mirror.",
+                    "visibility": "public",
+                    "license": {"spdx_id": "GPL-3.0-only"},
+                    "stargazers_count": 7,
+                    "forks_count": 1,
+                    "pushed_at": "2026-05-05T00:00:00Z",
+                }
+            )
 
     monkeypatch.setattr("tracegate.services.decoy_auth.httpx.AsyncClient", lambda **_: _Client())
     settings = Settings(
@@ -153,6 +180,8 @@ async def test_load_github_repo_frame_html_uses_cache(monkeypatch) -> None:
     first = await load_github_repo_frame_html(settings)
     second = await load_github_repo_frame_html(settings)
 
-    assert "Tracegate" in first
+    assert "MyHeartRaces" in first
+    assert "README.md" in first
+    assert "Open on GitHub" in first
     assert second == first
-    assert len(calls) == 1
+    assert len(calls) == 2
