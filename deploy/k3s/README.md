@@ -1,98 +1,77 @@
 # Tracegate k3s Chart
 
-`deploy/k3s/tracegate` is the public Helm chart for the current Tracegate 2.2
-runtime. It contains safe defaults, placeholder values and validation logic. It
-does not contain production values, live hostnames, live addresses, decoy pages
-or decrypted secret material.
+`deploy/k3s/tracegate` is the public Helm chart for Tracegate. It is suitable
+for local rendering, review and validation with placeholder inputs. It is not a
+complete production deployment repository.
 
-## Boundary
+## Public Scope
 
-Keep these items outside the public repository:
+This directory may contain:
 
-- real production values;
-- decrypted Kubernetes Secrets;
-- node inventory and host policy;
+- generic chart templates;
+- safe default values;
+- placeholder production-shaped examples;
+- validation code that rejects unsafe overlays;
+- public notes about required external resources.
+
+This directory must not contain:
+
+- live hostnames, addresses, node inventory or provider metadata;
 - exact public endpoint layout;
-- decoy site assets;
-- generated client exports;
-- rendered manifests from a live production overlay.
+- rendered manifests from a real environment;
+- decrypted Secrets or plaintext disk encryption keys;
+- decoy content;
+- generated client artifacts;
+- live deployment automation.
 
-The public chart may define generic settings and validation rules. The private
-overlay supplies the actual deployment-specific values.
+The shell wrappers in this directory are decoys that fail closed. Production promotion scripts live with the operator material.
 
-## Chart Inputs
+## Chart Validation
 
-Safe public inputs live in:
-
-- `tracegate/values.yaml` for chart defaults;
-- `values-prod.example.yaml` for a placeholder production shape.
-
-Private inputs should live in an ignored file outside this repository, then be
-passed with `-f /path/to/private-values.yaml`.
-
-## Render
-
-Use Helm rendering for local validation:
+For public review, render the chart with placeholder values:
 
 ```bash
-helm template tracegate ./deploy/k3s/tracegate --namespace tracegate
+helm lint ./deploy/k3s/tracegate
+helm template tracegate ./deploy/k3s/tracegate
+python3 deploy/k3s/prod-overlay-check.py \
+  --chart-values deploy/k3s/tracegate/values.yaml \
+  --values deploy/k3s/values-prod.example.yaml
 ```
 
-For production-like validation, point the release gate at an ignored private
-values file:
+Strict checks and cluster preflight are designed to run from the operator
+environment with private overlays. They validate shape and prerequisites without
+printing secret material.
+The operator overlay supplies the actual deployment-specific values; public
+examples keep placeholders.
 
-```bash
-TRACEGATE_K3S_PROD_VALUES=/path/to/private-values.yaml \
-deploy/k3s/deploy-ready-check.sh
-```
+## Required External Inputs
 
-Strict mode is for the operator environment. It validates that the private
-overlay satisfies production safety rules without printing secret values:
+Real deployments must provide these inputs outside the public repository:
 
-```bash
-TRACEGATE_STRICT_PROD=1 \
-TRACEGATE_CLUSTER_PREFLIGHT=1 \
-TRACEGATE_K3S_PROD_VALUES=/path/to/private-values.yaml \
-deploy/k3s/deploy-ready-check.sh
-```
+- control-plane secrets and database credentials;
+- private profile material for gateway roles;
+- TLS material and decoy content;
+- node labels, annotations and host policy;
+- production image pins;
+- encrypted Entry and Transit runtime storage.
 
-## Deploy
+Entry traffic shaping and chain-client limits are enabled in public values as
+guardrails. The real Entry network interface must be set in the operator
+overlay.
 
-Use the deploy wrapper for real promotions:
+Entry and Transit runtime directories must be provisioned on encrypted storage
+before scheduling those roles. See
+[docs/node-encryption-runbook.md](../../docs/node-encryption-runbook.md) for
+the generic procedure.
 
-```bash
-TRACEGATE_K3S_PROD_VALUES=/path/to/private-values.yaml \
-deploy/k3s/deploy-prod.sh
-```
+## Operational Notes
 
-The wrapper runs the release gate, verifies namespace consistency, performs a
-Helm upgrade with rollback semantics and checks Kubernetes rollout health.
-Set `TRACEGATE_HELM_DRY_RUN=1` to inspect the upgrade path without applying it.
-`TRACEGATE_POST_DEPLOY_CHECKS=0` disables only the final smoke checks for an
-operator-controlled emergency rerun. The rendered chart namespace matches `TRACEGATE_NAMESPACE`
-before promotion continues.
-
-## Operational Rules
-
-- Keep user and connection mutations on live APIs or narrow reload hooks.
+- Keep user and connection mutations on the API or narrow reload hooks.
 - Keep private profile material in external Secrets.
-- Keep bot copy in external Secrets or private runtime storage.
-- Production decoy sites must stay outside the chart. The chart does not ship a built-in decoy page.
-  Decoy content must be mounted from private storage.
-- Keep production images pinned by version tag or digest.
-- Keep rollout and preflight guards enabled for production.
+- Production decoy sites must stay outside the chart; the chart does not ship a built-in decoy page.
+- Keep bot copy and decoy surfaces outside the public chart.
 - Keep generated runtime state out of Git.
-- Keep observability tuning in the private overlay when it reveals deployment
-  details.
-
-## Release Gate
-
-The public release gate runs formatting checks, tests, Helm lint/render checks,
-database migration checks and Git whitespace validation:
-
-```bash
-deploy/k3s/deploy-ready-check.sh
-```
-
-When real production values are used, the scripts validate configuration shape
-and required external resources without decoding or logging secret values.
+- Keep rollout and preflight guards enabled in operator gates.
+- Keep observability endpoints and alert routing in operator-managed values.
+- Keep public examples generic enough that they cannot identify a live
+  deployment.

@@ -117,6 +117,9 @@ def _entry_small_containers(values: Mapping[str, Any]) -> list[str]:
         containers.append("zapret2")
     if bool(_as_dict(values.get("shadowsocks2022")).get("enabled", False)):
         containers.append("shadowtls")
+    traffic_shaping = _as_dict(_as_dict(_as_dict(values.get("gateway")).get("trafficShaping")).get("entry"))
+    if bool(traffic_shaping.get("enabled", False)):
+        containers.append("entryTrafficShaper")
     return containers
 
 
@@ -350,6 +353,12 @@ def validate_prod_overlay(chart_values: Path, prod_values: Path, *, strict: bool
     rollout = _as_dict(gateway.get("rollingUpdate"))
     private_preflight = _as_dict(gateway.get("privatePreflight"))
     reload_commands = _as_dict(_as_dict(gateway.get("agent")).get("reloadCommands"))
+    traffic_shaping = _as_dict(gateway.get("trafficShaping"))
+    entry_traffic_shaping = _as_dict(traffic_shaping.get("entry"))
+    chain_client_traffic_shaping = _as_dict(traffic_shaping.get("chainClient"))
+    hysteria_traffic_shaping = _as_dict(traffic_shaping.get("hysteria"))
+    node_encryption = _as_dict(gateway.get("nodeEncryption"))
+    node_encryption_annotations = _as_dict(node_encryption.get("nodeAnnotations"))
     require(_text(gateway.get("strategy")) == "RollingUpdate", "gateway.strategy must stay RollingUpdate for production")
     require(not bool(gateway.get("allowRecreateStrategy", False)), "gateway.allowRecreateStrategy must stay false for production")
     require(
@@ -364,6 +373,48 @@ def validate_prod_overlay(chart_values: Path, prod_values: Path, *, strict: bool
     require(bool(_as_dict(gateway.get("probes")).get("enabled", False)), "gateway.probes.enabled must stay true")
     require(bool(private_preflight.get("enabled", False)), "gateway.privatePreflight.enabled must stay true")
     require(bool(private_preflight.get("forbidPlaceholders", False)), "gateway.privatePreflight.forbidPlaceholders must stay true")
+    require(bool(entry_traffic_shaping.get("enabled", False)), "gateway.trafficShaping.entry.enabled must stay true")
+    require(_has_value(entry_traffic_shaping.get("interface")), "gateway.trafficShaping.entry.interface must be set")
+    require(
+        1 <= _as_int(entry_traffic_shaping.get("maxMbit")) <= 100,
+        "gateway.trafficShaping.entry.maxMbit must be in 1..100",
+    )
+    require(bool(entry_traffic_shaping.get("applyEgress", False)), "gateway.trafficShaping.entry.applyEgress must stay true")
+    require(
+        bool(entry_traffic_shaping.get("applyIngressPolicing", False)),
+        "gateway.trafficShaping.entry.applyIngressPolicing must stay true",
+    )
+    require(bool(entry_traffic_shaping.get("failClosed", False)), "gateway.trafficShaping.entry.failClosed must stay true")
+    require(bool(chain_client_traffic_shaping.get("enabled", False)), "gateway.trafficShaping.chainClient.enabled must stay true")
+    require(
+        1 <= _as_int(chain_client_traffic_shaping.get("maxMbit")) <= 10,
+        "gateway.trafficShaping.chainClient.maxMbit must be in 1..10",
+    )
+    require(
+        bool(chain_client_traffic_shaping.get("requireDeclaredHysteriaTx", False)),
+        "gateway.trafficShaping.chainClient.requireDeclaredHysteriaTx must stay true",
+    )
+    require(
+        bool(hysteria_traffic_shaping.get("ignoreClientBandwidth", False)),
+        "gateway.trafficShaping.hysteria.ignoreClientBandwidth must stay true",
+    )
+    require(
+        not bool(hysteria_traffic_shaping.get("entryChainIgnoreClientBandwidth", True)),
+        "gateway.trafficShaping.hysteria.entryChainIgnoreClientBandwidth must stay false",
+    )
+    require(bool(node_encryption.get("enabled", False)), "gateway.nodeEncryption.enabled must stay true")
+    require(bool(node_encryption.get("required", False)), "gateway.nodeEncryption.required must stay true")
+    require(_has_value(node_encryption.get("markerFile")), "gateway.nodeEncryption.markerFile must be set")
+    require(_has_value(node_encryption.get("markerValue")), "gateway.nodeEncryption.markerValue must be set")
+    require(bool(node_encryption_annotations.get("enabled", False)), "gateway.nodeEncryption.nodeAnnotations.enabled must stay true")
+    require(
+        _has_value(node_encryption_annotations.get("encryptedRuntime")),
+        "gateway.nodeEncryption.nodeAnnotations.encryptedRuntime must be set",
+    )
+    require(
+        _has_value(node_encryption_annotations.get("expectedValue")),
+        "gateway.nodeEncryption.nodeAnnotations.expectedValue must be set",
+    )
     entry_small = _as_dict(gateway.get("entrySmall"))
     if bool(entry_small.get("enabled", False)):
         entry_small_rollout = _as_dict(entry_small.get("rollout"))

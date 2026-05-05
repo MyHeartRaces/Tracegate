@@ -154,6 +154,37 @@ def test_tracegate21_chart_uses_entry_transit_roles() -> None:
     assert values["gateway"]["probes"]["enabled"] is True
     assert values["gateway"]["privatePreflight"]["enabled"] is True
     assert values["gateway"]["privatePreflight"]["forbidPlaceholders"] is True
+    assert values["gateway"]["trafficShaping"]["entry"] == {
+        "enabled": True,
+        "interface": "eth0",
+        "maxMbit": 100,
+        "burstKbit": 2048,
+        "applyEgress": True,
+        "applyIngressPolicing": True,
+        "cleanupOnExit": False,
+        "failClosed": True,
+    }
+    assert values["gateway"]["trafficShaping"]["chainClient"] == {
+        "enabled": True,
+        "maxMbit": 10,
+        "requireDeclaredHysteriaTx": True,
+    }
+    assert values["gateway"]["trafficShaping"]["hysteria"] == {
+        "ignoreClientBandwidth": True,
+        "entryChainIgnoreClientBandwidth": False,
+    }
+    assert values["gateway"]["nodeEncryption"] == {
+        "enabled": True,
+        "required": True,
+        "markerFile": ".tracegate-encrypted",
+        "markerValue": "tracegate-encrypted-runtime-v1",
+        "requireDeviceMapperSource": True,
+        "nodeAnnotations": {
+            "enabled": True,
+            "encryptedRuntime": "tracegate.io/encrypted-runtime",
+            "expectedValue": "true",
+        },
+    }
     assert values["gateway"]["entrySmall"]["enabled"] is False
     assert values["gateway"]["entrySmall"]["profile"] == "1g-1vcpu"
     assert values["gateway"]["entrySmall"]["memoryBudgetMi"] == 900
@@ -205,47 +236,18 @@ def test_k3s_deploy_ready_check_covers_release_gate() -> None:
     assert deploy_path.stat().st_mode & 0o111
     assert checker_path.stat().st_mode & 0o111
     assert cluster_checker_path.stat().st_mode & 0o111
-    assert "python3 -m ruff check ." in script
-    assert "pytest -q" in script
-    assert "helm lint" in script
-    assert "helm template tracegate" in script
-    assert "values-prod.example.yaml" in script
-    assert "git diff --check" in script
-    assert "python3 -m alembic heads" in script
-    assert "TRACEGATE_STRICT_PROD" in script
-    assert "TRACEGATE_CLUSTER_PREFLIGHT" in script
-    assert "TRACEGATE_KUBE_SERVER_DRY_RUN" in script
-    assert "prod-overlay-check.py --strict" in script
-    assert "--expected-namespace" in script
-    assert "cluster-preflight-check.py" in script
-    assert "--namespace" in script
-    assert "apply --dry-run=server" in script
-    assert "tracegate-helm-default.yaml" in script
-    assert "tracegate-helm-prod-example.yaml" in script
-    assert "TRACEGATE_K3S_PROD_VALUES must point at an ignored private production values file" in deploy
-    assert "refusing to deploy values-prod.example.yaml" in deploy
-    assert "TRACEGATE_STRICT_PROD=1" in deploy
-    assert "TRACEGATE_CLUSTER_PREFLIGHT=1" in deploy
-    assert "TRACEGATE_KUBE_SERVER_DRY_RUN=1" in deploy
-    assert 'export TRACEGATE_NAMESPACE="${NAMESPACE}"' in deploy
-    assert "helm upgrade --install" in deploy
-    assert "--atomic" in deploy
-    assert "--wait" in deploy
-    assert "TRACEGATE_POST_DEPLOY_CHECKS" in deploy
-    assert "TRACEGATE_ROLLOUT_TIMEOUT" in deploy
-    assert "rollout status deployment" in deploy
-    assert "wait pod" in deploy
-    assert "--for=condition=Ready" in deploy
-    assert "get pdb" in deploy
-    assert "--force" not in deploy
-    assert "deploy-ready-check.sh" in readme
-    assert "deploy-prod.sh" in readme
-    assert "TRACEGATE_K3S_PROD_VALUES" in readme
-    assert "TRACEGATE_STRICT_PROD=1" in readme
-    assert "TRACEGATE_CLUSTER_PREFLIGHT=1" in readme
-    assert "TRACEGATE_HELM_DRY_RUN=1" in readme
-    assert "TRACEGATE_POST_DEPLOY_CHECKS=0" in readme
-    assert "rendered chart namespace matches `TRACEGATE_NAMESPACE`" in readme
+    assert "public decoy" in script
+    assert "public decoy" in deploy
+    assert "exit 2" in script
+    assert "exit 2" in deploy
+    assert "helm upgrade --install" not in deploy
+    assert "kubectl" not in deploy
+    assert "TRACEGATE_K3S_PROD_VALUES" not in deploy
+    assert "python3 -m ruff check ." not in script
+    assert "pytest -q" not in script
+    assert "deploy-ready-check.sh" not in readme
+    assert "deploy-prod.sh" not in readme
+    assert "production promotion scripts live with the operator material" in readme.lower()
 
 
 def _prod_overlay_values() -> dict:
@@ -411,9 +413,9 @@ if args[:2] == ["get", "namespace"] and args[2] == "tracegate":
 if args[:2] == ["get", "nodes"]:
     selector = args[args.index("-l") + 1] if "-l" in args else ""
     if selector == "tracegate.io/role=entry":
-        emit({{"items": [{{"metadata": {{"name": "entry-node", "annotations": {{"tracegate.io/ingress-public-ip": "203.0.113.10"}}}}}}]}})
+        emit({{"items": [{{"metadata": {{"name": "entry-node", "annotations": {{"tracegate.io/ingress-public-ip": "203.0.113.10", "tracegate.io/encrypted-runtime": "true"}}}}}}]}})
     if selector == "tracegate.io/role=transit":
-        emit({{"items": [{{"metadata": {{"name": "transit-node", "annotations": {{"tracegate.io/ingress-public-ip": "203.0.113.10", "tracegate.io/egress-public-ip": "198.51.100.20"}}}}}}]}})
+        emit({{"items": [{{"metadata": {{"name": "transit-node", "annotations": {{"tracegate.io/ingress-public-ip": "203.0.113.10", "tracegate.io/egress-public-ip": "198.51.100.20", "tracegate.io/encrypted-runtime": "true"}}}}}}]}})
     emit({{"items": []}})
 
 if args[:2] == ["get", "secret"]:
@@ -460,6 +462,7 @@ def test_k3s_cluster_preflight_accepts_existing_cluster_prerequisites(tmp_path: 
     assert "cluster-preflight: OK namespace=tracegate" in result.stdout
     assert "secrets=5" in result.stdout
     assert "nodes=2" in result.stdout
+    assert "encrypted_nodes=2" in result.stdout
 
 
 def test_k3s_cluster_preflight_rejects_missing_private_secret_key(tmp_path: Path) -> None:
@@ -569,6 +572,8 @@ def test_tracegate21_chart_externalizes_private_profiles() -> None:
     assert values["privateProfiles"]["keys"]["shadowtlsEntry"] == "shadowtls/entry-config.yaml"
     assert values["privateProfiles"]["keys"]["shadowtlsTransit"] == "shadowtls/transit-config.yaml"
     assert values["privateProfiles"]["keys"]["zapretInterconnect"] == "zapret/entry-transit.env"
+    assert ".tracegate-secrets/" in gitignore
+    assert "*.luks-key" in gitignore
     assert "deploy/k3s/values-prod.yaml" in gitignore
     assert "deploy/k3s/link-profiles/" in gitignore
     assert "privateProfiles.required=false is forbidden" in _chart_text()
@@ -587,6 +592,12 @@ def test_tracegate21_chart_externalizes_private_profiles() -> None:
     assert "gateway.probes.enabled=false is forbidden" in _chart_text()
     assert "gateway.privatePreflight.enabled=false is forbidden" in _chart_text()
     assert "gateway.privatePreflight.forbidPlaceholders=false is forbidden" in _chart_text()
+    assert "gateway.trafficShaping.entry.enabled=false is forbidden" in _chart_text()
+    assert "gateway.trafficShaping.entry.maxMbit must be in 1..100" in _chart_text()
+    assert "gateway.trafficShaping.chainClient.maxMbit must be in 1..10" in _chart_text()
+    assert "gateway.trafficShaping.hysteria.entryChainIgnoreClientBandwidth=true is forbidden" in _chart_text()
+    assert "gateway.nodeEncryption.enabled=false is forbidden" in _chart_text()
+    assert "gateway.nodeEncryption.nodeAnnotations.encryptedRuntime must be set" in _chart_text()
     assert "at least one gateway role must be enabled in Tracegate 2.2" in _chart_text()
     assert "interconnect.entryTransit.enabled=true requires both Entry and Transit gateway roles" in _chart_text()
     assert "wireguard.enabled=true requires the Transit gateway role" in _chart_text()
@@ -795,6 +806,8 @@ def test_entry_small_profile_scopes_rollout_and_resources_to_entry(tmp_path: Pat
     assert _env_value(transit_containers["agent"], "AGENT_GATEWAY_STRATEGY") == "RollingUpdate"
     assert entry_containers["xray"]["resources"]["limits"]["memory"] == "160Mi"
     assert entry_containers["hysteria"]["resources"]["limits"]["cpu"] == "180m"
+    assert entry_containers["entry-traffic-shaper"]["resources"]["limits"]["memory"] == "32Mi"
+    assert entry_containers["entry-traffic-shaper"]["resources"]["limits"]["cpu"] == "20m"
     assert "shadowsocks-2022" not in entry_containers
     assert entry_containers["shadowtls-v3"]["resources"]["limits"]["memory"] == "64Mi"
     assert entry_containers["shadowtls-v3"]["resources"]["limits"]["cpu"] == "40m"
@@ -939,6 +952,55 @@ def test_tracegate22_k3s_runs_hysteria2_outside_xray(tmp_path: Path) -> None:
         assert containers["hysteria"]["command"] == ["hysteria", "server", "-c", "/etc/hysteria/server.yaml"]
 
 
+def test_entry_traffic_shaping_and_encrypted_runtime_guards_render(tmp_path: Path) -> None:
+    rendered = _helm_template_with_values(tmp_path, {})
+
+    assert rendered.returncode == 0, rendered.stderr
+    templates = _gateway_deployment_templates(rendered.stdout)
+    entry_template = templates["gateway-entry"]
+    transit_template = templates["gateway-transit"]
+    entry_containers = _containers_by_name(entry_template)
+    transit_containers = _containers_by_name(transit_template)
+
+    shaper = entry_containers["entry-traffic-shaper"]
+    shaper_script = shaper["command"][-1]
+    syntax = subprocess.run(["sh", "-n"], input=shaper_script, check=False, capture_output=True, text=True)
+    assert syntax.returncode == 0, syntax.stderr
+    assert shaper["securityContext"]["capabilities"]["add"] == ["NET_ADMIN"]
+    assert 'max_mbit="100"' in shaper_script
+    assert 'rate="${max_mbit}mbit"' in shaper_script
+    assert "tc qdisc replace" in shaper_script
+    assert "htb rate" in shaper_script
+    assert "police rate" in shaper_script
+    assert "Entry egress qdisc disappeared" in shaper_script
+    assert "entry-traffic-shaper" not in transit_containers
+
+    entry_inits = {container["name"]: container for container in entry_template["spec"]["initContainers"]}
+    transit_inits = {container["name"]: container for container in transit_template["spec"]["initContainers"]}
+    for init in (entry_inits["validate-node-encryption"], transit_inits["validate-node-encryption"]):
+        script = init["command"][-1]
+        assert 'marker="/state/.tracegate-encrypted"' in script
+        assert 'expected="tracegate-encrypted-runtime-v1"' in script
+        assert "dm-crypt-looking source" in script
+        assert init["volumeMounts"] == [{"name": "gateway-state", "mountPath": "/state"}]
+
+    entry_agent = entry_containers["agent"]
+    assert _env_value(entry_agent, "AGENT_ENTRY_TRAFFIC_SHAPING_MAX_MBIT") == "100"
+    assert _env_value(entry_agent, "HYSTERIA_CHAIN_CLIENT_MAX_MBIT") == "10"
+    assert _env_value(entry_agent, "HYSTERIA_CHAIN_CLIENT_REQUIRE_DECLARED_TX") == "true"
+    assert _env_value(entry_agent, "AGENT_NODE_ENCRYPTION_MARKER_FILE") == ".tracegate-encrypted"
+
+    hysteria_configs = {
+        doc["metadata"]["labels"]["app.kubernetes.io/component"]: yaml.safe_load(doc["data"]["server.yaml"])
+        for doc in _helm_docs(rendered.stdout)
+        if doc.get("kind") == "ConfigMap" and str(doc.get("metadata", {}).get("name") or "").endswith("-hysteria")
+    }
+    assert hysteria_configs["gateway-entry"]["bandwidth"] == {"up": "10 mbps", "down": "10 mbps"}
+    assert hysteria_configs["gateway-entry"]["ignoreClientBandwidth"] is False
+    assert "bandwidth" not in hysteria_configs["gateway-transit"]
+    assert hysteria_configs["gateway-transit"]["ignoreClientBandwidth"] is True
+
+
 def test_tracegate21_runtime_contract_renders_role_link_crypto_metadata(tmp_path: Path) -> None:
     rendered = _helm_template_with_values(
         tmp_path,
@@ -960,6 +1022,25 @@ def test_tracegate21_runtime_contract_renders_role_link_crypto_metadata(tmp_path
     assert contract["network"]["egressIsolation"]["mode"] == "dedicated-egress-ip"
     assert contract["network"]["egressIsolation"]["forbidIngressIpAsEgress"] is True
     assert contract["network"]["egressIsolation"]["enforcement"]["snat"] == "required"
+    assert contract["trafficShaping"]["entry"] == {
+        "enabled": True,
+        "strategy": "tc-htb-egress-plus-ingress-police",
+        "interface": "eth0",
+        "maxMbit": 100,
+        "burstKbit": 2048,
+        "applyEgress": True,
+        "applyIngressPolicing": True,
+        "cleanupOnExit": False,
+        "failClosed": True,
+        "scope": "host-public-interface",
+    }
+    assert contract["trafficShaping"]["chainClient"]["enabled"] is True
+    assert contract["trafficShaping"]["chainClient"]["maxMbit"] == 10
+    assert contract["trafficShaping"]["hysteria"]["entryChainIgnoreClientBandwidth"] is False
+    assert contract["nodeEncryption"]["required"] is True
+    assert contract["nodeEncryption"]["roles"] == ["entry", "transit"]
+    assert contract["nodeEncryption"]["markerFile"] == ".tracegate-encrypted"
+    assert contract["nodeEncryption"]["nodeAnnotations"]["encryptedRuntime"] == "tracegate.io/encrypted-runtime"
     assert contract["transportProfiles"]["clientExposure"] == {
         "defaultMode": "vpn-tun",
         "localProxyExports": "advanced-only",
@@ -1358,6 +1439,22 @@ def test_tracegate21_wireguard_sidecar_uses_portable_lifecycle_script(tmp_path: 
             "gateway.hostNetwork=true with both Entry and Transit enabled requires non-empty per-role nodeSelector",
         ),
         (
+            {"gateway": {"trafficShaping": {"entry": {"maxMbit": 101}}}},
+            "gateway.trafficShaping.entry.maxMbit must be in 1..100",
+        ),
+        (
+            {"gateway": {"trafficShaping": {"chainClient": {"maxMbit": 11}}}},
+            "gateway.trafficShaping.chainClient.maxMbit must be in 1..10",
+        ),
+        (
+            {"gateway": {"trafficShaping": {"hysteria": {"entryChainIgnoreClientBandwidth": True}}}},
+            "gateway.trafficShaping.hysteria.entryChainIgnoreClientBandwidth=true is forbidden",
+        ),
+        (
+            {"gateway": {"nodeEncryption": {"markerFile": ""}}},
+            "gateway.nodeEncryption.markerFile must be set",
+        ),
+        (
             {
                 "gateway": {
                     "roles": {
@@ -1595,6 +1692,13 @@ def test_tracegate21_templates_keep_user_state_out_of_rollout_checksums() -> Non
     assert "AGENT_GATEWAY_PRIVATE_PREFLIGHT_FORBID_PLACEHOLDERS" in gateways
     assert "AGENT_RELOAD_PROFILES_CMD" in gateways
     assert "AGENT_RELOAD_LINK_CRYPTO_CMD" in gateways
+    assert "AGENT_ENTRY_TRAFFIC_SHAPING_MAX_MBIT" in gateways
+    assert "HYSTERIA_CHAIN_CLIENT_MAX_MBIT" in gateways
+    assert "HYSTERIA_CHAIN_CLIENT_REQUIRE_DECLARED_TX" in gateways
+    assert "HYSTERIA_ENTRY_CHAIN_IGNORE_CLIENT_BANDWIDTH" in gateways
+    assert "AGENT_NODE_ENCRYPTION_MARKER_FILE" in gateways
+    assert "entry-traffic-shaper" in gateways
+    assert "validate-node-encryption" in gateways
     assert "DEFAULT_ENTRY_HOST" in gateways
     assert "DEFAULT_TRANSIT_HOST" in gateways
     assert "$roleContainerResources" in gateways

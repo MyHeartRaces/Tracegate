@@ -1,8 +1,7 @@
 # Operator Workflow
 
-This document is intentionally high level. Concrete production values, live
-endpoint names, host policy and decoy content belong to the private deployment
-repository.
+This document is intentionally high level. Live deployment material stays
+outside the public source tree.
 
 ## Local Work
 
@@ -15,18 +14,20 @@ python3 -m ruff check .
 pytest -q
 ```
 
-## Private Overlay Work
+## Operator Overlay Work
 
-1. Update encrypted secrets or ignored private values in the private repository.
+1. Update encrypted secrets or ignored operator values.
 2. Keep raw secret files untracked unless they are encrypted.
 3. Keep decoy assets and generated client artifacts private.
-4. Run the strict deployment gate from the operator environment.
+4. Before scheduling Entry or Transit, provision encrypted runtime storage with
+   `docs/node-encryption-runbook.md` and annotate only verified nodes.
+5. Run the strict deployment gate from the operator environment.
 
 ## Promotion
 
-1. Render the chart with private values.
-2. Run the release gate.
-3. Deploy with the wrapper.
+1. Render the chart with operator values.
+2. Run the operator release gate.
+3. Deploy with operator automation.
 4. Verify bot, API, gateway health and Grafana OTP flow.
 5. Watch alert delivery long enough to catch noisy or missing signals.
 

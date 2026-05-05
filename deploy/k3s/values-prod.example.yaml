@@ -67,6 +67,37 @@ network:
 
 gateway:
   terminationGracePeriodSeconds: 60
+  trafficShaping:
+    entry:
+      enabled: true
+      # Public network interface on the Entry node. Keep maxMbit <= 100.
+      interface: eth0
+      maxMbit: 100
+      applyEgress: true
+      applyIngressPolicing: true
+      failClosed: true
+    chainClient:
+      enabled: true
+      maxMbit: 10
+      requireDeclaredHysteriaTx: true
+    hysteria:
+      ignoreClientBandwidth: true
+      entryChainIgnoreClientBandwidth: false
+  nodeEncryption:
+    enabled: true
+    required: true
+    # Before promotion, provision /var/lib/tracegate/entry and
+    # /var/lib/tracegate/transit on encrypted storage and write this marker
+    # file inside each role directory.
+    markerFile: .tracegate-encrypted
+    markerValue: tracegate-encrypted-runtime-v1
+    # Set false only for verified provider-managed encrypted volumes that do
+    # not appear as dm-crypt devices on the node.
+    requireDeviceMapperSource: true
+    nodeAnnotations:
+      enabled: true
+      encryptedRuntime: tracegate.io/encrypted-runtime
+      expectedValue: "true"
   agent:
     corsOrigins:
       - https://tracegate.example.com

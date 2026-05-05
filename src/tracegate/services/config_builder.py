@@ -31,6 +31,8 @@ from tracegate.services.wireguard_keys import (
 _LOCAL_SOCKS_PORT_BASE = 20000
 _LOCAL_SOCKS_PORT_SPAN = 40000
 _LOCAL_SOCKS_CREDENTIAL_RE = re.compile(r"^[A-Za-z0-9._~!$&'()*+,;=:@%-]{1,128}$")
+_CHAIN_CLIENT_RATE_LIMIT_MBIT = 10
+_DIRECT_HYSTERIA_DEFAULT_MBIT = 100
 
 
 @dataclass
@@ -373,6 +375,15 @@ def _entry_transit_private_relay(
         "udp_capable": is_udp,
         "salamander_required": is_udp,
         "paired_obfs_supported": is_udp,
+        "client_rate_limit": {
+            "enabled": True,
+            "max_mbit": _CHAIN_CLIENT_RATE_LIMIT_MBIT,
+            "scope": "per-chain-client",
+            "entry_total_max_mbit": 100,
+            "hysteria_server_bandwidth": is_udp,
+            "hysteria_declared_tx_required": is_udp,
+            "tcp_enforcement": "entry-host-total-tc-cap",
+        },
         "dpi_resistance": {
             "required": is_udp,
             "mode": "salamander-plus-scoped-paired-obfs" if is_udp else "reality-xhttp",
@@ -604,6 +615,20 @@ def build_effective_config(
             min_value=1,
             max_value=65535,
         )
+        bandwidth_default = _CHAIN_CLIENT_RATE_LIMIT_MBIT if is_chain else _DIRECT_HYSTERIA_DEFAULT_MBIT
+        bandwidth_max = _CHAIN_CLIENT_RATE_LIMIT_MBIT if is_chain else 1000
+        up_mbps = _normalize_int_range(
+            overrides.get("up_mbps", bandwidth_default),
+            field_name="up_mbps",
+            min_value=1,
+            max_value=bandwidth_max,
+        )
+        down_mbps = _normalize_int_range(
+            overrides.get("down_mbps", bandwidth_default),
+            field_name="down_mbps",
+            min_value=1,
+            max_value=bandwidth_max,
+        )
 
         return {
             "protocol": "hysteria2",
@@ -622,8 +647,14 @@ def build_effective_config(
             "masquerade": _hysteria_masquerade_payload(),
             "hygiene": _hysteria_hygiene_payload(is_chain=is_chain, public_udp_port=hysteria_port),
             "client_mode": mode,
-            "up_mbps": overrides.get("up_mbps", 100),
-            "down_mbps": overrides.get("down_mbps", 100),
+            "up_mbps": up_mbps,
+            "down_mbps": down_mbps,
+            "rate_limit": {
+                "enabled": is_chain,
+                "max_mbit": _CHAIN_CLIENT_RATE_LIMIT_MBIT if is_chain else None,
+                "scope": "entry-chain-client" if is_chain else "direct-client-default",
+                "server_cap_required": is_chain,
+            },
             "local_socks": {
                 **_local_socks_payload(
                     listen=str(overrides.get("socks_listen") or "").strip()
@@ -650,6 +681,7 @@ def build_effective_config(
                 "private_interconnect": "hysteria2-salamander-udp-link" if is_chain else None,
                 "backhaul_outside_xray": is_chain,
                 "udp_over_private_relay": is_chain,
+                "chain_client_rate_limit_mbit": _CHAIN_CLIENT_RATE_LIMIT_MBIT if is_chain else None,
             },
             "chain": _entry_transit_private_relay(endpoints=endpoints, inner_transport="hysteria2-quic")
             if is_chain

@@ -226,6 +226,26 @@ class Settings(BaseSettings):
     agent_egress_enforcement_managed_by: str = "/etc/tracegate/private/egress-isolation"
     agent_egress_enforcement_snat: str = "required"
     agent_egress_enforcement_ingress_public_ip_outbound: str = "forbidden"
+    agent_entry_traffic_shaping_enabled: bool = True
+    agent_entry_traffic_shaping_interface: str = "eth0"
+    agent_entry_traffic_shaping_max_mbit: int = 100
+    agent_entry_traffic_shaping_burst_kbit: int = 2048
+    agent_entry_traffic_shaping_apply_egress: bool = True
+    agent_entry_traffic_shaping_apply_ingress_policing: bool = True
+    agent_entry_traffic_shaping_cleanup_on_exit: bool = False
+    agent_entry_traffic_shaping_fail_closed: bool = True
+    hysteria_chain_client_rate_limit_enabled: bool = True
+    hysteria_chain_client_max_mbit: int = 10
+    hysteria_chain_client_require_declared_tx: bool = True
+    hysteria_ignore_client_bandwidth: bool = True
+    hysteria_entry_chain_ignore_client_bandwidth: bool = False
+    agent_node_encryption_enabled: bool = True
+    agent_node_encryption_required: bool = True
+    agent_node_encryption_marker_file: str = ".tracegate-encrypted"
+    agent_node_encryption_marker_value: str = "tracegate-encrypted-runtime-v1"
+    agent_node_encryption_require_device_mapper_source: bool = False
+    agent_node_encryption_annotation_key: str = "tracegate.io/encrypted-runtime"
+    agent_node_encryption_annotation_expected_value: str = "true"
     # When enabled, the agent uses Xray gRPC API (HandlerService) to add/remove users without restarting Xray.
     # This is required for true "zero-downtime" connection issuance/revocation.
     agent_xray_api_enabled: bool = False

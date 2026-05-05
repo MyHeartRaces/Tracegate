@@ -2,151 +2,123 @@
   <img src="docs/assets/tracegate-wordmark.svg" alt="TRACEGATE" width="720">
 </p>
 
-Tracegate 2.2 is a managed privacy-gateway control plane. It provides a
-Telegram bot, FastAPI backend, node agent, runtime renderers, observability
-helpers and a production Helm chart.
+Tracegate is a managed privacy-gateway control plane. It coordinates user
+access, device profiles, gateway runtime state and operational visibility for a
+multi-role relay stack.
 
-The public repository contains source code, tests, safe examples and deployment
-scaffolding. Operator-private values, live hostnames, live addresses, decoy
-sites, raw client exports and decrypted secret material are intentionally kept
-outside this repository.
+This repository is the public source tree. It contains application code,
+tests, generic templates and safe documentation. Live deployment coordinates,
+operator scripts, production overlays, decoy content, raw client exports and
+secret material are intentionally outside this tree.
 
-Release notes live in [CHANGELOG.md](CHANGELOG.md).
+## Capabilities
 
-## What Tracegate Does
+Tracegate provides:
 
-Tracegate issues and manages connection profiles through a Telegram-first user
-flow:
+- a Telegram-first user flow for onboarding, device management and profile
+  delivery;
+- a FastAPI control plane backed by durable database state;
+- a dispatcher that turns control-plane changes into gateway work items;
+- a node agent that applies rendered runtime material and reports health;
+- client export builders for supported proxy and tunnel profile families;
+- revision tracking for activation, rotation and revocation;
+- Grafana handoff flows for user and operator visibility;
+- a k3s-oriented Helm chart with public validation guards;
+- tests for chart rendering, runtime contracts, bot behavior, exports,
+  revision logic and observability formatting.
 
-- register a user in the bot;
-- add a device and select the active device;
-- create a connection profile for that device;
-- receive an import link, QR code or client-specific export;
-- rotate, activate or revoke revisions without manually editing server state.
+## Repository Boundary
 
-The system supports several profile families for TCP, UDP, compatibility and
-Telegram Proxy access. The public docs name profile families only at product
-level; production endpoints and routing details belong to the private deployment
-overlay.
+Public-safe material belongs here:
 
-## Current Public Surface
+- source code and migrations;
+- generic Helm templates and placeholder values;
+- deterministic tests and non-live fixtures;
+- public bundle templates;
+- high-level operator documentation.
 
-- Telegram bot onboarding, device inventory, connection issuance and support
-  flows.
-- Admin bot flows for access management, moderation, announcements and feedback.
-- API control plane with durable PostgreSQL state.
-- Dispatcher for retryable runtime delivery.
-- Node agent for health checks, metrics and applying rendered runtime material.
-- Runtime builders for the active Tracegate 2.2 profile families.
-- Grafana OTP handoff, role-aware dashboards and bot-delivered admin alerts.
-- Helm chart for k3s-style production deployments.
-- Validation and test coverage for chart rendering, runtime contracts, bot text,
-  exports, revision rules and observability behavior.
+Sensitive material does not belong here:
 
-## Public vs Private Boundary
+- real domains, public addresses, ports, node names or provider metadata;
+- production values and rendered manifests;
+- decrypted Kubernetes Secrets or plaintext disk encryption keys;
+- decoy site assets and live bot copy;
+- generated client imports, QR payloads or runtime state snapshots;
+- production deployment automation.
 
-Public repository:
+The private operator repository is the single place for live deployment
+material.
 
-- application source code;
-- public runtime templates with placeholders;
-- tests and safe fixtures;
-- safe example values;
-- high-level operator documentation;
-- CI and local development helpers.
+## Architecture
 
-Private deployment repository:
+Tracegate separates control-plane decisions from gateway execution:
 
-- real production values;
-- encrypted Kubernetes Secrets;
-- live TLS and profile material;
-- decoy HTML/CSS/JS assets;
-- raw client configuration artifacts;
-- host policy, node inventory and operational runbooks that reveal deployment
-  shape;
-- generated state snapshots that are useful for operations but unsuitable for a
-  public repo.
+- the API owns users, devices, connections, revisions and admin actions;
+- the bot exposes user and admin workflows;
+- the dispatcher batches pending runtime changes;
+- gateway agents reconcile role-specific desired state;
+- renderers build runtime profiles and public client exports from structured
+  connection data;
+- validation tools check public chart safety and private overlay shape without
+  printing secret values.
 
-Do not move private deployment material into this repository. If a document or
-example would reveal enough information to fingerprint the live deployment, keep
-it in the private repository instead.
+Entry and Transit roles are treated as protected runtime surfaces. Endpoint
+support remains part of the model, but endpoint-specific live details stay out
+of public documentation.
 
-## Repository Layout
+## Layout
 
-- [src/tracegate](src/tracegate): application code.
-- [deploy/k3s/tracegate](deploy/k3s/tracegate): Helm chart and public templates.
-- [bundles](bundles): public runtime bundle templates.
+- [src/tracegate](src/tracegate): application, agent, bot, dispatcher and
+  service code.
+- [deploy/k3s/tracegate](deploy/k3s/tracegate): public Helm chart and template
+  guards.
+- [bundles](bundles): generic runtime bundle templates.
 - [alembic](alembic): database migrations.
-- [tests](tests): unit, integration-style and chart validation tests.
-- [docs](docs): safe public documentation.
+- [tests](tests): automated coverage for behavior and generated artifacts.
+- [docs](docs): public documentation that avoids live deployment coordinates.
 
 ## Local Development
 
-Use Docker Compose for the local control-plane stack:
+Local development should use local-only configuration and ignored env files:
 
 ```bash
 cp .env.example .env
-docker compose up --build
-docker compose exec api tracegate-init-db
-pytest -q
-```
-
-Local development is intended for control-plane behavior, bot flows, export
-generation, chart rendering and validation logic. Production overlays should be
-tested through ignored private values and encrypted secrets, not committed
-examples.
-
-## Deployment Model
-
-Tracegate ships one Helm chart. The chart is public, but production inputs are
-private:
-
-```bash
-helm template tracegate ./deploy/k3s/tracegate --namespace tracegate
-helm upgrade --install tracegate ./deploy/k3s/tracegate \
-  --namespace tracegate \
-  -f /path/to/private-values.yaml
-```
-
-Use [deploy/k3s/README.md](deploy/k3s/README.md) for chart workflow and release
-gates. Keep real overlays, decoy assets and operational host policy in the
-private deployment repository.
-
-## Observability
-
-Grafana access is issued by the bot as a short-lived one-time link. User scope
-shows per-user connection statistics and basic service health. Admin scope adds
-operator dashboards, inventory views and alert routing.
-
-Alert delivery is intentionally filtered so bot notifications stay focused on
-material incidents and recoveries. Tuning values and live dashboard endpoints
-belong to the private overlay.
-
-## Validation
-
-Run the standard local checks:
-
-```bash
+python3 -m pip install -e '.[dev]' -c requirements.lock
 python3 -m ruff check .
 pytest -q
 ```
 
-Run the deployment release gate before promoting chart changes:
+Docker Compose is available for local control-plane development. It is not a
+production deployment path.
 
-```bash
-deploy/k3s/deploy-ready-check.sh
-```
+## Helm Chart
 
-The strict production gate accepts ignored private values through environment
-variables and should be run from the operator environment.
+The public chart is intended for rendering, validation and review. It includes
+guards for external Secrets, private profile material, decoy content, gateway
+traffic shaping and encrypted Entry/Transit runtime storage.
+
+Use placeholder values for public review. Use operator-managed overlays for
+real environments.
+
+## Security Posture
+
+Public examples use placeholders, loopback values or documentation-reserved
+network ranges. Do not replace them with live coordinates in this repository.
+
+Before making a file public, check whether it reveals a production endpoint,
+route shape, credential, host policy, provider detail or generated user
+artifact. If it does, keep it out of this repository.
 
 ## Documentation
 
-- [docs/operator-workflow.md](docs/operator-workflow.md): safe operational flow
-  for public contributors.
-- [docs/security-boundary.md](docs/security-boundary.md): what belongs in public
-  Git and what stays private.
-- [docs/release-checklist.md](docs/release-checklist.md): public release and
-  verification checklist.
+- [docs/security-boundary.md](docs/security-boundary.md): public/private
+  boundary rules.
+- [docs/operator-workflow.md](docs/operator-workflow.md): safe high-level
+  workflow for contributors and operators.
+- [docs/release-checklist.md](docs/release-checklist.md): public release review
+  checklist.
+- [docs/node-encryption-runbook.md](docs/node-encryption-runbook.md): generic
+  Entry/Transit encrypted runtime storage procedure.
 
 ## License
 

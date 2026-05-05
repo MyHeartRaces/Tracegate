@@ -57,6 +57,42 @@ data:
       scope: {{ .Values.interconnect.zapret2.scope }}
       applyTo:
 {{ toYaml .Values.interconnect.zapret2.applyTo | nindent 8 }}
+    trafficShaping:
+      entry:
+        enabled: {{ .Values.gateway.trafficShaping.entry.enabled }}
+        strategy: tc-htb-egress-plus-ingress-police
+        interface: {{ .Values.gateway.trafficShaping.entry.interface | quote }}
+        maxMbit: {{ int .Values.gateway.trafficShaping.entry.maxMbit }}
+        burstKbit: {{ int .Values.gateway.trafficShaping.entry.burstKbit }}
+        applyEgress: {{ .Values.gateway.trafficShaping.entry.applyEgress }}
+        applyIngressPolicing: {{ .Values.gateway.trafficShaping.entry.applyIngressPolicing }}
+        cleanupOnExit: {{ .Values.gateway.trafficShaping.entry.cleanupOnExit }}
+        failClosed: {{ .Values.gateway.trafficShaping.entry.failClosed }}
+        scope: host-public-interface
+      chainClient:
+        enabled: {{ .Values.gateway.trafficShaping.chainClient.enabled }}
+        maxMbit: {{ int .Values.gateway.trafficShaping.chainClient.maxMbit }}
+        requireDeclaredHysteriaTx: {{ .Values.gateway.trafficShaping.chainClient.requireDeclaredHysteriaTx }}
+        scope: entry-chain-clients
+        hysteria:
+          entryServerBandwidth: true
+          entryIgnoreClientBandwidth: {{ .Values.gateway.trafficShaping.hysteria.entryChainIgnoreClientBandwidth }}
+      hysteria:
+        ignoreClientBandwidth: {{ .Values.gateway.trafficShaping.hysteria.ignoreClientBandwidth }}
+        entryChainIgnoreClientBandwidth: {{ .Values.gateway.trafficShaping.hysteria.entryChainIgnoreClientBandwidth }}
+    nodeEncryption:
+      enabled: {{ .Values.gateway.nodeEncryption.enabled }}
+      required: {{ .Values.gateway.nodeEncryption.required }}
+      roles:
+        - entry
+        - transit
+      dataHostPathPrefix: {{ .Values.gateway.agent.dataHostPathPrefix | quote }}
+      markerFile: {{ .Values.gateway.nodeEncryption.markerFile | quote }}
+      markerValue: {{ .Values.gateway.nodeEncryption.markerValue | quote }}
+      requireDeviceMapperSource: {{ .Values.gateway.nodeEncryption.requireDeviceMapperSource }}
+      futureEndpointRecommended: true
+      nodeAnnotations:
+{{ toYaml .Values.gateway.nodeEncryption.nodeAnnotations | nindent 8 }}
     interconnect:
 {{ toYaml .Values.interconnect.entryTransit | nindent 6 }}
     linkCrypto:
@@ -768,6 +804,14 @@ data:
       disablePathMTUDiscovery: false
     congestion:
       type: bbr
+{{- if and (eq $roleName "entry") $.Values.gateway.trafficShaping.chainClient.enabled }}
+    bandwidth:
+      up: {{ int $.Values.gateway.trafficShaping.chainClient.maxMbit }} mbps
+      down: {{ int $.Values.gateway.trafficShaping.chainClient.maxMbit }} mbps
+    ignoreClientBandwidth: {{ $.Values.gateway.trafficShaping.hysteria.entryChainIgnoreClientBandwidth }}
+{{- else }}
+    ignoreClientBandwidth: {{ $.Values.gateway.trafficShaping.hysteria.ignoreClientBandwidth }}
+{{- end }}
     disableUDP: false
     udpIdleTimeout: 60s
     sniff:

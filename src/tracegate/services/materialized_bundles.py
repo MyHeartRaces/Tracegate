@@ -49,6 +49,26 @@ def _require_first(environ: dict[str, str], *names: str) -> str:
     return value
 
 
+def _bool_env(environ: dict[str, str], name: str, *, default: bool) -> bool:
+    raw = _env(environ, name, "true" if default else "false").lower()
+    if raw in {"1", "true", "yes", "on"}:
+        return True
+    if raw in {"0", "false", "no", "off"}:
+        return False
+    raise MaterializedBundleRenderError(f"{name} must be a boolean")
+
+
+def _int_env(environ: dict[str, str], name: str, *, default: int, min_value: int, max_value: int) -> int:
+    raw = _env(environ, name, str(default))
+    try:
+        value = int(raw)
+    except ValueError as exc:
+        raise MaterializedBundleRenderError(f"{name} must be an integer") from exc
+    if value < min_value or value > max_value:
+        raise MaterializedBundleRenderError(f"{name} must be in {min_value}..{max_value}")
+    return value
+
+
 def _load_optional_json_file(path_raw: str, *, label: str) -> dict[str, Any] | None:
     path_value = str(path_raw or "").strip()
     if not path_value:
@@ -327,6 +347,9 @@ class MaterializedBundleRenderContext:
     transit_hysteria_stats_secret: str
     entry_hysteria_auth_url: str
     transit_hysteria_auth_url: str
+    hysteria_chain_client_rate_limit_enabled: bool
+    hysteria_chain_client_max_mbit: int
+    hysteria_chain_client_require_declared_tx: bool
     reality_public_key_entry: str
     reality_short_id_entry: str
     reality_public_key_transit: str
@@ -441,6 +464,23 @@ class MaterializedBundleRenderContext:
             "HYSTERIA_AUTH_URL",
             default=default_hysteria_auth_url,
         ) or default_hysteria_auth_url
+        hysteria_chain_client_rate_limit_enabled = _bool_env(
+            env,
+            "HYSTERIA_CHAIN_CLIENT_RATE_LIMIT_ENABLED",
+            default=True,
+        )
+        hysteria_chain_client_max_mbit = _int_env(
+            env,
+            "HYSTERIA_CHAIN_CLIENT_MAX_MBIT",
+            default=10,
+            min_value=1,
+            max_value=10,
+        )
+        hysteria_chain_client_require_declared_tx = _bool_env(
+            env,
+            "HYSTERIA_CHAIN_CLIENT_REQUIRE_DECLARED_TX",
+            default=True,
+        )
 
         reality_public_key_entry = _first(env, "REALITY_PUBLIC_KEY_ENTRY", "REALITY_PUBLIC_KEY")
         reality_short_id_entry = _require_first(env, "REALITY_SHORT_ID_ENTRY", "REALITY_SHORT_ID")
@@ -517,6 +557,9 @@ class MaterializedBundleRenderContext:
             transit_hysteria_stats_secret=transit_hysteria_stats_secret,
             entry_hysteria_auth_url=entry_hysteria_auth_url,
             transit_hysteria_auth_url=transit_hysteria_auth_url,
+            hysteria_chain_client_rate_limit_enabled=hysteria_chain_client_rate_limit_enabled,
+            hysteria_chain_client_max_mbit=hysteria_chain_client_max_mbit,
+            hysteria_chain_client_require_declared_tx=hysteria_chain_client_require_declared_tx,
             reality_public_key_entry=reality_public_key_entry,
             reality_short_id_entry=reality_short_id_entry,
             reality_public_key_transit=reality_public_key_transit,
@@ -807,28 +850,43 @@ def _render_hysteria_server_yaml(
     salamander_password: str,
     stats_secret: str,
     decoy_dir: str,
+    chain_client_rate_limit_enabled: bool = False,
+    chain_client_max_mbit: int = 10,
 ) -> str:
-    return "\n".join(
+    lines = [
+        f"listen: :{listen_port}",
+        "tls:",
+        f"  cert: {_yaml_scalar(tls_cert_file)}",
+        f"  key: {_yaml_scalar(tls_key_file)}",
+        "  sniGuard: dns-san",
+        "auth:",
+        "  type: http",
+        "  http:",
+        f"    url: {_yaml_scalar(auth_url)}",
+        "    insecure: false",
+        "obfs:",
+        "  type: salamander",
+        "  salamander:",
+        f"    password: {_yaml_scalar(salamander_password)}",
+        "quic:",
+        "  maxIdleTimeout: 30s",
+        "  disablePathMTUDiscovery: false",
+        "congestion:",
+        "  type: bbr",
+    ]
+    if chain_client_rate_limit_enabled:
+        lines.extend(
+            [
+                "bandwidth:",
+                f"  up: {chain_client_max_mbit} mbps",
+                f"  down: {chain_client_max_mbit} mbps",
+                "ignoreClientBandwidth: false",
+            ]
+        )
+    else:
+        lines.append("ignoreClientBandwidth: true")
+    lines.extend(
         [
-            f"listen: :{listen_port}",
-            "tls:",
-            f"  cert: {_yaml_scalar(tls_cert_file)}",
-            f"  key: {_yaml_scalar(tls_key_file)}",
-            "  sniGuard: dns-san",
-            "auth:",
-            "  type: http",
-            "  http:",
-            f"    url: {_yaml_scalar(auth_url)}",
-            "    insecure: false",
-            "obfs:",
-            "  type: salamander",
-            "  salamander:",
-            f"    password: {_yaml_scalar(salamander_password)}",
-            "quic:",
-            "  maxIdleTimeout: 30s",
-            "  disablePathMTUDiscovery: false",
-            "congestion:",
-            "  type: bbr",
             "disableUDP: false",
             "udpIdleTimeout: 60s",
             "sniff:",
@@ -844,23 +902,26 @@ def _render_hysteria_server_yaml(
             "",
         ]
     )
+    return "\n".join(lines)
 
 
 def _write_hysteria_server_configs(ctx: MaterializedBundleRenderContext) -> None:
     if ctx.runtime_profile != "tracegate-2.2":
         return
-    for bundle_name, auth_url, salamander_password, stats_secret in (
+    for bundle_name, auth_url, salamander_password, stats_secret, chain_client_rate_limit_enabled in (
         (
             "base-entry",
             ctx.entry_hysteria_auth_url,
             ctx.entry_hysteria_salamander_password,
             ctx.entry_hysteria_stats_secret,
+            ctx.hysteria_chain_client_rate_limit_enabled,
         ),
         (
             "base-transit",
             ctx.transit_hysteria_auth_url,
             ctx.transit_hysteria_salamander_password,
             ctx.transit_hysteria_stats_secret,
+            False,
         ),
     ):
         target = ctx.materialized_root / bundle_name / "hysteria" / "server.yaml"
@@ -874,6 +935,8 @@ def _write_hysteria_server_configs(ctx: MaterializedBundleRenderContext) -> None
                 salamander_password=salamander_password,
                 stats_secret=stats_secret,
                 decoy_dir=ctx.decoy_dir,
+                chain_client_rate_limit_enabled=chain_client_rate_limit_enabled,
+                chain_client_max_mbit=ctx.hysteria_chain_client_max_mbit,
             ),
             encoding="utf-8",
         )

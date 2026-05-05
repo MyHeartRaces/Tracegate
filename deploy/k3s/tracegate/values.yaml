@@ -272,6 +272,33 @@ gateway:
   shareProcessNamespace: true
   dnsPolicy: ClusterFirstWithHostNet
   terminationGracePeriodSeconds: 60
+  trafficShaping:
+    entry:
+      enabled: true
+      interface: eth0
+      maxMbit: 100
+      burstKbit: 2048
+      applyEgress: true
+      applyIngressPolicing: true
+      cleanupOnExit: false
+      failClosed: true
+    chainClient:
+      enabled: true
+      maxMbit: 10
+      requireDeclaredHysteriaTx: true
+    hysteria:
+      ignoreClientBandwidth: true
+      entryChainIgnoreClientBandwidth: false
+  nodeEncryption:
+    enabled: true
+    required: true
+    markerFile: .tracegate-encrypted
+    markerValue: tracegate-encrypted-runtime-v1
+    requireDeviceMapperSource: true
+    nodeAnnotations:
+      enabled: true
+      encryptedRuntime: tracegate.io/encrypted-runtime
+      expectedValue: "true"
   pdb:
     enabled: true
     minAvailable: 1
@@ -375,12 +402,26 @@ gateway:
         limits:
           cpu: 40m
           memory: 64Mi
+      entryTrafficShaper:
+        requests:
+          cpu: 5m
+          memory: 16Mi
+        limits:
+          cpu: 20m
+          memory: 32Mi
   containerResources:
     agent: {}
     haproxy: {}
     nginx: {}
     xray: {}
     hysteria: {}
+    entryTrafficShaper:
+      requests:
+        cpu: 5m
+        memory: 16Mi
+      limits:
+        cpu: 30m
+        memory: 48Mi
     mieru: {}
     zapret2:
       requests:

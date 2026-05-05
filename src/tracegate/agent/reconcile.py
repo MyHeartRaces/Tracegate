@@ -888,6 +888,46 @@ def _build_runtime_contract_payload(settings: Settings) -> dict[str, object]:
                 },
             },
         },
+        "trafficShaping": {
+            "entry": {
+                "enabled": bool(settings.agent_entry_traffic_shaping_enabled),
+                "strategy": "tc-htb-egress-plus-ingress-police",
+                "interface": str(settings.agent_entry_traffic_shaping_interface or "").strip() or "eth0",
+                "maxMbit": int(settings.agent_entry_traffic_shaping_max_mbit or 100),
+                "burstKbit": int(settings.agent_entry_traffic_shaping_burst_kbit or 2048),
+                "applyEgress": bool(settings.agent_entry_traffic_shaping_apply_egress),
+                "applyIngressPolicing": bool(settings.agent_entry_traffic_shaping_apply_ingress_policing),
+                "cleanupOnExit": bool(settings.agent_entry_traffic_shaping_cleanup_on_exit),
+                "failClosed": bool(settings.agent_entry_traffic_shaping_fail_closed),
+                "scope": "host-public-interface",
+            },
+            "chainClient": {
+                "enabled": bool(settings.hysteria_chain_client_rate_limit_enabled),
+                "maxMbit": int(settings.hysteria_chain_client_max_mbit or 10),
+                "requireDeclaredHysteriaTx": bool(settings.hysteria_chain_client_require_declared_tx),
+                "scope": "entry-chain-clients",
+            },
+            "hysteria": {
+                "ignoreClientBandwidth": bool(settings.hysteria_ignore_client_bandwidth),
+                "entryChainIgnoreClientBandwidth": bool(settings.hysteria_entry_chain_ignore_client_bandwidth),
+            },
+        },
+        "nodeEncryption": {
+            "enabled": bool(settings.agent_node_encryption_enabled),
+            "required": bool(settings.agent_node_encryption_required),
+            "roles": ["entry", "transit"],
+            "dataHostPathPrefix": "/var/lib/tracegate",
+            "markerFile": str(settings.agent_node_encryption_marker_file or "").strip() or ".tracegate-encrypted",
+            "markerValue": str(settings.agent_node_encryption_marker_value or "").strip(),
+            "requireDeviceMapperSource": bool(settings.agent_node_encryption_require_device_mapper_source),
+            "futureEndpointRecommended": True,
+            "nodeAnnotations": {
+                "enabled": True,
+                "encryptedRuntime": str(settings.agent_node_encryption_annotation_key or "").strip()
+                or "tracegate.io/encrypted-runtime",
+                "expectedValue": str(settings.agent_node_encryption_annotation_expected_value or "").strip() or "true",
+            },
+        },
         "linkCrypto": link_crypto,
         "rollout": {
             "gatewayStrategy": str(settings.agent_gateway_strategy or "").strip() or "RollingUpdate",

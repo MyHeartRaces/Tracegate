@@ -22,11 +22,14 @@ git diff --check
 For chart changes:
 
 ```bash
-deploy/k3s/deploy-ready-check.sh
+helm lint ./deploy/k3s/tracegate
+helm template tracegate ./deploy/k3s/tracegate
+python3 deploy/k3s/prod-overlay-check.py \
+  --chart-values deploy/k3s/tracegate/values.yaml \
+  --values deploy/k3s/values-prod.example.yaml
 ```
 
-For production promotion, run the strict gate with private values from the
-operator environment.
+Production promotion gates run from the operator environment.
 
 ## Private Repository
 

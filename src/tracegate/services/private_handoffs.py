@@ -1577,6 +1577,7 @@ def _chain_state(config: dict[str, Any]) -> dict[str, Any] | None:
         "selectedProfiles": _string_list(chain.get("selected_profiles")),
         "innerTransport": str(chain.get("inner_transport") or "").strip(),
         "xrayBackhaul": bool(chain.get("xray_backhaul", True)),
+        "clientRateLimit": chain.get("client_rate_limit") if isinstance(chain.get("client_rate_limit"), dict) else {},
     }
 
 

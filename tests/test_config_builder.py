@@ -259,6 +259,9 @@ def test_hysteria_uses_fixed_public_udp_port_and_salamander() -> None:
 
     assert cfg["port"] == TRACEGATE_PUBLIC_UDP_PORT
     assert cfg["profile"] == "v2-direct-quic-hysteria"
+    assert cfg["up_mbps"] == 100
+    assert cfg["down_mbps"] == 100
+    assert cfg["rate_limit"]["enabled"] is False
     assert cfg["tls"]["insecure"] is False
     assert cfg["obfs"] == {
         "type": "salamander",
@@ -359,10 +362,10 @@ def test_hysteria_ip_endpoint_defaults_to_insecure_tls() -> None:
         device=device,
         connection=conn,
         selected_sni=None,
-        endpoints=EndpointSet(transit_host="138.124.29.105", entry_host="entry.example.com"),
+        endpoints=EndpointSet(transit_host="198.51.100.105", entry_host="entry.example.com"),
     )
 
-    assert cfg["sni"] == "138.124.29.105"
+    assert cfg["sni"] == "198.51.100.105"
     assert cfg["tls"]["insecure"] is True
 
 
@@ -416,6 +419,31 @@ def test_hysteria_rejects_non_socks_client_mode() -> None:
         )
 
 
+def test_hysteria_chain_rejects_bandwidth_override_above_entry_cap() -> None:
+    user = _user()
+    device = _device(user.telegram_id)
+    conn = Connection(
+        id=uuid4(),
+        user_id=user.telegram_id,
+        device_id=device.id,
+        protocol=ConnectionProtocol.HYSTERIA2,
+        mode=ConnectionMode.CHAIN,
+        variant=ConnectionVariant.V2,
+        profile_name="v2-chain-quic-hysteria",
+        custom_overrides_json={"up_mbps": 11},
+        status=RecordStatus.ACTIVE,
+    )
+
+    with pytest.raises(ValueError, match="up_mbps must be in 1..10"):
+        build_effective_config(
+            user=user,
+            device=device,
+            connection=conn,
+            selected_sni=None,
+            endpoints=EndpointSet(transit_host="transit.example.com", entry_host="entry.example.com"),
+        )
+
+
 def test_hysteria_chain_v4_enters_via_entry_and_marks_backhaul() -> None:
     user = _user()
     device = _device(user.telegram_id)
@@ -436,13 +464,13 @@ def test_hysteria_chain_v4_enters_via_entry_and_marks_backhaul() -> None:
         device=device,
         connection=conn,
         selected_sni=None,
-        endpoints=EndpointSet(transit_host="myheartraces.space", entry_host="entry.myheartraces.space"),
+        endpoints=EndpointSet(transit_host="node.tracegate.test", entry_host="entry.node.tracegate.test"),
     )
 
     assert cfg["protocol"] == "hysteria2"
     assert cfg["profile"] == "v2-chain-quic-hysteria"
-    assert cfg["server"] == "entry.myheartraces.space"
-    assert cfg["sni"] == "entry.myheartraces.space"
+    assert cfg["server"] == "entry.node.tracegate.test"
+    assert cfg["sni"] == "entry.node.tracegate.test"
     assert cfg["auth"]["type"] == "userpass"
     assert cfg["auth"]["username"].startswith("v2_1_")
     assert " " not in cfg["auth"]["username"]
@@ -463,6 +491,15 @@ def test_hysteria_chain_v4_enters_via_entry_and_marks_backhaul() -> None:
     assert cfg["chain"]["udp_capable"] is True
     assert cfg["chain"]["salamander_required"] is True
     assert cfg["chain"]["paired_obfs_supported"] is True
+    assert cfg["chain"]["client_rate_limit"] == {
+        "enabled": True,
+        "max_mbit": 10,
+        "scope": "per-chain-client",
+        "entry_total_max_mbit": 100,
+        "hysteria_server_bandwidth": True,
+        "hysteria_declared_tx_required": True,
+        "tcp_enforcement": "entry-host-total-tc-cap",
+    }
     assert cfg["chain"]["dpi_resistance"] == {
         "required": True,
         "mode": "salamander-plus-scoped-paired-obfs",
@@ -478,13 +515,22 @@ def test_hysteria_chain_v4_enters_via_entry_and_marks_backhaul() -> None:
         "source_validation": "profile-bound-remote",
         "mtu": {"mode": "clamp", "max_packet_size": 1252},
     }
-    assert cfg["chain"]["transit"] == "myheartraces.space"
+    assert cfg["chain"]["transit"] == "node.tracegate.test"
     assert cfg["hygiene"]["entry_transit_relay"] is True
     assert cfg["hygiene"]["udp"]["source_validation"] == "profile-bound-remote"
+    assert cfg["up_mbps"] == 10
+    assert cfg["down_mbps"] == 10
+    assert cfg["rate_limit"] == {
+        "enabled": True,
+        "max_mbit": 10,
+        "scope": "entry-chain-client",
+        "server_cap_required": True,
+    }
     assert cfg["design_constraints"]["entry_role_required"] is True
     assert cfg["design_constraints"]["private_interconnect"] == "hysteria2-salamander-udp-link"
     assert cfg["design_constraints"]["backhaul_outside_xray"] is True
     assert cfg["design_constraints"]["udp_over_private_relay"] is True
+    assert cfg["design_constraints"]["chain_client_rate_limit_mbit"] == 10
 
 
 def test_hysteria_can_emit_token_auth_payload_for_future_runtime() -> None:
@@ -677,15 +723,15 @@ def test_ws_tls_direct_uses_transit_host_without_proxy() -> None:
         connection=conn,
         selected_sni=None,
         endpoints=EndpointSet(
-            transit_host="myheartraces.space",
-            entry_host="entry.myheartraces.space",
+            transit_host="node.tracegate.test",
+            entry_host="entry.node.tracegate.test",
         ),
     )
 
-    assert cfg["server"] == "myheartraces.space"
+    assert cfg["server"] == "node.tracegate.test"
     assert cfg["profile"] == "v0-ws-vless"
-    assert cfg["sni"] == "myheartraces.space"
-    assert cfg["ws"]["host"] == "myheartraces.space"
+    assert cfg["sni"] == "node.tracegate.test"
+    assert cfg["ws"]["host"] == "node.tracegate.test"
 
 
 def test_grpc_tls_direct_uses_transit_host_and_service_name() -> None:

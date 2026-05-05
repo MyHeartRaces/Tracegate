@@ -43,6 +43,8 @@
 {{- $roleLinkCryptoClientEnabled := and $.Values.interconnect.mieru.enabled $.Values.interconnect.entryTransit.enabled (eq $roleName "entry") }}
 {{- $roleLinkCryptoServerEnabled := and $.Values.interconnect.mieru.enabled (or (and (eq $roleName "transit") $.Values.interconnect.entryTransit.enabled) (and (eq $roleName "entry") $.Values.interconnect.entryTransit.routerEntry.enabled) (and (eq $roleName "transit") $.Values.interconnect.entryTransit.routerTransit.enabled)) }}
 {{- $roleLinkCryptoEnabled := or $roleLinkCryptoClientEnabled $roleLinkCryptoServerEnabled }}
+{{- $roleEntryTrafficShaperEnabled := and (eq $roleName "entry") $.Values.gateway.trafficShaping.entry.enabled }}
+{{- $roleNodeEncryptionRequired := and $.Values.gateway.nodeEncryption.enabled $.Values.gateway.nodeEncryption.required (or (eq $roleName "entry") (eq $roleName "transit")) }}
 {{- $linkOuterCarrier := $.Values.interconnect.entryTransit.outerCarrier }}
 {{- $linkOuterCarrierPathPrefix := trimPrefix "/" (toString $linkOuterCarrier.publicPath) }}
 {{- $linkWssCarrierEnabled := and $.Values.interconnect.entryTransit.enabled $linkOuterCarrier.enabled (eq (toString $linkOuterCarrier.mode) "wss") }}
@@ -308,6 +310,42 @@ spec:
               mountPath: {{ $.Values.privateProfiles.mountPath }}
               readOnly: true
 {{- end }}
+{{- if $roleNodeEncryptionRequired }}
+        - name: validate-node-encryption
+          image: busybox:1.36
+          imagePullPolicy: IfNotPresent
+          command:
+            - sh
+            - -ec
+            - |
+              set -eu
+              marker="/state/{{ $.Values.gateway.nodeEncryption.markerFile }}"
+              expected="{{ $.Values.gateway.nodeEncryption.markerValue }}"
+              if [ ! -s "${marker}" ]; then
+                echo "Entry/Transit encrypted runtime marker is missing: ${marker}" >&2
+                echo "Provision {{ $.Values.gateway.agent.dataHostPathPrefix }}/{{ $roleName }} on encrypted storage and write the marker before deployment." >&2
+                exit 1
+              fi
+              actual="$(tr -d '\r\n' < "${marker}")"
+              if [ "${actual}" != "${expected}" ]; then
+                echo "Entry/Transit encrypted runtime marker has unexpected value: ${marker}" >&2
+                exit 1
+              fi
+              if [ "{{ $.Values.gateway.nodeEncryption.requireDeviceMapperSource }}" = "true" ]; then
+                mount_line="$(grep ' /state ' /proc/self/mountinfo | head -n 1 || true)"
+                case "${mount_line}" in
+                  *"/dev/mapper/"*|*"/dev/dm-"*) ;;
+                  *)
+                    echo "Encrypted runtime marker is present, but /state is not backed by a dm-crypt-looking source." >&2
+                    echo "Set gateway.nodeEncryption.requireDeviceMapperSource=false only when the node uses a verified encrypted provider volume." >&2
+                    exit 1
+                    ;;
+                esac
+              fi
+          volumeMounts:
+            - name: gateway-state
+              mountPath: /state
+{{- end }}
         - name: seed-runtime
           image: busybox:1.36
           imagePullPolicy: IfNotPresent
@@ -463,6 +501,46 @@ spec:
               value: {{ $.Values.network.egressIsolation.enforcement.snat | quote }}
             - name: AGENT_EGRESS_ENFORCEMENT_INGRESS_PUBLIC_IP_OUTBOUND
               value: {{ $.Values.network.egressIsolation.enforcement.ingressPublicIpOutbound | quote }}
+            - name: AGENT_ENTRY_TRAFFIC_SHAPING_ENABLED
+              value: {{ $.Values.gateway.trafficShaping.entry.enabled | quote }}
+            - name: AGENT_ENTRY_TRAFFIC_SHAPING_INTERFACE
+              value: {{ $.Values.gateway.trafficShaping.entry.interface | quote }}
+            - name: AGENT_ENTRY_TRAFFIC_SHAPING_MAX_MBIT
+              value: {{ $.Values.gateway.trafficShaping.entry.maxMbit | quote }}
+            - name: AGENT_ENTRY_TRAFFIC_SHAPING_BURST_KBIT
+              value: {{ $.Values.gateway.trafficShaping.entry.burstKbit | quote }}
+            - name: AGENT_ENTRY_TRAFFIC_SHAPING_APPLY_EGRESS
+              value: {{ $.Values.gateway.trafficShaping.entry.applyEgress | quote }}
+            - name: AGENT_ENTRY_TRAFFIC_SHAPING_APPLY_INGRESS_POLICING
+              value: {{ $.Values.gateway.trafficShaping.entry.applyIngressPolicing | quote }}
+            - name: AGENT_ENTRY_TRAFFIC_SHAPING_CLEANUP_ON_EXIT
+              value: {{ $.Values.gateway.trafficShaping.entry.cleanupOnExit | quote }}
+            - name: AGENT_ENTRY_TRAFFIC_SHAPING_FAIL_CLOSED
+              value: {{ $.Values.gateway.trafficShaping.entry.failClosed | quote }}
+            - name: HYSTERIA_CHAIN_CLIENT_RATE_LIMIT_ENABLED
+              value: {{ $.Values.gateway.trafficShaping.chainClient.enabled | quote }}
+            - name: HYSTERIA_CHAIN_CLIENT_MAX_MBIT
+              value: {{ $.Values.gateway.trafficShaping.chainClient.maxMbit | quote }}
+            - name: HYSTERIA_CHAIN_CLIENT_REQUIRE_DECLARED_TX
+              value: {{ $.Values.gateway.trafficShaping.chainClient.requireDeclaredHysteriaTx | quote }}
+            - name: HYSTERIA_IGNORE_CLIENT_BANDWIDTH
+              value: {{ $.Values.gateway.trafficShaping.hysteria.ignoreClientBandwidth | quote }}
+            - name: HYSTERIA_ENTRY_CHAIN_IGNORE_CLIENT_BANDWIDTH
+              value: {{ $.Values.gateway.trafficShaping.hysteria.entryChainIgnoreClientBandwidth | quote }}
+            - name: AGENT_NODE_ENCRYPTION_ENABLED
+              value: {{ $.Values.gateway.nodeEncryption.enabled | quote }}
+            - name: AGENT_NODE_ENCRYPTION_REQUIRED
+              value: {{ $.Values.gateway.nodeEncryption.required | quote }}
+            - name: AGENT_NODE_ENCRYPTION_MARKER_FILE
+              value: {{ $.Values.gateway.nodeEncryption.markerFile | quote }}
+            - name: AGENT_NODE_ENCRYPTION_MARKER_VALUE
+              value: {{ $.Values.gateway.nodeEncryption.markerValue | quote }}
+            - name: AGENT_NODE_ENCRYPTION_REQUIRE_DEVICE_MAPPER_SOURCE
+              value: {{ $.Values.gateway.nodeEncryption.requireDeviceMapperSource | quote }}
+            - name: AGENT_NODE_ENCRYPTION_ANNOTATION_KEY
+              value: {{ $.Values.gateway.nodeEncryption.nodeAnnotations.encryptedRuntime | quote }}
+            - name: AGENT_NODE_ENCRYPTION_ANNOTATION_EXPECTED_VALUE
+              value: {{ $.Values.gateway.nodeEncryption.nodeAnnotations.expectedValue | quote }}
             - name: DEFAULT_ENTRY_HOST
               value: {{ $.Values.controlPlane.env.defaultEntryHost | quote }}
             - name: DEFAULT_TRANSIT_HOST
@@ -760,6 +838,78 @@ spec:
             - name: tls
               mountPath: /etc/tracegate/tls
               readOnly: true
+{{- if $roleEntryTrafficShaperEnabled }}
+        - name: entry-traffic-shaper
+          image: {{ include "tracegate.image" $.Values.global.image | quote }}
+          imagePullPolicy: {{ $.Values.global.image.pullPolicy }}
+          securityContext:
+            capabilities:
+              add: ["NET_ADMIN"]
+          command:
+            - sh
+            - -lc
+            - |
+              set -eu
+              iface="{{ $.Values.gateway.trafficShaping.entry.interface }}"
+              max_mbit="{{ int $.Values.gateway.trafficShaping.entry.maxMbit }}"
+              burst_kbit="{{ int $.Values.gateway.trafficShaping.entry.burstKbit }}"
+              rate="${max_mbit}mbit"
+              burst_bytes=$((burst_kbit * 1000 / 8))
+              cleanup_on_exit="{{ $.Values.gateway.trafficShaping.entry.cleanupOnExit }}"
+              fail_closed="{{ $.Values.gateway.trafficShaping.entry.failClosed }}"
+
+              run_tc() {
+                "$@" || {
+                  code="$?"
+                  echo "entry traffic shaping command failed: $*" >&2
+                  if [ "${fail_closed}" = "true" ]; then
+                    exit "${code}"
+                  fi
+                  return 0
+                }
+              }
+
+              cleanup() {
+                if [ "${cleanup_on_exit}" = "true" ]; then
+                  tc qdisc del dev "${iface}" root 2>/dev/null || true
+                  tc qdisc del dev "${iface}" ingress 2>/dev/null || true
+                fi
+                exit 0
+              }
+              trap cleanup TERM INT
+
+              if ! ip link show dev "${iface}" >/dev/null 2>&1; then
+                echo "Entry traffic shaping interface not found: ${iface}" >&2
+                exit 1
+              fi
+
+{{- if $.Values.gateway.trafficShaping.entry.applyEgress }}
+              run_tc tc qdisc replace dev "${iface}" root handle 1: htb default 10
+              run_tc tc class replace dev "${iface}" parent 1: classid 1:10 htb rate "${rate}" ceil "${rate}" burst "${burst_bytes}b" cburst "${burst_bytes}b"
+              tc qdisc replace dev "${iface}" parent 1:10 fq_codel 2>/dev/null || run_tc tc qdisc replace dev "${iface}" parent 1:10 pfifo limit 1000
+{{- end }}
+{{- if $.Values.gateway.trafficShaping.entry.applyIngressPolicing }}
+              run_tc tc qdisc replace dev "${iface}" handle ffff: ingress
+              tc filter del dev "${iface}" parent ffff: protocol ip pref 10 u32 2>/dev/null || true
+              tc filter del dev "${iface}" parent ffff: protocol ipv6 pref 10 u32 2>/dev/null || true
+              run_tc tc filter add dev "${iface}" parent ffff: protocol ip pref 10 u32 match u32 0 0 police rate "${rate}" burst "${burst_bytes}b" drop flowid :1
+              run_tc tc filter add dev "${iface}" parent ffff: protocol ipv6 pref 10 u32 match u32 0 0 police rate "${rate}" burst "${burst_bytes}b" drop flowid :1
+{{- end }}
+              echo "Entry traffic shaping active on ${iface}: ${rate} egress + ingress police"
+              while :; do
+{{- if $.Values.gateway.trafficShaping.entry.applyEgress }}
+                tc qdisc show dev "${iface}" | grep -q "htb 1:" || { echo "Entry egress qdisc disappeared" >&2; exit 1; }
+{{- end }}
+{{- if $.Values.gateway.trafficShaping.entry.applyIngressPolicing }}
+                tc qdisc show dev "${iface}" | grep -q "ffff:" || { echo "Entry ingress qdisc disappeared" >&2; exit 1; }
+{{- end }}
+                sleep 3600 & wait "$!"
+              done
+{{- with (index $roleContainerResources "entryTrafficShaper") }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+{{- end }}
+{{- end }}
 {{- if $roleLinkCryptoEnabled }}
         - name: mieru
           image: {{ include "tracegate.image" $.Values.gateway.images.mieru | quote }}

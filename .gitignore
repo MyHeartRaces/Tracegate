@@ -19,6 +19,12 @@ build/
 local-notes/
 docs/client-configs/
 
+# Local disk encryption material. Keep these files on the operator machine only.
+.tracegate-secrets/
+tracegate-secrets/
+*.luks-key
+*.luks-header
+
 # Tracegate operator-private artifacts. Public examples must stay under
 # deploy/**/private-example; live profiles and prod values stay off-repo.
 private/

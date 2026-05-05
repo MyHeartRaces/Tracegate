@@ -74,6 +74,8 @@ def test_export_hysteria2_uri() -> None:
     assert attachment["inbounds"][0]["users"][0]["username"].startswith("tg_")
     assert attachment["inbounds"][0]["users"][0]["password"]
     assert attachment["outbounds"][0]["type"] == "hysteria2"
+    assert attachment["outbounds"][0]["up_mbps"] == 100
+    assert attachment["outbounds"][0]["down_mbps"] == 100
     assert attachment["outbounds"][0]["password"] == "u:p"
     assert attachment["outbounds"][0]["obfs"] == {"type": "salamander", "password": "obfs-secret"}
     assert attachment["outbounds"][0]["tls"]["alpn"] == ["h3"]
@@ -138,10 +140,10 @@ def test_export_hysteria2_token_uri_falls_back_to_raw_token_when_it_is_not_split
 def test_export_hysteria2_ip_sni_forces_insecure_tls() -> None:
     effective = {
         "protocol": "hysteria2",
-        "server": "138.124.29.105",
+        "server": "198.51.100.105",
         "port": 4443,
-        "sni": "138.124.29.105",
-        "tls": {"server_name": "138.124.29.105", "insecure": False},
+        "sni": "198.51.100.105",
+        "tls": {"server_name": "198.51.100.105", "insecure": False},
         "auth": {"type": "token", "token": "opaque-token", "client_id": "client-token"},
         "obfs": {"type": "salamander", "password": "obfs-secret"},
         "profile": "V3-Hysteria2-QUIC-Direct",

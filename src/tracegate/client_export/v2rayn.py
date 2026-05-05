@@ -647,6 +647,8 @@ def _export_hysteria2(effective: dict[str, Any]) -> ExportResult:
             "tag": "proxy",
             "server": server,
             "server_port": port,
+            "up_mbps": int(effective.get("up_mbps") or 100),
+            "down_mbps": int(effective.get("down_mbps") or 100),
             "password": share_auth,
             "obfs": {
                 "type": "salamander",

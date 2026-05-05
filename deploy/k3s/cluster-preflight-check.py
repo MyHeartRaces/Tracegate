@@ -116,6 +116,9 @@ def _entry_small_containers(values: Mapping[str, Any]) -> list[str]:
         containers.append("zapret2")
     if _enabled(_as_dict(values.get("shadowsocks2022")).get("enabled")):
         containers.append("shadowtls")
+    traffic_shaping = _as_dict(_as_dict(_as_dict(values.get("gateway")).get("trafficShaping")).get("entry"))
+    if _enabled(traffic_shaping.get("enabled")):
+        containers.append("entryTrafficShaper")
     return containers
 
 
@@ -341,6 +344,7 @@ def validate_cluster(
     checked_secrets = 0
     checked_nodes = 0
     checked_egress_nodes = 0
+    checked_encrypted_nodes = 0
     checked_decoy_resources = 0
 
     try:
@@ -399,6 +403,17 @@ def validate_cluster(
     egress_annotation_key = _text(node_annotations.get("egressPublicIP")) or "tracegate.io/egress-public-ip"
     expected_ingress_ips = _values_set(egress_isolation.get("ingressPublicIPs"))
     expected_egress_ips = _values_set(egress_isolation.get("egressPublicIPs"))
+    node_encryption = _as_dict(gateway.get("nodeEncryption"))
+    node_encryption_annotations = _as_dict(node_encryption.get("nodeAnnotations"))
+    check_node_encryption = (
+        _enabled(node_encryption.get("enabled"))
+        and _enabled(node_encryption.get("required"))
+        and _enabled(node_encryption_annotations.get("enabled"))
+    )
+    encrypted_runtime_annotation_key = (
+        _text(node_encryption_annotations.get("encryptedRuntime")) or "tracegate.io/encrypted-runtime"
+    )
+    encrypted_runtime_expected_value = _text(node_encryption_annotations.get("expectedValue")) or "true"
     for role_name in ("entry", "transit"):
         role = _as_dict(roles.get(role_name))
         if not _enabled(role.get("enabled")):
@@ -427,11 +442,11 @@ def validate_cluster(
                 errors.append(f"nodeSelector for {role_name} matched 0 nodes: {label_selector}")
             else:
                 checked_nodes += len(items)
-                if check_egress_annotations:
-                    for item in items:
-                        metadata = _as_dict(item.get("metadata"))
-                        node_name = _text(metadata.get("name")) or "<unknown>"
-                        annotations = _as_dict(metadata.get("annotations"))
+                for item in items:
+                    metadata = _as_dict(item.get("metadata"))
+                    node_name = _text(metadata.get("name")) or "<unknown>"
+                    annotations = _as_dict(metadata.get("annotations"))
+                    if check_egress_annotations:
                         ingress_ips = _csv_set(annotations.get(ingress_annotation_key))
                         if not ingress_ips:
                             errors.append(f"node {node_name} is missing {ingress_annotation_key} annotation")
@@ -452,6 +467,15 @@ def validate_cluster(
                             if ingress_ips and egress_ips and ingress_ips.intersection(egress_ips):
                                 errors.append(f"node {node_name} ingress and egress public IP annotations must be disjoint")
                             checked_egress_nodes += 1
+                    if check_node_encryption:
+                        encrypted_runtime_value = _text(annotations.get(encrypted_runtime_annotation_key))
+                        if encrypted_runtime_value.lower() != encrypted_runtime_expected_value.lower():
+                            errors.append(
+                                f"node {node_name} must set {encrypted_runtime_annotation_key}="
+                                f"{encrypted_runtime_expected_value} for Entry/Transit encrypted runtime storage"
+                            )
+                        else:
+                            checked_encrypted_nodes += 1
 
     decoy = _as_dict(values.get("decoy"))
     if _text(decoy.get("existingConfigMap")):
@@ -478,6 +502,7 @@ def validate_cluster(
         "secrets": checked_secrets,
         "nodes": checked_nodes,
         "egressNodes": checked_egress_nodes,
+        "encryptedNodes": checked_encrypted_nodes,
         "decoyResources": checked_decoy_resources,
     }
 
@@ -511,6 +536,7 @@ def main(argv: list[str] | None = None) -> int:
         f"secrets={summary['secrets']} "
         f"nodes={summary['nodes']} "
         f"egress_nodes={summary['egressNodes']} "
+        f"encrypted_nodes={summary['encryptedNodes']} "
         f"decoy_resources={summary['decoyResources']}"
     )
     return 0

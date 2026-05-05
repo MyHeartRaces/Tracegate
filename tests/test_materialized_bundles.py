@@ -81,6 +81,9 @@ def test_context_uses_shared_defaults_and_fallback_values(tmp_path: Path) -> Non
     assert ctx.transit_hysteria_stats_secret == "transit-stats-secret"
     assert ctx.entry_hysteria_auth_url == "http://127.0.0.1:8070/v1/hysteria/auth"
     assert ctx.transit_hysteria_auth_url == "http://127.0.0.1:8070/v1/hysteria/auth"
+    assert ctx.hysteria_chain_client_rate_limit_enabled is True
+    assert ctx.hysteria_chain_client_max_mbit == 10
+    assert ctx.hysteria_chain_client_require_declared_tx is True
     assert ctx.reality_public_key_transit == "shared-public-key"
     assert ctx.reality_short_id_entry == "shared-short-id"
     assert ctx.reality_short_id_transit == "shared-short-id"
@@ -199,8 +202,12 @@ def test_render_materialized_bundles_rewrites_runtime_files(tmp_path: Path) -> N
     assert "password: \"entry-salamander-secret\"" in entry_hysteria
     assert "secret: \"entry-stats-secret\"" in entry_hysteria
     assert "dir: \"/srv/decoy\"" in entry_hysteria
+    assert "bandwidth:\n  up: 10 mbps\n  down: 10 mbps" in entry_hysteria
+    assert "ignoreClientBandwidth: false" in entry_hysteria
     assert "password: \"transit-salamander-secret\"" in transit_hysteria
     assert "secret: \"transit-stats-secret\"" in transit_hysteria
+    assert "bandwidth:" not in transit_hysteria
+    assert "ignoreClientBandwidth: true" in transit_hysteria
     assert any(
         rule.get("protocol") == ["bittorrent"] and rule.get("outboundTag") == "block"
         for rule in entry_xray["routing"]["rules"]
@@ -370,14 +377,14 @@ def test_render_materialized_bundles_omits_mtproto_route_without_domain(tmp_path
 
 def test_render_materialized_bundles_uses_configured_mtproto_upstream(tmp_path: Path) -> None:
     env = _base_env(tmp_path)
-    env["MTPROTO_HAPROXY_UPSTREAM"] = "185.105.108.109:9443"
+    env["MTPROTO_HAPROXY_UPSTREAM"] = "198.51.100.109:9443"
 
     ctx = MaterializedBundleRenderContext.from_environ(env)
     render_materialized_bundles(ctx)
 
     transit_haproxy = (ctx.materialized_root / "base-transit" / "haproxy.cfg").read_text(encoding="utf-8")
 
-    assert "server transit_mtproto 185.105.108.109:9443 check" in transit_haproxy
+    assert "server transit_mtproto 198.51.100.109:9443 check" in transit_haproxy
 
 
 def test_render_materialized_bundles_injects_hysteria_finalmask_and_ech(tmp_path: Path) -> None:

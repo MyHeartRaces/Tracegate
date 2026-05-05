@@ -12,12 +12,14 @@ def test_public_repo_does_not_ship_decoy_html_surfaces() -> None:
 
 def test_readme_stays_high_level() -> None:
     readme = (Path(__file__).resolve().parents[1] / "README.md").read_text(encoding="utf-8")
-    assert "Tracegate 2.2 is a managed privacy-gateway control plane" in readme
-    assert "## Public vs Private Boundary" in readme
-    assert "## Current Public Surface" in readme
-    assert "live hostnames" in readme
+    assert "Tracegate is a managed privacy-gateway control plane" in readme
+    assert "## Repository Boundary" in readme
+    assert "## Capabilities" in readme
+    assert "real domains, public addresses, ports" in readme
     assert "/etc/tracegate/private" not in readme
     assert "tracegate.su" not in readme
+    assert "deploy-ready-check.sh" not in readme
+    assert "deploy-prod.sh" not in readme
 
 
 def test_public_docs_do_not_expose_live_tracegate_domains_or_ips() -> None:
@@ -31,6 +33,10 @@ def test_public_docs_do_not_expose_live_tracegate_domains_or_ips() -> None:
         "176.124.",
         "178.250.",
         "79.137.",
+        "46.226.165.23",
+        "138.124.29.105",
+        "185.105.108.109",
+        "myheartraces.space",
     )
     texts: list[str] = []
     for root in scanned_roots:
