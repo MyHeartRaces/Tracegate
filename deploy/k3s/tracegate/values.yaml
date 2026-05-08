@@ -8,7 +8,7 @@ global:
   publicBaseUrl: ""
   image:
     repository: ghcr.io/your-org/tracegate
-    tag: "2.2.3"
+    tag: "2.2.4"
     pullPolicy: IfNotPresent
   imagePullSecrets: []
 
@@ -216,7 +216,7 @@ naiveproxy:
   ports:
     publicTcp: 443
     publicUdp: 443
-    agent: 8070
+    agent: 8074
   tls:
     existingSecretName: tracegate-naiveproxy-tls
   stealth:
@@ -319,6 +319,7 @@ gateway:
   trafficShaping:
     entry:
       enabled: true
+      runtimeSidecar: true
       interface: eth0
       maxMbit: 100
       burstKbit: 2048
@@ -336,6 +337,7 @@ gateway:
   nodeEncryption:
     enabled: true
     required: true
+    runtimeInitValidation: true
     markerFile: .tracegate-encrypted
     markerValue: tracegate-encrypted-runtime-v1
     requireDeviceMapperSource: true
@@ -553,7 +555,7 @@ gateway:
       pullPolicy: IfNotPresent
     naiveproxy:
       repository: ghcr.io/your-org/tracegate-naiveproxy-caddy
-      tag: "2.2.3"
+      tag: "2.2.4"
       pullPolicy: IfNotPresent
   roles:
     entry:

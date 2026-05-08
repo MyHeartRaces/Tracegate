@@ -149,6 +149,7 @@ def test_tracegate21_chart_uses_entry_transit_roles() -> None:
         "backendHost": "127.0.0.1",
         "backendPort": 11443,
     }
+    assert values["naiveproxy"]["ports"]["agent"] == 8074
     assert values["naiveproxy"]["nodeSelector"] == {"tracegate.io/role": "transit"}
     assert values["gateway"]["strategy"] == "RollingUpdate"
     assert values["gateway"]["allowRecreateStrategy"] is False
@@ -156,6 +157,8 @@ def test_tracegate21_chart_uses_entry_transit_roles() -> None:
     assert values["gateway"]["rollingUpdate"]["maxSurge"] == 1
     assert values["gateway"]["progressDeadlineSeconds"] == 600
     assert values["gateway"]["terminationGracePeriodSeconds"] == 60
+    assert values["gateway"]["trafficShaping"]["entry"]["runtimeSidecar"] is True
+    assert values["gateway"]["nodeEncryption"]["runtimeInitValidation"] is True
     assert values["gateway"]["pdb"]["enabled"] is True
     assert values["gateway"]["pdb"]["minAvailable"] == 1
     assert values["gateway"]["probes"]["enabled"] is True
@@ -163,6 +166,7 @@ def test_tracegate21_chart_uses_entry_transit_roles() -> None:
     assert values["gateway"]["privatePreflight"]["forbidPlaceholders"] is True
     assert values["gateway"]["trafficShaping"]["entry"] == {
         "enabled": True,
+        "runtimeSidecar": True,
         "interface": "eth0",
         "maxMbit": 100,
         "burstKbit": 2048,
@@ -183,6 +187,7 @@ def test_tracegate21_chart_uses_entry_transit_roles() -> None:
     assert values["gateway"]["nodeEncryption"] == {
         "enabled": True,
         "required": True,
+        "runtimeInitValidation": True,
         "markerFile": ".tracegate-encrypted",
         "markerValue": "tracegate-encrypted-runtime-v1",
         "requireDeviceMapperSource": True,
@@ -1077,6 +1082,7 @@ def test_tracegate21_runtime_contract_renders_role_link_crypto_metadata(tmp_path
     assert contract["network"]["egressIsolation"]["enforcement"]["snat"] == "required"
     assert contract["trafficShaping"]["entry"] == {
         "enabled": True,
+        "runtimeSidecar": True,
         "strategy": "tc-htb-egress-plus-ingress-police",
         "interface": "eth0",
         "maxMbit": 100,
@@ -1950,8 +1956,15 @@ def test_tracegate22_k3s_renders_naiveproxy_tcp443_demux(tmp_path: Path) -> None
     assert naiveproxy_pod["metadata"]["annotations"]["tracegate.io/public-surface"] == "tcp/443-demux,udp/443"
     assert naiveproxy_pod["spec"]["nodeSelector"] == {"tracegate.io/role": "transit"}
     assert next(port for port in caddy["ports"] if port["name"] == "naive-https")["containerPort"] == 11443
+    assert next(port for port in agent["ports"] if port["name"] == "agent")["containerPort"] == 8074
+    assert _env_value(agent, "AGENT_PORT") == "8074"
     assert _env_value(agent, "NAIVEPROXY_TCP_EXPOSURE") == "demux"
     assert _env_value(agent, "NAIVEPROXY_DEMUX_TCP_PORT") == "11443"
+    env_by_name = {row["name"]: row for row in agent["env"]}
+    assert env_by_name["AGENT_AUTH_TOKEN"]["valueFrom"]["secretKeyRef"] == {
+        "name": "tracegate-control-plane-auth",
+        "key": "agent-auth-token",
+    }
 
 
 def test_tracegate22_xray_defaults_client_traffic_to_direct(tmp_path: Path) -> None:

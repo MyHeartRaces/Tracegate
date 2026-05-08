@@ -43,8 +43,8 @@
 {{- $roleLinkCryptoClientEnabled := and $.Values.interconnect.mieru.enabled $.Values.interconnect.entryTransit.enabled (eq $roleName "entry") }}
 {{- $roleLinkCryptoServerEnabled := and $.Values.interconnect.mieru.enabled (or (and (eq $roleName "transit") $.Values.interconnect.entryTransit.enabled) (and (eq $roleName "entry") $.Values.interconnect.entryTransit.routerEntry.enabled) (and (eq $roleName "transit") $.Values.interconnect.entryTransit.routerTransit.enabled)) }}
 {{- $roleLinkCryptoEnabled := or $roleLinkCryptoClientEnabled $roleLinkCryptoServerEnabled }}
-{{- $roleEntryTrafficShaperEnabled := and (eq $roleName "entry") $.Values.gateway.trafficShaping.entry.enabled }}
-{{- $roleNodeEncryptionRequired := and $.Values.gateway.nodeEncryption.enabled $.Values.gateway.nodeEncryption.required (or (eq $roleName "entry") (eq $roleName "transit")) }}
+{{- $roleEntryTrafficShaperEnabled := and (eq $roleName "entry") $.Values.gateway.trafficShaping.entry.enabled $.Values.gateway.trafficShaping.entry.runtimeSidecar }}
+{{- $roleNodeEncryptionRequired := and $.Values.gateway.nodeEncryption.enabled $.Values.gateway.nodeEncryption.required $.Values.gateway.nodeEncryption.runtimeInitValidation (or (eq $roleName "entry") (eq $roleName "transit")) }}
 {{- $linkOuterCarrier := $.Values.interconnect.entryTransit.outerCarrier }}
 {{- $linkOuterCarrierPathPrefix := trimPrefix "/" (toString $linkOuterCarrier.publicPath) }}
 {{- $linkWssCarrierEnabled := and $.Values.interconnect.entryTransit.enabled $linkOuterCarrier.enabled (eq (toString $linkOuterCarrier.mode) "wss") }}
@@ -1417,6 +1417,8 @@ spec:
               value: "kubernetes"
             - name: AGENT_RUNTIME_PROFILE
               value: {{ .Values.naiveproxy.runtimeProfile | quote }}
+            - name: AGENT_PORT
+              value: {{ int .Values.naiveproxy.ports.agent | quote }}
             - name: AGENT_DATA_ROOT
               value: /var/lib/tracegate
             - name: AGENT_DRY_RUN
@@ -1444,6 +1446,11 @@ spec:
                 secretKeyRef:
                   name: {{ include "tracegate.controlPlaneSecretName" . }}
                   key: api-internal-token
+            - name: AGENT_AUTH_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "tracegate.controlPlaneSecretName" . }}
+                  key: agent-auth-token
           volumeMounts:
             - name: naiveproxy-state
               mountPath: /var/lib/tracegate

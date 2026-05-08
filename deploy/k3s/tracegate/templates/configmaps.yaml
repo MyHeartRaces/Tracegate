@@ -60,6 +60,7 @@ data:
     trafficShaping:
       entry:
         enabled: {{ .Values.gateway.trafficShaping.entry.enabled }}
+        runtimeSidecar: {{ .Values.gateway.trafficShaping.entry.runtimeSidecar }}
         strategy: tc-htb-egress-plus-ingress-police
         interface: {{ .Values.gateway.trafficShaping.entry.interface | quote }}
         maxMbit: {{ int .Values.gateway.trafficShaping.entry.maxMbit }}
@@ -83,6 +84,7 @@ data:
     nodeEncryption:
       enabled: {{ .Values.gateway.nodeEncryption.enabled }}
       required: {{ .Values.gateway.nodeEncryption.required }}
+      runtimeInitValidation: {{ .Values.gateway.nodeEncryption.runtimeInitValidation }}
       roles:
         - entry
         - transit
