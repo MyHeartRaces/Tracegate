@@ -1953,6 +1953,7 @@ def test_tracegate22_k3s_renders_naiveproxy_tcp443_demux(tmp_path: Path) -> None
     assert "use_backend be_naiveproxy if naiveproxy_sni" in transit_haproxy
     assert "backend be_naiveproxy" in transit_haproxy
     assert "server naiveproxy 127.0.0.1:11443 check" in transit_haproxy
+    assert naiveproxy["spec"]["strategy"]["type"] == "Recreate"
     assert naiveproxy_pod["metadata"]["annotations"]["tracegate.io/public-surface"] == "tcp/443-demux,udp/443"
     assert naiveproxy_pod["spec"]["nodeSelector"] == {"tracegate.io/role": "transit"}
     assert next(port for port in caddy["ports"] if port["name"] == "naive-https")["containerPort"] == 11443

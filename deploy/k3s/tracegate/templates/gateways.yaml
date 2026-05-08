@@ -1355,6 +1355,9 @@ metadata:
     app.kubernetes.io/component: naiveproxy
 spec:
   replicas: 1
+  strategy:
+    type: Recreate
+    rollingUpdate: null
   selector:
     matchLabels:
       {{- include "tracegate.selectorLabels" . | nindent 6 }}
