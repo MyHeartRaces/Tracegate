@@ -10,6 +10,7 @@ from typing import Any
 from tracegate.constants import (
     TRACEGATE_FORBIDDEN_PUBLIC_TCP_PORT,
     TRACEGATE_FORBIDDEN_PUBLIC_UDP_PORT,
+    TRACEGATE_NAIVEPROXY_DEMUX_TCP_PORT,
     TRACEGATE_NAIVEPROXY_HOST,
     TRACEGATE_NAIVEPROXY_PUBLIC_TCP_PORT,
     TRACEGATE_NAIVEPROXY_PUBLIC_UDP_PORT,
@@ -793,6 +794,8 @@ def build_effective_config(
                 "fixed_port_udp": udp_port,
                 "dedicated_dns_name": server,
                 "dedicated_k3s_role": "NAIVEPROXY",
+                "public_tcp_443_owner": "transit-haproxy-demux",
+                "naiveproxy_tcp_backend": f"127.0.0.1:{TRACEGATE_NAIVEPROXY_DEMUX_TCP_PORT}",
                 "hysteria_udp_port": TRACEGATE_PUBLIC_UDP_PORT,
                 "udp_443_owner": "naiveproxy",
                 "probe_resistance_required": True,

@@ -84,7 +84,7 @@ def test_export_hysteria2_uri() -> None:
 def test_export_naiveproxy_http3_attachment() -> None:
     effective = {
         "protocol": "naiveproxy",
-        "server": "auth.tracegate.su",
+        "server": "auth.example.com",
         "port": 443,
         "udp_port": 443,
         "auth": {"type": "basic", "username": "tg_v4_user", "password": "secret-pass"},
@@ -107,11 +107,11 @@ def test_export_naiveproxy_http3_attachment() -> None:
     attachment = json.loads((out.attachment_content or b"").decode("utf-8"))
     assert attachment == {
         "listen": "socks://local-user:local-pass@127.0.0.1:28080",
-        "proxy": "quic://tg_v4_user:secret-pass@auth.tracegate.su",
+        "proxy": "quic://tg_v4_user:secret-pass@auth.example.com",
         "log": "",
     }
     fallback = json.loads(out.alternate_content or "{}")
-    assert fallback["proxy"] == "https://tg_v4_user:secret-pass@auth.tracegate.su"
+    assert fallback["proxy"] == "https://tg_v4_user:secret-pass@auth.example.com"
     assert _extra_content(out, "NaiveProxy HTTP/3 endpoint").startswith("quic://")
 
 

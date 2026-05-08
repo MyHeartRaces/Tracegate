@@ -10,7 +10,7 @@ namespace:
 global:
   image:
     repository: ghcr.io/your-org/tracegate
-    tag: "2.2.2"
+    tag: "2.2.3"
   publicBaseUrl: "https://tracegate.example.com"
 
 controlPlane:
@@ -23,7 +23,7 @@ controlPlane:
   env:
     defaultEntryHost: entry.example.com
     defaultTransitHost: transit.example.com
-    naiveproxyHost: auth.tracegate.su
+    naiveproxyHost: auth.example.com
     mtprotoDomain: mtproto.example.com
     grafanaPublicBaseUrl: https://grafana.example.com
     grafanaHost: grafana.example.com
@@ -165,10 +165,15 @@ gateway:
 
 naiveproxy:
   enabled: true
-  domain: auth.tracegate.su
+  domain: auth.example.com
   runtimeProfile: tracegate-naiveproxy-v4
+  tcpExposure: demux
+  demux:
+    role: transit
+    backendHost: 127.0.0.1
+    backendPort: 11443
   nodeSelector:
-    tracegate.io/role: naiveproxy
+    tracegate.io/role: transit
   tls:
     existingSecretName: tracegate-naiveproxy-tls
 

@@ -36,8 +36,11 @@ Production promotion gates run from the operator environment.
 - Build and push `deploy/images/naiveproxy-caddy/Dockerfile`.
 - Verify `caddy list-modules` contains `http.handlers.forward_proxy`.
 - Pin `gateway.images.naiveproxy.digest` in the private production overlay.
-- Confirm the V4 auth hostname, TLS Secret, dedicated node selector and
-  `tcp/443` plus `udp/443` ownership in the private overlay.
+- Confirm the V4 auth hostname, TLS Secret, `naiveproxy.tcpExposure=demux`,
+  Transit node selector, `tcp/11443` backend and `udp/443` ownership in the
+  private overlay.
+- Confirm Transit HAProxy demuxes the configured auth hostname from public
+  `tcp/443` to `127.0.0.1:11443`.
 - Confirm Hysteria remains on `udp/4443`.
 
 ## Private Repository

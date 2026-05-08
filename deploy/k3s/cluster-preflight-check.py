@@ -424,6 +424,9 @@ def validate_cluster(
     if _enabled(naiveproxy.get("enabled")):
         role_checks.append(("naiveproxy", naiveproxy))
 
+    checked_node_names: set[str] = set()
+    checked_ingress_annotation_nodes: set[str] = set()
+    checked_encryption_nodes: set[str] = set()
     for role_name, role in role_checks:
         tls_secret = _text(_as_dict(role.get("tls")).get("existingSecretName"))
         if tls_secret:
@@ -448,20 +451,24 @@ def validate_cluster(
             if not items:
                 errors.append(f"nodeSelector for {role_name} matched 0 nodes: {label_selector}")
             else:
-                checked_nodes += len(items)
                 for item in items:
                     metadata = _as_dict(item.get("metadata"))
                     node_name = _text(metadata.get("name")) or "<unknown>"
+                    if node_name not in checked_node_names:
+                        checked_nodes += 1
+                        checked_node_names.add(node_name)
                     annotations = _as_dict(metadata.get("annotations"))
                     if check_egress_annotations:
                         ingress_ips = _csv_set(annotations.get(ingress_annotation_key))
-                        if not ingress_ips:
-                            errors.append(f"node {node_name} is missing {ingress_annotation_key} annotation")
-                        elif expected_ingress_ips and not ingress_ips.intersection(expected_ingress_ips):
-                            errors.append(
-                                f"node {node_name} {ingress_annotation_key}={','.join(sorted(ingress_ips))} "
-                                "does not match network.egressIsolation.ingressPublicIPs"
-                            )
+                        if node_name not in checked_ingress_annotation_nodes:
+                            if not ingress_ips:
+                                errors.append(f"node {node_name} is missing {ingress_annotation_key} annotation")
+                            elif expected_ingress_ips and not ingress_ips.intersection(expected_ingress_ips):
+                                errors.append(
+                                    f"node {node_name} {ingress_annotation_key}={','.join(sorted(ingress_ips))} "
+                                    "does not match network.egressIsolation.ingressPublicIPs"
+                                )
+                            checked_ingress_annotation_nodes.add(node_name)
                         if role_name == "transit":
                             egress_ips = _csv_set(annotations.get(egress_annotation_key))
                             if not egress_ips:
@@ -474,7 +481,7 @@ def validate_cluster(
                             if ingress_ips and egress_ips and ingress_ips.intersection(egress_ips):
                                 errors.append(f"node {node_name} ingress and egress public IP annotations must be disjoint")
                             checked_egress_nodes += 1
-                    if check_node_encryption:
+                    if check_node_encryption and node_name not in checked_encryption_nodes:
                         encrypted_runtime_value = _text(annotations.get(encrypted_runtime_annotation_key))
                         if encrypted_runtime_value.lower() != encrypted_runtime_expected_value.lower():
                             errors.append(
@@ -483,6 +490,7 @@ def validate_cluster(
                             )
                         else:
                             checked_encrypted_nodes += 1
+                        checked_encryption_nodes.add(node_name)
 
     decoy = _as_dict(values.get("decoy"))
     if _text(decoy.get("existingConfigMap")):

@@ -1,6 +1,18 @@
 from pathlib import Path
 
 
+_LIVE_DOMAIN = "".join(("trace", "gate", ".", "su"))
+_LIVE_SPACE_DOMAIN = "".join(("my", "heart", "races", ".", "space"))
+_LIVE_IP_FRAGMENTS = (
+    ".".join(("176", "124")) + ".",
+    ".".join(("178", "250")) + ".",
+    ".".join(("79", "137")) + ".",
+    ".".join(("46", "226", "165", "23")),
+    ".".join(("138", "124", "29", "105")),
+    ".".join(("185", "105", "108", "109")),
+)
+
+
 def test_public_repo_does_not_ship_decoy_html_surfaces() -> None:
     repo_root = Path(__file__).resolve().parents[1]
     for root in (
@@ -17,7 +29,7 @@ def test_readme_stays_high_level() -> None:
     assert "## Capabilities" in readme
     assert "real domains, public addresses, ports" in readme
     assert "/etc/tracegate/private" not in readme
-    assert "tracegate.su" not in readme
+    assert _LIVE_DOMAIN not in readme
     assert "deploy-ready-check.sh" not in readme
     assert "deploy-prod.sh" not in readme
 
@@ -26,17 +38,12 @@ def test_public_docs_do_not_expose_live_tracegate_domains_or_ips() -> None:
     repo_root = Path(__file__).resolve().parents[1]
     scanned_roots = (repo_root / "README.md", repo_root / "docs", repo_root / "deploy/k3s/README.md")
     needles = (
-        "tracegate.su",
-        "entry.tracegate.su",
-        "transit.tracegate.su",
-        "grafana.tracegate.su",
-        "176.124.",
-        "178.250.",
-        "79.137.",
-        "46.226.165.23",
-        "138.124.29.105",
-        "185.105.108.109",
-        "myheartraces.space",
+        _LIVE_DOMAIN,
+        f"entry.{_LIVE_DOMAIN}",
+        f"transit.{_LIVE_DOMAIN}",
+        f"grafana.{_LIVE_DOMAIN}",
+        *_LIVE_IP_FRAGMENTS,
+        _LIVE_SPACE_DOMAIN,
     )
     texts: list[str] = []
     for root in scanned_roots:

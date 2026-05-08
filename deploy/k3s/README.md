@@ -59,7 +59,8 @@ Real deployments must provide these inputs outside the public repository:
   certificate;
 - node labels, annotations and host policy;
 - production image pins;
-- encrypted Entry, Transit and NaiveProxy runtime storage.
+- encrypted Entry and Transit runtime storage. NaiveProxy V4 is co-located with
+  Transit in demux mode and uses the same endpoint host policy.
 
 Entry traffic shaping and chain-client limits are enabled in public values as
 guardrails. The real Entry network interface must be set in the operator
@@ -70,8 +71,9 @@ before scheduling those roles. See
 [docs/node-encryption-runbook.md](../../docs/node-encryption-runbook.md) for
 the generic procedure.
 
-NaiveProxy V4 is scheduled as a dedicated host-network pod on a separate node
-selector. It owns `tcp/443` and `udp/443` for the configured auth domain;
+NaiveProxy V4 is scheduled as a dedicated host-network pod on the Transit node.
+Transit HAProxy owns public `tcp/443` and demuxes the configured auth hostname
+to NaiveProxy on `127.0.0.1:11443`; NaiveProxy owns `udp/443` for HTTP/3/QUIC.
 Hysteria2 stays on `udp/4443`.
 
 ## Operational Notes

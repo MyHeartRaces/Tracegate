@@ -8,7 +8,7 @@ global:
   publicBaseUrl: ""
   image:
     repository: ghcr.io/your-org/tracegate
-    tag: "2.2.2"
+    tag: "2.2.3"
     pullPolicy: IfNotPresent
   imagePullSecrets: []
 
@@ -61,7 +61,7 @@ controlPlane:
     vlessGrpcServiceName: tracegate.v1.Edge
     vlessGrpcPath: /tracegate.v1.Edge/
     mtprotoDomain: ""
-    naiveproxyHost: auth.tracegate.su
+    naiveproxyHost: auth.example.com
     localSocksAuth: required
     botWelcomeRequired: true
     botWelcomeVersion: tracegate-2.2-ui-v3
@@ -195,13 +195,21 @@ decoy:
 
 naiveproxy:
   enabled: true
-  domain: auth.tracegate.su
+  domain: auth.example.com
   role: NAIVEPROXY
   runtimeProfile: tracegate-naiveproxy-v4
+  # demux keeps public TCP/443 on the Transit HAProxy and forwards only
+  # auth.example.com to the host-local NaiveProxy TCP backend.
+  # dedicated keeps the older model where the NaiveProxy pod owns tcp/443.
+  tcpExposure: demux
+  demux:
+    role: transit
+    backendHost: 127.0.0.1
+    backendPort: 11443
   hostNetwork: true
   dnsPolicy: ClusterFirstWithHostNet
   nodeSelector:
-    tracegate.io/role: naiveproxy
+    tracegate.io/role: transit
   tolerations: []
   affinity: {}
   terminationGracePeriodSeconds: 30
@@ -545,7 +553,7 @@ gateway:
       pullPolicy: IfNotPresent
     naiveproxy:
       repository: ghcr.io/your-org/tracegate-naiveproxy-caddy
-      tag: "2.2.2"
+      tag: "2.2.3"
       pullPolicy: IfNotPresent
   roles:
     entry:

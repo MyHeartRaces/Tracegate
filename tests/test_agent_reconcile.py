@@ -896,7 +896,7 @@ def test_reconcile_naiveproxy_v4_writes_caddyfile_from_user_artifacts(tmp_path: 
         agent_data_root=str(tmp_path),
         agent_role="NAIVEPROXY",
         agent_runtime_profile="tracegate-naiveproxy-v4",
-        naiveproxy_host="auth.tracegate.su",
+        naiveproxy_host="auth.example.com",
     )
     _write(
         tmp_path / "users/1/connection-c1.json",
@@ -920,7 +920,12 @@ def test_reconcile_naiveproxy_v4_writes_caddyfile_from_user_artifacts(tmp_path: 
 
     assert changed == ["naiveproxy"]
     caddyfile = (tmp_path / "runtime/naiveproxy/Caddyfile").read_text(encoding="utf-8")
-    assert "auth.tracegate.su" in caddyfile
+    assert "auth.example.com" in caddyfile
+    assert "servers :11443" in caddyfile
+    assert "protocols h1 h2" in caddyfile
+    assert "servers :443" in caddyfile
+    assert "protocols h3" in caddyfile
+    assert ":11443, auth.example.com:11443" in caddyfile
     assert 'basic_auth "tg_v4_user" "secret-pass"' in caddyfile
     assert "hide_ip" in caddyfile
     assert "hide_via" in caddyfile
@@ -937,8 +942,12 @@ def test_reconcile_naiveproxy_v4_writes_caddyfile_from_user_artifacts(tmp_path: 
     ]
     contract = json.loads((tmp_path / "runtime/runtime-contract.json").read_text(encoding="utf-8"))
     assert contract["role"] == "NAIVEPROXY"
-    assert contract["fronting"]["tcp443Owner"] == "naiveproxy"
+    assert contract["fronting"]["tcp443Owner"] == "haproxy-demux"
+    assert contract["fronting"]["tcp443Demux"] is True
+    assert contract["fronting"]["naiveproxyTcpBackend"] == "127.0.0.1:11443"
     assert contract["fronting"]["udp443Owner"] == "naiveproxy"
+    assert contract["naiveproxy"]["tcpExposure"] == "demux"
+    assert contract["naiveproxy"]["tcpListenPort"] == 11443
     assert contract["naiveproxy"]["userCount"] == 1
 
 

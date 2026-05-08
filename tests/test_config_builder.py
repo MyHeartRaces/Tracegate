@@ -1002,7 +1002,7 @@ def test_naiveproxy_v4_direct_builds_auth_domain_stealth_config() -> None:
 
     assert cfg["protocol"] == "naiveproxy"
     assert cfg["profile"] == "v4-direct-naiveproxy"
-    assert cfg["server"] == "auth.tracegate.su"
+    assert cfg["server"] == "auth.example.com"
     assert cfg["port"] == 443
     assert cfg["udp_port"] == 443
     assert cfg["http3"]["enabled"] is True
@@ -1015,6 +1015,8 @@ def test_naiveproxy_v4_direct_builds_auth_domain_stealth_config() -> None:
     assert cfg["stealth"]["hide_via"] is True
     assert "/auth/login" in cfg["stealth"]["cover_paths"]
     assert cfg["design_constraints"]["dedicated_k3s_role"] == "NAIVEPROXY"
+    assert cfg["design_constraints"]["public_tcp_443_owner"] == "transit-haproxy-demux"
+    assert cfg["design_constraints"]["naiveproxy_tcp_backend"] == "127.0.0.1:11443"
     assert cfg["design_constraints"]["hysteria_udp_port"] == 4443
     assert cfg["local_socks"]["auth"]["required"] is True
 

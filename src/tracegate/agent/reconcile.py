@@ -13,6 +13,7 @@ import yaml
 from tracegate.constants import (
     TRACEGATE_FORBIDDEN_PUBLIC_TCP_PORT,
     TRACEGATE_FORBIDDEN_PUBLIC_UDP_PORT,
+    TRACEGATE_NAIVEPROXY_DEMUX_TCP_PORT,
     TRACEGATE_NAIVEPROXY_HOST,
     TRACEGATE_NAIVEPROXY_PUBLIC_TCP_PORT,
     TRACEGATE_NAIVEPROXY_PUBLIC_UDP_PORT,
@@ -280,11 +281,25 @@ def _collect_naiveproxy_runtime_state(paths: AgentPaths, settings: Settings) -> 
         if isinstance(users, list)
         else 0
     )
+    tcp_exposure = str(settings.naiveproxy_tcp_exposure or "").strip().lower() or "demux"
+    if tcp_exposure not in {"demux", "dedicated"}:
+        tcp_exposure = "demux"
+    public_tcp_port = int(settings.naiveproxy_public_tcp_port or TRACEGATE_NAIVEPROXY_PUBLIC_TCP_PORT)
+    demux_tcp_port = int(settings.naiveproxy_demux_tcp_port or TRACEGATE_NAIVEPROXY_DEMUX_TCP_PORT)
+    tcp_listen_port = demux_tcp_port if tcp_exposure == "demux" else public_tcp_port
     return {
         "enabled": bool(settings.naiveproxy_enabled),
         "domain": str(settings.naiveproxy_host or TRACEGATE_NAIVEPROXY_HOST).strip() or TRACEGATE_NAIVEPROXY_HOST,
-        "tcpPort": int(settings.naiveproxy_public_tcp_port or TRACEGATE_NAIVEPROXY_PUBLIC_TCP_PORT),
+        "tcpExposure": tcp_exposure,
+        "tcpPort": public_tcp_port,
+        "tcpListenPort": tcp_listen_port,
         "udpPort": int(settings.naiveproxy_public_udp_port or TRACEGATE_NAIVEPROXY_PUBLIC_UDP_PORT),
+        "demux": {
+            "enabled": tcp_exposure == "demux",
+            "tcp443Owner": "haproxy",
+            "backendHost": "127.0.0.1",
+            "backendPort": demux_tcp_port,
+        },
         "configPresent": caddyfile_path.exists(),
         "configPath": str(caddyfile_path),
         "usersPath": str(users_path),
@@ -877,6 +892,15 @@ def _build_runtime_contract_payload(settings: Settings) -> dict[str, object]:
         protocol="udp",
         port=TRACEGATE_PUBLIC_UDP_PORT,
     )
+    tcp443_owner = _contract_port_owner(contract, settings.agent_role, protocol="tcp", port=443)
+    naiveproxy_tcp_exposure = str(settings.naiveproxy_tcp_exposure or "").strip().lower() or "demux"
+    naiveproxy_demux_enabled = (
+        bool(settings.naiveproxy_enabled)
+        and naiveproxy_tcp_exposure == "demux"
+        and (contract.name == "tracegate-2.2" or contract.manages_component("naiveproxy"))
+    )
+    if contract.manages_component("naiveproxy") and naiveproxy_demux_enabled:
+        tcp443_owner = "haproxy-demux"
     udp443_owner = "naiveproxy" if bool(settings.naiveproxy_enabled) else public_udp_owner
     payload = {
         "role": str(settings.agent_role or "").strip().upper() or "UNKNOWN",
@@ -986,7 +1010,13 @@ def _build_runtime_contract_payload(settings: Settings) -> dict[str, object]:
             "privatePreflightForbidPlaceholders": bool(settings.agent_gateway_private_preflight_forbid_placeholders),
         },
         "fronting": {
-            "tcp443Owner": _contract_port_owner(contract, settings.agent_role, protocol="tcp", port=443),
+            "tcp443Owner": tcp443_owner,
+            "tcp443Demux": naiveproxy_demux_enabled,
+            "naiveproxyTcpBackend": (
+                f"127.0.0.1:{int(settings.naiveproxy_demux_tcp_port or TRACEGATE_NAIVEPROXY_DEMUX_TCP_PORT)}"
+                if naiveproxy_demux_enabled
+                else ""
+            ),
             "publicUdpPort": TRACEGATE_PUBLIC_UDP_PORT,
             "publicUdpOwner": public_udp_owner,
             "udp443Port": TRACEGATE_NAIVEPROXY_PUBLIC_UDP_PORT,
@@ -1026,6 +1056,11 @@ def _build_runtime_contract_payload(settings: Settings) -> dict[str, object]:
         "naiveproxy": runtime_naiveproxy,
         "xray": runtime_xray,
     }
+    if not naiveproxy_demux_enabled:
+        fronting = payload.get("fronting")
+        if isinstance(fronting, dict):
+            fronting.pop("tcp443Demux", None)
+            fronting.pop("naiveproxyTcpBackend", None)
     return payload
 
 
@@ -2339,50 +2374,88 @@ def _render_naiveproxy_caddyfile(*, settings: Settings, auth_rows: list[dict[str
         "<button type=\"submit\">Continue</button></form></main></body></html>"
     )
     session_json = json.dumps({"authenticated": False, "provider": "tracegate", "mode": mode}, ensure_ascii=True)
+    public_tcp_port = int(settings.naiveproxy_public_tcp_port or TRACEGATE_NAIVEPROXY_PUBLIC_TCP_PORT)
+    public_udp_port = int(settings.naiveproxy_public_udp_port or TRACEGATE_NAIVEPROXY_PUBLIC_UDP_PORT)
+    demux_tcp_port = int(settings.naiveproxy_demux_tcp_port or TRACEGATE_NAIVEPROXY_DEMUX_TCP_PORT)
+    tcp_exposure = str(settings.naiveproxy_tcp_exposure or "").strip().lower() or "demux"
+    if tcp_exposure not in {"demux", "dedicated"}:
+        tcp_exposure = "demux"
+
+    def site_block(addresses: str) -> list[str]:
+        return [
+            f"{addresses} {{",
+            "  tls /etc/tracegate/tls/tls.crt /etc/tracegate/tls/tls.key",
+            "  encode zstd gzip",
+            "  log {",
+            "    output stdout",
+            "    format json",
+            "    level WARN",
+            "  }",
+            "  header {",
+            "    -Server",
+            "    Strict-Transport-Security \"max-age=31536000; includeSubDomains\"",
+            "    X-Content-Type-Options \"nosniff\"",
+            "    Referrer-Policy \"same-origin\"",
+            "    Cache-Control \"no-store\"",
+            "  }",
+            "",
+            "  forward_proxy {",
+            *auth_lines,
+            "    hide_ip",
+            "    hide_via",
+            "    probe_resistance",
+            "  }",
+            "",
+            "  @openid path /.well-known/openid-configuration",
+            "  respond @openid " + _caddy_token(openid) + " 200",
+            "  @jwks path /.well-known/jwks.json",
+            "  respond @jwks " + _caddy_token(json.dumps({"keys": []}, separators=(",", ":"))) + " 200",
+            "  @session path /auth/session /auth/token /oauth2/token",
+            "  respond @session " + _caddy_token(session_json) + " 200",
+            "  @auth path /auth* /oauth2*",
+            "  respond @auth " + _caddy_token(login_html) + " 200",
+            "  respond \"\" 204",
+            "}",
+            "",
+        ]
+
     lines = [
         "{",
         "  admin 127.0.0.1:2019",
+        "  auto_https off",
         "  order forward_proxy before respond",
-        "  servers {",
-        "    protocols h1 h2 h3",
-        "  }",
-        "}",
-        "",
-        f":443, {domain} {{",
-        "  tls /etc/tracegate/tls/tls.crt /etc/tracegate/tls/tls.key",
-        "  encode zstd gzip",
-        "  log {",
-        "    output stdout",
-        "    format json",
-        "    level WARN",
-        "  }",
-        "  header {",
-        "    -Server",
-        "    Strict-Transport-Security \"max-age=31536000; includeSubDomains\"",
-        "    X-Content-Type-Options \"nosniff\"",
-        "    Referrer-Policy \"same-origin\"",
-        "    Cache-Control \"no-store\"",
-        "  }",
-        "",
-        "  forward_proxy {",
-        *auth_lines,
-        "    hide_ip",
-        "    hide_via",
-        "    probe_resistance",
-        "  }",
-        "",
-        "  @openid path /.well-known/openid-configuration",
-        "  respond @openid " + _caddy_token(openid) + " 200",
-        "  @jwks path /.well-known/jwks.json",
-        "  respond @jwks " + _caddy_token(json.dumps({"keys": []}, separators=(",", ":"))) + " 200",
-        "  @session path /auth/session /auth/token /oauth2/token",
-        "  respond @session " + _caddy_token(session_json) + " 200",
-        "  @auth path /auth* /oauth2*",
-        "  respond @auth " + _caddy_token(login_html) + " 200",
-        "  respond \"\" 204",
-        "}",
-        "",
     ]
+    if tcp_exposure == "demux":
+        lines.extend(
+            [
+                f"  servers :{demux_tcp_port} {{",
+                "    protocols h1 h2",
+                "  }",
+                f"  servers :{public_udp_port} {{",
+                "    protocols h3",
+                "  }",
+            ]
+        )
+    else:
+        lines.extend(
+            [
+                f"  servers :{public_tcp_port} {{",
+                "    protocols h1 h2 h3",
+                "  }",
+            ]
+        )
+    lines.extend(
+        [
+            "}",
+            "",
+        ]
+    )
+    if tcp_exposure == "demux":
+        lines.extend(site_block(f":{demux_tcp_port}, {domain}:{demux_tcp_port}"))
+        lines.extend(site_block(f":{public_udp_port}, {domain}"))
+        return "\n".join(lines)
+
+    lines.extend(site_block(f":{public_tcp_port}, {domain}"))
     return "\n".join(lines)
 
 

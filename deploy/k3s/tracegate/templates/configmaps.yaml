@@ -473,8 +473,14 @@ data:
       domain: {{ .Values.naiveproxy.domain }}
       role: {{ .Values.naiveproxy.role }}
       runtimeProfile: {{ .Values.naiveproxy.runtimeProfile }}
+      tcpExposure: {{ .Values.naiveproxy.tcpExposure }}
       publicTcpPort: {{ int .Values.naiveproxy.ports.publicTcp }}
       publicUdpPort: {{ int .Values.naiveproxy.ports.publicUdp }}
+      demux:
+        role: {{ .Values.naiveproxy.demux.role }}
+        backendHost: {{ .Values.naiveproxy.demux.backendHost }}
+        backendPort: {{ int .Values.naiveproxy.demux.backendPort }}
+        tcp443Owner: haproxy
       http3:
         enabled: true
         owner: naiveproxy
@@ -504,6 +510,9 @@ data:
 {{- $chainBridgeShortId := $.Values.controlPlane.env.realityShortIdTransit | default (first $.Values.gateway.roles.transit.reality.shortIds) }}
 {{- $hysteriaListenHost := toString (dig "hysteria" "listenHost" "" $role) }}
 {{- $roleShadowtlsServerName := ternary $.Values.shadowsocks2022.shadowtls.serverNameEntry $.Values.shadowsocks2022.shadowtls.serverNameTransit (eq $roleName "entry") }}
+{{- $naiveproxyTcpExposure := toString $.Values.naiveproxy.tcpExposure }}
+{{- $naiveproxyDemuxRole := toString $.Values.naiveproxy.demux.role }}
+{{- $naiveproxyTcpDemuxEnabled := and $.Values.naiveproxy.enabled (eq $naiveproxyTcpExposure "demux") (eq $roleName $naiveproxyDemuxRole) }}
 {{- $userTrafficInbounds := list "entry-in" "entry-chain-socks-in" "ss2022-in" "vless-reality-in" "vless-ws-in" "vless-grpc-in" }}
 {{- $grafanaHost := toString $.Values.controlPlane.env.grafanaHost }}
 {{- $ruBypassDomains := list "geosite:category-ru" "full:cp.cloudflare.com" "regexp:(?i)\\.ru$" "regexp:(?i)\\.su$" "regexp:(?i)\\.xn--p1ai$" "regexp:(?i)\\.рф$" "regexp:(?i)\\.moscow$" "regexp:(?i)\\.xn--80adxhks$" "regexp:(?i)\\.москва$" "regexp:(?i)\\.tatar$" "regexp:(?i)\\.xn--p1acf$" "regexp:(?i)\\.рус$" "regexp:(?i)\\.xn--d1acj3b$" "regexp:(?i)\\.дети$" }}
@@ -548,6 +557,10 @@ data:
       tcp-request content accept if { req.ssl_sni -m found }
       tcp-request content accept if WAIT_END
       acl tls_adapter_sni req.ssl_sni -i {{ join " " $tlsAdapterServerNames }}
+{{- if $naiveproxyTcpDemuxEnabled }}
+      acl naiveproxy_sni req.ssl_sni -i {{ $.Values.naiveproxy.domain }}
+      use_backend be_naiveproxy if naiveproxy_sni
+{{- end }}
 {{- if and (eq $roleName "transit") $linkWssCarrierEnabled }}
       acl bridge_wss_sni req.ssl_sni -i {{ $linkOuterCarrier.serverName }}
       use_backend be_https_adapter if bridge_wss_sni
@@ -587,6 +600,11 @@ data:
 
     backend be_https_adapter
       server nginx_https 127.0.0.1:{{ int $role.ports.httpsAdapter }} check
+{{- if $naiveproxyTcpDemuxEnabled }}
+
+    backend be_naiveproxy
+      server naiveproxy {{ $.Values.naiveproxy.demux.backendHost }}:{{ int $.Values.naiveproxy.demux.backendPort }} check
+{{- end }}
 {{- if and (eq $roleName "transit") $.Values.mtproto.enabled }}
 
     backend be_mtproto

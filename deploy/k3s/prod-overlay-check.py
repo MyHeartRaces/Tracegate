@@ -485,14 +485,20 @@ def validate_prod_overlay(chart_values: Path, prod_values: Path, *, strict: bool
 
     naive_tls = _as_dict(naiveproxy.get("tls"))
     naive_ports = _as_dict(naiveproxy.get("ports"))
+    naive_demux = _as_dict(naiveproxy.get("demux"))
     naive_stealth = _as_dict(naiveproxy.get("stealth"))
     naive_cover_paths = {_text(path) for path in _as_list(naive_stealth.get("coverPaths"))}
     naive_selector = _as_dict(naiveproxy.get("nodeSelector"))
     naive_domain = _text(naiveproxy.get("domain")).lower().rstrip(".")
     naive_env_host = _text(env.get("naiveproxyHost")).lower().rstrip(".")
+    naive_tcp_exposure = _text(naiveproxy.get("tcpExposure")) or "demux"
+    naive_demux_role_name = _text(naive_demux.get("role")) or "transit"
+    naive_demux_role = _as_dict(_as_dict(gateway.get("roles")).get(naive_demux_role_name))
+    naive_demux_backend_port = _as_int(naive_demux.get("backendPort"))
     require(bool(naiveproxy.get("enabled", False)), "naiveproxy.enabled must stay true for the V4 production surface")
     require(_text(naiveproxy.get("role")) == "NAIVEPROXY", "naiveproxy.role must stay NAIVEPROXY")
     require(_text(naiveproxy.get("runtimeProfile")) == "tracegate-naiveproxy-v4", "naiveproxy.runtimeProfile must stay tracegate-naiveproxy-v4")
+    require(naive_tcp_exposure == "demux", "naiveproxy.tcpExposure must stay demux for shared endpoint TCP/443")
     require(_has_value(naiveproxy.get("domain")), "naiveproxy.domain must be set")
     require(not _is_example_host(naiveproxy.get("domain")), "naiveproxy.domain must not use example.com")
     require(naive_domain == naive_env_host, "naiveproxy.domain must match controlPlane.env.naiveproxyHost")
@@ -500,9 +506,21 @@ def validate_prod_overlay(chart_values: Path, prod_values: Path, *, strict: bool
     require(_as_int(naive_ports.get("publicUdp")) == 443, "naiveproxy.ports.publicUdp must stay 443")
     require(bool(naiveproxy.get("hostNetwork", False)), "naiveproxy.hostNetwork must stay true")
     require(bool(naive_selector), "naiveproxy.nodeSelector must be non-empty")
+    require(naive_demux_role_name == "transit", "naiveproxy.demux.role must stay transit")
+    require(bool(naive_demux_role), "naiveproxy.demux.role must reference an existing gateway role")
     require(
-        naive_selector != _as_dict(entry.get("nodeSelector")) and naive_selector != _as_dict(transit.get("nodeSelector")),
-        "naiveproxy.nodeSelector must be distinct from Entry and Transit selectors",
+        bool(naive_demux_role.get("enabled", False)),
+        "naiveproxy.demux.role must reference an enabled gateway role",
+    )
+    require(
+        naive_selector == _as_dict(naive_demux_role.get("nodeSelector")),
+        "naiveproxy.nodeSelector must match the Transit selector in demux mode",
+    )
+    require(_text(naive_demux.get("backendHost")) == "127.0.0.1", "naiveproxy.demux.backendHost must stay 127.0.0.1")
+    require(
+        1024 <= naive_demux_backend_port <= 65535
+        and naive_demux_backend_port not in {443, 4443, 8443},
+        "naiveproxy.demux.backendPort must be an unreserved high TCP port",
     )
     require(_has_value(naive_tls.get("existingSecretName")), "naiveproxy.tls.existingSecretName must reference a TLS Secret")
     require(_text(naive_stealth.get("decoyMode")) == "auth-portal", "naiveproxy.stealth.decoyMode must stay auth-portal")

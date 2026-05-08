@@ -143,6 +143,13 @@ def test_tracegate21_chart_uses_entry_transit_roles() -> None:
     assert values["gateway"]["roles"]["transit"]["role"] == "TRANSIT"
     assert values["gateway"]["roles"]["entry"]["nodeSelector"] == {"tracegate.io/role": "entry"}
     assert values["gateway"]["roles"]["transit"]["nodeSelector"] == {"tracegate.io/role": "transit"}
+    assert values["naiveproxy"]["tcpExposure"] == "demux"
+    assert values["naiveproxy"]["demux"] == {
+        "role": "transit",
+        "backendHost": "127.0.0.1",
+        "backendPort": 11443,
+    }
+    assert values["naiveproxy"]["nodeSelector"] == {"tracegate.io/role": "transit"}
     assert values["gateway"]["strategy"] == "RollingUpdate"
     assert values["gateway"]["allowRecreateStrategy"] is False
     assert values["gateway"]["rollingUpdate"]["maxUnavailable"] == 0
@@ -303,7 +310,9 @@ def _prod_overlay_values() -> dict:
         },
         "naiveproxy": {
             "domain": "auth.prod.test",
-            "nodeSelector": {"tracegate.io/role": "naiveproxy"},
+            "tcpExposure": "demux",
+            "demux": {"role": "transit", "backendHost": "127.0.0.1", "backendPort": 11443},
+            "nodeSelector": {"tracegate.io/role": "transit"},
             "tls": {"existingSecretName": "tracegate-naiveproxy-tls"},
         },
         "interconnect": {
@@ -505,8 +514,8 @@ def test_k3s_cluster_preflight_accepts_existing_cluster_prerequisites(tmp_path: 
     assert result.returncode == 0, result.stderr
     assert "cluster-preflight: OK namespace=tracegate" in result.stdout
     assert "secrets=6" in result.stdout
-    assert "nodes=3" in result.stdout
-    assert "encrypted_nodes=3" in result.stdout
+    assert "nodes=2" in result.stdout
+    assert "encrypted_nodes=2" in result.stdout
 
 
 def test_k3s_cluster_preflight_rejects_missing_private_secret_key(tmp_path: Path) -> None:
@@ -1913,10 +1922,36 @@ def test_tracegate22_k3s_renders_reality_sni_demux_groups(tmp_path: Path) -> Non
     assert "use_backend be_reality_sni_067 if reality_sni_067_sni" in transit_haproxy
     assert "backend be_reality_sni_069" in transit_haproxy
     assert "server xray_reality_sni_069 127.0.0.1:2511 check" in transit_haproxy
-
     transit_agent = _containers_by_name(_gateway_deployment_templates(rendered.stdout)["gateway-transit"])["agent"]
     groups = yaml.safe_load(_env_value(transit_agent, "REALITY_MULTI_INBOUND_GROUPS"))
     assert groups == values["gateway"]["realityMultiInboundGroups"]
+
+
+def test_tracegate22_k3s_renders_naiveproxy_tcp443_demux(tmp_path: Path) -> None:
+    rendered = _helm_template_with_values(tmp_path, {})
+
+    assert rendered.returncode == 0, rendered.stderr
+    docs = _helm_docs(rendered.stdout)
+    transit_haproxy = next(
+        doc["data"]["haproxy.cfg"]
+        for doc in docs
+        if doc.get("kind") == "ConfigMap"
+        and doc.get("metadata", {}).get("name") == "tracegate-tracegate-gateway-transit-haproxy"
+    )
+    naiveproxy = _deployment_by_component(rendered.stdout, "naiveproxy")
+    naiveproxy_pod = naiveproxy["spec"]["template"]
+    caddy = _containers_by_name(naiveproxy_pod)["caddy"]
+    agent = _containers_by_name(naiveproxy_pod)["agent"]
+
+    assert "acl naiveproxy_sni req.ssl_sni -i auth.example.com" in transit_haproxy
+    assert "use_backend be_naiveproxy if naiveproxy_sni" in transit_haproxy
+    assert "backend be_naiveproxy" in transit_haproxy
+    assert "server naiveproxy 127.0.0.1:11443 check" in transit_haproxy
+    assert naiveproxy_pod["metadata"]["annotations"]["tracegate.io/public-surface"] == "tcp/443-demux,udp/443"
+    assert naiveproxy_pod["spec"]["nodeSelector"] == {"tracegate.io/role": "transit"}
+    assert next(port for port in caddy["ports"] if port["name"] == "naive-https")["containerPort"] == 11443
+    assert _env_value(agent, "NAIVEPROXY_TCP_EXPOSURE") == "demux"
+    assert _env_value(agent, "NAIVEPROXY_DEMUX_TCP_PORT") == "11443"
 
 
 def test_tracegate22_xray_defaults_client_traffic_to_direct(tmp_path: Path) -> None:

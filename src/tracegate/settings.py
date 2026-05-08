@@ -5,6 +5,7 @@ from pydantic import AliasChoices, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from tracegate.constants import (
+    TRACEGATE_NAIVEPROXY_DEMUX_TCP_PORT,
     TRACEGATE_NAIVEPROXY_HOST,
     TRACEGATE_NAIVEPROXY_PUBLIC_TCP_PORT,
     TRACEGATE_NAIVEPROXY_PUBLIC_UDP_PORT,
@@ -391,6 +392,8 @@ class Settings(BaseSettings):
     naiveproxy_host: str = TRACEGATE_NAIVEPROXY_HOST
     naiveproxy_public_tcp_port: int = TRACEGATE_NAIVEPROXY_PUBLIC_TCP_PORT
     naiveproxy_public_udp_port: int = TRACEGATE_NAIVEPROXY_PUBLIC_UDP_PORT
+    naiveproxy_tcp_exposure: str = "demux"
+    naiveproxy_demux_tcp_port: int = TRACEGATE_NAIVEPROXY_DEMUX_TCP_PORT
     naiveproxy_decoy_mode: str = "auth-portal"
     transit_decoy_auth_login: str = ""
     transit_decoy_auth_password: str = ""
@@ -461,7 +464,7 @@ class Settings(BaseSettings):
     vless_ws_path: str = "/ws"
     vless_ws_tls_port: int = 443
     # Hysteria2 public UDP surface. TCP/443 stays reserved for fronting/demux;
-    # UDP/443 is reserved for NaiveProxy V4 HTTP/3 on auth.tracegate.su.
+    # UDP/443 is reserved for NaiveProxy V4 HTTP/3 on auth.example.com.
     hysteria_udp_port: int = TRACEGATE_PUBLIC_UDP_PORT
     # Salamander is mandatory for Tracegate Hysteria2. Keep real values in private env/Secrets.
     hysteria_salamander_password_entry: str = Field(
