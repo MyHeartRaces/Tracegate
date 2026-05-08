@@ -37,6 +37,7 @@ def test_local_socks_port_override_must_be_valid_user_port() -> None:
         ConnectionProtocol.HYSTERIA2,
         ConnectionProtocol.SHADOWSOCKS2022_SHADOWTLS,
         ConnectionProtocol.WIREGUARD_WSTUNNEL,
+        ConnectionProtocol.NAIVEPROXY,
     ],
 )
 def test_local_socks_credential_overrides_are_allowed_only_as_required_pair(protocol: ConnectionProtocol) -> None:
@@ -69,6 +70,17 @@ def test_vless_grpc_overrides_whitelist() -> None:
 
     assert result["grpc_service_name"] == "tracegate.v1.Edge"
     assert result["connect_host"] == "edge-connect.tracegate.test"
+
+
+def test_naiveproxy_overrides_keep_public_stealth_surface_fixed() -> None:
+    result = validate_overrides(ConnectionProtocol.NAIVEPROXY, {"connect_host": "auth.tracegate.su"})
+    assert result["connect_host"] == "auth.tracegate.su"
+
+    with pytest.raises(OverrideValidationError, match="Unsupported override keys"):
+        validate_overrides(ConnectionProtocol.NAIVEPROXY, {"server": "other.example.com"})
+
+    with pytest.raises(OverrideValidationError, match="must not include a port"):
+        validate_overrides(ConnectionProtocol.NAIVEPROXY, {"connect_host": "auth.tracegate.su:443"})
 
 
 def test_vless_ws_connect_host_override_is_allowed() -> None:

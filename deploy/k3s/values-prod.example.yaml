@@ -10,7 +10,7 @@ namespace:
 global:
   image:
     repository: ghcr.io/your-org/tracegate
-    tag: "2.2.1"
+    tag: "2.2.2"
   publicBaseUrl: "https://tracegate.example.com"
 
 controlPlane:
@@ -23,6 +23,7 @@ controlPlane:
   env:
     defaultEntryHost: entry.example.com
     defaultTransitHost: transit.example.com
+    naiveproxyHost: auth.tracegate.su
     mtprotoDomain: mtproto.example.com
     grafanaPublicBaseUrl: https://grafana.example.com
     grafanaHost: grafana.example.com
@@ -103,6 +104,10 @@ gateway:
       - https://tracegate.example.com
       - https://entry.example.com
       - https://transit.example.com
+    reloadCommands:
+      profiles: "sh -lc 'tracegate-k3s-private-reload --component profiles --role \"${AGENT_ROLE}\" --private-runtime-root /var/lib/tracegate/private --runtime-contract /var/lib/tracegate/runtime/runtime-contract.json'"
+      linkCrypto: "sh -lc 'tracegate-k3s-private-reload --component link-crypto --role \"${AGENT_ROLE}\" --private-runtime-root /var/lib/tracegate/private --runtime-contract /var/lib/tracegate/runtime/runtime-contract.json'"
+      naiveproxy: "sh -lc 'true'"
   pdb:
     enabled: true
     minAvailable: 1
@@ -115,10 +120,10 @@ gateway:
     # Enable in the ignored production overlay when the Entry node is limited
     # to roughly 1 GB RAM and 1 vCPU. This mode requires V3 to be enabled.
     enabled: false
-  agent:
-    reloadCommands:
-      profiles: "sh -lc 'tracegate-k3s-private-reload --component profiles --role \"${AGENT_ROLE}\" --private-runtime-root /var/lib/tracegate/private --runtime-contract /var/lib/tracegate/runtime/runtime-contract.json'"
-      linkCrypto: "sh -lc 'tracegate-k3s-private-reload --component link-crypto --role \"${AGENT_ROLE}\" --private-runtime-root /var/lib/tracegate/private --runtime-contract /var/lib/tracegate/runtime/runtime-contract.json'"
+  images:
+    naiveproxy:
+      repository: ghcr.io/your-org/tracegate-naiveproxy-caddy
+      digest: sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
   roles:
     entry:
       nodeSelector:
@@ -157,6 +162,15 @@ gateway:
       hysteria:
         # Set to the endpoint ingress IP on multi-IP endpoint nodes.
         listenHost: ""
+
+naiveproxy:
+  enabled: true
+  domain: auth.tracegate.su
+  runtimeProfile: tracegate-naiveproxy-v4
+  nodeSelector:
+    tracegate.io/role: naiveproxy
+  tls:
+    existingSecretName: tracegate-naiveproxy-tls
 
 interconnect:
   entryTransit:

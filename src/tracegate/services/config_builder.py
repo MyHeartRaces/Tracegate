@@ -10,6 +10,9 @@ from typing import Any
 from tracegate.constants import (
     TRACEGATE_FORBIDDEN_PUBLIC_TCP_PORT,
     TRACEGATE_FORBIDDEN_PUBLIC_UDP_PORT,
+    TRACEGATE_NAIVEPROXY_HOST,
+    TRACEGATE_NAIVEPROXY_PUBLIC_TCP_PORT,
+    TRACEGATE_NAIVEPROXY_PUBLIC_UDP_PORT,
     TRACEGATE_PUBLIC_UDP_PORT,
 )
 from tracegate.enums import ConnectionMode, ConnectionProtocol, ConnectionVariant
@@ -76,6 +79,9 @@ class EndpointSet:
     wireguard_allowed_ips: tuple[str, ...] = ("0.0.0.0/0", "::/0")
     wireguard_mtu: int = 1280
     wstunnel_path: str = "/cdn-cgi/tracegate"
+    naiveproxy_host: str = TRACEGATE_NAIVEPROXY_HOST
+    naiveproxy_public_tcp_port: int = TRACEGATE_NAIVEPROXY_PUBLIC_TCP_PORT
+    naiveproxy_public_udp_port: int = TRACEGATE_NAIVEPROXY_PUBLIC_UDP_PORT
 
 
 def _build_local_socks_auth(
@@ -256,6 +262,31 @@ def _derive_urlsafe_secret(*, user: User, device: Device, connection: Connection
     ).encode("utf-8")
     digest = hashlib.sha256(seed).digest()
     return base64.urlsafe_b64encode(digest).decode("ascii").rstrip("=")[:length]
+
+
+def _naiveproxy_basic_auth(*, user: User, device: Device, connection: Connection) -> dict[str, str]:
+    seed = "|".join(
+        [
+            str(user.telegram_id),
+            str(device.id),
+            str(connection.id),
+            str(connection.protocol.value),
+            str(connection.variant.value),
+            "naiveproxy-basic-auth",
+        ]
+    ).encode("utf-8")
+    digest = hashlib.sha256(seed).hexdigest()
+    return {
+        "type": "basic",
+        "username": f"tg_v4_{digest[:12]}",
+        "password": _derive_urlsafe_secret(
+            user=user,
+            device=device,
+            connection=connection,
+            purpose="naiveproxy-basic-auth-password",
+            length=40,
+        ),
+    }
 
 
 def _shadowsocks2022_password(
@@ -686,6 +717,88 @@ def build_effective_config(
             "chain": _entry_transit_private_relay(endpoints=endpoints, inner_transport="hysteria2-quic")
             if is_chain
             else None,
+        }
+
+    if connection.protocol == ConnectionProtocol.NAIVEPROXY:
+        if (connection.mode, connection.variant) != (ConnectionMode.DIRECT, ConnectionVariant.V4):
+            raise ValueError("NaiveProxy supports only V4 direct")
+
+        server = str(endpoints.naiveproxy_host or TRACEGATE_NAIVEPROXY_HOST).strip() or TRACEGATE_NAIVEPROXY_HOST
+        connect_host = str(overrides.get("connect_host") or server).strip()
+        tcp_port = _normalize_int_range(
+            endpoints.naiveproxy_public_tcp_port or TRACEGATE_NAIVEPROXY_PUBLIC_TCP_PORT,
+            field_name="naiveproxy_public_tcp_port",
+            min_value=1,
+            max_value=65535,
+        )
+        udp_port = _normalize_int_range(
+            endpoints.naiveproxy_public_udp_port or TRACEGATE_NAIVEPROXY_PUBLIC_UDP_PORT,
+            field_name="naiveproxy_public_udp_port",
+            min_value=1,
+            max_value=65535,
+        )
+
+        auth_payload = _naiveproxy_basic_auth(user=user, device=device, connection=connection)
+        return {
+            "protocol": "naiveproxy",
+            "transport": "http3-quic",
+            "profile": connection_profile_label(connection.protocol, connection.mode, connection.variant),
+            "server": server,
+            "connect_host": connect_host,
+            "port": tcp_port,
+            "udp_port": udp_port,
+            "sni": server,
+            "auth": auth_payload,
+            "tls": {
+                "server_name": server,
+                "insecure": bool(overrides.get("tls_insecure", False)) or _is_ip_literal(connect_host),
+                "alpn": ["h3", "h2", "http/1.1"],
+            },
+            "http3": {
+                "enabled": True,
+                "public_udp_port": udp_port,
+                "preferred_client_proxy_scheme": "quic",
+            },
+            "http2": {
+                "enabled": True,
+                "fallback": True,
+                "public_tcp_port": tcp_port,
+            },
+            "stealth": {
+                "domain": server,
+                "decoy_mode": "auth-portal",
+                "probe_resistance": True,
+                "hide_ip": True,
+                "hide_via": True,
+                "chrome_network_stack": True,
+                "padding": "naive-forwardproxy",
+                "cover_paths": [
+                    "/auth/login",
+                    "/auth/session",
+                    "/auth/token",
+                    "/oauth2/authorize",
+                    "/oauth2/token",
+                    "/.well-known/openid-configuration",
+                ],
+            },
+            "local_socks": _local_socks_payload(
+                listen=_local_socks_listen(overrides=overrides, user=user, device=device, connection=connection),
+                user=user,
+                device=device,
+                connection=connection,
+                overrides=overrides,
+            ),
+            "design_constraints": {
+                "fixed_port_tcp": tcp_port,
+                "fixed_port_udp": udp_port,
+                "dedicated_dns_name": server,
+                "dedicated_k3s_role": "NAIVEPROXY",
+                "hysteria_udp_port": TRACEGATE_PUBLIC_UDP_PORT,
+                "udp_443_owner": "naiveproxy",
+                "probe_resistance_required": True,
+                "auth_credentials_scope": "connection",
+            },
+            "chain": None,
         }
 
     if connection.protocol == ConnectionProtocol.SHADOWSOCKS2022_SHADOWTLS:

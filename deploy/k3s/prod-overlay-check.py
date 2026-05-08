@@ -65,6 +65,11 @@ def _is_example_host(value: Any) -> bool:
     return any(marker in raw for marker in EXAMPLE_HOST_MARKERS)
 
 
+def _is_placeholder_repo(value: Any) -> bool:
+    raw = _text(value).lower()
+    return "your-org" in raw or raw.startswith("example/")
+
+
 def _has_value(value: Any) -> bool:
     return bool(_text(value))
 
@@ -215,6 +220,7 @@ def validate_prod_overlay(chart_values: Path, prod_values: Path, *, strict: bool
         require(not _is_mutable_tag(global_image.get("tag")), f"{_image_label('global.image', global_image)} must use a pinned tag or digest")
 
     gateway = _as_dict(merged.get("gateway"))
+    naiveproxy = _as_dict(merged.get("naiveproxy"))
     interconnect_for_images = _as_dict(merged.get("interconnect"))
     entry_transit_for_images = _as_dict(interconnect_for_images.get("entryTransit"))
     mieru_for_images = _as_dict(interconnect_for_images.get("mieru"))
@@ -240,10 +246,13 @@ def validate_prod_overlay(chart_values: Path, prod_values: Path, *, strict: bool
         enabled_gateway_images.add("shadowtls")
     if bool(wireguard_for_images.get("enabled", False)):
         enabled_gateway_images.update({"wireguard", "wstunnel"})
+    if bool(naiveproxy.get("enabled", False)):
+        enabled_gateway_images.add("naiveproxy")
     for name, image in sorted(_as_dict(gateway.get("images")).items()):
         if name not in enabled_gateway_images:
             continue
         image_map = _as_dict(image)
+        require(not _is_placeholder_repo(image_map.get("repository")), f"{_image_label(f'gateway.images.{name}', image_map)} must not use the example repository")
         if _has_digest(image_map):
             require(_has_valid_digest(image_map), f"{_image_label(f'gateway.images.{name}', image_map)} must use a valid OCI digest")
         else:
@@ -269,6 +278,7 @@ def validate_prod_overlay(chart_values: Path, prod_values: Path, *, strict: bool
         ("global.publicBaseUrl", global_values.get("publicBaseUrl")),
         ("controlPlane.env.defaultEntryHost", env.get("defaultEntryHost")),
         ("controlPlane.env.defaultTransitHost", env.get("defaultTransitHost")),
+        ("controlPlane.env.naiveproxyHost", env.get("naiveproxyHost")),
         ("controlPlane.env.mtprotoDomain", env.get("mtprotoDomain")),
     ):
         require(_has_value(value), f"{label} must be set for production")
@@ -455,8 +465,8 @@ def validate_prod_overlay(chart_values: Path, prod_values: Path, *, strict: bool
         ports = _as_dict(role.get("ports"))
         require(_as_int(ports.get("publicTcp")) == 443, f"gateway.roles.{role_name}.ports.publicTcp must stay 443")
         require(
-            _as_int(ports.get("publicUdp")) in {443, 4443},
-            f"gateway.roles.{role_name}.ports.publicUdp must stay 443 or 4443",
+            _as_int(ports.get("publicUdp")) == 4443,
+            f"gateway.roles.{role_name}.ports.publicUdp must stay 4443; udp/443 is reserved for NaiveProxy V4",
         )
     profiles_reload = _text(reload_commands.get("profiles"))
     link_crypto_reload = _text(reload_commands.get("linkCrypto"))
@@ -472,6 +482,35 @@ def validate_prod_overlay(chart_values: Path, prod_values: Path, *, strict: bool
     decoy = _as_dict(merged.get("decoy"))
     has_decoy_source = any(_has_value(decoy.get(key)) for key in ("hostPath", "existingClaim", "existingConfigMap"))
     require(has_decoy_source, "production decoy must use hostPath, existingClaim, or existingConfigMap, not built-in lab files")
+
+    naive_tls = _as_dict(naiveproxy.get("tls"))
+    naive_ports = _as_dict(naiveproxy.get("ports"))
+    naive_stealth = _as_dict(naiveproxy.get("stealth"))
+    naive_cover_paths = {_text(path) for path in _as_list(naive_stealth.get("coverPaths"))}
+    naive_selector = _as_dict(naiveproxy.get("nodeSelector"))
+    naive_domain = _text(naiveproxy.get("domain")).lower().rstrip(".")
+    naive_env_host = _text(env.get("naiveproxyHost")).lower().rstrip(".")
+    require(bool(naiveproxy.get("enabled", False)), "naiveproxy.enabled must stay true for the V4 production surface")
+    require(_text(naiveproxy.get("role")) == "NAIVEPROXY", "naiveproxy.role must stay NAIVEPROXY")
+    require(_text(naiveproxy.get("runtimeProfile")) == "tracegate-naiveproxy-v4", "naiveproxy.runtimeProfile must stay tracegate-naiveproxy-v4")
+    require(_has_value(naiveproxy.get("domain")), "naiveproxy.domain must be set")
+    require(not _is_example_host(naiveproxy.get("domain")), "naiveproxy.domain must not use example.com")
+    require(naive_domain == naive_env_host, "naiveproxy.domain must match controlPlane.env.naiveproxyHost")
+    require(_as_int(naive_ports.get("publicTcp")) == 443, "naiveproxy.ports.publicTcp must stay 443")
+    require(_as_int(naive_ports.get("publicUdp")) == 443, "naiveproxy.ports.publicUdp must stay 443")
+    require(bool(naiveproxy.get("hostNetwork", False)), "naiveproxy.hostNetwork must stay true")
+    require(bool(naive_selector), "naiveproxy.nodeSelector must be non-empty")
+    require(
+        naive_selector != _as_dict(entry.get("nodeSelector")) and naive_selector != _as_dict(transit.get("nodeSelector")),
+        "naiveproxy.nodeSelector must be distinct from Entry and Transit selectors",
+    )
+    require(_has_value(naive_tls.get("existingSecretName")), "naiveproxy.tls.existingSecretName must reference a TLS Secret")
+    require(_text(naive_stealth.get("decoyMode")) == "auth-portal", "naiveproxy.stealth.decoyMode must stay auth-portal")
+    require(bool(naive_stealth.get("probeResistance", False)), "naiveproxy.stealth.probeResistance must stay true")
+    require(bool(naive_stealth.get("hideIp", False)), "naiveproxy.stealth.hideIp must stay true")
+    require(bool(naive_stealth.get("hideVia", False)), "naiveproxy.stealth.hideVia must stay true")
+    for required_path in ("/auth/session", "/oauth2/token", "/.well-known/openid-configuration"):
+        require(required_path in naive_cover_paths, f"naiveproxy.stealth.coverPaths must include {required_path}")
 
     interconnect = _as_dict(merged.get("interconnect"))
     entry_transit = _as_dict(interconnect.get("entryTransit"))

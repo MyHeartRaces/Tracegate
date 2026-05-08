@@ -39,3 +39,8 @@ def test_shadowsocks_chain_v3_targets_entry_and_transit() -> None:
 def test_wireguard_wstunnel_v0_targets_only_transit() -> None:
     roles = target_roles_for_connection(ConnectionProtocol.WIREGUARD_WSTUNNEL, ConnectionVariant.V0, ConnectionMode.DIRECT)
     assert roles == [NodeRole.TRANSIT]
+
+
+def test_naiveproxy_v4_targets_dedicated_naiveproxy_role() -> None:
+    roles = target_roles_for_connection(ConnectionProtocol.NAIVEPROXY, ConnectionVariant.V4, ConnectionMode.DIRECT)
+    assert roles == [NodeRole.NAIVEPROXY]

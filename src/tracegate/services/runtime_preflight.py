@@ -2172,6 +2172,15 @@ def _validate_hysteria_runtime(contract: dict[str, Any], *, role_prefix: str) ->
                 f"{role_prefix} tracegate-2.2 public udp/{TRACEGATE_PUBLIC_UDP_PORT} owner must be hysteria",
             )
         )
+    udp443_owner = str(fronting.get("udp443Owner") or "").strip().lower()
+    if udp443_owner != "naiveproxy":
+        findings.append(
+            _finding(
+                "error",
+                f"{role_prefix}-tracegate22-udp443-owner",
+                f"{role_prefix} tracegate-2.2 udp/443 owner must be naiveproxy",
+            )
+        )
 
     decoy = contract.get("decoy")
     decoy_block = decoy if isinstance(decoy, dict) else {}

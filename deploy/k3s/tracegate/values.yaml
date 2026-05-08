@@ -8,7 +8,7 @@ global:
   publicBaseUrl: ""
   image:
     repository: ghcr.io/your-org/tracegate
-    tag: "2.2.1"
+    tag: "2.2.2"
     pullPolicy: IfNotPresent
   imagePullSecrets: []
 
@@ -61,6 +61,7 @@ controlPlane:
     vlessGrpcServiceName: tracegate.v1.Edge
     vlessGrpcPath: /tracegate.v1.Edge/
     mtprotoDomain: ""
+    naiveproxyHost: auth.tracegate.su
     localSocksAuth: required
     botWelcomeRequired: true
     botWelcomeVersion: tracegate-2.2-ui-v3
@@ -192,6 +193,40 @@ decoy:
   mountPath: /var/www/decoy
   files: {}
 
+naiveproxy:
+  enabled: true
+  domain: auth.tracegate.su
+  role: NAIVEPROXY
+  runtimeProfile: tracegate-naiveproxy-v4
+  hostNetwork: true
+  dnsPolicy: ClusterFirstWithHostNet
+  nodeSelector:
+    tracegate.io/role: naiveproxy
+  tolerations: []
+  affinity: {}
+  terminationGracePeriodSeconds: 30
+  ports:
+    publicTcp: 443
+    publicUdp: 443
+    agent: 8070
+  tls:
+    existingSecretName: tracegate-naiveproxy-tls
+  stealth:
+    decoyMode: auth-portal
+    probeResistance: true
+    hideIp: true
+    hideVia: true
+    coverPaths:
+      - /auth/login
+      - /auth/session
+      - /auth/token
+      - /oauth2/authorize
+      - /oauth2/token
+      - /.well-known/openid-configuration
+  resources:
+    agent: {}
+    caddy: {}
+
 transportProfiles:
   clientNames:
     - v1-direct-reality-vless
@@ -200,6 +235,7 @@ transportProfiles:
     - v2-chain-quic-hysteria
     - v3-direct-shadowtls-shadowsocks
     - v3-chain-shadowtls-shadowsocks
+    - v4-direct-naiveproxy
     - v0-ws-vless
     - v0-grpc-vless
     - v0-wgws-wireguard
@@ -437,6 +473,7 @@ gateway:
     shadowsocks: {}
     mtproto: {}
     singbox: {}
+    naiveproxy: {}
   # Optional static REALITY SNI demux table. Each group becomes a dedicated
   # loopback Xray inbound, and HAProxy routes clients there by ClientHello SNI.
   # Keep this table stable: adding/removing rows is structural and requires a
@@ -454,6 +491,7 @@ gateway:
       obfuscation: "sh -lc 'true'"
       fronting: "sh -lc 'true'"
       mtproto: "sh -lc 'true'"
+      naiveproxy: "sh -lc 'true'"
       profiles: "sh -lc 'tracegate-k3s-private-reload --component profiles --role \"${AGENT_ROLE}\" --private-runtime-root /var/lib/tracegate/private --runtime-contract /var/lib/tracegate/runtime/runtime-contract.json'"
       linkCrypto: "sh -lc 'tracegate-k3s-private-reload --component link-crypto --role \"${AGENT_ROLE}\" --private-runtime-root /var/lib/tracegate/private --runtime-contract /var/lib/tracegate/runtime/runtime-contract.json'"
   images:
@@ -505,6 +543,10 @@ gateway:
       repository: ghcr.io/9seconds/mtg
       tag: "latest"
       pullPolicy: IfNotPresent
+    naiveproxy:
+      repository: ghcr.io/your-org/tracegate-naiveproxy-caddy
+      tag: "2.2.2"
+      pullPolicy: IfNotPresent
   roles:
     entry:
       enabled: true
@@ -516,7 +558,7 @@ gateway:
       ports:
         publicTcp: 443
         publicTcpExtraBinds: []
-        publicUdp: 443
+        publicUdp: 4443
         reality: 2443
         httpsAdapter: 10443
         vlessWs: 10000
@@ -550,7 +592,7 @@ gateway:
         publicHttp: 80
         publicTcp: 443
         publicTcpExtraBinds: []
-        publicUdp: 443
+        publicUdp: 4443
         reality: 2443
         httpsAdapter: 10443
         vlessWs: 10000

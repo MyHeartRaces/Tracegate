@@ -199,7 +199,7 @@ def connection_create_categories_keyboard_for(*, enabled_specs: set[str] | None 
         inline_keyboard=[
             *(
                 [[InlineKeyboardButton(text="⚡ Direct", callback_data="conncat:direct")]]
-                if enabled is None or enabled & {"v1direct", "v2direct", "v3direct"}
+                if enabled is None or enabled & {"v1direct", "v2direct", "v3direct", "v4direct"}
                 else []
             ),
             *(
@@ -232,6 +232,7 @@ def connection_create_profiles_keyboard(
         add_row(rows, "v1direct", "V1-Direct-Reality-VLESS")
         add_row(rows, "v2direct", "V2-Direct-QUIC-Hysteria")
         add_row(rows, "v3direct", "V3-Direct-ShadowTLS-Shadowsocks")
+        add_row(rows, "v4direct", "V4-Direct-NaiveProxy")
     elif category == "chain":
         add_row(rows, "v1chain", "V1-Chain-Reality-VLESS")
         add_row(rows, "v2chain", "V2-Chain-QUIC-Hysteria")

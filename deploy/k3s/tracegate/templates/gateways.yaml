@@ -545,6 +545,12 @@ spec:
               value: {{ $.Values.controlPlane.env.defaultEntryHost | quote }}
             - name: DEFAULT_TRANSIT_HOST
               value: {{ $.Values.controlPlane.env.defaultTransitHost | quote }}
+            - name: NAIVEPROXY_HOST
+              value: {{ ($.Values.controlPlane.env.naiveproxyHost | default $.Values.naiveproxy.domain) | quote }}
+            - name: NAIVEPROXY_PUBLIC_TCP_PORT
+              value: {{ int $.Values.naiveproxy.ports.publicTcp | quote }}
+            - name: NAIVEPROXY_PUBLIC_UDP_PORT
+              value: {{ int $.Values.naiveproxy.ports.publicUdp | quote }}
             - name: AGENT_DATA_ROOT
               value: /var/lib/tracegate
             - name: AGENT_DRY_RUN
@@ -576,6 +582,8 @@ spec:
               value: {{ $.Values.gateway.agent.reloadCommands.fronting | quote }}
             - name: AGENT_RELOAD_MTPROTO_CMD
               value: {{ $.Values.gateway.agent.reloadCommands.mtproto | quote }}
+            - name: AGENT_RELOAD_NAIVEPROXY_CMD
+              value: {{ $.Values.gateway.agent.reloadCommands.naiveproxy | quote }}
             - name: AGENT_RELOAD_PROFILES_CMD
               value: {{ $.Values.gateway.agent.reloadCommands.profiles | quote }}
             - name: AGENT_RELOAD_LINK_CRYPTO_CMD
@@ -1331,4 +1339,144 @@ spec:
 {{- end }}
 ---
 {{- end }}
+{{- end }}
+{{- if and .Values.gateway.enabled .Values.naiveproxy.enabled }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "tracegate.fullname" . }}-naiveproxy
+  namespace: {{ include "tracegate.namespace" . }}
+  labels:
+    {{- include "tracegate.labels" . | nindent 4 }}
+    app.kubernetes.io/component: naiveproxy
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "tracegate.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: naiveproxy
+  template:
+    metadata:
+      labels:
+        {{- include "tracegate.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: naiveproxy
+      annotations:
+        tracegate.io/runtime-profile: {{ .Values.naiveproxy.runtimeProfile | quote }}
+        tracegate.io/public-surface: "tcp/443,udp/443"
+    spec:
+      hostNetwork: {{ .Values.naiveproxy.hostNetwork }}
+      dnsPolicy: {{ .Values.naiveproxy.dnsPolicy }}
+      terminationGracePeriodSeconds: {{ int .Values.naiveproxy.terminationGracePeriodSeconds }}
+      {{- if .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml .Values.global.imagePullSecrets | nindent 8 }}
+      {{- end }}
+      nodeSelector:
+        {{- toYaml .Values.naiveproxy.nodeSelector | nindent 8 }}
+      tolerations:
+        {{- toYaml .Values.naiveproxy.tolerations | nindent 8 }}
+      affinity:
+        {{- toYaml .Values.naiveproxy.affinity | nindent 8 }}
+      volumes:
+        - name: naiveproxy-state
+          hostPath:
+            path: {{ printf "%s/%s" .Values.gateway.agent.dataHostPathPrefix "naiveproxy" | quote }}
+            type: DirectoryOrCreate
+        - name: tls
+          secret:
+            secretName: {{ .Values.naiveproxy.tls.existingSecretName | quote }}
+            optional: false
+      initContainers:
+        - name: init-naiveproxy-state
+          image: {{ include "tracegate.image" .Values.global.image | quote }}
+          imagePullPolicy: {{ .Values.global.image.pullPolicy }}
+          command: ["sh", "-lc", "mkdir -p /var/lib/tracegate/runtime/naiveproxy"]
+          volumeMounts:
+            - name: naiveproxy-state
+              mountPath: /var/lib/tracegate
+      containers:
+        - name: agent
+          image: {{ include "tracegate.image" .Values.global.image | quote }}
+          imagePullPolicy: {{ .Values.global.image.pullPolicy }}
+          command: ["tracegate-agent"]
+{{- with .Values.naiveproxy.resources.agent }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+{{- end }}
+          ports:
+            - name: agent
+              containerPort: {{ int .Values.naiveproxy.ports.agent }}
+          env:
+            - name: AGENT_ROLE
+              value: {{ .Values.naiveproxy.role | quote }}
+            - name: AGENT_RUNTIME_MODE
+              value: "kubernetes"
+            - name: AGENT_RUNTIME_PROFILE
+              value: {{ .Values.naiveproxy.runtimeProfile | quote }}
+            - name: AGENT_DATA_ROOT
+              value: /var/lib/tracegate
+            - name: AGENT_DRY_RUN
+              value: {{ .Values.gateway.agent.dryRun | quote }}
+            - name: AGENT_CORS_ORIGINS
+              value: {{ toJson (.Values.gateway.agent.corsOrigins | default (list)) | quote }}
+            - name: AGENT_RELOAD_NAIVEPROXY_CMD
+              value: {{ .Values.gateway.agent.reloadCommands.naiveproxy | quote }}
+            - name: NAIVEPROXY_ENABLED
+              value: "true"
+            - name: NAIVEPROXY_HOST
+              value: {{ (.Values.controlPlane.env.naiveproxyHost | default .Values.naiveproxy.domain) | quote }}
+            - name: NAIVEPROXY_PUBLIC_TCP_PORT
+              value: {{ int .Values.naiveproxy.ports.publicTcp | quote }}
+            - name: NAIVEPROXY_PUBLIC_UDP_PORT
+              value: {{ int .Values.naiveproxy.ports.publicUdp | quote }}
+            - name: NAIVEPROXY_DECOY_MODE
+              value: {{ .Values.naiveproxy.stealth.decoyMode | quote }}
+            - name: API_INTERNAL_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "tracegate.controlPlaneSecretName" . }}
+                  key: api-internal-token
+          volumeMounts:
+            - name: naiveproxy-state
+              mountPath: /var/lib/tracegate
+        - name: caddy
+          image: {{ include "tracegate.image" .Values.gateway.images.naiveproxy | quote }}
+          imagePullPolicy: {{ .Values.gateway.images.naiveproxy.pullPolicy }}
+          command:
+            - sh
+            - -lc
+            - |
+              set -eu
+              until [ -s /etc/caddy/Caddyfile ]; do sleep 1; done
+              caddy run --config /etc/caddy/Caddyfile --adapter caddyfile &
+              pid="$!"
+              last="$(sha256sum /etc/caddy/Caddyfile | awk '{print $1}')"
+              while kill -0 "$pid" 2>/dev/null; do
+                current="$(sha256sum /etc/caddy/Caddyfile | awk '{print $1}')"
+                if [ "$current" != "$last" ]; then
+                  caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile || true
+                  last="$current"
+                fi
+                sleep 3
+              done
+              wait "$pid"
+{{- with .Values.naiveproxy.resources.caddy }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+{{- end }}
+          ports:
+            - name: naive-https
+              containerPort: {{ int .Values.naiveproxy.ports.publicTcp }}
+              protocol: TCP
+            - name: naive-h3
+              containerPort: {{ int .Values.naiveproxy.ports.publicUdp }}
+              protocol: UDP
+          volumeMounts:
+            - name: naiveproxy-state
+              mountPath: /etc/caddy
+              subPath: runtime/naiveproxy
+            - name: tls
+              mountPath: /etc/tracegate/tls
+              readOnly: true
 {{- end }}

@@ -307,6 +307,12 @@ spec:
               value: {{ .Values.controlPlane.env.vlessWsPath | quote }}
             - name: MTPROTO_DOMAIN
               value: {{ (.Values.mtproto.domain | default .Values.controlPlane.env.mtprotoDomain) | quote }}
+            - name: NAIVEPROXY_HOST
+              value: {{ (.Values.controlPlane.env.naiveproxyHost | default .Values.naiveproxy.domain) | quote }}
+            - name: NAIVEPROXY_PUBLIC_TCP_PORT
+              value: {{ int .Values.naiveproxy.ports.publicTcp | quote }}
+            - name: NAIVEPROXY_PUBLIC_UDP_PORT
+              value: {{ int .Values.naiveproxy.ports.publicUdp | quote }}
             - name: SUPERADMIN_TELEGRAM_IDS
               value: {{ toJson (.Values.controlPlane.env.superadminTelegramIds | default (list)) | quote }}
 {{- if kindIs "slice" .Values.controlPlane.env.enabledClientProfiles }}

@@ -206,7 +206,8 @@ def _obfuscation_state_payload(
         )
     except (TypeError, ValueError):
         public_udp_port = TRACEGATE_PUBLIC_UDP_PORT
-    public_udp_owner = str(fronting_block.get("publicUdpOwner") or fronting_block.get("udp443Owner") or "").strip()
+    public_udp_owner = str(fronting_block.get("publicUdpOwner") or "").strip()
+    udp443_owner = str(fronting_block.get("udp443Owner") or public_udp_owner).strip()
 
     return {
         "role": role_upper,
@@ -237,7 +238,7 @@ def _obfuscation_state_payload(
             "tcp443Owner": str(fronting_block.get("tcp443Owner") or "").strip(),
             "publicUdpPort": public_udp_port,
             "publicUdpOwner": public_udp_owner,
-            "udp443Owner": public_udp_owner,
+            "udp443Owner": udp443_owner,
             "touchUdp443": bool(fronting_block.get("touchUdp443", False)),
             "mtprotoDomain": str(fronting_block.get("mtprotoDomain") or "").strip(),
             "mtprotoPublicPort": mtproto_public_port,
@@ -1371,7 +1372,8 @@ def _write_fronting_state(
         )
     except (TypeError, ValueError):
         public_udp_port = TRACEGATE_PUBLIC_UDP_PORT
-    public_udp_owner = str(fronting.get("publicUdpOwner") or fronting.get("udp443Owner") or "").strip()
+    public_udp_owner = str(fronting.get("publicUdpOwner") or "").strip()
+    udp443_owner = str(fronting.get("udp443Owner") or public_udp_owner).strip()
     mtproto_domain = str(settings.private_fronting_mtproto_domain_override or "").strip() or str(fronting.get("mtprotoDomain") or "").strip()
     ws_sni = str(settings.private_fronting_ws_sni or "").strip() or str(settings.default_transit_host or "").strip()
 
@@ -1392,7 +1394,7 @@ def _write_fronting_state(
         "tcp443Owner": str(fronting.get("tcp443Owner") or "").strip(),
         "publicUdpPort": public_udp_port,
         "publicUdpOwner": public_udp_owner,
-        "udp443Owner": public_udp_owner,
+        "udp443Owner": udp443_owner,
         "cfgFile": str(cfg_file),
         "pidFile": str(pid_file),
         "wsSni": ws_sni,

@@ -414,10 +414,17 @@ def validate_cluster(
         _text(node_encryption_annotations.get("encryptedRuntime")) or "tracegate.io/encrypted-runtime"
     )
     encrypted_runtime_expected_value = _text(node_encryption_annotations.get("expectedValue")) or "true"
+    role_checks: list[tuple[str, dict[str, Any]]] = []
     for role_name in ("entry", "transit"):
         role = _as_dict(roles.get(role_name))
         if not _enabled(role.get("enabled")):
             continue
+        role_checks.append((role_name, role))
+    naiveproxy = _as_dict(values.get("naiveproxy"))
+    if _enabled(naiveproxy.get("enabled")):
+        role_checks.append(("naiveproxy", naiveproxy))
+
+    for role_name, role in role_checks:
         tls_secret = _text(_as_dict(role.get("tls")).get("existingSecretName"))
         if tls_secret:
             checked_secrets += _check_secret(
@@ -472,7 +479,7 @@ def validate_cluster(
                         if encrypted_runtime_value.lower() != encrypted_runtime_expected_value.lower():
                             errors.append(
                                 f"node {node_name} must set {encrypted_runtime_annotation_key}="
-                                f"{encrypted_runtime_expected_value} for Entry/Transit encrypted runtime storage"
+                                f"{encrypted_runtime_expected_value} for public gateway encrypted runtime storage"
                             )
                         else:
                             checked_encrypted_nodes += 1

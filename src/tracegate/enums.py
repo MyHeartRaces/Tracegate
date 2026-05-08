@@ -19,6 +19,7 @@ class ConnectionProtocol(str, Enum):
     HYSTERIA2 = "hysteria2"
     SHADOWSOCKS2022_SHADOWTLS = "shadowsocks2022_shadowtls"
     WIREGUARD_WSTUNNEL = "wireguard_wstunnel"
+    NAIVEPROXY = "naiveproxy"
 
 
 class ConnectionMode(str, Enum):
@@ -82,6 +83,7 @@ class OutboxStatus(str, Enum):
 class NodeRole(str, Enum):
     TRANSIT = "TRANSIT"
     ENTRY = "ENTRY"
+    NAIVEPROXY = "NAIVEPROXY"
     # Backward-compatible aliases for legacy data and older code paths.
     VPS_T = "TRANSIT"
     VPS_E = "ENTRY"

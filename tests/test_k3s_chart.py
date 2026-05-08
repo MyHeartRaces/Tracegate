@@ -218,6 +218,7 @@ def test_tracegate21_chart_uses_entry_transit_roles() -> None:
         "obfuscation",
         "fronting",
         "mtproto",
+        "naiveproxy",
         "profiles",
         "linkCrypto",
     }
@@ -261,6 +262,7 @@ def _prod_overlay_values() -> dict:
             "env": {
                 "defaultEntryHost": "entry.prod.test",
                 "defaultTransitHost": "transit.prod.test",
+                "naiveproxyHost": "auth.prod.test",
                 "mtprotoDomain": "mtproto.prod.test",
             }
         },
@@ -275,26 +277,34 @@ def _prod_overlay_values() -> dict:
         "gateway": {
             "rollingUpdate": {"maxUnavailable": 1, "maxSurge": 0},
             "images": {
-                name: {"tag": "pinned-test"}
-                for name in (
-                    "haproxy",
-                    "nginx",
-                    "xray",
-                    "hysteria",
-                    "mieru",
-                    "zapret2",
-                    "wstunnel",
-                    "wireguard",
-                    "shadowtls",
-                    "shadowsocks",
-                    "singbox",
-                    "mtproto",
-                )
+                **{
+                    name: {"tag": "pinned-test"}
+                    for name in (
+                        "haproxy",
+                        "nginx",
+                        "xray",
+                        "hysteria",
+                        "mieru",
+                        "zapret2",
+                        "wstunnel",
+                        "wireguard",
+                        "shadowtls",
+                        "shadowsocks",
+                        "singbox",
+                        "mtproto",
+                    )
+                },
+                "naiveproxy": {"repository": "ghcr.io/acme/tracegate-naiveproxy-caddy", "tag": "pinned-test"},
             },
             "roles": {
                 "entry": {"tls": {"serverName": "entry.prod.test"}},
                 "transit": {"tls": {"serverName": "transit.prod.test"}},
             },
+        },
+        "naiveproxy": {
+            "domain": "auth.prod.test",
+            "nodeSelector": {"tracegate.io/role": "naiveproxy"},
+            "tls": {"existingSecretName": "tracegate-naiveproxy-tls"},
         },
         "interconnect": {
             "entryTransit": {
@@ -358,6 +368,37 @@ def test_k3s_strict_prod_overlay_check_rejects_noop_private_reload(tmp_path: Pat
     assert "gateway.agent.reloadCommands.linkCrypto must run tracegate-k3s-private-reload --component link-crypto" in output
 
 
+def test_k3s_strict_prod_overlay_check_rejects_unpinned_naiveproxy_image(tmp_path: Path) -> None:
+    values = _prod_overlay_values()
+    values["gateway"]["images"]["naiveproxy"] = {
+        "repository": "ghcr.io/your-org/tracegate-naiveproxy-caddy",
+        "tag": "latest",
+    }
+    values_path = tmp_path / "values-prod.yaml"
+    values_path.write_text(yaml.safe_dump(values, sort_keys=True), encoding="utf-8")
+
+    result = subprocess.run(
+        [
+            "python3",
+            "deploy/k3s/prod-overlay-check.py",
+            "--strict",
+            "--chart-values",
+            str(CHART_ROOT / "values.yaml"),
+            "--values",
+            str(values_path),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    output = f"{result.stdout}\n{result.stderr}"
+    assert result.returncode != 0
+    assert "gateway.images.naiveproxy" in output
+    assert "must not use the example repository" in output
+    assert "must use a pinned tag or digest" in output
+
+
 def test_tracegate21_image_helper_supports_digest_pins(tmp_path: Path) -> None:
     tracegate_digest = "sha256:" + ("a" * 64)
     xray_digest = "sha256:" + ("b" * 64)
@@ -416,6 +457,8 @@ if args[:2] == ["get", "nodes"]:
         emit({{"items": [{{"metadata": {{"name": "entry-node", "annotations": {{"tracegate.io/ingress-public-ip": "203.0.113.10", "tracegate.io/encrypted-runtime": "true"}}}}}}]}})
     if selector == "tracegate.io/role=transit":
         emit({{"items": [{{"metadata": {{"name": "transit-node", "annotations": {{"tracegate.io/ingress-public-ip": "203.0.113.10", "tracegate.io/egress-public-ip": "198.51.100.20", "tracegate.io/encrypted-runtime": "true"}}}}}}]}})
+    if selector == "tracegate.io/role=naiveproxy":
+        emit({{"items": [{{"metadata": {{"name": "naiveproxy-node", "annotations": {{"tracegate.io/ingress-public-ip": "203.0.113.10", "tracegate.io/encrypted-runtime": "true"}}}}}}]}})
     emit({{"items": []}})
 
 if args[:2] == ["get", "secret"]:
@@ -425,6 +468,7 @@ if args[:2] == ["get", "secret"]:
         "tracegate-database-url": {{"url"}},
         "tracegate-entry-tls": {{"tls.crt", "tls.key"}},
         "tracegate-transit-tls": {{"tls.crt", "tls.key"}},
+        "tracegate-naiveproxy-tls": {{"tls.crt", "tls.key"}},
         "tracegate-private-profiles": {sorted(private_keys)!r},
     }}
     if name not in secrets:
@@ -460,9 +504,9 @@ def test_k3s_cluster_preflight_accepts_existing_cluster_prerequisites(tmp_path: 
 
     assert result.returncode == 0, result.stderr
     assert "cluster-preflight: OK namespace=tracegate" in result.stdout
-    assert "secrets=5" in result.stdout
-    assert "nodes=2" in result.stdout
-    assert "encrypted_nodes=2" in result.stdout
+    assert "secrets=6" in result.stdout
+    assert "nodes=3" in result.stdout
+    assert "encrypted_nodes=3" in result.stdout
 
 
 def test_k3s_cluster_preflight_rejects_missing_private_secret_key(tmp_path: Path) -> None:
@@ -774,7 +818,7 @@ def test_tracegate21_chart_disables_hostwide_interception_by_default() -> None:
     assert "interconnect.entryTransit.udp.hardening.sourceValidation.mode must stay profile-bound-remote" in _chart_text()
     assert "shadowsocks2022.enabled=false is forbidden when gateway.entrySmall.enabled=true" in _chart_text()
     assert "gateway.roles.%s.ports.publicTcp must stay 443; TCP/8443 is forbidden" in _chart_text()
-    assert "gateway.roles.%s.ports.publicUdp must stay 443 or 4443; UDP/8443 is forbidden" in _chart_text()
+    assert "gateway.roles.%s.ports.publicUdp must stay 4443; UDP/443 is reserved for NaiveProxy V4" in _chart_text()
     assert "Keep rollout and preflight guards enabled" in Path("deploy/k3s/README.md").read_text(encoding="utf-8")
     assert "fallback: none" in Path("deploy/k3s/values-prod.example.yaml").read_text(encoding="utf-8")
     assert "chainBridgeOwner: link-crypto" in Path("deploy/k3s/values-prod.example.yaml").read_text(encoding="utf-8")
@@ -1179,7 +1223,7 @@ def test_tracegate21_runtime_contract_renders_role_link_crypto_metadata(tmp_path
     assert link_crypto["udp"]["dpiResistance"]["enabled"] is True
     assert link_crypto["udp"]["dpiResistance"]["mode"] == "salamander-plus-scoped-paired-obfs"
     assert link_crypto["udp"]["dpiResistance"]["portSplit"] == {
-        "publicUdpPort": 443,
+        "publicUdpPort": 4443,
         "forbidUdp443": False,
         "forbidTcp8443": True,
     }
@@ -1297,6 +1341,7 @@ def test_tracegate21_chart_declares_required_client_profiles_and_socks_auth() ->
     assert "v0-grpc-vless" in profiles
     assert "v3-direct-shadowtls-shadowsocks" in profiles
     assert "v3-chain-shadowtls-shadowsocks" in profiles
+    assert "v4-direct-naiveproxy" in profiles
     assert "v0-wgws-wireguard" in profiles
     assert "MTProto-FakeTLS-Direct" in profiles
     assert "MTProto-TCP443-Direct" not in profiles
@@ -1608,6 +1653,7 @@ def test_tracegate21_wireguard_sidecar_uses_portable_lifecycle_script(tmp_path: 
                         "v2-chain-quic-hysteria",
                         "v3-direct-shadowtls-shadowsocks",
                         "v3-chain-shadowtls-shadowsocks",
+                        "v4-direct-naiveproxy",
                         "v0-ws-vless",
                         "v0-grpc-vless",
                         "v0-wgws-wireguard",
@@ -1668,6 +1714,7 @@ def test_tracegate21_templates_keep_user_state_out_of_rollout_checksums() -> Non
     assert "reloadCommands.xray" in gateways
     assert "reloadCommands.fronting" in gateways
     assert "reloadCommands.mtproto" in gateways
+    assert "reloadCommands.naiveproxy" in gateways
     assert "reloadCommands.profiles" in gateways
     assert "reloadCommands.linkCrypto" in gateways
     assert "validate-private-profiles" in gateways
@@ -1679,7 +1726,7 @@ def test_tracegate21_templates_keep_user_state_out_of_rollout_checksums() -> Non
     assert "gateway.privatePreflight.enabled" in gateways
     assert "--allow-placeholders" not in gateways
     assert "AGENT_RUNTIME_PROFILE" in gateways
-    assert gateways.count("name: AGENT_RUNTIME_PROFILE") == 1
+    assert gateways.count("name: AGENT_RUNTIME_PROFILE") == 2
     assert "Values.global.runtimeProfile" in gateways
     assert "AGENT_GATEWAY_STRATEGY" in gateways
     assert "AGENT_GATEWAY_ALLOW_RECREATE_STRATEGY" in gateways

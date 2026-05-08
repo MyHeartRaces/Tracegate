@@ -13,6 +13,7 @@ _PROFILE_LIST_ORDER = {
     "v1direct": 10,
     "v2direct": 20,
     "v3direct": 30,
+    "v4direct": 40,
     "v1chain": 110,
     "v2chain": 120,
     "v3chain": 130,
@@ -44,6 +45,8 @@ def connection_profile_label(
         return "v0-grpc-vless"
     if proto == ConnectionProtocol.WIREGUARD_WSTUNNEL:
         return "v0-wgws-wireguard"
+    if proto == ConnectionProtocol.NAIVEPROXY:
+        return "v4-direct-naiveproxy"
     return f"{version}-{conn_mode.value}-{proto.value}"
 
 
@@ -70,6 +73,8 @@ def connection_profile_display_label(
         return "V0-gRPC-VLESS"
     if proto == ConnectionProtocol.WIREGUARD_WSTUNNEL:
         return "V0-WGWS-WireGuard"
+    if proto == ConnectionProtocol.NAIVEPROXY:
+        return "V4-Direct-NaiveProxy"
     return f"{version}-{mode_label}-{proto.value}"
 
 
@@ -81,6 +86,7 @@ def supported_profile_specs() -> dict[str, tuple[ConnectionProtocol, ConnectionM
         "v2chain": (ConnectionProtocol.HYSTERIA2, ConnectionMode.CHAIN, ConnectionVariant.V2),
         "v3direct": (ConnectionProtocol.SHADOWSOCKS2022_SHADOWTLS, ConnectionMode.DIRECT, ConnectionVariant.V3),
         "v3chain": (ConnectionProtocol.SHADOWSOCKS2022_SHADOWTLS, ConnectionMode.CHAIN, ConnectionVariant.V3),
+        "v4direct": (ConnectionProtocol.NAIVEPROXY, ConnectionMode.DIRECT, ConnectionVariant.V4),
         "v0ws": (ConnectionProtocol.VLESS_WS_TLS, ConnectionMode.DIRECT, ConnectionVariant.V0),
         "v0grpc": (ConnectionProtocol.VLESS_GRPC_TLS, ConnectionMode.DIRECT, ConnectionVariant.V0),
         "v0wgws": (ConnectionProtocol.WIREGUARD_WSTUNNEL, ConnectionMode.DIRECT, ConnectionVariant.V0),

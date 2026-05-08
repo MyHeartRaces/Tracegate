@@ -309,6 +309,7 @@ def export_client_config(effective: dict[str, Any]) -> ExportResult:
 
     - VLESS+REALITY: returns a `vless://...` URI
     - Hysteria2: returns a `hysteria2://...` URI (with insecure=1 by default)
+    - NaiveProxy: returns an official `naive` JSON attachment
     - MTProto: returns a Telegram proxy deep link
     """
 
@@ -334,6 +335,8 @@ def export_client_config(effective: dict[str, Any]) -> ExportResult:
         raise V2RayNExportError(f"Unsupported VLESS transport for export: {transport!r}")
     if proto == "hysteria2":
         return _export_hysteria2(effective)
+    if proto == "naiveproxy":
+        return _export_naiveproxy(effective)
     if proto in {"shadowsocks2022", "shadowsocks"}:
         return _export_shadowsocks2022_shadowtls(effective)
     if proto == "wireguard":
@@ -666,6 +669,53 @@ def _export_hysteria2(effective: dict[str, Any]) -> ExportResult:
         extra_messages=(_local_socks_extra_message(effective),),
         attachment_content=attachment_content,
         attachment_filename=attachment_filename,
+        attachment_mime="application/json",
+    )
+
+
+def _export_naiveproxy(effective: dict[str, Any]) -> ExportResult:
+    server = str(effective.get("server") or "").strip()
+    port = int(effective.get("port") or 443)
+    udp_port = int(effective.get("udp_port") or port)
+    profile = str(effective.get("profile") or "v4-direct-naiveproxy").strip()
+    auth = effective.get("auth") or {}
+    username = str(auth.get("username") or "").strip()
+    password = str(auth.get("password") or "").strip()
+    if not server or not username or not password:
+        raise V2RayNExportError("Missing fields for NaiveProxy export")
+
+    local_host, local_port = _local_socks_endpoint(effective)
+    local_user, local_pass = _local_socks_auth(effective)
+    listen = f"socks://{_q(local_user)}:{_q(local_pass)}@{local_host}:{local_port}"
+    authority = f"{_q(username)}:{_q(password)}@{server}"
+    if port != 443:
+        authority = f"{authority}:{port}"
+    h3_proxy = f"quic://{authority}"
+    tcp_proxy = f"https://{authority}"
+
+    config = {
+        "listen": listen,
+        "proxy": h3_proxy,
+        "log": "",
+    }
+    attachment_content = json.dumps(config, ensure_ascii=True, indent=2).encode("utf-8")
+    filename = f"{_safe_filename_fragment(profile)}.naive.json"
+    return ExportResult(
+        kind="attachment",
+        title="NaiveProxy HTTP/3 config",
+        content=(
+            f"Use the attached NaiveProxy config for {profile}. It targets {server} on tcp/{port} "
+            f"and udp/{udp_port}; keep the local SOCKS listener on loopback."
+        ),
+        alternate_title="NaiveProxy HTTPS fallback",
+        alternate_content=json.dumps({"listen": listen, "proxy": tcp_proxy, "log": ""}, ensure_ascii=True, indent=2),
+        extra_messages=(
+            ("NaiveProxy HTTP/3 endpoint", h3_proxy),
+            ("NaiveProxy HTTPS fallback", tcp_proxy),
+            ("Local SOCKS5 endpoint", listen),
+        ),
+        attachment_content=attachment_content,
+        attachment_filename=filename,
         attachment_mime="application/json",
     )
 

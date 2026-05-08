@@ -249,11 +249,14 @@ class AgentMetricsCollector:
             labels=["role", "protocol", "owner"],
         )
         tcp_owner = str(fronting_block.get("tcp443Owner") or "").strip()
-        udp_owner = str(fronting_block.get("publicUdpOwner") or fronting_block.get("udp443Owner") or "").strip()
+        udp_owner = str(fronting_block.get("publicUdpOwner") or "").strip()
+        udp443_owner = str(fronting_block.get("udp443Owner") or "").strip()
         if tcp_owner:
             fronting_owner.add_metric([role_label, "tcp", tcp_owner], 1)
         if udp_owner:
             fronting_owner.add_metric([role_label, "udp", udp_owner], 1)
+        if udp443_owner:
+            fronting_owner.add_metric([role_label, "udp443", udp443_owner], 1)
         yield fronting_owner
 
         obfuscation_state_present = GaugeMetricFamily(

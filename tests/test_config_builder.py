@@ -977,6 +977,48 @@ def test_wireguard_wstunnel_v7_config_requires_local_socks_auth() -> None:
     assert cfg["local_socks"]["auth"]["username"].startswith("tg_v0_")
 
 
+def test_naiveproxy_v4_direct_builds_auth_domain_stealth_config() -> None:
+    user = _user()
+    device = _device(user.telegram_id)
+    conn = Connection(
+        id=uuid4(),
+        user_id=user.telegram_id,
+        device_id=device.id,
+        protocol=ConnectionProtocol.NAIVEPROXY,
+        mode=ConnectionMode.DIRECT,
+        variant=ConnectionVariant.V4,
+        profile_name="v4-direct-naiveproxy",
+        custom_overrides_json={},
+        status=RecordStatus.ACTIVE,
+    )
+
+    cfg = build_effective_config(
+        user=user,
+        device=device,
+        connection=conn,
+        selected_sni=None,
+        endpoints=EndpointSet(transit_host="transit.example.com", entry_host="entry.example.com"),
+    )
+
+    assert cfg["protocol"] == "naiveproxy"
+    assert cfg["profile"] == "v4-direct-naiveproxy"
+    assert cfg["server"] == "auth.tracegate.su"
+    assert cfg["port"] == 443
+    assert cfg["udp_port"] == 443
+    assert cfg["http3"]["enabled"] is True
+    assert cfg["http2"]["fallback"] is True
+    assert cfg["auth"]["type"] == "basic"
+    assert cfg["auth"]["username"].startswith("tg_v4_")
+    assert cfg["auth"]["password"]
+    assert cfg["stealth"]["probe_resistance"] is True
+    assert cfg["stealth"]["hide_ip"] is True
+    assert cfg["stealth"]["hide_via"] is True
+    assert "/auth/login" in cfg["stealth"]["cover_paths"]
+    assert cfg["design_constraints"]["dedicated_k3s_role"] == "NAIVEPROXY"
+    assert cfg["design_constraints"]["hysteria_udp_port"] == 4443
+    assert cfg["local_socks"]["auth"]["required"] is True
+
+
 def test_wireguard_wstunnel_generates_client_material_without_overrides() -> None:
     user = _user()
     device = _device(user.telegram_id)

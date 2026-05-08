@@ -229,6 +229,31 @@ def validate_overrides(protocol: ConnectionProtocol, overrides: dict[str, Any]) 
         _validate_loopback_endpoint_override(overrides, "socks_listen")
         _validate_loopback_endpoint_override(overrides, "http_listen")
 
+    elif protocol == ConnectionProtocol.NAIVEPROXY:
+        allowed = {
+            "connect_host",
+            "tls_insecure",
+            "local_socks_port",
+            "local_socks_username",
+            "local_socks_password",
+        }
+        forbidden = {
+            "port",
+            "server_port",
+            "udp_port",
+            "server",
+            "sni",
+            "auth",
+            "username",
+            "password",
+            "decoy",
+            "probe_resistance",
+        }
+        _ensure_keys(overrides, allowed, forbidden)
+        _validate_host_override(overrides, "connect_host")
+        _validate_local_socks_port(overrides)
+        _validate_local_socks_credentials(overrides)
+
     elif protocol == ConnectionProtocol.SHADOWSOCKS2022_SHADOWTLS:
         allowed = {
             "local_socks_port",

@@ -33,9 +33,6 @@ For public review, render the chart with placeholder values:
 ```bash
 helm lint ./deploy/k3s/tracegate
 helm template tracegate ./deploy/k3s/tracegate
-python3 deploy/k3s/prod-overlay-check.py \
-  --chart-values deploy/k3s/tracegate/values.yaml \
-  --values deploy/k3s/values-prod.example.yaml
 ```
 
 Strict checks and cluster preflight are designed to run from the operator
@@ -44,16 +41,25 @@ printing secret material.
 The operator overlay supplies the actual deployment-specific values; public
 examples keep placeholders.
 
+```bash
+python3 deploy/k3s/prod-overlay-check.py --strict \
+  --chart-values deploy/k3s/tracegate/values.yaml \
+  --values deploy/k3s/values-prod.yaml
+```
+
 ## Required External Inputs
 
 Real deployments must provide these inputs outside the public repository:
 
 - control-plane secrets and database credentials;
 - private profile material for gateway roles;
-- TLS material and decoy content;
+- a registry-pushed NaiveProxy Caddy image built from
+  `deploy/images/naiveproxy-caddy/Dockerfile` and pinned by digest;
+- TLS material and decoy content, including the NaiveProxy auth-domain
+  certificate;
 - node labels, annotations and host policy;
 - production image pins;
-- encrypted Entry and Transit runtime storage.
+- encrypted Entry, Transit and NaiveProxy runtime storage.
 
 Entry traffic shaping and chain-client limits are enabled in public values as
 guardrails. The real Entry network interface must be set in the operator
@@ -63,6 +69,10 @@ Entry and Transit runtime directories must be provisioned on encrypted storage
 before scheduling those roles. See
 [docs/node-encryption-runbook.md](../../docs/node-encryption-runbook.md) for
 the generic procedure.
+
+NaiveProxy V4 is scheduled as a dedicated host-network pod on a separate node
+selector. It owns `tcp/443` and `udp/443` for the configured auth domain;
+Hysteria2 stays on `udp/4443`.
 
 ## Operational Notes
 

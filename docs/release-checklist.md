@@ -24,12 +24,21 @@ For chart changes:
 ```bash
 helm lint ./deploy/k3s/tracegate
 helm template tracegate ./deploy/k3s/tracegate
-python3 deploy/k3s/prod-overlay-check.py \
+python3 deploy/k3s/prod-overlay-check.py --strict \
   --chart-values deploy/k3s/tracegate/values.yaml \
-  --values deploy/k3s/values-prod.example.yaml
+  --values deploy/k3s/values-prod.yaml
 ```
 
 Production promotion gates run from the operator environment.
+
+## NaiveProxy V4
+
+- Build and push `deploy/images/naiveproxy-caddy/Dockerfile`.
+- Verify `caddy list-modules` contains `http.handlers.forward_proxy`.
+- Pin `gateway.images.naiveproxy.digest` in the private production overlay.
+- Confirm the V4 auth hostname, TLS Secret, dedicated node selector and
+  `tcp/443` plus `udp/443` ownership in the private overlay.
+- Confirm Hysteria remains on `udp/4443`.
 
 ## Private Repository
 
@@ -37,4 +46,6 @@ Production promotion gates run from the operator environment.
 - Encrypted Secrets are current.
 - Decoy assets are stored only in the private repository or on the production
   host storage expected by the private overlay.
+- The NaiveProxy auth-domain TLS Secret and digest-pinned Caddy image are
+  present before promotion.
 - Any operational notes that reveal live layout stay private.

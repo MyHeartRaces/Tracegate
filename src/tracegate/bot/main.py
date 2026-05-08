@@ -731,6 +731,8 @@ def _connection_family_name(protocol: str, mode: str) -> str:
         return "Shadowsocks2022 ShadowTLS Chain" if m == ConnectionMode.CHAIN.value else "Shadowsocks2022 ShadowTLS Direct"
     if p == ConnectionProtocol.WIREGUARD_WSTUNNEL.value:
         return "WireGuard WSTunnel Direct"
+    if p == ConnectionProtocol.NAIVEPROXY.value:
+        return "NaiveProxy HTTP/3 Direct"
     return f"{protocol}/{mode}"
 
 
@@ -1547,7 +1549,7 @@ async def connection_create_category(callback: CallbackQuery) -> None:
         return
     enabled_specs = _enabled_profile_specs()
     category_specs = {
-        "direct": {"v1direct", "v2direct", "v3direct"},
+        "direct": {"v1direct", "v2direct", "v3direct", "v4direct"},
         "chain": {"v1chain", "v2chain", "v3chain"},
         "other": {"v0ws", "v0grpc", "v0wgws"},
     }[category]
@@ -2247,7 +2249,7 @@ def _profile(spec: str) -> tuple[ConnectionProtocol, ConnectionMode, ConnectionV
         "v1": "v1direct",
         "v2": "v1chain",
         "v3": "v2direct",
-        "v4": "v2chain",
+        "v4": "v4direct",
         "v5": "v3direct",
         "v6": "v3chain",
         "v7": "v0wgws",
@@ -2267,7 +2269,7 @@ def _profile_key(spec: str) -> str:
         "v1": "v1direct",
         "v2": "v1chain",
         "v3": "v2direct",
-        "v4": "v2chain",
+        "v4": "v4direct",
         "v5": "v3direct",
         "v6": "v3chain",
         "v7": "v0wgws",

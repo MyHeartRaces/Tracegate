@@ -238,12 +238,13 @@ def test_agent_metrics_export_runtime_and_obfuscation_flags(monkeypatch: pytest.
                 "finalMaskEnabled": True,
                 "echEnabled": False,
             },
-            "fronting": {
-                "mtprotoDomain": "proto.tracegate.test",
-                "tcp443Owner": "haproxy",
-                "udp443Owner": "xray",
-                "touchUdp443": False,
-            },
+                "fronting": {
+                    "mtprotoDomain": "proto.tracegate.test",
+                    "tcp443Owner": "haproxy",
+                    "publicUdpOwner": "xray",
+                    "udp443Owner": "xray",
+                    "touchUdp443": False,
+                },
         },
     )
     monkeypatch.setattr(m, "_obfuscation_runtime_state", lambda _settings: {"backend": "zapret2"})
@@ -273,5 +274,6 @@ def test_agent_metrics_export_runtime_and_obfuscation_flags(monkeypatch: pytest.
     assert fronting_owner.samples == [
         (["TRANSIT", "tcp", "haproxy"], 1.0),
         (["TRANSIT", "udp", "xray"], 1.0),
+        (["TRANSIT", "udp443", "xray"], 1.0),
     ]
     assert obfuscation_backend.samples == [(["TRANSIT", "zapret2"], 1.0)]

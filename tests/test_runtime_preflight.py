@@ -98,6 +98,8 @@ def _runtime_contract(
     default_split_hysteria_dirs = ["/srv/decoy"] if runtime_profile == "tracegate-2.2" else []
     default_xray_hysteria_dirs = [] if runtime_profile == "tracegate-2.2" else ["/srv/decoy"]
     default_hysteria_tags = [] if runtime_profile == "tracegate-2.2" else ["hy2-in"]
+    public_udp_owner = "xray" if runtime_profile == "xray-centric" else "hysteria"
+    udp443_owner = "naiveproxy" if runtime_profile == "tracegate-2.2" else public_udp_owner
     return {
         "role": role,
         "runtimeProfile": runtime_profile,
@@ -123,8 +125,8 @@ def _runtime_contract(
         "fronting": {
             "tcp443Owner": "haproxy",
             "publicUdpPort": TRACEGATE_PUBLIC_UDP_PORT,
-            "publicUdpOwner": "xray" if runtime_profile == "xray-centric" else "hysteria",
-            "udp443Owner": "xray" if runtime_profile == "xray-centric" else "hysteria",
+            "publicUdpOwner": public_udp_owner,
+            "udp443Owner": udp443_owner,
             "udpPublicPort": TRACEGATE_PUBLIC_UDP_PORT,
             "forbiddenUdp443": False,
             "forbiddenTcp8443": True,
@@ -343,7 +345,7 @@ def _write_runtime_state(
         "fronting": {
             "tcp443Owner": fronting["tcp443Owner"],
             "publicUdpPort": fronting.get("publicUdpPort", TRACEGATE_PUBLIC_UDP_PORT),
-            "publicUdpOwner": fronting["udp443Owner"],
+            "publicUdpOwner": fronting.get("publicUdpOwner", fronting["udp443Owner"]),
             "udp443Owner": fronting["udp443Owner"],
             "touchUdp443": bool(fronting["touchUdp443"]),
             "mtprotoDomain": fronting["mtprotoDomain"],
@@ -410,7 +412,7 @@ def _write_runtime_env(
         "TRACEGATE_ZAPRET_STATE_DIR": zapret_state_dir,
         "TRACEGATE_TCP_443_OWNER": fronting["tcp443Owner"],
         "TRACEGATE_PUBLIC_UDP_PORT": fronting.get("publicUdpPort", TRACEGATE_PUBLIC_UDP_PORT),
-        "TRACEGATE_PUBLIC_UDP_OWNER": fronting["udp443Owner"],
+        "TRACEGATE_PUBLIC_UDP_OWNER": fronting.get("publicUdpOwner", fronting["udp443Owner"]),
         "TRACEGATE_UDP_443_OWNER": fronting["udp443Owner"],
         "TRACEGATE_TOUCH_UDP_443": str(bool(fronting["touchUdp443"])).lower(),
         "TRACEGATE_MTPROTO_DOMAIN": fronting["mtprotoDomain"],

@@ -4,6 +4,12 @@ from pathlib import Path
 from pydantic import AliasChoices, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from tracegate.constants import (
+    TRACEGATE_NAIVEPROXY_HOST,
+    TRACEGATE_NAIVEPROXY_PUBLIC_TCP_PORT,
+    TRACEGATE_NAIVEPROXY_PUBLIC_UDP_PORT,
+    TRACEGATE_PUBLIC_UDP_PORT,
+)
 from tracegate.services.runtime_contract import normalize_runtime_profile_name, resolve_runtime_contract
 
 _DEFAULT_MTPROTO_PUBLIC_PROFILE_FILE = "/var/lib/tracegate/private/mtproto/public-profile.json"
@@ -281,6 +287,9 @@ class Settings(BaseSettings):
     agent_reload_profiles_cmd: str = ""
     # Optional private link-crypto reload hook used by Mieru / router relay wrappers.
     agent_reload_link_crypto_cmd: str = ""
+    # Optional NaiveProxy/Caddy reload hook. The k3s pod watches the generated
+    # Caddyfile directly, so this is mainly for host-local deployments.
+    agent_reload_naiveproxy_cmd: str = ""
     agent_cors_origins: list[str] = Field(default_factory=list)
     # Optional private handoff roots/state used by host-local wrappers.
     private_runtime_root: str = ""
@@ -378,6 +387,11 @@ class Settings(BaseSettings):
     mtproto_fronting_mode: str = "dedicated-dns-only"
     mtproto_public_profile_file: str = _DEFAULT_MTPROTO_PUBLIC_PROFILE_FILE
     mtproto_issued_state_file: str = _DEFAULT_MTPROTO_ISSUED_STATE_FILE
+    naiveproxy_enabled: bool = True
+    naiveproxy_host: str = TRACEGATE_NAIVEPROXY_HOST
+    naiveproxy_public_tcp_port: int = TRACEGATE_NAIVEPROXY_PUBLIC_TCP_PORT
+    naiveproxy_public_udp_port: int = TRACEGATE_NAIVEPROXY_PUBLIC_UDP_PORT
+    naiveproxy_decoy_mode: str = "auth-portal"
     transit_decoy_auth_login: str = ""
     transit_decoy_auth_password: str = ""
     transit_decoy_auth_cookie_name: str = "tg_decoy_session"
@@ -446,8 +460,9 @@ class Settings(BaseSettings):
     # Optional VLESS over WebSocket+TLS settings (operator-controlled; must match Xray inbound settings).
     vless_ws_path: str = "/ws"
     vless_ws_tls_port: int = 443
-    # Hysteria2 public UDP surface. TCP/443 stays reserved for fronting/demux.
-    hysteria_udp_port: int = 443
+    # Hysteria2 public UDP surface. TCP/443 stays reserved for fronting/demux;
+    # UDP/443 is reserved for NaiveProxy V4 HTTP/3 on auth.tracegate.su.
+    hysteria_udp_port: int = TRACEGATE_PUBLIC_UDP_PORT
     # Salamander is mandatory for Tracegate Hysteria2. Keep real values in private env/Secrets.
     hysteria_salamander_password_entry: str = Field(
         default="",

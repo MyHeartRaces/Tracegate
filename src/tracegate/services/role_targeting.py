@@ -24,6 +24,8 @@ def target_roles_for_connection(
         return [NodeRole.TRANSIT]
 
     if mode == ConnectionMode.DIRECT:
+        if protocol == ConnectionProtocol.NAIVEPROXY:
+            return [NodeRole.NAIVEPROXY]
         return [NodeRole.TRANSIT]
 
     if protocol in {ConnectionProtocol.VLESS_WS_TLS, ConnectionProtocol.VLESS_GRPC_TLS}:
@@ -36,6 +38,8 @@ def target_roles_for_connection(
         return [NodeRole.ENTRY, NodeRole.TRANSIT]
     if protocol == ConnectionProtocol.WIREGUARD_WSTUNNEL:
         return [NodeRole.TRANSIT]
+    if protocol == ConnectionProtocol.NAIVEPROXY:
+        return [NodeRole.NAIVEPROXY]
     if variant == ConnectionVariant.V2:
         return [NodeRole.ENTRY, NodeRole.TRANSIT]
     return [NodeRole.TRANSIT]

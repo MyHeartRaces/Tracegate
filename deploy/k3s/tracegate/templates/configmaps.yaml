@@ -468,6 +468,23 @@ data:
         hostWideInterception: {{ .Values.interconnect.zapret2.hostWideInterception }}
         nfqueue: {{ .Values.interconnect.zapret2.nfqueue }}
         failOpen: true
+    naiveproxy:
+      enabled: {{ .Values.naiveproxy.enabled }}
+      domain: {{ .Values.naiveproxy.domain }}
+      role: {{ .Values.naiveproxy.role }}
+      runtimeProfile: {{ .Values.naiveproxy.runtimeProfile }}
+      publicTcpPort: {{ int .Values.naiveproxy.ports.publicTcp }}
+      publicUdpPort: {{ int .Values.naiveproxy.ports.publicUdp }}
+      http3:
+        enabled: true
+        owner: naiveproxy
+      stealth:
+        decoyMode: {{ .Values.naiveproxy.stealth.decoyMode }}
+        probeResistance: {{ .Values.naiveproxy.stealth.probeResistance }}
+        hideIp: {{ .Values.naiveproxy.stealth.hideIp }}
+        hideVia: {{ .Values.naiveproxy.stealth.hideVia }}
+        coverPaths:
+{{ toYaml .Values.naiveproxy.stealth.coverPaths | nindent 10 }}
     transports:
 {{ toYaml .Values.transportProfiles.clientNames | nindent 6 }}
     transportProfiles:

@@ -5,6 +5,8 @@ from dataclasses import dataclass
 from tracegate.constants import (
     TRACEGATE_FORBIDDEN_PUBLIC_TCP_PORT,
     TRACEGATE_FORBIDDEN_PUBLIC_UDP_PORT,
+    TRACEGATE_NAIVEPROXY_PUBLIC_TCP_PORT,
+    TRACEGATE_NAIVEPROXY_PUBLIC_UDP_PORT,
     TRACEGATE_PUBLIC_TCP_PORT,
     TRACEGATE_PUBLIC_UDP_PORT,
 )
@@ -91,6 +93,7 @@ TRACEGATE22_CLIENT_PROFILES = (
     "v2-chain-quic-hysteria",
     "v3-direct-shadowtls-shadowsocks",
     "v3-chain-shadowtls-shadowsocks",
+    "v4-direct-naiveproxy",
     "v0-ws-vless",
     "v0-grpc-vless",
     "v0-wgws-wireguard",
@@ -102,6 +105,10 @@ _TRACEGATE_FORBIDDEN_PUBLIC_PORTS = (
     ("udp", TRACEGATE_FORBIDDEN_PUBLIC_UDP_PORT, f"blocked udp/{TRACEGATE_FORBIDDEN_PUBLIC_UDP_PORT}"),
 )
 _TRACEGATE_PUBLIC_UDP_LISTENER = f"listen udp/{TRACEGATE_PUBLIC_UDP_PORT}"
+_NAIVEPROXY_EXPECTED_PUBLIC_PORTS = (
+    ("tcp", TRACEGATE_NAIVEPROXY_PUBLIC_TCP_PORT, f"listen tcp/{TRACEGATE_NAIVEPROXY_PUBLIC_TCP_PORT} naiveproxy"),
+    ("udp", TRACEGATE_NAIVEPROXY_PUBLIC_UDP_PORT, f"listen udp/{TRACEGATE_NAIVEPROXY_PUBLIC_UDP_PORT} naiveproxy h3"),
+)
 
 
 _XRAY_CENTRIC_CONTRACT = AgentRuntimeContract(
@@ -196,11 +203,32 @@ _TRACEGATE22_CONTRACT = AgentRuntimeContract(
     client_profiles=TRACEGATE22_CLIENT_PROFILES,
 )
 
+_NAIVEPROXY_V4_CONTRACT = AgentRuntimeContract(
+    name="tracegate-naiveproxy-v4",
+    aliases=("naiveproxy-v4", "v4-naiveproxy"),
+    managed_components=("naiveproxy",),
+    runtime_dirs=("naiveproxy",),
+    hysteria_auth_mode="userpass",
+    hysteria_metrics_source=None,
+    expected_ports_entry=(),
+    expected_ports_transit=_NAIVEPROXY_EXPECTED_PUBLIC_PORTS,
+    forbidden_ports_entry=_TRACEGATE_FORBIDDEN_PUBLIC_PORTS,
+    forbidden_ports_transit=_TRACEGATE_FORBIDDEN_PUBLIC_PORTS,
+    process_checks_entry=(),
+    process_checks_transit=(
+        RuntimeProcessCheck(name="process caddy", mode="all", process_names=("caddy",)),
+    ),
+    transit_stats_provider=None,
+    xray_backhaul_allowed=False,
+    client_profiles=("v4-direct-naiveproxy",),
+)
+
 
 _CONTRACTS: dict[str, AgentRuntimeContract] = {
     _XRAY_CENTRIC_CONTRACT.name: _XRAY_CENTRIC_CONTRACT,
     _TRACEGATE21_CONTRACT.name: _TRACEGATE21_CONTRACT,
     _TRACEGATE22_CONTRACT.name: _TRACEGATE22_CONTRACT,
+    _NAIVEPROXY_V4_CONTRACT.name: _NAIVEPROXY_V4_CONTRACT,
 }
 _PROFILE_ALIASES: dict[str, str] = {}
 for _contract in _CONTRACTS.values():
