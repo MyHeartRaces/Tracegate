@@ -55,12 +55,11 @@ Real deployments must provide these inputs outside the public repository:
 - private profile material for gateway roles;
 - a registry-pushed NaiveProxy Caddy image built from
   `deploy/images/naiveproxy-caddy/Dockerfile` and pinned by digest;
-- TLS material and decoy content, including the NaiveProxy auth-domain
-  certificate;
+- TLS material and decoy content for any externally exposed surfaces;
 - node labels, annotations and host policy;
 - production image pins;
-- encrypted Entry and Transit runtime storage. NaiveProxy V4 is co-located with
-  Transit in demux mode and uses the same endpoint host policy.
+- encrypted Entry and Transit runtime storage. V4 placement and fronting details
+  are operator-managed and must stay outside public documentation.
 
 Entry traffic shaping and chain-client limits are enabled in public values as
 guardrails. The real Entry network interface must be set in the operator
@@ -71,10 +70,8 @@ before scheduling those roles. See
 [docs/node-encryption-runbook.md](../../docs/node-encryption-runbook.md) for
 the generic procedure.
 
-NaiveProxy V4 is scheduled as a dedicated host-network pod on the Transit node.
-Transit HAProxy owns public `tcp/443` and demuxes the configured auth hostname
-to NaiveProxy on `127.0.0.1:11443`; NaiveProxy owns `udp/443` for HTTP/3/QUIC.
-Hysteria2 stays on `udp/4443`.
+V4 fronting, port ownership and client import details belong in the private
+operator runbook, not in this public chart README.
 
 ## Operational Notes
 

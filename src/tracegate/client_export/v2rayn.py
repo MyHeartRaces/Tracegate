@@ -676,7 +676,6 @@ def _export_hysteria2(effective: dict[str, Any]) -> ExportResult:
 def _export_naiveproxy(effective: dict[str, Any]) -> ExportResult:
     server = str(effective.get("server") or "").strip()
     port = int(effective.get("port") or 443)
-    udp_port = int(effective.get("udp_port") or port)
     profile = str(effective.get("profile") or "v4-direct-naiveproxy").strip()
     auth = effective.get("auth") or {}
     username = str(auth.get("username") or "").strip()
@@ -691,7 +690,6 @@ def _export_naiveproxy(effective: dict[str, Any]) -> ExportResult:
     if port != 443:
         authority = f"{authority}:{port}"
     h3_proxy = f"quic://{authority}"
-    tcp_proxy = f"https://{authority}"
 
     config = {
         "listen": listen,
@@ -702,18 +700,8 @@ def _export_naiveproxy(effective: dict[str, Any]) -> ExportResult:
     filename = f"{_safe_filename_fragment(profile)}.naive.json"
     return ExportResult(
         kind="attachment",
-        title="NaiveProxy HTTP/3 config",
-        content=(
-            f"Use the attached NaiveProxy config for {profile}. It targets {server} on tcp/{port} "
-            f"and udp/{udp_port}; keep the local SOCKS listener on loopback."
-        ),
-        alternate_title="NaiveProxy HTTPS fallback",
-        alternate_content=json.dumps({"listen": listen, "proxy": tcp_proxy, "log": ""}, ensure_ascii=True, indent=2),
-        extra_messages=(
-            ("NaiveProxy HTTP/3 endpoint", h3_proxy),
-            ("NaiveProxy HTTPS fallback", tcp_proxy),
-            ("Local SOCKS5 endpoint", listen),
-        ),
+        title="V4 client config",
+        content="",
         attachment_content=attachment_content,
         attachment_filename=filename,
         attachment_mime="application/json",

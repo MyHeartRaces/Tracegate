@@ -110,9 +110,9 @@ def test_export_naiveproxy_http3_attachment() -> None:
         "proxy": "quic://tg_v4_user:secret-pass@auth.example.com",
         "log": "",
     }
-    fallback = json.loads(out.alternate_content or "{}")
-    assert fallback["proxy"] == "https://tg_v4_user:secret-pass@auth.example.com"
-    assert _extra_content(out, "NaiveProxy HTTP/3 endpoint").startswith("quic://")
+    assert out.content == ""
+    assert out.alternate_content is None
+    assert out.extra_messages == ()
 
 
 def test_export_hysteria2_rejects_missing_salamander() -> None:
