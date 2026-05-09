@@ -1968,6 +1968,23 @@ def test_tracegate22_k3s_renders_naiveproxy_tcp443_demux(tmp_path: Path) -> None
     }
 
 
+def test_prometheus_scrapes_naiveproxy_agent_when_observability_enabled(tmp_path: Path) -> None:
+    values = {"observability": {"prometheus": {"enabled": True}}}
+    rendered = _helm_template_with_values(tmp_path, values)
+
+    assert rendered.returncode == 0, rendered.stderr
+    docs = _helm_docs(rendered.stdout)
+    prometheus_config = next(
+        doc["data"]["prometheus.yml"]
+        for doc in docs
+        if doc.get("kind") == "ConfigMap"
+        and doc.get("metadata", {}).get("name") == "tracegate-prometheus-config"
+    )
+
+    assert "job_name: tracegate-agent" in prometheus_config
+    assert "regex: gateway-.+|naiveproxy" in prometheus_config
+
+
 def test_tracegate22_xray_defaults_client_traffic_to_direct(tmp_path: Path) -> None:
     rendered = _helm_template_with_values(tmp_path, {})
 

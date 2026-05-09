@@ -191,6 +191,7 @@ def _connection_protocol_rate_expr(metric: str, *, direction: str) -> str:
 
 _NODE_EXPORTER_SELECTOR = 'job="tracegate-node-exporter"'
 _NODE_NETWORK_DEVICE_FILTER = 'device!~"lo|veth.*|cni.*|flannel.*|docker.*|br-.*"'
+_HOST_NETWORK_INTERFACE_FILTER = 'interface!~"lo|veth.*|cni.*|flannel.*|docker.*|br-.*"'
 _NODE_DISK_DEVICE_FILTER = 'device!~"loop.*|ram.*|fd.*"'
 _NODE_ROOT_FS_SELECTOR = (
     f'{_NODE_EXPORTER_SELECTOR},mountpoint="/",fstype!~"tmpfs|overlay"'
@@ -229,6 +230,18 @@ def _node_network_rate_expr(direction: str) -> str:
         else "node_network_transmit_bytes_total"
     )
     return f"sum by (node) (rate({metric}{{{_NODE_EXPORTER_SELECTOR},{_NODE_NETWORK_DEVICE_FILTER}}}[5m]))"
+
+
+def _naiveproxy_host_network_rate_expr(direction: str) -> str:
+    normalized = str(direction or "").strip().lower()
+    if normalized not in {"rx", "tx"}:
+        raise ValueError(f"unsupported NaiveProxy network direction: {direction!r}")
+    return (
+        "sum by (instance) "
+        f'(rate(tracegate_host_network_bytes_total{{job="tracegate-agent",'
+        f'component="naiveproxy",direction="{normalized}",'
+        f"{_HOST_NETWORK_INTERFACE_FILTER}}}[5m]))"
+    )
 
 
 def _node_disk_io_rate_expr(direction: str) -> str:
@@ -1552,6 +1565,42 @@ def _dashboard_user(ds_uid: str) -> dict[str, Any]:
                 "fieldConfig": {"defaults": {"unit": "s"}, "overrides": []},
                 "gridPos": {"h": 8, "w": 6, "x": 18, "y": 56},
             },
+            {
+                "id": 20,
+                "type": "table",
+                "title": "NaiveProxy V4 connections",
+                "datasource": _ds(ds_uid),
+                "targets": [
+                    {
+                        "refId": "A",
+                        "expr": 'max by (connection_label, protocol, mode, variant, connection_id) (tracegate_connection_active{user_pid="${__user.login}",protocol=~"naiveproxy"})',
+                        "instant": True,
+                        "format": "table",
+                    }
+                ],
+                "transformations": [
+                    {
+                        "id": "organize",
+                        "options": {
+                            "excludeByName": {"Time": True, "Value": True},
+                            "indexByName": {
+                                "connection_label": 0,
+                                "protocol": 1,
+                                "mode": 2,
+                                "variant": 3,
+                                "connection_id": 4,
+                            },
+                            "renameByName": {"connection_label": "connection"},
+                        },
+                    }
+                ],
+                "options": {
+                    "showHeader": True,
+                    "cellHeight": "sm",
+                    "footer": {"show": False},
+                },
+                "gridPos": {"h": 6, "w": 24, "x": 0, "y": 64},
+            },
         ],
     }
 
@@ -1669,6 +1718,60 @@ def _dashboard_admin(ds_uid: str) -> dict[str, Any]:
                 "gridPos": {"h": 8, "w": 12, "x": 12, "y": 16},
             },
             {
+                "id": 31,
+                "type": "timeseries",
+                "title": "NaiveProxy host network RX/TX (bytes/s)",
+                "datasource": _ds(ds_uid),
+                "targets": [
+                    {
+                        "refId": "A",
+                        "expr": _naiveproxy_host_network_rate_expr("rx"),
+                        "legendFormat": "{{instance}} RX",
+                    },
+                    {
+                        "refId": "B",
+                        "expr": _naiveproxy_host_network_rate_expr("tx"),
+                        "legendFormat": "{{instance}} TX",
+                    },
+                ],
+                "fieldConfig": {"defaults": {"unit": "Bps"}, "overrides": []},
+                "gridPos": {"h": 8, "w": 12, "x": 0, "y": 24},
+            },
+            {
+                "id": 32,
+                "type": "stat",
+                "title": "NaiveProxy users",
+                "datasource": _ds(ds_uid),
+                "targets": [
+                    {
+                        "refId": "A",
+                        "expr": 'tracegate_naiveproxy_users{state="active"}',
+                        "legendFormat": "active",
+                    },
+                    {
+                        "refId": "B",
+                        "expr": 'tracegate_naiveproxy_users{state="total"}',
+                        "legendFormat": "total",
+                    },
+                ],
+                "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []},
+                "gridPos": {"h": 8, "w": 6, "x": 12, "y": 24},
+            },
+            {
+                "id": 33,
+                "type": "stat",
+                "title": "NaiveProxy runtime files",
+                "datasource": _ds(ds_uid),
+                "targets": [
+                    {
+                        "refId": "A",
+                        "expr": "min(tracegate_naiveproxy_config_present)",
+                    }
+                ],
+                "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []},
+                "gridPos": {"h": 8, "w": 6, "x": 18, "y": 24},
+            },
+            {
                 "id": 3,
                 "type": "timeseries",
                 "title": "Node network RX/TX (bytes/s)",
@@ -1686,7 +1789,7 @@ def _dashboard_admin(ds_uid: str) -> dict[str, Any]:
                     },
                 ],
                 "fieldConfig": {"defaults": {"unit": "Bps"}, "overrides": []},
-                "gridPos": {"h": 8, "w": 24, "x": 0, "y": 24},
+                "gridPos": {"h": 8, "w": 24, "x": 0, "y": 32},
             },
             {
                 "id": 4,
@@ -1701,7 +1804,7 @@ def _dashboard_admin(ds_uid: str) -> dict[str, Any]:
                     }
                 ],
                 "fieldConfig": {"defaults": {"unit": "percent"}, "overrides": []},
-                "gridPos": {"h": 8, "w": 12, "x": 0, "y": 32},
+                "gridPos": {"h": 8, "w": 12, "x": 0, "y": 40},
             },
             {
                 "id": 5,
@@ -1716,7 +1819,7 @@ def _dashboard_admin(ds_uid: str) -> dict[str, Any]:
                     }
                 ],
                 "fieldConfig": {"defaults": {"unit": "percent"}, "overrides": []},
-                "gridPos": {"h": 8, "w": 12, "x": 12, "y": 32},
+                "gridPos": {"h": 8, "w": 12, "x": 12, "y": 40},
             },
             {
                 "id": 9,
@@ -1760,7 +1863,7 @@ def _dashboard_admin(ds_uid: str) -> dict[str, Any]:
                     "cellHeight": "sm",
                     "footer": {"show": False},
                 },
-                "gridPos": {"h": 10, "w": 24, "x": 0, "y": 48},
+                "gridPos": {"h": 10, "w": 24, "x": 0, "y": 56},
             },
             {
                 "id": 7,
@@ -1781,7 +1884,7 @@ def _dashboard_admin(ds_uid: str) -> dict[str, Any]:
                         "expr": 'avg by (instance) (tracegate_host_load_average{window="15m"})',
                     },
                 ],
-                "gridPos": {"h": 8, "w": 12, "x": 0, "y": 40},
+                "gridPos": {"h": 8, "w": 12, "x": 0, "y": 48},
             },
             {
                 "id": 8,
@@ -1794,7 +1897,7 @@ def _dashboard_admin(ds_uid: str) -> dict[str, Any]:
                         "expr": 'avg by (instance) ((1 - (tracegate_host_memory_bytes{kind="available"} / ignoring(kind) tracegate_host_memory_bytes{kind="total"})) * 100)',
                     },
                 ],
-                "gridPos": {"h": 8, "w": 12, "x": 12, "y": 40},
+                "gridPos": {"h": 8, "w": 12, "x": 12, "y": 48},
             },
             {
                 "id": 15,
@@ -1818,7 +1921,7 @@ def _dashboard_admin(ds_uid: str) -> dict[str, Any]:
                     },
                 ],
                 "fieldConfig": {"defaults": {"unit": "Bps"}, "overrides": []},
-                "gridPos": {"h": 8, "w": 12, "x": 0, "y": 58},
+                "gridPos": {"h": 8, "w": 12, "x": 0, "y": 66},
             },
             {
                 "id": 16,
@@ -1842,56 +1945,56 @@ def _dashboard_admin(ds_uid: str) -> dict[str, Any]:
                     },
                 ],
                 "fieldConfig": {"defaults": {"unit": "Bps"}, "overrides": []},
-                "gridPos": {"h": 8, "w": 12, "x": 12, "y": 58},
+                "gridPos": {"h": 8, "w": 12, "x": 12, "y": 66},
             },
             {
                 "id": 17,
                 "type": "timeseries",
-                "title": "Gateway pod CPU usage",
+                "title": "Gateway/NaiveProxy pod CPU usage",
                 "datasource": _ds(ds_uid),
                 "targets": [
                     {
                         "refId": "A",
-                        "expr": 'sum by (pod, container) (rate(container_cpu_usage_seconds_total{namespace="tracegate",pod=~"tracegate-.*gateway.*",container!="POD",container!=""}[5m]))',
+                        "expr": 'sum by (pod, container) (rate(container_cpu_usage_seconds_total{namespace="tracegate",pod=~"tracegate-.*(gateway|naiveproxy).*",container!="POD",container!=""}[5m]))',
                         "legendFormat": "{{pod}} / {{container}}",
                     }
                 ],
-                "gridPos": {"h": 8, "w": 12, "x": 0, "y": 66},
+                "gridPos": {"h": 8, "w": 12, "x": 0, "y": 74},
             },
             {
                 "id": 18,
                 "type": "timeseries",
-                "title": "Gateway pod memory working set",
+                "title": "Gateway/NaiveProxy pod memory working set",
                 "datasource": _ds(ds_uid),
                 "targets": [
                     {
                         "refId": "A",
-                        "expr": 'sum by (pod, container) (container_memory_working_set_bytes{namespace="tracegate",pod=~"tracegate-.*gateway.*",container!="POD",container!=""})',
+                        "expr": 'sum by (pod, container) (container_memory_working_set_bytes{namespace="tracegate",pod=~"tracegate-.*(gateway|naiveproxy).*",container!="POD",container!=""})',
                         "legendFormat": "{{pod}} / {{container}}",
                     }
                 ],
                 "fieldConfig": {"defaults": {"unit": "bytes"}, "overrides": []},
-                "gridPos": {"h": 8, "w": 12, "x": 12, "y": 66},
+                "gridPos": {"h": 8, "w": 12, "x": 12, "y": 74},
             },
             {
                 "id": 19,
                 "type": "timeseries",
-                "title": "Gateway pod network RX/TX (bytes/s)",
+                "title": "Gateway/NaiveProxy pod network RX/TX (bytes/s)",
                 "datasource": _ds(ds_uid),
                 "targets": [
                     {
                         "refId": "A",
-                        "expr": 'sum by (pod) (rate(container_network_receive_bytes_total{namespace="tracegate",pod=~"tracegate-.*gateway.*"}[5m]))',
+                        "expr": 'sum by (pod) (rate(container_network_receive_bytes_total{namespace="tracegate",pod=~"tracegate-.*(gateway|naiveproxy).*"}[5m]))',
                         "legendFormat": "{{pod}} RX",
                     },
                     {
                         "refId": "B",
-                        "expr": 'sum by (pod) (rate(container_network_transmit_bytes_total{namespace="tracegate",pod=~"tracegate-.*gateway.*"}[5m]))',
+                        "expr": 'sum by (pod) (rate(container_network_transmit_bytes_total{namespace="tracegate",pod=~"tracegate-.*(gateway|naiveproxy).*"}[5m]))',
                         "legendFormat": "{{pod}} TX",
                     },
                 ],
                 "fieldConfig": {"defaults": {"unit": "Bps"}, "overrides": []},
-                "gridPos": {"h": 8, "w": 12, "x": 0, "y": 74},
+                "gridPos": {"h": 8, "w": 12, "x": 0, "y": 82},
             },
             {
                 "id": 20,
@@ -1911,7 +2014,7 @@ def _dashboard_admin(ds_uid: str) -> dict[str, Any]:
                     },
                 ],
                 "fieldConfig": {"defaults": {"unit": "Bps"}, "overrides": []},
-                "gridPos": {"h": 8, "w": 12, "x": 12, "y": 74},
+                "gridPos": {"h": 8, "w": 12, "x": 12, "y": 82},
             },
             {
                 "id": 21,
@@ -1926,7 +2029,7 @@ def _dashboard_admin(ds_uid: str) -> dict[str, Any]:
                     }
                 ],
                 "fieldConfig": {"defaults": {"unit": "s"}, "overrides": []},
-                "gridPos": {"h": 8, "w": 8, "x": 0, "y": 82},
+                "gridPos": {"h": 8, "w": 8, "x": 0, "y": 90},
             },
             {
                 "id": 22,
@@ -1941,7 +2044,7 @@ def _dashboard_admin(ds_uid: str) -> dict[str, Any]:
                     }
                 ],
                 "fieldConfig": {"defaults": {"unit": "bytes"}, "overrides": []},
-                "gridPos": {"h": 8, "w": 8, "x": 8, "y": 82},
+                "gridPos": {"h": 8, "w": 8, "x": 8, "y": 90},
             },
             {
                 "id": 23,
@@ -1965,7 +2068,7 @@ def _dashboard_admin(ds_uid: str) -> dict[str, Any]:
                         "legendFormat": "hysteria2",
                     },
                 ],
-                "gridPos": {"h": 8, "w": 8, "x": 16, "y": 82},
+                "gridPos": {"h": 8, "w": 8, "x": 16, "y": 90},
             },
             {
                 "id": 24,
@@ -2000,7 +2103,7 @@ def _dashboard_admin(ds_uid: str) -> dict[str, Any]:
                     "cellHeight": "sm",
                     "footer": {"show": False},
                 },
-                "gridPos": {"h": 8, "w": 24, "x": 0, "y": 90},
+                "gridPos": {"h": 8, "w": 24, "x": 0, "y": 98},
             },
             {
                 "id": 25,
@@ -2024,7 +2127,7 @@ def _dashboard_admin(ds_uid: str) -> dict[str, Any]:
                         "legendFormat": "{{node}} 15m",
                     },
                 ],
-                "gridPos": {"h": 8, "w": 12, "x": 0, "y": 98},
+                "gridPos": {"h": 8, "w": 12, "x": 0, "y": 106},
             },
             {
                 "id": 26,
@@ -2044,7 +2147,7 @@ def _dashboard_admin(ds_uid: str) -> dict[str, Any]:
                     },
                 ],
                 "fieldConfig": {"defaults": {"unit": "Bps"}, "overrides": []},
-                "gridPos": {"h": 8, "w": 12, "x": 12, "y": 98},
+                "gridPos": {"h": 8, "w": 12, "x": 12, "y": 106},
             },
             {
                 "id": 27,
@@ -2058,7 +2161,7 @@ def _dashboard_admin(ds_uid: str) -> dict[str, Any]:
                         "legendFormat": "{{node}} / {{pod}} / {{container}}",
                     }
                 ],
-                "gridPos": {"h": 8, "w": 12, "x": 0, "y": 106},
+                "gridPos": {"h": 8, "w": 12, "x": 0, "y": 114},
             },
             {
                 "id": 28,
@@ -2078,7 +2181,7 @@ def _dashboard_admin(ds_uid: str) -> dict[str, Any]:
                     },
                 ],
                 "fieldConfig": {"defaults": {"unit": "Bps"}, "overrides": []},
-                "gridPos": {"h": 8, "w": 12, "x": 12, "y": 106},
+                "gridPos": {"h": 8, "w": 12, "x": 12, "y": 114},
             },
         ],
     }
@@ -3106,6 +3209,48 @@ def _dashboard_operator(ds_uid: str) -> dict[str, Any]:
                 ],
                 "fieldConfig": {"defaults": {"unit": "Bps"}, "overrides": []},
                 "gridPos": {"h": 8, "w": 12, "x": 12, "y": 104},
+            },
+            {
+                "id": 30,
+                "type": "table",
+                "title": "NaiveProxy runtime",
+                "datasource": _ds(ds_uid),
+                "targets": [
+                    {
+                        "refId": "A",
+                        "expr": "max by (role, tcp_exposure, decoy_mode) (tracegate_naiveproxy_runtime_info)",
+                        "instant": True,
+                        "format": "table",
+                    },
+                    {
+                        "refId": "B",
+                        "expr": "max by (role, state) (tracegate_naiveproxy_users)",
+                        "instant": True,
+                        "format": "table",
+                    },
+                    {
+                        "refId": "C",
+                        "expr": "min by (role, kind) (tracegate_naiveproxy_config_present)",
+                        "instant": True,
+                        "format": "table",
+                    },
+                ],
+                "transformations": [
+                    {
+                        "id": "joinByField",
+                        "options": {"byField": "role", "mode": "outer"},
+                    },
+                    {
+                        "id": "joinByField",
+                        "options": {"byField": "role", "mode": "outer"},
+                    },
+                ],
+                "options": {
+                    "showHeader": True,
+                    "cellHeight": "sm",
+                    "footer": {"show": False},
+                },
+                "gridPos": {"h": 8, "w": 24, "x": 0, "y": 112},
             },
         ],
     }

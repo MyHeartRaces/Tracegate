@@ -178,6 +178,13 @@ def _mapping_value(payload: dict[str, object] | None, key: str) -> dict[str, obj
     return value if isinstance(value, dict) else {}
 
 
+def _list_value(payload: dict[str, object] | None, key: str) -> list[object]:
+    if not isinstance(payload, dict):
+        return []
+    value = payload.get(key)
+    return value if isinstance(value, list) else []
+
+
 def _runtime_contract_payload(root: Path) -> dict[str, object] | None:
     return _load_json_mapping(root / "runtime" / "runtime-contract.json")
 
@@ -188,6 +195,24 @@ def _obfuscation_runtime_state(settings: Settings) -> dict[str, object] | None:
         return None
     path = Path(effective_private_runtime_root(settings)) / "obfuscation" / role_lower / "runtime-state.json"
     return _load_json_mapping(path)
+
+
+def _naiveproxy_users_payload(root: Path) -> dict[str, object] | None:
+    return _load_json_mapping(root / "runtime" / "naiveproxy" / "users.json")
+
+
+def _naiveproxy_user_counts(root: Path) -> tuple[int, int]:
+    payload = _naiveproxy_users_payload(root)
+    users = _list_value(payload, "users")
+    total = 0
+    active = 0
+    for row in users:
+        if not isinstance(row, dict):
+            continue
+        total += 1
+        if not bool(row.get("disabled")):
+            active += 1
+    return active, total
 
 
 class AgentMetricsCollector:
@@ -277,6 +302,66 @@ class AgentMetricsCollector:
             obfuscation_backend.add_metric([role_label, backend], 1)
         yield obfuscation_backend
 
+        if role_label == "NAIVEPROXY":
+            users_active, users_total = _naiveproxy_user_counts(self.root)
+            caddyfile_path = self.root / "runtime" / "naiveproxy" / "Caddyfile"
+            users_path = self.root / "runtime" / "naiveproxy" / "users.json"
+            tcp_exposure = str(self.settings.naiveproxy_tcp_exposure or "").strip().lower() or "demux"
+            if tcp_exposure not in {"demux", "dedicated"}:
+                tcp_exposure = "demux"
+            decoy_mode = str(self.settings.naiveproxy_decoy_mode or "").strip() or "auth-portal"
+
+            naive_runtime = GaugeMetricFamily(
+                "tracegate_naiveproxy_runtime_info",
+                "NaiveProxy runtime configuration info",
+                labels=["role", "tcp_exposure", "decoy_mode"],
+            )
+            naive_runtime.add_metric([role_label, tcp_exposure, decoy_mode], 1)
+            yield naive_runtime
+
+            naive_config = GaugeMetricFamily(
+                "tracegate_naiveproxy_config_present",
+                "Whether NaiveProxy runtime files are present",
+                labels=["role", "kind"],
+            )
+            naive_config.add_metric([role_label, "caddyfile"], 1 if caddyfile_path.exists() else 0)
+            naive_config.add_metric([role_label, "users"], 1 if users_path.exists() else 0)
+            yield naive_config
+
+            naive_users = GaugeMetricFamily(
+                "tracegate_naiveproxy_users",
+                "NaiveProxy configured user count",
+                labels=["role", "state"],
+            )
+            naive_users.add_metric([role_label, "active"], users_active)
+            naive_users.add_metric([role_label, "total"], users_total)
+            yield naive_users
+
+            naive_ports = GaugeMetricFamily(
+                "tracegate_naiveproxy_public_port_info",
+                "NaiveProxy public port advertisement",
+                labels=["role", "protocol", "tcp_exposure", "port"],
+            )
+            naive_ports.add_metric(
+                [
+                    role_label,
+                    "tcp",
+                    tcp_exposure,
+                    str(int(self.settings.naiveproxy_public_tcp_port or 0)),
+                ],
+                1,
+            )
+            naive_ports.add_metric(
+                [
+                    role_label,
+                    "udp",
+                    tcp_exposure,
+                    str(int(self.settings.naiveproxy_public_udp_port or 0)),
+                ],
+                1,
+            )
+            yield naive_ports
+
         load_rows = _read_loadavg()
         if load_rows is not None:
             host_load = GaugeMetricFamily(
@@ -311,6 +396,9 @@ class AgentMetricsCollector:
                 host_net.add_metric([iface, "rx"], rx_bytes)
                 host_net.add_metric([iface, "tx"], tx_bytes)
             yield host_net
+
+        if role_label == "NAIVEPROXY":
+            return
 
         # Xray per-connection traffic stats (bytes are counters exported by StatsService).
         xray_ok = GaugeMetricFamily("tracegate_xray_stats_scrape_ok", "Xray stats scrape status (1=ok, 0=error)")

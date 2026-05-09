@@ -77,7 +77,7 @@ data:
             regex: {{ include "tracegate.namespace" . }}
           - source_labels: [__meta_kubernetes_pod_label_app_kubernetes_io_component]
             action: keep
-            regex: gateway-.+
+            regex: gateway-.+|naiveproxy
           - source_labels: [__meta_kubernetes_pod_ip]
             regex: (.+)
             replacement: $1:8070
