@@ -81,6 +81,28 @@ def test_export_hysteria2_uri() -> None:
     assert attachment["outbounds"][0]["tls"]["alpn"] == ["h3"]
 
 
+def test_export_hysteria2_chain_caps_stale_bandwidth_to_chain_limit() -> None:
+    effective = {
+        "protocol": "hysteria2",
+        "server": "entry.example.com",
+        "port": 4443,
+        "auth": {"type": "userpass", "username": "u", "password": "p"},
+        "obfs": {"type": "salamander", "password": "obfs-secret"},
+        "profile": "V2-Chain-QUIC-Hysteria",
+        "up_mbps": 100,
+        "down_mbps": 100,
+        "rate_limit": {"enabled": True, "max_mbit": 10},
+        "design_constraints": {"chain_client_rate_limit_mbit": 10},
+        "chain": {"type": "entry-transit"},
+    }
+
+    out = export_v2rayn(effective)
+    attachment = json.loads((out.attachment_content or b"").decode("utf-8"))
+
+    assert attachment["outbounds"][0]["up_mbps"] == 10
+    assert attachment["outbounds"][0]["down_mbps"] == 10
+
+
 def test_export_naiveproxy_shadowrocket_uri_and_http3_attachment() -> None:
     effective = {
         "protocol": "naiveproxy",
@@ -106,6 +128,14 @@ def test_export_naiveproxy_shadowrocket_uri_and_http3_attachment() -> None:
     assert out.content == "naive+https://tg_v4_user:secret-pass@auth.example.com?padding=true#v4-direct-naiveproxy"
     assert out.alternate_title == "NaiveProxy HTTP/3 URI"
     assert out.alternate_content == "naive+quic://tg_v4_user:secret-pass@auth.example.com?padding=true#v4-direct-naiveproxy"
+    assert out.extra_messages == (
+        (
+            "Shadowrocket import",
+            "Use the QR code below with Shadowrocket's built-in scanner, or import the single-line "
+            "`naive+https://...` URI from the previous message. The attached `.naive.json` file is "
+            "for native NaiveProxy clients, not for Shadowrocket.",
+        ),
+    )
     assert out.attachment_filename == "v4-direct-naiveproxy.naive.json"
     assert out.attachment_mime == "application/json"
     attachment = json.loads((out.attachment_content or b"").decode("utf-8"))
@@ -114,7 +144,6 @@ def test_export_naiveproxy_shadowrocket_uri_and_http3_attachment() -> None:
         "proxy": "quic://tg_v4_user:secret-pass@auth.example.com",
         "log": "",
     }
-    assert out.extra_messages == ()
 
 
 def test_export_hysteria2_rejects_missing_salamander() -> None:

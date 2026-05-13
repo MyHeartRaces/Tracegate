@@ -13,6 +13,8 @@ from tracegate.services.mtproto import MTPROTO_FAKE_TLS_PROFILE_NAME, MTProtoCon
 
 _LOCAL_SOCKS_PORT_BASE = 20000
 _LOCAL_SOCKS_PORT_SPAN = 40000
+_HYSTERIA_CHAIN_CLIENT_RATE_LIMIT_MBIT = 10
+_HYSTERIA_DIRECT_DEFAULT_MBIT = 100
 
 
 class V2RayNExportError(ValueError):
@@ -302,6 +304,51 @@ def _build_singbox_client_attachment(
     }
     filename = f"{_safe_filename_fragment(profile_name)}.singbox.json"
     return json.dumps(config, ensure_ascii=True, indent=2).encode("utf-8"), filename
+
+
+def _is_hysteria_chain_profile(effective: dict[str, Any]) -> bool:
+    mode = str(effective.get("mode") or "").strip().lower()
+    if mode == "chain":
+        return True
+    chain = effective.get("chain")
+    if isinstance(chain, dict) and chain:
+        return True
+    profile = str(effective.get("profile") or "").strip().lower()
+    return "chain" in profile
+
+
+def _hysteria_chain_limit_mbit(effective: dict[str, Any]) -> int:
+    rate_limit = effective.get("rate_limit")
+    if isinstance(rate_limit, dict):
+        try:
+            max_mbit = int(rate_limit.get("max_mbit") or 0)
+        except (TypeError, ValueError):
+            max_mbit = 0
+        if max_mbit > 0:
+            return max_mbit
+
+    constraints = effective.get("design_constraints")
+    if isinstance(constraints, dict):
+        try:
+            max_mbit = int(constraints.get("chain_client_rate_limit_mbit") or 0)
+        except (TypeError, ValueError):
+            max_mbit = 0
+        if max_mbit > 0:
+            return max_mbit
+
+    return _HYSTERIA_CHAIN_CLIENT_RATE_LIMIT_MBIT
+
+
+def _hysteria_export_mbps(effective: dict[str, Any], field: str) -> int:
+    is_chain = _is_hysteria_chain_profile(effective)
+    fallback = _hysteria_chain_limit_mbit(effective) if is_chain else _HYSTERIA_DIRECT_DEFAULT_MBIT
+    try:
+        value = int(effective.get(field) or fallback)
+    except (TypeError, ValueError):
+        value = fallback
+    if is_chain:
+        return max(1, min(value, fallback))
+    return max(1, value)
 
 
 def export_client_config(effective: dict[str, Any]) -> ExportResult:
@@ -651,8 +698,8 @@ def _export_hysteria2(effective: dict[str, Any]) -> ExportResult:
             "tag": "proxy",
             "server": server,
             "server_port": port,
-            "up_mbps": int(effective.get("up_mbps") or 100),
-            "down_mbps": int(effective.get("down_mbps") or 100),
+            "up_mbps": _hysteria_export_mbps(effective, "up_mbps"),
+            "down_mbps": _hysteria_export_mbps(effective, "down_mbps"),
             "password": share_auth,
             "obfs": {
                 "type": "salamander",
@@ -709,6 +756,14 @@ def _export_naiveproxy(effective: dict[str, Any]) -> ExportResult:
         content=shadowrocket_uri,
         alternate_title="NaiveProxy HTTP/3 URI",
         alternate_content=h3_uri,
+        extra_messages=(
+            (
+                "Shadowrocket import",
+                "Use the QR code below with Shadowrocket's built-in scanner, or import the single-line "
+                "`naive+https://...` URI from the previous message. The attached `.naive.json` file is "
+                "for native NaiveProxy clients, not for Shadowrocket.",
+            ),
+        ),
         attachment_content=attachment_content,
         attachment_filename=filename,
         attachment_mime="application/json",
