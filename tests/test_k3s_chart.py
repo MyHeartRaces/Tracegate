@@ -1027,7 +1027,8 @@ def test_entry_traffic_shaping_and_encrypted_runtime_guards_render(tmp_path: Pat
     assert shaper["securityContext"]["capabilities"]["add"] == ["NET_ADMIN"]
     assert 'max_mbit="70"' in shaper_script
     assert 'rate="${max_mbit}mbit"' in shaper_script
-    assert "tc qdisc replace" in shaper_script
+    assert 'tc qdisc del dev "${iface}" root' in shaper_script
+    assert "tc qdisc add" in shaper_script
     assert "htb rate" in shaper_script
     assert "police rate" in shaper_script
     assert "Entry egress qdisc disappeared" in shaper_script

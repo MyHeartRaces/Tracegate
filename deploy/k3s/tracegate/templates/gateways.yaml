@@ -897,14 +897,14 @@ spec:
               fi
 
 {{- if $.Values.gateway.trafficShaping.entry.applyEgress }}
-              run_tc tc qdisc replace dev "${iface}" root handle 1: htb default 10
-              run_tc tc class replace dev "${iface}" parent 1: classid 1:10 htb rate "${rate}" ceil "${rate}" burst "${burst_bytes}b" cburst "${burst_bytes}b"
-              tc qdisc replace dev "${iface}" parent 1:10 fq_codel 2>/dev/null || run_tc tc qdisc replace dev "${iface}" parent 1:10 pfifo limit 1000
+              tc qdisc del dev "${iface}" root 2>/dev/null || true
+              run_tc tc qdisc add dev "${iface}" root handle 1: htb default 10
+              run_tc tc class add dev "${iface}" parent 1: classid 1:10 htb rate "${rate}" ceil "${rate}" burst "${burst_bytes}b" cburst "${burst_bytes}b"
+              tc qdisc add dev "${iface}" parent 1:10 fq_codel 2>/dev/null || run_tc tc qdisc add dev "${iface}" parent 1:10 pfifo limit 1000
 {{- end }}
 {{- if $.Values.gateway.trafficShaping.entry.applyIngressPolicing }}
-              run_tc tc qdisc replace dev "${iface}" handle ffff: ingress
-              tc filter del dev "${iface}" parent ffff: protocol ip pref 10 u32 2>/dev/null || true
-              tc filter del dev "${iface}" parent ffff: protocol ipv6 pref 10 u32 2>/dev/null || true
+              tc qdisc del dev "${iface}" ingress 2>/dev/null || true
+              run_tc tc qdisc add dev "${iface}" handle ffff: ingress
               run_tc tc filter add dev "${iface}" parent ffff: protocol ip pref 10 u32 match u32 0 0 police rate "${rate}" burst "${burst_bytes}b" drop flowid :1
               run_tc tc filter add dev "${iface}" parent ffff: protocol ipv6 pref 10 u32 match u32 0 0 police rate "${rate}" burst "${burst_bytes}b" drop flowid :1
 {{- end }}
