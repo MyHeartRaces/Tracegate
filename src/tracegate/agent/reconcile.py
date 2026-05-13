@@ -962,7 +962,7 @@ def _build_runtime_contract_payload(settings: Settings) -> dict[str, object]:
                 "enabled": bool(settings.agent_entry_traffic_shaping_enabled),
                 "strategy": "tc-htb-egress-plus-ingress-police",
                 "interface": str(settings.agent_entry_traffic_shaping_interface or "").strip() or "eth0",
-                "maxMbit": int(settings.agent_entry_traffic_shaping_max_mbit or 100),
+                "maxMbit": int(settings.agent_entry_traffic_shaping_max_mbit or 70),
                 "burstKbit": int(settings.agent_entry_traffic_shaping_burst_kbit or 2048),
                 "applyEgress": bool(settings.agent_entry_traffic_shaping_apply_egress),
                 "applyIngressPolicing": bool(settings.agent_entry_traffic_shaping_apply_ingress_policing),

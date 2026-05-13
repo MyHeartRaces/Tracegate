@@ -168,7 +168,7 @@ def test_tracegate21_chart_uses_entry_transit_roles() -> None:
         "enabled": True,
         "runtimeSidecar": True,
         "interface": "eth0",
-        "maxMbit": 100,
+        "maxMbit": 70,
         "burstKbit": 2048,
         "applyEgress": True,
         "applyIngressPolicing": True,
@@ -1025,7 +1025,7 @@ def test_entry_traffic_shaping_and_encrypted_runtime_guards_render(tmp_path: Pat
     syntax = subprocess.run(["sh", "-n"], input=shaper_script, check=False, capture_output=True, text=True)
     assert syntax.returncode == 0, syntax.stderr
     assert shaper["securityContext"]["capabilities"]["add"] == ["NET_ADMIN"]
-    assert 'max_mbit="100"' in shaper_script
+    assert 'max_mbit="70"' in shaper_script
     assert 'rate="${max_mbit}mbit"' in shaper_script
     assert "tc qdisc replace" in shaper_script
     assert "htb rate" in shaper_script
@@ -1043,7 +1043,7 @@ def test_entry_traffic_shaping_and_encrypted_runtime_guards_render(tmp_path: Pat
         assert init["volumeMounts"] == [{"name": "gateway-state", "mountPath": "/state"}]
 
     entry_agent = entry_containers["agent"]
-    assert _env_value(entry_agent, "AGENT_ENTRY_TRAFFIC_SHAPING_MAX_MBIT") == "100"
+    assert _env_value(entry_agent, "AGENT_ENTRY_TRAFFIC_SHAPING_MAX_MBIT") == "70"
     assert _env_value(entry_agent, "HYSTERIA_CHAIN_CLIENT_MAX_MBIT") == "10"
     assert _env_value(entry_agent, "HYSTERIA_CHAIN_CLIENT_REQUIRE_DECLARED_TX") == "true"
     assert _env_value(entry_agent, "AGENT_NODE_ENCRYPTION_MARKER_FILE") == ".tracegate-encrypted"
@@ -1085,7 +1085,7 @@ def test_tracegate21_runtime_contract_renders_role_link_crypto_metadata(tmp_path
         "runtimeSidecar": True,
         "strategy": "tc-htb-egress-plus-ingress-police",
         "interface": "eth0",
-        "maxMbit": 100,
+        "maxMbit": 70,
         "burstKbit": 2048,
         "applyEgress": True,
         "applyIngressPolicing": True,

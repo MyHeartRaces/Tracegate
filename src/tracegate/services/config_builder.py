@@ -411,7 +411,7 @@ def _entry_transit_private_relay(
             "enabled": True,
             "max_mbit": _CHAIN_CLIENT_RATE_LIMIT_MBIT,
             "scope": "per-chain-client",
-            "entry_total_max_mbit": 100,
+            "entry_total_max_mbit": 70,
             "hysteria_server_bandwidth": is_udp,
             "hysteria_declared_tx_required": is_udp,
             "tcp_enforcement": "entry-host-total-tc-cap",

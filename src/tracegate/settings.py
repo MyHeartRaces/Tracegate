@@ -235,7 +235,7 @@ class Settings(BaseSettings):
     agent_egress_enforcement_ingress_public_ip_outbound: str = "forbidden"
     agent_entry_traffic_shaping_enabled: bool = True
     agent_entry_traffic_shaping_interface: str = "eth0"
-    agent_entry_traffic_shaping_max_mbit: int = 100
+    agent_entry_traffic_shaping_max_mbit: int = 70
     agent_entry_traffic_shaping_burst_kbit: int = 2048
     agent_entry_traffic_shaping_apply_egress: bool = True
     agent_entry_traffic_shaping_apply_ingress_policing: bool = True

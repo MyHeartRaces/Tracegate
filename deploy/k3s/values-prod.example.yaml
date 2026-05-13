@@ -71,9 +71,9 @@ gateway:
   trafficShaping:
     entry:
       enabled: true
-      # Public network interface on the Entry node. Keep maxMbit <= 100.
+      # Public network interface on the Entry node. Keep maxMbit <= 70.
       interface: eth0
-      maxMbit: 100
+      maxMbit: 70
       applyEgress: true
       applyIngressPolicing: true
       failClosed: true

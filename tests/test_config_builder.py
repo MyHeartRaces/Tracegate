@@ -495,7 +495,7 @@ def test_hysteria_chain_v4_enters_via_entry_and_marks_backhaul() -> None:
         "enabled": True,
         "max_mbit": 10,
         "scope": "per-chain-client",
-        "entry_total_max_mbit": 100,
+        "entry_total_max_mbit": 70,
         "hysteria_server_bandwidth": True,
         "hysteria_declared_tx_required": True,
         "tcp_enforcement": "entry-host-total-tc-cap",

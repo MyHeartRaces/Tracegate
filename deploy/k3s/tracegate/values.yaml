@@ -321,7 +321,7 @@ gateway:
       enabled: true
       runtimeSidecar: true
       interface: eth0
-      maxMbit: 100
+      maxMbit: 70
       burstKbit: 2048
       applyEgress: true
       applyIngressPolicing: true
