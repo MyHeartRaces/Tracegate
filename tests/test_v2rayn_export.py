@@ -421,7 +421,8 @@ def test_export_shadowsocks2022_shadowtls_single_line_uri() -> None:
     assert "#V5-Shadowsocks2022-ShadowTLS-Direct" in out.content
     assert out.title == "Shadowsocks-2022 + ShadowTLS"
     assert out.alternate_content is None
-    assert out.attachment_content is None
+    assert out.attachment_filename == "v5-shadowsocks2022-shadowtls-direct.singbox.json"
+    assert out.attachment_mime == "application/json"
     assert out.extra_messages == ()
 
     parsed = urlparse(out.content)
@@ -430,6 +431,26 @@ def test_export_shadowsocks2022_shadowtls_single_line_uri() -> None:
     )
     assert parse_qs(parsed.query) == {
         "plugin": ["shadow-tls;host=www.microsoft.com;password=shadowtls-password;version=3"]
+    }
+    attachment = json.loads((out.attachment_content or b"").decode("utf-8"))
+    assert attachment["inbounds"][0]["users"] == [{"username": "local-user", "password": "local-pass"}]
+    assert attachment["outbounds"][0] == {
+        "type": "shadowsocks",
+        "tag": "proxy",
+        "server": "t.example.com",
+        "server_port": 443,
+        "method": "2022-blake3-aes-128-gcm",
+        "password": "server-password:user-password",
+        "detour": "shadowtls-out",
+    }
+    assert attachment["outbounds"][1] == {
+        "type": "shadowtls",
+        "tag": "shadowtls-out",
+        "server": "t.example.com",
+        "server_port": 443,
+        "version": 3,
+        "password": "shadowtls-password",
+        "tls": {"enabled": True, "server_name": "www.microsoft.com"},
     }
 
 

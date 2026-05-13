@@ -188,6 +188,7 @@ class MTProtoGatewayState:
     action: str
     role: str
     backend: str
+    runtime: str
     domain: str
     public_port: int
     upstream_host: str
@@ -196,6 +197,7 @@ class MTProtoGatewayState:
     runtime_state_json: str
     public_profile_file: str
     issued_state_file: str
+    telemt_config_file: str
 
 
 @dataclass(frozen=True)
@@ -735,6 +737,7 @@ def load_mtproto_gateway_state(path: str | Path) -> MTProtoGatewayState:
         action=str(payload.get("action") or "").strip().lower(),
         role=str(payload.get("role") or "").strip().upper(),
         backend=str(payload.get("backend") or "").strip().lower(),
+        runtime=str(payload.get("runtime") or payload.get("runtimeBackend") or "telemt").strip().lower(),
         domain=str(payload.get("domain") or "").strip(),
         public_port=public_port,
         upstream_host=str(payload.get("upstreamHost") or "").strip(),
@@ -743,6 +746,7 @@ def load_mtproto_gateway_state(path: str | Path) -> MTProtoGatewayState:
         runtime_state_json=str(payload.get("runtimeStateJson") or "").strip(),
         public_profile_file=str(payload.get("publicProfileFile") or "").strip(),
         issued_state_file=str(payload.get("issuedStateFile") or "").strip(),
+        telemt_config_file=str(payload.get("telemtConfigFile") or "").strip(),
     )
 
 
@@ -6326,6 +6330,10 @@ def validate_mtproto_gateway_state(
 
     if not state.backend:
         findings.append(_finding("warning", "mtproto-backend", "mtproto runtime-state does not advertise a backend"))
+    if state.runtime not in {"telemt", "official"}:
+        findings.append(_finding("warning", "mtproto-runtime", f"mtproto runtime must be telemt or official, got {state.runtime or 'missing'}"))
+    if state.runtime == "telemt" and not state.telemt_config_file:
+        findings.append(_finding("warning", "mtproto-telemt-config-file", "mtproto runtime-state does not advertise telemtConfigFile"))
     if not state.issued_state_file:
         findings.append(_finding("warning", "mtproto-issued-state-file", "mtproto runtime-state does not advertise issuedStateFile"))
     elif state.public_profile_file:

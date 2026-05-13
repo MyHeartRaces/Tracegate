@@ -9,6 +9,8 @@ from tracegate.services.mtproto import (
     MTPROTO_FAKE_TLS_PROFILE_NAME,
     MTProtoConfigError,
     build_mtproto_share_links,
+    build_mtproto_telemt_config,
+    load_mtproto_issued_secret_entries,
     normalize_mtproto_domain,
 )
 from tracegate.services.connection_profiles import (
@@ -1432,11 +1434,14 @@ def _write_mtproto_state(
     runtime_dir = state_dir / "runtime"
     issued_state_file = Path(effective_mtproto_issued_state_file(settings))
     obfuscation_state_json = _role_state_dir(settings, role_lower="transit") / "runtime-state.json"
+    mtproto_runtime = str(settings.private_mtproto_runtime or "telemt").strip().lower() or "telemt"
+    telemt_config_file = runtime_dir / "config.toml"
 
     payload = {
         "action": "reconcile",
         "role": role_upper,
         "backend": str(settings.private_mtproto_backend or "").strip().lower() or "private",
+        "runtime": mtproto_runtime,
         "domain": str(settings.mtproto_domain or "").strip(),
         "publicPort": int(settings.mtproto_public_port or 443),
         "upstreamHost": str(settings.private_mtproto_upstream_host or "").strip() or "127.0.0.1",
@@ -1445,6 +1450,7 @@ def _write_mtproto_state(
         "runtimeStateJson": str(obfuscation_state_json),
         "publicProfileFile": str(state_dir / "public-profile.json"),
         "issuedStateFile": str(issued_state_file),
+        "telemtConfigFile": str(telemt_config_file),
     }
 
     changed = False
@@ -1457,15 +1463,27 @@ def _write_mtproto_state(
     if secret_file.is_file() and payload["domain"] and payload["publicPort"] > 0:
         try:
             normalized_domain = normalize_mtproto_domain(payload["domain"])
+            server_secret_hex = _read_secret_hex(secret_file)
             share = build_mtproto_share_links(
                 server=normalized_domain,
                 port=int(payload["publicPort"]),
-                secret_hex=_read_secret_hex(secret_file),
+                secret_hex=server_secret_hex,
                 transport="tls",
                 domain=normalized_domain,
             )
+            if mtproto_runtime == "telemt":
+                telemt_config = build_mtproto_telemt_config(
+                    listen_port=int(payload["upstreamPort"]),
+                    listen_ip=str(payload["upstreamHost"]),
+                    public_host=normalized_domain,
+                    public_port=int(payload["publicPort"]),
+                    tls_domain=normalized_domain,
+                    primary_secret_hex=server_secret_hex,
+                    issued_secret_entries=load_mtproto_issued_secret_entries(issued_state_file),
+                )
         except (MTProtoConfigError, OSError, ValueError):
             changed = _remove_if_exists(profile_path) or changed
+            changed = _remove_if_exists(telemt_config_file) or changed
         else:
             profile_payload = {
                 "protocol": "mtproto",
@@ -1480,8 +1498,13 @@ def _write_mtproto_state(
                 "httpsUrl": share.https_url,
             }
             changed = _write_text_if_changed(profile_path, _json_text(profile_payload)) or changed
+            if mtproto_runtime == "telemt":
+                changed = _write_text_if_changed(telemt_config_file, telemt_config.config_text) or changed
+            else:
+                changed = _remove_if_exists(telemt_config_file) or changed
     else:
         changed = _remove_if_exists(profile_path) or changed
+        changed = _remove_if_exists(telemt_config_file) or changed
 
     # Ensure the state dir / runtime dir layout exists even if the helper is not active yet.
     runtime_dir.mkdir(parents=True, exist_ok=True)

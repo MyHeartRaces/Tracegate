@@ -381,6 +381,7 @@ class Settings(BaseSettings):
     private_mtproto_upstream_host: str = "127.0.0.1"
     private_mtproto_upstream_port: int = 9443
     private_mtproto_secret_file: str = "/etc/tracegate/private/mtproto/secret.txt"
+    private_mtproto_runtime: str = "telemt"
     # Future private MTProto/fronting hints exposed via runtime-contract.json for host-local wrappers.
     # Keep MTProto on a dedicated real domain and avoid claiming the public UDP/Hysteria surface in the private TCP demux layer.
     mtproto_domain: str = ""

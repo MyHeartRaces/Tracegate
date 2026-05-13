@@ -164,6 +164,11 @@ spec:
           hostPath:
             path: {{ printf "%s/%s" $.Values.gateway.agent.dataHostPathPrefix $roleName | quote }}
             type: DirectoryOrCreate
+{{- if and (eq $roleName "transit") $.Values.mtproto.enabled }}
+        - name: telemt-work
+          emptyDir:
+            sizeLimit: 8Mi
+{{- end }}
         - name: private-profiles
           secret:
             secretName: {{ include "tracegate.privateProfilesSecretName" $ }}
@@ -1110,17 +1115,18 @@ spec:
           image: {{ include "tracegate.image" $.Values.gateway.images.mtproto | quote }}
           imagePullPolicy: {{ $.Values.gateway.images.mtproto.pullPolicy }}
           command:
-            - /mtg
+            - /bin/sh
+            - -lc
           args:
-            - simple-run
-            - {{ printf "127.0.0.1:%d" (int $.Values.mtproto.backendPort) | quote }}
-            - "$(MTPROTO_SECRET)"
+            - |
+              set -eu
+              config="/var/lib/tracegate/private/mtproto/runtime/config.toml"
+              until [ -s "${config}" ]; do sleep 2; done
+              exec /app/telemt run "${config}"
+          workingDir: /telemt
           env:
-            - name: MTPROTO_SECRET
-              valueFrom:
-                secretKeyRef:
-                  name: {{ include "tracegate.privateProfilesSecretName" $ }}
-                  key: mtproto-proxy-secret
+            - name: RUST_LOG
+              value: info
 {{- with (index $roleContainerResources "mtproto") }}
           resources:
             {{- toYaml . | nindent 12 }}
@@ -1132,6 +1138,8 @@ spec:
             - name: gateway-state
               mountPath: /var/lib/tracegate
               readOnly: true
+            - name: telemt-work
+              mountPath: /telemt
 {{- end }}
 {{- if $.Values.shadowsocks2022.enabled }}
         - name: shadowtls-v3

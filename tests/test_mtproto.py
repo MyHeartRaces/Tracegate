@@ -3,10 +3,13 @@ import json
 import pytest
 
 from tracegate.services.mtproto import (
+    MTProtoIssuedSecret,
     MTProtoConfigError,
     build_mtproto_client_secret,
     build_mtproto_official_proxy_command,
     build_mtproto_share_links,
+    build_mtproto_telemt_config,
+    load_mtproto_issued_secret_entries,
     load_mtproto_issued_secret_hexes,
     load_mtproto_server_secret,
     normalize_mtproto_domain,
@@ -106,6 +109,56 @@ def test_load_mtproto_issued_secret_hexes_filters_invalid_rows(tmp_path) -> None
     secrets = load_mtproto_issued_secret_hexes(issued_state_file)
 
     assert secrets == ("00112233445566778899aabbccddeeff",)
+
+
+def test_load_mtproto_issued_secret_entries_preserves_telegram_id(tmp_path) -> None:
+    issued_state_file = tmp_path / "issued.json"
+    issued_state_file.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "entries": [
+                    {
+                        "telegramId": 101,
+                        "secretHex": "00112233445566778899aabbccddeeff",
+                        "issuedAt": "2026-04-15T02:10:00Z",
+                    }
+                ],
+            },
+            ensure_ascii=True,
+        ),
+        encoding="utf-8",
+    )
+
+    entries = load_mtproto_issued_secret_entries(issued_state_file)
+
+    assert entries == (MTProtoIssuedSecret(telegram_id=101, secret_hex="00112233445566778899aabbccddeeff"),)
+
+
+def test_build_mtproto_telemt_config_preserves_primary_and_issued_secrets() -> None:
+    config = build_mtproto_telemt_config(
+        listen_port=9443,
+        listen_ip="127.0.0.1",
+        public_host="proxied.tracegate.test",
+        public_port=443,
+        tls_domain="proxied.tracegate.test",
+        primary_secret_hex="95f0d81f7539ecbe1bd880f48b6a739a",
+        issued_secret_entries=[
+            MTProtoIssuedSecret(telegram_id=101, secret_hex="fedcba98765432100123456789abcdef"),
+            MTProtoIssuedSecret(telegram_id=102, secret_hex="95f0d81f7539ecbe1bd880f48b6a739a"),
+        ],
+    )
+
+    assert config.accepted_secret_hexes == (
+        "95f0d81f7539ecbe1bd880f48b6a739a",
+        "fedcba98765432100123456789abcdef",
+    )
+    assert config.user_count == 2
+    assert "port = 9443" in config.config_text
+    assert 'public_host = "proxied.tracegate.test"' in config.config_text
+    assert 'tls_domain = "proxied.tracegate.test"' in config.config_text
+    assert '"tracegate_shared" = "95f0d81f7539ecbe1bd880f48b6a739a"' in config.config_text
+    assert '"tg_101" = "fedcba98765432100123456789abcdef"' in config.config_text
 
 
 def test_build_mtproto_official_proxy_command_accepts_primary_and_issued_secrets() -> None:

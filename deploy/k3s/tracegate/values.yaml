@@ -550,8 +550,8 @@ gateway:
       tag: "latest"
       pullPolicy: IfNotPresent
     mtproto:
-      repository: ghcr.io/9seconds/mtg
-      tag: "latest"
+      repository: ghcr.io/telemt/telemt
+      tag: "3.4.11"
       pullPolicy: IfNotPresent
     naiveproxy:
       repository: ghcr.io/your-org/tracegate-naiveproxy-caddy

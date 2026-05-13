@@ -1063,6 +1063,12 @@ def test_reconcile_materializes_private_runtime_handoff_surfaces_for_transit(tmp
     assert "acl ws_tls_sni req.ssl_sni -i nlconn.tracegate.test" in fronting_cfg
 
     assert mtproto_state.issued_state_file == str(private_root / "mtproto" / "issued.json")
+    assert mtproto_state.runtime == "telemt"
+    assert mtproto_state.telemt_config_file == str(private_root / "mtproto" / "runtime" / "config.toml")
+    telemt_config = (private_root / "mtproto" / "runtime" / "config.toml").read_text(encoding="utf-8")
+    assert 'public_host = "proxied.tracegate.test"' in telemt_config
+    assert 'tls_domain = "proxied.tracegate.test"' in telemt_config
+    assert '"tracegate_shared" = "00112233445566778899aabbccddeeff"' in telemt_config
     issued = json.loads((private_root / "mtproto" / "issued.json").read_text(encoding="utf-8"))
     assert issued == {"version": 1, "entries": []}
 
@@ -1129,6 +1135,8 @@ def test_reconcile_preserves_existing_mtproto_issued_state(tmp_path: Path) -> No
             "issuedBy": "bot",
         }
     ]
+    telemt_config = (tmp_path / "private" / "mtproto" / "runtime" / "config.toml").read_text(encoding="utf-8")
+    assert '"tg_255761416" = "95d7ed79d0ab4494cab81c5f4acba241"' in telemt_config
 
 
 def test_reconcile_emits_obfuscation_change_only_when_reload_hook_is_configured(tmp_path: Path) -> None:

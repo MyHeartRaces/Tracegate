@@ -275,13 +275,14 @@ def _build_xray_client_attachment(effective: dict[str, Any], outbound: dict[str,
 
 def _build_singbox_client_attachment(
     effective: dict[str, Any],
-    outbound: dict[str, Any],
+    outbound: dict[str, Any] | list[dict[str, Any]],
     *,
     inbound_type: str = "mixed",
 ) -> tuple[bytes, str]:
     profile_name = str(effective.get("profile") or "tracegate-client").strip() or "tracegate-client"
     local_host, local_port = _local_socks_endpoint(effective)
     socks_username, socks_password = _local_socks_auth(effective)
+    outbounds = outbound if isinstance(outbound, list) else [outbound]
     config = {
         "log": {"level": "warn"},
         "inbounds": [
@@ -293,7 +294,7 @@ def _build_singbox_client_attachment(
                 "users": [{"username": socks_username, "password": socks_password}],
             }
         ],
-        "outbounds": [outbound],
+        "outbounds": outbounds,
         "route": {
             "auto_detect_interface": True,
             "final": "proxy",
@@ -766,11 +767,40 @@ def _export_shadowsocks2022_shadowtls(effective: dict[str, Any]) -> ExportResult
         }
     )
     uri = f"ss://{userinfo}@{server}:{port}?{plugin_opts}#{_q(profile)}"
+    attachment_content, attachment_filename = _build_singbox_client_attachment(
+        effective,
+        [
+            {
+                "type": "shadowsocks",
+                "tag": "proxy",
+                "server": server,
+                "server_port": port,
+                "method": method,
+                "password": password,
+                "detour": "shadowtls-out",
+            },
+            {
+                "type": "shadowtls",
+                "tag": "shadowtls-out",
+                "server": server,
+                "server_port": port,
+                "version": 3,
+                "password": shadowtls_password,
+                "tls": {
+                    "enabled": True,
+                    "server_name": shadowtls_server_name,
+                },
+            },
+        ],
+    )
 
     return ExportResult(
         kind="uri",
         title="Shadowsocks-2022 + ShadowTLS",
         content=uri,
+        attachment_content=attachment_content,
+        attachment_filename=attachment_filename,
+        attachment_mime="application/json",
     )
 
 

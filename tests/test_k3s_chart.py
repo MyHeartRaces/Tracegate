@@ -1398,6 +1398,7 @@ def test_tracegate21_chart_declares_lab_only_v8_v9_surfaces() -> None:
     assert values["privateProfiles"]["keys"]["labTuicTransit"] == "lab/tuic-transit.json"
     assert values["gateway"]["images"]["singbox"]["repository"] == "ghcr.io/sagernet/sing-box"
     assert values["gateway"]["images"]["wireguard"]["repository"] == "lscr.io/linuxserver/wireguard"
+    assert values["gateway"]["images"]["mtproto"]["repository"] == "ghcr.io/telemt/telemt"
     assert "experimentalProfiles:" in text
     assert "mieru-direct-lab" in gateways
     assert "restls-direct-lab" in gateways
@@ -1849,6 +1850,10 @@ def test_tracegate21_templates_include_grpc_mtproto_and_mieru_surfaces() -> None
     assert "grpc_pass grpc://127.0.0.1" in text
     assert "client_max_body_size 0;" in text
     assert "be_mtproto" in text
+    assert "/app/telemt run" in text
+    assert "private/mtproto/runtime/config.toml" in text
+    assert "/mtg" not in text
+    assert "simple-run" not in text
     assert "mieru run -c" in text
     assert "/home/app/wstunnel server" in text
     assert "wstunnel-link-crypto" in text
