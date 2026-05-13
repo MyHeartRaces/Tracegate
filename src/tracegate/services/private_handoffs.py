@@ -1606,6 +1606,36 @@ def _chain_state(config: dict[str, Any]) -> dict[str, Any] | None:
     }
 
 
+def _shadowsocks2022_static_server_key(settings: Settings, *, role_upper: str) -> str:
+    raw = (
+        settings.shadowsocks2022_password_entry
+        if role_upper == "ENTRY"
+        else settings.shadowsocks2022_password_transit
+    )
+    value = str(raw or "").strip()
+    if not value:
+        return ""
+    server_key, sep, _user_key = value.rpartition(":")
+    return server_key.strip() if sep else value
+
+
+def _shadowsocks2022_profile_password(
+    settings: Settings,
+    config: dict[str, Any],
+    *,
+    role_upper: str,
+) -> str:
+    password = str(config.get("password") or "").strip()
+    static_server_key = _shadowsocks2022_static_server_key(settings, role_upper=role_upper)
+    if not password or not static_server_key:
+        return password
+    _server_key, sep, user_key = password.rpartition(":")
+    user_key = user_key.strip() if sep else password
+    if not user_key:
+        return password
+    return f"{static_server_key}:{user_key}"
+
+
 def _obfuscation_policy(*, protocol: str, mode: str, chain: dict[str, Any] | None) -> dict[str, Any]:
     if str(mode or "").strip().lower() == "chain" or chain is not None:
         managed_by = str((chain or {}).get("managedBy") or "").strip().lower()
@@ -1660,7 +1690,7 @@ def _shadowtls_profile_state(settings: Settings, row: dict[str, Any], *, role_up
         "sni": str(config.get("sni") or "").strip(),
         "shadowsocks2022": {
             "method": str(config.get("method") or "").strip(),
-            "password": str(config.get("password") or "").strip(),
+            "password": _shadowsocks2022_profile_password(settings, config, role_upper=role_upper),
         },
         "shadowtls": {
             "version": _int_value(shadowtls.get("version"), 3),

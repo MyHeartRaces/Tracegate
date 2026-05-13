@@ -1437,6 +1437,38 @@ def test_reconcile_materializes_private_profile_handoff_for_transit(tmp_path: Pa
     assert changed2 == []
 
 
+def test_reconcile_normalizes_shadowtls_handoff_to_current_static_ss2022_server_key(tmp_path: Path) -> None:
+    settings = Settings(
+        agent_data_root=str(tmp_path),
+        agent_runtime_mode="systemd",
+        agent_role="TRANSIT",
+        agent_runtime_profile="xray-centric",
+        private_runtime_root=str(tmp_path / "private"),
+        agent_reload_profiles_cmd="reload-profiles",
+        shadowsocks2022_password_transit="current-server-key",
+    )
+    _write_tracegate21_profile_artifacts(tmp_path)
+    chain_path = tmp_path / "users/102/connection-v6.json"
+    chain = json.loads(chain_path.read_text(encoding="utf-8"))
+    chain["config"]["password"] = "old-server-key:ss-v6-secret"
+    chain_path.write_text(json.dumps(chain), encoding="utf-8")
+
+    changed = reconcile_all(settings)
+    assert changed == ["profiles"]
+
+    state = json.loads(
+        (tmp_path / "private" / "profiles" / "transit" / "desired-state.json").read_text(encoding="utf-8")
+    )
+    passwords = {
+        row["connectionId"]: row["shadowsocks2022"]["password"]
+        for row in state["shadowsocks2022ShadowTLS"]
+    }
+    assert passwords == {
+        "v3-direct": "current-server-key:ss-v5-secret",
+        "v3-chain": "current-server-key:ss-v6-secret",
+    }
+
+
 def test_reconcile_materializes_only_chain_profile_handoff_for_entry(tmp_path: Path) -> None:
     settings = Settings(
         agent_data_root=str(tmp_path),
