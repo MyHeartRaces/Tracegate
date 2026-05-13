@@ -81,7 +81,7 @@ def test_export_hysteria2_uri() -> None:
     assert attachment["outbounds"][0]["tls"]["alpn"] == ["h3"]
 
 
-def test_export_naiveproxy_http3_attachment() -> None:
+def test_export_naiveproxy_shadowrocket_uri_and_http3_attachment() -> None:
     effective = {
         "protocol": "naiveproxy",
         "server": "auth.example.com",
@@ -101,7 +101,11 @@ def test_export_naiveproxy_http3_attachment() -> None:
     }
     out = export_v2rayn(effective)
 
-    assert out.kind == "attachment"
+    assert out.kind == "uri"
+    assert out.title == "NaiveProxy link · Shadowrocket"
+    assert out.content == "naive+https://tg_v4_user:secret-pass@auth.example.com?padding=true#v4-direct-naiveproxy"
+    assert out.alternate_title == "NaiveProxy HTTP/3 URI"
+    assert out.alternate_content == "naive+quic://tg_v4_user:secret-pass@auth.example.com?padding=true#v4-direct-naiveproxy"
     assert out.attachment_filename == "v4-direct-naiveproxy.naive.json"
     assert out.attachment_mime == "application/json"
     attachment = json.loads((out.attachment_content or b"").decode("utf-8"))
@@ -110,8 +114,6 @@ def test_export_naiveproxy_http3_attachment() -> None:
         "proxy": "quic://tg_v4_user:secret-pass@auth.example.com",
         "log": "",
     }
-    assert out.content == ""
-    assert out.alternate_content is None
     assert out.extra_messages == ()
 
 

@@ -317,6 +317,26 @@ class _DummyState:
         self.cleared += 1
 
 
+@pytest.mark.asyncio
+async def test_safe_edit_text_falls_back_to_new_message_when_original_was_deleted() -> None:
+    class _DeletedMessage(_DummyMessage):
+        async def edit_text(self, *_args, **_kwargs):
+            self.edit_text_calls.append((_args, _kwargs))
+            raise main.TelegramBadRequest(
+                method=SimpleNamespace(),
+                message="Bad Request: message to edit not found",
+            )
+
+    message = _DeletedMessage()
+
+    edited = await main._safe_edit_text(message, "fresh text", reply_markup=object())
+
+    assert edited is True
+    assert len(message.edit_text_calls) == 1
+    assert len(message.answer_calls) == 1
+    assert message.answer_calls[0][0] == ("fresh text",)
+
+
 def test_guide_text_defaults_to_external_placeholder(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(main.settings, "bot_guide_path", "")
     monkeypatch.setattr(main.settings, "bot_guide_message", "[test-private-guide-placeholder]")

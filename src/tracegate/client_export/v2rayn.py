@@ -310,7 +310,7 @@ def export_client_config(effective: dict[str, Any]) -> ExportResult:
 
     - VLESS+REALITY: returns a `vless://...` URI
     - Hysteria2: returns a `hysteria2://...` URI (with insecure=1 by default)
-    - NaiveProxy: returns an official `naive` JSON attachment
+    - NaiveProxy: returns a Shadowrocket-friendly URI plus official `naive` JSON attachment
     - MTProto: returns a Telegram proxy deep link
     """
 
@@ -690,7 +690,11 @@ def _export_naiveproxy(effective: dict[str, Any]) -> ExportResult:
     authority = f"{_q(username)}:{_q(password)}@{server}"
     if port != 443:
         authority = f"{authority}:{port}"
+    h2_proxy = f"https://{authority}"
     h3_proxy = f"quic://{authority}"
+    label = profile or "Tracegate NaiveProxy"
+    shadowrocket_uri = f"naive+{h2_proxy}?padding=true#{_q(label)}"
+    h3_uri = f"naive+{h3_proxy}?padding=true#{_q(label)}"
 
     config = {
         "listen": listen,
@@ -700,9 +704,11 @@ def _export_naiveproxy(effective: dict[str, Any]) -> ExportResult:
     attachment_content = json.dumps(config, ensure_ascii=True, indent=2).encode("utf-8")
     filename = f"{_safe_filename_fragment(profile)}.naive.json"
     return ExportResult(
-        kind="attachment",
-        title="V4 client config",
-        content="",
+        kind="uri",
+        title="NaiveProxy link · Shadowrocket",
+        content=shadowrocket_uri,
+        alternate_title="NaiveProxy HTTP/3 URI",
+        alternate_content=h3_uri,
         attachment_content=attachment_content,
         attachment_filename=filename,
         attachment_mime="application/json",
