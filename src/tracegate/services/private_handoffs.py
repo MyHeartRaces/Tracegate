@@ -182,6 +182,14 @@ def _shadowtls_profile_path(settings: Settings, *, role_upper: str) -> str:
     return str(profile_dir / profile_name)
 
 
+def _private_profile_root(settings: Settings) -> Path:
+    raw = str(settings.private_zapret_profile_dir or "").strip()
+    profile_root = Path(raw or "/etc/tracegate/private")
+    if profile_root.name == "zapret":
+        return profile_root.parent
+    return profile_root
+
+
 def _obfuscation_state_payload(
     settings: Settings,
     *,
@@ -1613,6 +1621,9 @@ def _shadowsocks2022_static_server_key(settings: Settings, *, role_upper: str) -
         else settings.shadowsocks2022_password_transit
     )
     value = str(raw or "").strip()
+    if not value:
+        filename = "ss2022-entry-password" if role_upper == "ENTRY" else "ss2022-transit-password"
+        value = str(_read_text(_private_profile_root(settings) / "credentials" / filename) or "").strip()
     if not value:
         return ""
     server_key, sep, _user_key = value.rpartition(":")

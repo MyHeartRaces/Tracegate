@@ -1444,9 +1444,12 @@ def test_reconcile_normalizes_shadowtls_handoff_to_current_static_ss2022_server_
         agent_role="TRANSIT",
         agent_runtime_profile="xray-centric",
         private_runtime_root=str(tmp_path / "private"),
+        private_zapret_profile_dir=str(tmp_path / "private-profiles"),
         agent_reload_profiles_cmd="reload-profiles",
-        shadowsocks2022_password_transit="current-server-key",
     )
+    credentials_dir = tmp_path / "private-profiles" / "credentials"
+    credentials_dir.mkdir(parents=True)
+    (credentials_dir / "ss2022-transit-password").write_text("current-server-key\n", encoding="utf-8")
     _write_tracegate21_profile_artifacts(tmp_path)
     chain_path = tmp_path / "users/102/connection-v6.json"
     chain = json.loads(chain_path.read_text(encoding="utf-8"))
