@@ -74,8 +74,8 @@ def test_export_hysteria2_uri() -> None:
     assert attachment["inbounds"][0]["users"][0]["username"].startswith("tg_")
     assert attachment["inbounds"][0]["users"][0]["password"]
     assert attachment["outbounds"][0]["type"] == "hysteria2"
-    assert attachment["outbounds"][0]["up_mbps"] == 70
-    assert attachment["outbounds"][0]["down_mbps"] == 70
+    assert attachment["outbounds"][0]["up_mbps"] == 100
+    assert attachment["outbounds"][0]["down_mbps"] == 100
     assert attachment["outbounds"][0]["password"] == "u:p"
     assert attachment["outbounds"][0]["obfs"] == {"type": "salamander", "password": "obfs-secret"}
     assert attachment["outbounds"][0]["tls"]["alpn"] == ["h3"]
@@ -103,7 +103,7 @@ def test_export_hysteria2_chain_caps_stale_bandwidth_to_chain_limit() -> None:
     assert attachment["outbounds"][0]["down_mbps"] == 10
 
 
-def test_export_hysteria2_direct_caps_stale_bandwidth_to_latency_default() -> None:
+def test_export_hysteria2_direct_keeps_explicit_bandwidth_override() -> None:
     effective = {
         "protocol": "hysteria2",
         "server": "endpoint.example.com",
@@ -111,16 +111,16 @@ def test_export_hysteria2_direct_caps_stale_bandwidth_to_latency_default() -> No
         "auth": {"type": "userpass", "username": "u", "password": "p"},
         "obfs": {"type": "salamander", "password": "obfs-secret"},
         "profile": "V2-Direct-QUIC-Hysteria",
-        "up_mbps": 100,
-        "down_mbps": 100,
+        "up_mbps": 200,
+        "down_mbps": 200,
         "rate_limit": {"enabled": False},
     }
 
     out = export_v2rayn(effective)
     attachment = json.loads((out.attachment_content or b"").decode("utf-8"))
 
-    assert attachment["outbounds"][0]["up_mbps"] == 70
-    assert attachment["outbounds"][0]["down_mbps"] == 70
+    assert attachment["outbounds"][0]["up_mbps"] == 200
+    assert attachment["outbounds"][0]["down_mbps"] == 200
 
 
 def test_export_naiveproxy_shadowrocket_uri_and_http3_attachment() -> None:

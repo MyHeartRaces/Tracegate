@@ -259,8 +259,8 @@ def test_hysteria_uses_fixed_public_udp_port_and_salamander() -> None:
 
     assert cfg["port"] == TRACEGATE_PUBLIC_UDP_PORT
     assert cfg["profile"] == "v2-direct-quic-hysteria"
-    assert cfg["up_mbps"] == 70
-    assert cfg["down_mbps"] == 70
+    assert cfg["up_mbps"] == 100
+    assert cfg["down_mbps"] == 100
     assert cfg["rate_limit"]["enabled"] is False
     assert cfg["tls"]["insecure"] is False
     assert cfg["obfs"] == {
