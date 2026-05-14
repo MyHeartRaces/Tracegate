@@ -259,7 +259,20 @@ def _node_disk_io_rate_expr(direction: str) -> str:
 def _component_up_ratio_expr(
     job_selector: str = 'job=~"tracegate-api|tracegate-bot|tracegate-agent|tracegate-dispatcher"',
 ) -> str:
-    return f'avg by (job, component, node, pod) (avg_over_time(up{{namespace="tracegate",{job_selector}}}[5m]))'
+    selector = f'namespace="tracegate",{job_selector}'
+    return (
+        f"avg by (job, component, node, pod) "
+        f"(avg_over_time(up{{{selector}}}[5m]) "
+        f"and on (job, instance, pod) up{{{selector}}})"
+    )
+
+
+def _current_target_availability_expr(job: str) -> str:
+    selector = f'namespace="tracegate",job="{job}"'
+    return (
+        f"avg_over_time(up{{{selector}}}[5m]) "
+        f"and on (job, instance, pod) up{{{selector}}}"
+    )
 
 
 def _http_success_ratio_expr(
@@ -396,12 +409,12 @@ def _slo_alert_rules(ds_uid: str, *, folder_uid: str) -> list[dict[str, Any]]:
             folder_uid=folder_uid,
             group=group,
             ds_uid=ds_uid,
-            expr='min(avg_over_time(up{namespace="tracegate",job="tracegate-api"}[5m]))',
+            expr=f"min({_current_target_availability_expr('tracegate-api')})",
             evaluator="lt",
             threshold=0.99,
             annotations={
                 "summary": "API scrape availability ratio is below 99% (5m)",
-                "description": "avg_over_time(up{job=tracegate-api}[5m]) is below 0.99",
+                "description": "Current API scrape targets have avg_over_time(up[5m]) below 0.99",
             },
             labels={
                 **base_labels,
@@ -417,12 +430,12 @@ def _slo_alert_rules(ds_uid: str, *, folder_uid: str) -> list[dict[str, Any]]:
             folder_uid=folder_uid,
             group=group,
             ds_uid=ds_uid,
-            expr='min(avg_over_time(up{namespace="tracegate",job="tracegate-bot"}[5m]))',
+            expr=f"min({_current_target_availability_expr('tracegate-bot')})",
             evaluator="lt",
             threshold=0.99,
             annotations={
                 "summary": "Bot scrape availability ratio is below 99% (5m)",
-                "description": "avg_over_time(up{job=tracegate-bot}[5m]) is below 0.99",
+                "description": "Current Bot scrape targets have avg_over_time(up[5m]) below 0.99",
             },
             labels={
                 **base_labels,
@@ -438,12 +451,12 @@ def _slo_alert_rules(ds_uid: str, *, folder_uid: str) -> list[dict[str, Any]]:
             folder_uid=folder_uid,
             group=group,
             ds_uid=ds_uid,
-            expr='min(avg_over_time(up{namespace="tracegate",job="tracegate-agent"}[5m]))',
+            expr=f"min({_current_target_availability_expr('tracegate-agent')})",
             evaluator="lt",
             threshold=0.95,
             annotations={
                 "summary": "At least one agent scrape availability ratio is below 95% (5m)",
-                "description": "min(avg_over_time(up{job=tracegate-agent}[5m])) is below 0.95",
+                "description": "Current Agent scrape targets have avg_over_time(up[5m]) below 0.95",
             },
             labels={
                 **base_labels,
@@ -712,7 +725,7 @@ def _ops_alert_rules(
                 **base_labels,
                 "component": "pod",
                 "slo_type": "pod_last_seen",
-                "severity": "critical",
+                "severity": "warning",
             },
             for_duration="2m",
             no_data_state="OK",
@@ -853,10 +866,10 @@ def _ops_alert_rules(
             ds_uid=ds_uid,
             expr=_node_memory_used_percent_expr(),
             evaluator="gt",
-            threshold=90.0,
+            threshold=95.0,
             annotations={
-                "summary": "Node memory usage is above 90%",
-                "description": "Available memory is critically low",
+                "summary": "Node memory usage is above 95%",
+                "description": "Available memory is critically low for a sustained period",
             },
             labels={
                 **base_labels,
@@ -864,7 +877,7 @@ def _ops_alert_rules(
                 "slo_type": "memory_used_percent",
                 "severity": "critical",
             },
-            for_duration="5m",
+            for_duration="10m",
         ),
         _slo_alert_rule(
             uid="tg-ops-cpu-used-high",

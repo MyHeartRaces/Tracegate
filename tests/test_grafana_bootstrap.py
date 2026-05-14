@@ -236,6 +236,7 @@ def test_operator_dashboard_includes_slo_and_ops_panels() -> None:
 
     slo_up = _panel_by_id(dashboard, 1)
     assert "avg_over_time(up" in slo_up["targets"][0]["expr"]
+    assert "and on (job, instance, pod) up" in slo_up["targets"][0]["expr"]
     assert "tracegate-agent" in slo_up["targets"][0]["expr"]
 
     http_success = _panel_by_id(dashboard, 2)
@@ -343,6 +344,7 @@ def test_slo_alert_rules_cover_api_bot_and_agent() -> None:
         'avg_over_time(up{namespace="tracegate",job="tracegate-api"}[5m])'
         in api_avail["data"][0]["model"]["expr"]
     )
+    assert "and on (job, instance, pod) up" in api_avail["data"][0]["model"]["expr"]
     assert api_avail["data"][1]["model"]["conditions"][0]["evaluator"]["type"] == "lt"
     assert api_avail["data"][1]["model"]["conditions"][0]["evaluator"]["params"] == [
         0.99
@@ -350,6 +352,7 @@ def test_slo_alert_rules_cover_api_bot_and_agent() -> None:
 
     agent_avail = by_uid["tg-slo-agent-availability-low"]
     assert agent_avail["for"] == "5m"
+    assert "and on (job, instance, pod) up" in agent_avail["data"][0]["model"]["expr"]
     assert agent_avail["data"][1]["model"]["conditions"][0]["evaluator"]["params"] == [
         0.95
     ]
@@ -439,6 +442,16 @@ def test_ops_alert_rules_cover_nodes_pods_delivery_and_runtime_health() -> None:
 
     restart = by_uid["tg-ops-container-restarted"]
     assert "container_start_time_seconds" in restart["data"][0]["model"]["expr"]
+
+    pod_last_seen = by_uid["tg-ops-pod-not-seen"]
+    assert pod_last_seen["labels"]["severity"] == "warning"
+
+    memory_critical = by_uid["tg-ops-memory-used-critical"]
+    assert memory_critical["for"] == "10m"
+    assert memory_critical["data"][1]["model"]["conditions"][0]["evaluator"][
+        "params"
+    ] == [95.0]
+    assert "above 95%" in memory_critical["annotations"]["summary"]
 
 
 def test_notification_policy_matchers_are_compared_order_insensitively() -> None:
