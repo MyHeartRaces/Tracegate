@@ -14,7 +14,7 @@ from tracegate.services.mtproto import MTPROTO_FAKE_TLS_PROFILE_NAME, MTProtoCon
 _LOCAL_SOCKS_PORT_BASE = 20000
 _LOCAL_SOCKS_PORT_SPAN = 40000
 _HYSTERIA_CHAIN_CLIENT_RATE_LIMIT_MBIT = 10
-_HYSTERIA_DIRECT_DEFAULT_MBIT = 100
+_HYSTERIA_DIRECT_DEFAULT_MBIT = 70
 
 
 class V2RayNExportError(ValueError):
@@ -348,7 +348,7 @@ def _hysteria_export_mbps(effective: dict[str, Any], field: str) -> int:
         value = fallback
     if is_chain:
         return max(1, min(value, fallback))
-    return max(1, value)
+    return max(1, min(value, _HYSTERIA_DIRECT_DEFAULT_MBIT))
 
 
 def export_client_config(effective: dict[str, Any]) -> ExportResult:
