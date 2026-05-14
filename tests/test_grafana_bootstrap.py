@@ -337,6 +337,7 @@ def test_slo_alert_rules_cover_api_bot_and_agent() -> None:
     assert api_avail["folderUID"] == "tracegate-admin"
     assert api_avail["ruleGroup"] == "tracegate-slo"
     assert api_avail["condition"] == "B"
+    assert api_avail["for"] == "10m"
     assert api_avail["labels"]["component"] == "api"
     assert api_avail["labels"]["slo_type"] == "availability"
     assert api_avail["noDataState"] == "Alerting"
@@ -351,7 +352,7 @@ def test_slo_alert_rules_cover_api_bot_and_agent() -> None:
     ]
 
     agent_avail = by_uid["tg-slo-agent-availability-low"]
-    assert agent_avail["for"] == "5m"
+    assert agent_avail["for"] == "10m"
     assert "and on (job, instance, pod) up" in agent_avail["data"][0]["model"]["expr"]
     assert agent_avail["data"][1]["model"]["conditions"][0]["evaluator"]["params"] == [
         0.95
@@ -360,6 +361,7 @@ def test_slo_alert_rules_cover_api_bot_and_agent() -> None:
     bot_avail = by_uid["tg-slo-bot-availability-low"]
     assert bot_avail["labels"]["severity"] == "warning"
     assert bot_avail["noDataState"] == "OK"
+    assert bot_avail["for"] == "10m"
 
     agent_latency = by_uid["tg-slo-agent-http-latency-high"]
     assert (

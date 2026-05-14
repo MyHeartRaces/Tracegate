@@ -422,6 +422,7 @@ def _slo_alert_rules(ds_uid: str, *, folder_uid: str) -> list[dict[str, Any]]:
                 "slo_type": "availability",
                 "severity": "critical",
             },
+            for_duration="10m",
             no_data_state="Alerting",
         ),
         _slo_alert_rule(
@@ -443,6 +444,7 @@ def _slo_alert_rules(ds_uid: str, *, folder_uid: str) -> list[dict[str, Any]]:
                 "slo_type": "availability",
                 "severity": "warning",
             },
+            for_duration="10m",
             no_data_state="OK",
         ),
         _slo_alert_rule(
@@ -464,7 +466,7 @@ def _slo_alert_rules(ds_uid: str, *, folder_uid: str) -> list[dict[str, Any]]:
                 "slo_type": "availability",
                 "severity": "critical",
             },
-            for_duration="5m",
+            for_duration="10m",
             no_data_state="Alerting",
         ),
         _slo_alert_rule(
