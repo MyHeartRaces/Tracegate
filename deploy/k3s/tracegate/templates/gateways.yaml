@@ -906,7 +906,8 @@ spec:
               tc qdisc del dev "${iface}" ingress 2>/dev/null || true
               run_tc tc qdisc add dev "${iface}" handle ffff: ingress
               run_tc tc filter add dev "${iface}" parent ffff: protocol ip pref 10 u32 match u32 0 0 police rate "${rate}" burst "${burst_bytes}b" drop flowid :1
-              run_tc tc filter add dev "${iface}" parent ffff: protocol ipv6 pref 10 u32 match u32 0 0 police rate "${rate}" burst "${burst_bytes}b" drop flowid :1
+              tc filter add dev "${iface}" parent ffff: protocol ipv6 pref 10 u32 match u32 0 0 police rate "${rate}" burst "${burst_bytes}b" drop flowid :1 \
+                || echo "Entry IPv6 ingress policing unavailable on ${iface}; continuing with IPv4 ingress policing" >&2
 {{- end }}
               echo "Entry traffic shaping active on ${iface}: ${rate} egress + ingress police"
               while :; do
