@@ -631,7 +631,7 @@ interconnect:
   emergencyXrayChain:
     enabled: false
     socksPort: 11082
-    serverName: www.microsoft.com
+    serverName: chain.example.com
   entryTransit:
     enabled: true
     primary: mieru

@@ -510,6 +510,10 @@ data:
 {{- $chainBridgeSni := $chainBridge.serverName | default (first $.Values.gateway.roles.transit.reality.serverNames) }}
 {{- $chainBridgePublicKey := $.Values.controlPlane.env.realityPublicKeyTransit | default $.Values.controlPlane.env.realityPublicKey }}
 {{- $chainBridgeShortId := $.Values.controlPlane.env.realityShortIdTransit | default (first $.Values.gateway.roles.transit.reality.shortIds) }}
+{{- $realityServerNames := $role.reality.serverNames }}
+{{- if and (eq $roleName "transit") $chainBridge.enabled $chainBridgeSni }}
+{{- $realityServerNames = append $realityServerNames $chainBridgeSni | uniq }}
+{{- end }}
 {{- $hysteriaListenHost := toString (dig "hysteria" "listenHost" "" $role) }}
 {{- $roleShadowtlsServerName := ternary $.Values.shadowsocks2022.shadowtls.serverNameEntry $.Values.shadowsocks2022.shadowtls.serverNameTransit (eq $roleName "entry") }}
 {{- $naiveproxyTcpExposure := toString $.Values.naiveproxy.tcpExposure }}
@@ -558,6 +562,10 @@ data:
       tcp-request content accept if { req.ssl_hello_type 1 }
       tcp-request content accept if { req.ssl_sni -m found }
       tcp-request content accept if WAIT_END
+{{- if and (eq $roleName "transit") $chainBridge.enabled $chainBridgeSni }}
+      acl chain_bridge_sni req.ssl_sni -i {{ $chainBridgeSni }}
+      use_backend be_reality if chain_bridge_sni
+{{- end }}
       acl tls_adapter_sni req.ssl_sni -i {{ join " " $tlsAdapterServerNames }}
 {{- if $naiveproxyTcpDemuxEnabled }}
       acl naiveproxy_sni req.ssl_sni -i {{ $.Values.naiveproxy.domain }}
@@ -934,7 +942,7 @@ data:
               "show": false,
               "dest": {{ $role.reality.dest | quote }},
               "xver": 0,
-              "serverNames": {{ toJson $role.reality.serverNames }},
+              "serverNames": {{ toJson $realityServerNames }},
               "privateKey": "REPLACE_REALITY_PRIVATE_KEY",
               "shortIds": {{ toJson $role.reality.shortIds }}
             },
