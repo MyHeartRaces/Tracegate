@@ -85,7 +85,7 @@ def test_format_config_delivery_message_mentions_hysteria_fallbacks() -> None:
         has_extra_messages=True,
     )
 
-    assert "raw-token fallback URI" in text
+    assert "fallback-ссылка для совместимости клиента" in text
     assert "дополнительные параметры транспорта" in text
     assert "локальный SOCKS5" not in text
 

@@ -66,8 +66,10 @@ def test_export_hysteria2_uri() -> None:
     assert "sni=t.example.com" in out.content
     assert "peer=t.example.com" not in out.content
     assert "#V3-Hysteria2-QUIC-Direct" in out.content
-    assert out.alternate_title is None
-    assert out.alternate_content is None
+    assert out.alternate_title == "Hysteria2 Shadowrocket fallback URI"
+    assert out.alternate_content is not None
+    assert out.alternate_content.startswith("hy2://p@t.example.com:4443/")
+    assert "#V3-Hysteria2-QUIC-Direct%20Shadowrocket" in out.alternate_content
     assert "Local SOCKS5 credentials" in dict(out.extra_messages)
     attachment = json.loads((out.attachment_content or b"").decode("utf-8"))
     assert out.attachment_filename == "v3-hysteria2-quic-direct.singbox.json"

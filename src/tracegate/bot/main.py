@@ -919,7 +919,7 @@ def _format_config_delivery_message(
             "3. После импорта вернитесь к устройству или ревизиям по кнопкам.",
         ]
     if has_alternate_uri:
-        next_steps.append("5. Ниже будет отдельный raw-token fallback URI.")
+        next_steps.append("5. Ниже будет отдельная fallback-ссылка для совместимости клиента.")
     if has_extra_messages:
         next_steps.append("6. Ниже будут дополнительные параметры транспорта.")
     return (

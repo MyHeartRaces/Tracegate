@@ -677,6 +677,10 @@ def _export_hysteria2(effective: dict[str, Any]) -> ExportResult:
             raise V2RayNExportError("Missing userpass fields for Hysteria2 export")
         share_auth = f"{username}:{password}"
         authority = f"{_q(username)}:{_q(password)}"
+        fallback_authority = _q(password)
+        fallback_name = f"{name} Shadowrocket"
+        alternate_uri = f"hy2://{fallback_authority}@{server}:{port}/?{_encode_query(params)}#{_q(str(fallback_name))}"
+        alternate_title = "Hysteria2 Shadowrocket fallback URI"
     else:
         if not token:
             raise V2RayNExportError("Missing token field for Hysteria2 export")
