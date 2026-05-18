@@ -157,6 +157,9 @@ def test_build_mtproto_telemt_config_preserves_primary_and_issued_secrets() -> N
     assert "port = 9443" in config.config_text
     assert 'public_host = "proxied.tracegate.test"' in config.config_text
     assert 'tls_domain = "proxied.tracegate.test"' in config.config_text
+    assert "classic = true" in config.config_text
+    assert "secure = true" in config.config_text
+    assert "tls = true" in config.config_text
     assert '"tracegate_shared" = "95f0d81f7539ecbe1bd880f48b6a739a"' in config.config_text
     assert '"tg_101" = "fedcba98765432100123456789abcdef"' in config.config_text
 
