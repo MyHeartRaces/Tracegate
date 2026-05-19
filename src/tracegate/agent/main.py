@@ -529,6 +529,7 @@ async def health(response: Response) -> AgentHealthResponse:
         settings.agent_runtime_mode,
         settings.agent_runtime_profile,
         mtproto_public_port=settings.mtproto_public_port,
+        mtproto_route_mode=settings.mtproto_route_mode,
     )
     checks = [AgentHealthCheckResult(**row) for row in rows]
     overall_ok = all(row["ok"] for row in rows)

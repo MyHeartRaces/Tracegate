@@ -48,7 +48,11 @@
 {{- $mtprotoDomain := $.Values.mtproto.domain | default $.Values.controlPlane.env.mtprotoDomain }}
 {{- $mtprotoTlsDomain := $.Values.mtproto.tlsDomain | default $mtprotoDomain }}
 {{- $mtprotoPublicPort := int $.Values.mtproto.publicPort }}
-{{- $mtprotoFallbackPublicPort := and (eq $roleName "transit") $.Values.mtproto.enabled (ne $mtprotoPublicPort (int $role.ports.publicTcp)) }}
+{{- $mtprotoRoute := $.Values.mtproto.route | default dict }}
+{{- $mtprotoRouteMode := toString ($mtprotoRoute.mode | default "endpoint-direct") }}
+{{- $mtprotoEntryRouteEnabled := and $.Values.mtproto.enabled (eq $roleName "entry") (eq $mtprotoRouteMode "entry-transit-endpoint") }}
+{{- $mtprotoRoleHandlesPublic := or (and (eq $roleName "transit") $.Values.mtproto.enabled) $mtprotoEntryRouteEnabled }}
+{{- $mtprotoFallbackPublicPort := and $mtprotoRoleHandlesPublic (ne $mtprotoPublicPort (int $role.ports.publicTcp)) }}
 {{- $linkOuterCarrier := $.Values.interconnect.entryTransit.outerCarrier }}
 {{- $linkOuterCarrierPathPrefix := trimPrefix "/" (toString $linkOuterCarrier.publicPath) }}
 {{- $linkWssCarrierEnabled := and $.Values.interconnect.entryTransit.enabled $linkOuterCarrier.enabled (eq (toString $linkOuterCarrier.mode) "wss") }}
@@ -730,6 +734,8 @@ spec:
               value: {{ $mtprotoTlsDomain | quote }}
             - name: MTPROTO_PUBLIC_PORT
               value: {{ $mtprotoPublicPort | quote }}
+            - name: MTPROTO_ROUTE_MODE
+              value: {{ $mtprotoRouteMode | quote }}
           volumeMounts:
             - name: gateway-state
               mountPath: /var/lib/tracegate

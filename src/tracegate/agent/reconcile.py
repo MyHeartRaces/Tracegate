@@ -562,7 +562,11 @@ def _build_link_crypto_contract_payload(settings: Settings) -> dict[str, object]
         mtproto_public_port = int(settings.mtproto_public_port or TRACEGATE_PUBLIC_TCP_PORT)
     except (TypeError, ValueError):
         mtproto_public_port = TRACEGATE_PUBLIC_TCP_PORT
-    mtproto_uses_tcp8443 = role_upper == "TRANSIT" and mtproto_public_port == TRACEGATE_FORBIDDEN_PUBLIC_TCP_PORT
+    mtproto_route_mode = str(settings.mtproto_route_mode or "").strip().lower()
+    mtproto_uses_tcp8443 = (
+        mtproto_public_port == TRACEGATE_FORBIDDEN_PUBLIC_TCP_PORT
+        and (role_upper == "TRANSIT" or (role_upper == "ENTRY" and mtproto_route_mode == "entry-transit-endpoint"))
+    )
     classes: list[str] = []
     local_ports: dict[str, int] = {}
     selected_profiles: dict[str, list[str]] = {}
@@ -908,9 +912,11 @@ def _build_runtime_contract_payload(settings: Settings) -> dict[str, object]:
     if contract.manages_component("naiveproxy") and naiveproxy_demux_enabled:
         tcp443_owner = "haproxy-demux"
     udp443_owner = "naiveproxy" if bool(settings.naiveproxy_enabled) else public_udp_owner
+    role_upper = str(settings.agent_role or "").strip().upper()
     mtproto_public_port = int(settings.mtproto_public_port or TRACEGATE_PUBLIC_TCP_PORT)
+    mtproto_route_mode = str(settings.mtproto_route_mode or "").strip().lower()
     mtproto_uses_tcp8443 = (
-        str(settings.agent_role or "").strip().upper() == "TRANSIT"
+        (role_upper == "TRANSIT" or (role_upper == "ENTRY" and mtproto_route_mode == "entry-transit-endpoint"))
         and mtproto_public_port == TRACEGATE_FORBIDDEN_PUBLIC_TCP_PORT
     )
     expected_ports = list(contract.expected_ports(settings.agent_role))
@@ -1055,6 +1061,7 @@ def _build_runtime_contract_payload(settings: Settings) -> dict[str, object]:
             "mtprotoTlsDomain": str(settings.mtproto_tls_domain or settings.mtproto_domain or "").strip(),
             "mtprotoPublicPort": mtproto_public_port,
             "mtprotoFallbackPublicPort": mtproto_public_port if mtproto_uses_tcp8443 else 0,
+            "mtprotoRouteMode": mtproto_route_mode or "endpoint-direct",
             "mtprotoFrontingMode": str(settings.mtproto_fronting_mode or "").strip().lower() or "dedicated-dns-only",
         },
         "paths": {

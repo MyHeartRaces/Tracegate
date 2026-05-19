@@ -799,6 +799,7 @@ def test_reconcile_runtime_contract_exposes_private_wrapper_state(tmp_path: Path
         "mtprotoTlsDomain": "proxied.tracegate.test",
         "mtprotoPublicPort": 443,
         "mtprotoFallbackPublicPort": 0,
+        "mtprotoRouteMode": "endpoint-direct",
         "mtprotoFrontingMode": "dedicated-dns-only",
     }
 
@@ -2181,6 +2182,34 @@ def test_reconcile_clears_link_crypto_tcp8443_guard_for_mtproto_fallback(tmp_pat
     assert runtime_contract["fronting"]["forbiddenTcp8443"] is False
     assert runtime_contract["linkCrypto"]["udp"]["dpiResistance"]["portSplit"]["forbidTcp8443"] is False
     assert state["udpLinks"][0]["dpiResistance"]["portSplit"]["forbidTcp8443"] is False
+
+
+def test_reconcile_allows_entry_mtproto_route_tcp8443(tmp_path: Path) -> None:
+    settings = Settings(
+        agent_data_root=str(tmp_path),
+        agent_runtime_mode="systemd",
+        agent_role="ENTRY",
+        agent_runtime_profile="xray-centric",
+        default_entry_host="entry.tracegate.test",
+        default_transit_host="endpoint.tracegate.test",
+        mtproto_domain="proto.tracegate.test",
+        mtproto_tls_domain="www.apple.com",
+        mtproto_public_port=8443,
+        mtproto_route_mode="entry-transit-endpoint",
+    )
+
+    reconcile_all(settings)
+
+    runtime_contract = json.loads((tmp_path / "runtime/runtime-contract.json").read_text(encoding="utf-8"))
+    assert runtime_contract["fronting"]["forbiddenTcp8443"] is False
+    assert runtime_contract["fronting"]["mtprotoFallbackPublicPort"] == 8443
+    assert runtime_contract["fronting"]["mtprotoRouteMode"] == "entry-transit-endpoint"
+    assert {"protocol": "tcp", "port": 8443, "name": "listen tcp/8443 mtproto fallback"} in runtime_contract[
+        "contract"
+    ]["expectedPorts"]
+    assert {"protocol": "tcp", "port": 8443, "name": "blocked tcp/8443"} not in runtime_contract["contract"][
+        "forbiddenPorts"
+    ]
 
 
 def test_reconcile_xray_centric_live_sync_passes_hysteria_user_specs(

@@ -209,11 +209,15 @@ async def gather_health_checks(
     runtime_profile: str = "tracegate-2.2",
     *,
     mtproto_public_port: int = 443,
+    mtproto_route_mode: str = "endpoint-direct",
 ) -> list[dict]:
     contract = resolve_runtime_contract(runtime_profile)
     checks: list[dict] = []
     role_upper = str(role or "").strip().upper()
-    mtproto_uses_tcp8443 = role_upper == "TRANSIT" and int(mtproto_public_port or 0) == TRACEGATE_FORBIDDEN_PUBLIC_TCP_PORT
+    route_mode = str(mtproto_route_mode or "").strip().lower()
+    mtproto_uses_tcp8443 = int(mtproto_public_port or 0) == TRACEGATE_FORBIDDEN_PUBLIC_TCP_PORT and (
+        role_upper == "TRANSIT" or (role_upper == "ENTRY" and route_mode == "entry-transit-endpoint")
+    )
 
     for protocol, port, name in contract.expected_ports(role):
         ok, details = check_port(protocol, port)

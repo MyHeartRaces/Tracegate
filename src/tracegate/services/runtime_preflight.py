@@ -5011,8 +5011,9 @@ def _validate_link_crypto_udp_hardening(
 
 def _contract_mtproto_uses_tcp8443(contract: dict[str, Any], *, role_upper: str) -> bool:
     fronting = _row_dict(contract, "fronting")
+    route_mode = str(fronting.get("mtprotoRouteMode") or "").strip().lower()
     return (
-        role_upper == "TRANSIT"
+        (role_upper == "TRANSIT" or (role_upper == "ENTRY" and route_mode == "entry-transit-endpoint"))
         and _row_int(fronting, "mtprotoPublicPort") == TRACEGATE_FORBIDDEN_PUBLIC_TCP_PORT
         and _row_int(fronting, "mtprotoFallbackPublicPort") == TRACEGATE_FORBIDDEN_PUBLIC_TCP_PORT
         and not bool(fronting.get("forbiddenTcp8443", True))
@@ -6640,7 +6641,13 @@ def _validate_forbidden_public_ports(contract: dict[str, Any], *, role_prefix: s
         for row in rows
     }
     mtproto_uses_tcp8443 = (
-        role_prefix == "transit"
+        (
+            role_prefix == "transit"
+            or (
+                role_prefix == "entry"
+                and str(fronting.get("mtprotoRouteMode") or "").strip().lower() == "entry-transit-endpoint"
+            )
+        )
         and int(fronting.get("mtprotoPublicPort") or 0) == TRACEGATE_FORBIDDEN_PUBLIC_TCP_PORT
     )
     required = {}

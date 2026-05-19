@@ -509,7 +509,14 @@ data:
 {{- $mtprotoTlsDomain := $.Values.mtproto.tlsDomain | default $mtprotoDomain }}
 {{- $mtprotoSniDomains := compact (uniq (list $mtprotoTlsDomain $mtprotoDomain)) }}
 {{- $mtprotoPublicPort := int $.Values.mtproto.publicPort }}
-{{- $mtprotoFallbackPublicPort := and (eq $roleName "transit") $.Values.mtproto.enabled (ne $mtprotoPublicPort (int $role.ports.publicTcp)) }}
+{{- $mtprotoRoute := $.Values.mtproto.route | default dict }}
+{{- $mtprotoRouteMode := toString ($mtprotoRoute.mode | default "endpoint-direct") }}
+{{- $mtprotoEntryRouteEnabled := and $.Values.mtproto.enabled (eq $roleName "entry") (eq $mtprotoRouteMode "entry-transit-endpoint") }}
+{{- $mtprotoEntryUpstreamHost := toString (dig "entry" "upstreamHost" "" $mtprotoRoute) }}
+{{- $mtprotoEndpointAllowedSources := dig "endpoint" "allowedProxySources" (list) $mtprotoRoute }}
+{{- $mtprotoEndpointSourceRestricted := and (eq $roleName "transit") $.Values.mtproto.enabled (gt (len $mtprotoEndpointAllowedSources) 0) }}
+{{- $mtprotoRoleHandlesPublic := or (and (eq $roleName "transit") $.Values.mtproto.enabled) $mtprotoEntryRouteEnabled }}
+{{- $mtprotoFallbackPublicPort := and $mtprotoRoleHandlesPublic (ne $mtprotoPublicPort (int $role.ports.publicTcp)) }}
 {{- $realityMultiInboundGroups := $.Values.gateway.realityMultiInboundGroups | default (list) }}
 {{- $chainBridge := $.Values.interconnect.emergencyXrayChain }}
 {{- $chainBridgeSni := $chainBridge.serverName | default (first $.Values.gateway.roles.transit.reality.serverNames) }}
@@ -561,6 +568,10 @@ data:
 {{- if $mtprotoFallbackPublicPort }}
     frontend fe_tracegate_{{ $roleName }}_mtproto_{{ $mtprotoPublicPort }}
       bind :{{ $mtprotoPublicPort }}
+{{- if $mtprotoEndpointSourceRestricted }}
+      acl mtproto_proxy_src src {{ join " " $mtprotoEndpointAllowedSources }}
+      tcp-request connection reject unless mtproto_proxy_src
+{{- end }}
       default_backend be_mtproto
 
 {{- end }}
@@ -586,10 +597,17 @@ data:
       acl bridge_wss_sni req.ssl_sni -i {{ $linkOuterCarrier.serverName }}
       use_backend be_https_adapter if bridge_wss_sni
 {{- end }}
-{{- if and (eq $roleName "transit") $.Values.mtproto.enabled }}
+{{- if $mtprotoRoleHandlesPublic }}
 {{- if $mtprotoSniDomains }}
       acl mtproto_sni req.ssl_sni -i {{ join " " $mtprotoSniDomains }}
+{{- if $mtprotoEntryRouteEnabled }}
+      use_backend be_mtproto_tls if mtproto_sni
+{{- else if $mtprotoEndpointSourceRestricted }}
+      acl mtproto_proxy_src src {{ join " " $mtprotoEndpointAllowedSources }}
+      use_backend be_mtproto if mtproto_sni mtproto_proxy_src
+{{- else }}
       use_backend be_mtproto if mtproto_sni
+{{- end }}
 {{- end }}
 {{- end }}
 {{- if and $.Values.shadowsocks2022.enabled $roleShadowtlsServerName }}
@@ -625,10 +643,19 @@ data:
     backend be_naiveproxy
       server naiveproxy {{ $.Values.naiveproxy.demux.backendHost }}:{{ int $.Values.naiveproxy.demux.backendPort }} check
 {{- end }}
-{{- if and (eq $roleName "transit") $.Values.mtproto.enabled }}
+{{- if $mtprotoEntryRouteEnabled }}
+
+    backend be_mtproto_tls
+      server mtproto_transit_tls {{ required "mtproto.route.entry.upstreamHost is required when mtproto.route.mode=entry-transit-endpoint" $mtprotoEntryUpstreamHost }}:{{ int $role.ports.publicTcp }} check
+{{- end }}
+{{- if or (and (eq $roleName "transit") $.Values.mtproto.enabled) (and $mtprotoEntryRouteEnabled $mtprotoFallbackPublicPort) }}
 
     backend be_mtproto
+{{- if $mtprotoEntryRouteEnabled }}
+      server mtproto_transit {{ required "mtproto.route.entry.upstreamHost is required when mtproto.route.mode=entry-transit-endpoint" $mtprotoEntryUpstreamHost }}:{{ $mtprotoPublicPort }} check
+{{- else }}
       server mtproto 127.0.0.1:{{ int $.Values.mtproto.backendPort }} check send-proxy-v2
+{{- end }}
 {{- end }}
 ---
 apiVersion: v1

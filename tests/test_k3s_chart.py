@@ -1891,6 +1891,44 @@ def test_mtproto_public_port_8443_renders_dedicated_fallback_frontend(tmp_path: 
     assert "forbidTcp8443: false" in rendered.stdout
 
 
+def test_mtproto_entry_transit_endpoint_route_renders_entry_proxy_and_endpoint_acl(tmp_path: Path) -> None:
+    rendered = _helm_template_with_values(
+        tmp_path,
+        {
+            "mtproto": {
+                "domain": "proto.tracegate.test",
+                "tlsDomain": "www.apple.com",
+                "publicPort": 8443,
+                "route": {
+                    "mode": "entry-transit-endpoint",
+                    "entry": {"upstreamHost": "185.105.108.109"},
+                    "endpoint": {"allowedProxySources": ["185.105.108.109"]},
+                },
+            }
+        },
+    )
+
+    assert rendered.returncode == 0, rendered.stderr
+    assert "frontend fe_tracegate_entry_mtproto_8443" in rendered.stdout
+    assert "frontend fe_tracegate_transit_mtproto_8443" in rendered.stdout
+    entry_fallback = rendered.stdout.split("frontend fe_tracegate_entry_mtproto_8443", 1)[
+        1
+    ].split("frontend fe_tracegate_entry_tls", 1)[0]
+    endpoint_fallback = rendered.stdout.split("frontend fe_tracegate_transit_mtproto_8443", 1)[
+        1
+    ].split("frontend fe_tracegate_transit_tls", 1)[0]
+    assert "server mtproto_transit_tls 185.105.108.109:443 check" in rendered.stdout
+    assert "server mtproto_transit 185.105.108.109:8443 check" in rendered.stdout
+    assert "use_backend be_mtproto_tls if mtproto_sni" in rendered.stdout
+    assert "acl mtproto_sni req.ssl_sni -i" in rendered.stdout
+    assert "use_backend be_mtproto if mtproto_sni mtproto_proxy_src" in rendered.stdout
+    assert "acl mtproto_proxy_src src 185.105.108.109" in endpoint_fallback
+    assert "tcp-request connection reject unless mtproto_proxy_src" in endpoint_fallback
+    assert "tcp-request connection reject unless mtproto_proxy_src" not in entry_fallback
+    assert "MTPROTO_ROUTE_MODE" in rendered.stdout
+    assert "entry-transit-endpoint" in rendered.stdout
+
+
 def test_tracegate22_control_plane_receives_reality_client_material(tmp_path: Path) -> None:
     values = {
         "controlPlane": {

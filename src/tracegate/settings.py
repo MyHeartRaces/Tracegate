@@ -387,6 +387,7 @@ class Settings(BaseSettings):
     mtproto_domain: str = ""
     mtproto_tls_domain: str = ""
     mtproto_public_port: int = 443
+    mtproto_route_mode: str = "endpoint-direct"
     mtproto_fronting_mode: str = "dedicated-dns-only"
     mtproto_public_profile_file: str = _DEFAULT_MTPROTO_PUBLIC_PROFILE_FILE
     mtproto_issued_state_file: str = _DEFAULT_MTPROTO_ISSUED_STATE_FILE

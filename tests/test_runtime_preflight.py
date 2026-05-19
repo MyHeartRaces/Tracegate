@@ -137,6 +137,7 @@ def _runtime_contract(
             "mtprotoDomain": "proxied.tracegate.test" if role == "TRANSIT" else "",
             "mtprotoPublicPort": 443,
             "mtprotoFallbackPublicPort": 0,
+            "mtprotoRouteMode": "endpoint-direct",
             "mtprotoFrontingMode": "dedicated-dns-only",
         },
         "transportProfiles": transport_profiles,
@@ -2003,6 +2004,23 @@ def test_validate_runtime_contract_pair_accepts_mtproto_tcp8443_fallback() -> No
     transit["linkCrypto"] = _entry_transit_link_crypto_contract(role="TRANSIT", forbid_tcp8443=False)
 
     findings = validate_runtime_contract_pair(entry, transit)
+
+    assert findings == []
+
+
+def test_validate_runtime_contract_single_accepts_entry_mtproto_route_tcp8443() -> None:
+    entry = _runtime_contract(role="ENTRY", runtime_profile="tracegate-2.2")
+    entry["contract"]["expectedPorts"] = [
+        {"protocol": "tcp", "port": 8443, "name": "listen tcp/8443 mtproto fallback"},
+    ]
+    entry["contract"]["forbiddenPorts"] = []
+    entry["fronting"]["forbiddenTcp8443"] = False
+    entry["fronting"]["forbiddenPublicPorts"] = []
+    entry["fronting"]["mtprotoPublicPort"] = 8443
+    entry["fronting"]["mtprotoFallbackPublicPort"] = 8443
+    entry["fronting"]["mtprotoRouteMode"] = "entry-transit-endpoint"
+
+    findings = validate_runtime_contract_single(entry, expected_role="ENTRY")
 
     assert findings == []
 

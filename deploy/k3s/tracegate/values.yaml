@@ -768,5 +768,11 @@ mtproto:
   tlsDomain: ""
   publicPort: 443
   backendPort: 9443
+  route:
+    mode: endpoint-direct
+    entry:
+      upstreamHost: ""
+    endpoint:
+      allowedProxySources: []
   obfuscationProfile: mtproto-extra
   stabilityClass: aggressive-obfuscation
