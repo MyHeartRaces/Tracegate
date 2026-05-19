@@ -1350,7 +1350,7 @@ def _render_fronting_cfg(
             f"  server ws_tls {ws_tls_upstream} check",
             "",
             "backend be_mtproto",
-            f"  server mtproto {mtproto_upstream} check",
+            f"  server mtproto {mtproto_upstream} check send-proxy-v2",
             "",
         ]
     )

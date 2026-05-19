@@ -1054,7 +1054,10 @@ def render_materialized_bundles(ctx: MaterializedBundleRenderContext) -> None:
     if ctx.mtproto_domain:
         mtproto_acl = f"  acl mtproto_sni req.ssl_sni -i {ctx.mtproto_domain}"
         mtproto_route = "  use_backend be_transit_mtproto if mtproto_sni"
-        mtproto_backend = f"\nbackend be_transit_mtproto\n  server transit_mtproto {ctx.mtproto_upstream} check\n"
+        mtproto_backend = (
+            f"\nbackend be_transit_mtproto\n"
+            f"  server transit_mtproto {ctx.mtproto_upstream} check send-proxy-v2\n"
+        )
     transit_haproxy = transit_haproxy.replace("REPLACE_MTPROTO_ACL", mtproto_acl)
     transit_haproxy = transit_haproxy.replace("REPLACE_MTPROTO_ROUTE", mtproto_route)
     transit_haproxy = transit_haproxy.replace("REPLACE_MTPROTO_BACKEND", mtproto_backend)

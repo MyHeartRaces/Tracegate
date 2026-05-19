@@ -1067,6 +1067,7 @@ def test_reconcile_materializes_private_runtime_handoff_surfaces_for_transit(tmp
     assert mtproto_state.telemt_config_file == str(private_root / "mtproto" / "runtime" / "config.toml")
     telemt_config = (private_root / "mtproto" / "runtime" / "config.toml").read_text(encoding="utf-8")
     assert 'public_host = "proxied.tracegate.test"' in telemt_config
+    assert "proxy_protocol = true" in telemt_config
     assert 'tls_domain = "proxied.tracegate.test"' in telemt_config
     assert '"tracegate_shared" = "00112233445566778899aabbccddeeff"' in telemt_config
     issued = json.loads((private_root / "mtproto" / "issued.json").read_text(encoding="utf-8"))

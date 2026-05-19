@@ -618,7 +618,7 @@ data:
 {{- if and (eq $roleName "transit") $.Values.mtproto.enabled }}
 
     backend be_mtproto
-      server mtproto 127.0.0.1:{{ int $.Values.mtproto.backendPort }} check
+      server mtproto 127.0.0.1:{{ int $.Values.mtproto.backendPort }} check send-proxy-v2
 {{- end }}
 ---
 apiVersion: v1

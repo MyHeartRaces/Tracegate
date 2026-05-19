@@ -206,6 +206,7 @@ def test_render_materialized_bundles_rewrites_runtime_files(tmp_path: Path) -> N
     assert "ignoreClientBandwidth: false" in entry_hysteria
     assert "password: \"transit-salamander-secret\"" in transit_hysteria
     assert "secret: \"transit-stats-secret\"" in transit_hysteria
+    assert "server transit_mtproto 127.0.0.1:9443 check send-proxy-v2" in transit_haproxy
     assert "bandwidth:" not in transit_hysteria
     assert "ignoreClientBandwidth: true" in transit_hysteria
     assert any(

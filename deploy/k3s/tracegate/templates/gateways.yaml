@@ -433,6 +433,7 @@ spec:
                   printf '%s\n' ''
                   printf '%s\n' '[server]'
                   printf '%s\n' 'port = {{ int $.Values.mtproto.backendPort }}'
+                  printf '%s\n' 'proxy_protocol = true'
                   printf '%s\n' 'metrics_listen = "127.0.0.1:9090"'
                   printf '%s\n' ''
                   printf '%s\n' '[server.api]'

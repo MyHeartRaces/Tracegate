@@ -1851,6 +1851,8 @@ def test_tracegate21_templates_include_grpc_mtproto_and_mieru_surfaces() -> None
     assert "grpc_pass grpc://127.0.0.1" in text
     assert "client_max_body_size 0;" in text
     assert "be_mtproto" in text
+    assert "proxy_protocol = true" in text
+    assert "send-proxy-v2" in text
     assert "/app/telemt" in text
     assert "/var/lib/tracegate/private/mtproto/runtime/config.toml" in text
     assert 'mtproto_config="/state/private/mtproto/runtime/config.toml"' in text

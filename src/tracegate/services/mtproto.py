@@ -285,6 +285,7 @@ def build_mtproto_telemt_config(
         "",
         "[server]",
         f"port = {int(listen_port)}",
+        "proxy_protocol = true",
         f"metrics_listen = {_toml_string(metrics_listen)}",
         "",
         "[server.api]",
