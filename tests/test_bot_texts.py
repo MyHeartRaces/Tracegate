@@ -696,8 +696,20 @@ async def test_mtproto_open_issues_profile_and_sends_links(monkeypatch: pytest.M
             "profile": {
                 "server": "proxied.tracegate.test",
                 "domain": "proxied.tracegate.test",
-                "httpsUrl": "https://t.me/proxy?server=proxied.tracegate.test&port=443&secret=ee0011",
-                "tgUri": "tg://proxy?server=proxied.tracegate.test&port=443&secret=ee0011",
+                "httpsUrl": "https://t.me/proxy?server=proxied.tracegate.test&port=8443&secret=ee0011",
+                "tgUri": "tg://proxy?server=proxied.tracegate.test&port=8443&secret=ee0011",
+                "links": [
+                    {
+                        "port": 8443,
+                        "httpsUrl": "https://t.me/proxy?server=proxied.tracegate.test&port=8443&secret=ee0011",
+                        "tgUri": "tg://proxy?server=proxied.tracegate.test&port=8443&secret=ee0011",
+                    },
+                    {
+                        "port": 443,
+                        "httpsUrl": "https://t.me/proxy?server=proxied.tracegate.test&port=443&secret=ee0011",
+                        "tgUri": "tg://proxy?server=proxied.tracegate.test&port=443&secret=ee0011",
+                    },
+                ],
                 "reused": False,
             },
         }
@@ -711,7 +723,13 @@ async def test_mtproto_open_issues_profile_and_sends_links(monkeypatch: pytest.M
 
     assert len(callback.message.answer_calls) == 2
     assert "Telegram Proxy" in callback.message.answer_calls[0][0][0]
-    assert "https://t.me/proxy" in callback.message.answer_calls[1][0][0]
+    link_text = callback.message.answer_calls[1][0][0]
+    assert "Порт 8443" in link_text
+    assert "port=8443" in link_text
+    assert "tg://proxy?server=proxied.tracegate.test&port=8443" in link_text
+    assert "Порт 443" in link_text
+    assert "port=443" in link_text
+    assert "tg://proxy?server=proxied.tracegate.test&port=443" in link_text
     assert len(callback.message.answer_photo_calls) == 1
     assert "Telegram Proxy отправлен" in callback.answers[-1]
 

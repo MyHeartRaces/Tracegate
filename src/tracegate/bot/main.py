@@ -353,6 +353,35 @@ def _format_mtproto_delivery_message(*, result: dict, rotate: bool) -> str:
     return "\n".join(lines)
 
 
+def _format_mtproto_link_message(profile: dict) -> str:
+    https_url = str(profile.get("httpsUrl") or "").strip()
+    tg_uri = str(profile.get("tgUri") or "").strip()
+    delivered_links: list[tuple[int, str, str]] = []
+    if isinstance(profile.get("links"), list):
+        for row in profile["links"]:
+            if not isinstance(row, dict):
+                continue
+            row_https_url = str(row.get("httpsUrl") or "").strip()
+            if not row_https_url:
+                continue
+            try:
+                row_port = int(row.get("port") or 0)
+            except (TypeError, ValueError):
+                row_port = 0
+            delivered_links.append((row_port, row_https_url, str(row.get("tgUri") or "").strip()))
+
+    if not delivered_links:
+        delivered_links.append((int(profile.get("port") or 0), https_url, tg_uri))
+
+    link_lines = ["🔗 Ссылки для Telegram"]
+    for port, row_https_url, row_tg_uri in delivered_links:
+        label = f"Порт {port}" if port > 0 else "Основная"
+        link_lines.extend(["", f"{label}:", row_https_url])
+        if row_tg_uri:
+            link_lines.extend(["tg://:", row_tg_uri])
+    return "\n".join(link_lines)
+
+
 def _main_menu_text() -> str:
     return (
         "🏠 Tracegate 2\n\n"
@@ -634,7 +663,6 @@ async def _send_mtproto_access(callback: CallbackQuery, *, rotate: bool) -> None
     )
     profile = result.get("profile") or {}
     https_url = str(profile.get("httpsUrl") or "").strip()
-    tg_uri = str(profile.get("tgUri") or "").strip()
     if not https_url:
         raise ValueError("API did not return a valid MTProto httpsUrl")
 
@@ -642,28 +670,7 @@ async def _send_mtproto_access(callback: CallbackQuery, *, rotate: bool) -> None
         _format_mtproto_delivery_message(result=result, rotate=rotate),
         reply_markup=mtproto_delivery_keyboard(),
     )
-    link_lines = ["🔗 Ссылки для Telegram"]
-    delivered_links = []
-    if isinstance(profile.get("links"), list):
-        for row in profile["links"]:
-            if not isinstance(row, dict):
-                continue
-            row_https_url = str(row.get("httpsUrl") or "").strip()
-            if not row_https_url:
-                continue
-            try:
-                row_port = int(row.get("port") or 0)
-            except (TypeError, ValueError):
-                row_port = 0
-            delivered_links.append((row_port, row_https_url))
-    if not delivered_links:
-        delivered_links.append((int(profile.get("port") or 0), https_url))
-    for port, row_https_url in delivered_links:
-        label = f"Порт {port}" if port > 0 else "Основная"
-        link_lines.extend(["", f"{label}:", row_https_url])
-    if tg_uri:
-        link_lines.extend(["", "tg:// deep link:", tg_uri])
-    await callback.message.answer("\n".join(link_lines), disable_web_page_preview=True)
+    await callback.message.answer(_format_mtproto_link_message(profile), disable_web_page_preview=True)
     qr_bytes = _build_qr_png(https_url)
     await callback.message.answer_photo(
         BufferedInputFile(qr_bytes, filename="tracegate-mtproto-qr.png"),
