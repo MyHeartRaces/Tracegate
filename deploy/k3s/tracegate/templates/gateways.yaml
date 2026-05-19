@@ -46,6 +46,7 @@
 {{- $roleEntryTrafficShaperEnabled := and (eq $roleName "entry") $.Values.gateway.trafficShaping.entry.enabled $.Values.gateway.trafficShaping.entry.runtimeSidecar }}
 {{- $roleNodeEncryptionRequired := and $.Values.gateway.nodeEncryption.enabled $.Values.gateway.nodeEncryption.required $.Values.gateway.nodeEncryption.runtimeInitValidation (or (eq $roleName "entry") (eq $roleName "transit")) }}
 {{- $mtprotoDomain := $.Values.mtproto.domain | default $.Values.controlPlane.env.mtprotoDomain }}
+{{- $mtprotoTlsDomain := $.Values.mtproto.tlsDomain | default $mtprotoDomain }}
 {{- $linkOuterCarrier := $.Values.interconnect.entryTransit.outerCarrier }}
 {{- $linkOuterCarrierPathPrefix := trimPrefix "/" (toString $linkOuterCarrier.publicPath) }}
 {{- $linkWssCarrierEnabled := and $.Values.interconnect.entryTransit.enabled $linkOuterCarrier.enabled (eq (toString $linkOuterCarrier.mode) "wss") }}
@@ -445,7 +446,7 @@ spec:
                   printf '%s\n' 'ip = "127.0.0.1"'
                   printf '%s\n' ''
                   printf '%s\n' '[censorship]'
-                  printf '%s\n' 'tls_domain = {{ $mtprotoDomain | quote }}'
+                  printf '%s\n' 'tls_domain = {{ $mtprotoTlsDomain | quote }}'
                   printf '%s\n' 'mask = true'
                   printf '%s\n' 'tls_emulation = true'
                   printf '%s\n' 'tls_front_dir = "tlsfront"'
@@ -722,6 +723,8 @@ spec:
               value: {{ $.Values.interconnect.zapret2.enabled | quote }}
             - name: MTPROTO_DOMAIN
               value: {{ $mtprotoDomain | quote }}
+            - name: MTPROTO_TLS_DOMAIN
+              value: {{ $mtprotoTlsDomain | quote }}
           volumeMounts:
             - name: gateway-state
               mountPath: /var/lib/tracegate

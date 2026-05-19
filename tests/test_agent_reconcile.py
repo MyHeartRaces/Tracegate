@@ -796,6 +796,7 @@ def test_reconcile_runtime_contract_exposes_private_wrapper_state(tmp_path: Path
         ],
         "touchUdp443": False,
         "mtprotoDomain": "proxied.tracegate.test",
+        "mtprotoTlsDomain": "proxied.tracegate.test",
         "mtprotoPublicPort": 443,
         "mtprotoFrontingMode": "dedicated-dns-only",
     }
@@ -959,6 +960,7 @@ def test_reconcile_materializes_private_runtime_handoff_surfaces_for_transit(tmp
         agent_runtime_profile="xray-centric",
         default_transit_host="nlconn.tracegate.test",
         mtproto_domain="proxied.tracegate.test",
+        mtproto_tls_domain="www.apple.com",
         private_mtproto_secret_file=str(tmp_path / "secrets" / "mtproto.txt"),
     )
 
@@ -1059,16 +1061,20 @@ def test_reconcile_materializes_private_runtime_handoff_surfaces_for_transit(tmp
     ) == []
 
     fronting_cfg = (private_root / "fronting" / "runtime" / "haproxy.cfg").read_text(encoding="utf-8")
-    assert "acl mtproto_sni req.ssl_sni -i proxied.tracegate.test" in fronting_cfg
+    assert "acl mtproto_sni req.ssl_sni -i www.apple.com" in fronting_cfg
     assert "acl ws_tls_sni req.ssl_sni -i nlconn.tracegate.test" in fronting_cfg
 
+    assert runtime_contract["fronting"]["mtprotoDomain"] == "proxied.tracegate.test"
+    assert runtime_contract["fronting"]["mtprotoTlsDomain"] == "www.apple.com"
     assert mtproto_state.issued_state_file == str(private_root / "mtproto" / "issued.json")
     assert mtproto_state.runtime == "telemt"
     assert mtproto_state.telemt_config_file == str(private_root / "mtproto" / "runtime" / "config.toml")
     telemt_config = (private_root / "mtproto" / "runtime" / "config.toml").read_text(encoding="utf-8")
     assert 'public_host = "proxied.tracegate.test"' in telemt_config
     assert "proxy_protocol = true" in telemt_config
-    assert 'tls_domain = "proxied.tracegate.test"' in telemt_config
+    assert 'tls_domain = "www.apple.com"' in telemt_config
+    assert public_profile.server == "proxied.tracegate.test"
+    assert public_profile.domain == "www.apple.com"
     assert '"tracegate_shared" = "00112233445566778899aabbccddeeff"' in telemt_config
     issued = json.loads((private_root / "mtproto" / "issued.json").read_text(encoding="utf-8"))
     assert issued == {"version": 1, "entries": []}

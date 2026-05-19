@@ -385,6 +385,7 @@ class Settings(BaseSettings):
     # Future private MTProto/fronting hints exposed via runtime-contract.json for host-local wrappers.
     # Keep MTProto on a dedicated real domain and avoid claiming the public UDP/Hysteria surface in the private TCP demux layer.
     mtproto_domain: str = ""
+    mtproto_tls_domain: str = ""
     mtproto_public_port: int = 443
     mtproto_fronting_mode: str = "dedicated-dns-only"
     mtproto_public_profile_file: str = _DEFAULT_MTPROTO_PUBLIC_PROFILE_FILE

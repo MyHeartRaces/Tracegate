@@ -505,6 +505,9 @@ data:
 {{- $linkOuterCarrier := $.Values.interconnect.entryTransit.outerCarrier }}
 {{- $linkWssCarrierEnabled := and $.Values.interconnect.entryTransit.enabled $linkOuterCarrier.enabled (eq (toString $linkOuterCarrier.mode) "wss") }}
 {{- $tlsAdapterServerNames := concat (list $role.tls.serverName) ($role.tls.extraServerNames | default (list)) | uniq }}
+{{- $mtprotoDomain := $.Values.mtproto.domain | default $.Values.controlPlane.env.mtprotoDomain }}
+{{- $mtprotoTlsDomain := $.Values.mtproto.tlsDomain | default $mtprotoDomain }}
+{{- $mtprotoSniDomains := compact (uniq (list $mtprotoTlsDomain $mtprotoDomain)) }}
 {{- $realityMultiInboundGroups := $.Values.gateway.realityMultiInboundGroups | default (list) }}
 {{- $chainBridge := $.Values.interconnect.emergencyXrayChain }}
 {{- $chainBridgeSni := $chainBridge.serverName | default (first $.Values.gateway.roles.transit.reality.serverNames) }}
@@ -576,9 +579,8 @@ data:
       use_backend be_https_adapter if bridge_wss_sni
 {{- end }}
 {{- if and (eq $roleName "transit") $.Values.mtproto.enabled }}
-{{- $mtprotoDomain := $.Values.mtproto.domain | default $.Values.controlPlane.env.mtprotoDomain }}
-{{- if $mtprotoDomain }}
-      acl mtproto_sni req.ssl_sni -i {{ $mtprotoDomain }}
+{{- if $mtprotoSniDomains }}
+      acl mtproto_sni req.ssl_sni -i {{ join " " $mtprotoSniDomains }}
       use_backend be_mtproto if mtproto_sni
 {{- end }}
 {{- end }}

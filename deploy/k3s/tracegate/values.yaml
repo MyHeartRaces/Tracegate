@@ -765,6 +765,7 @@ shadowsocks2022:
 mtproto:
   enabled: true
   domain: ""
+  tlsDomain: ""
   publicPort: 443
   backendPort: 9443
   obfuscationProfile: mtproto-extra

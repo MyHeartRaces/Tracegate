@@ -6343,6 +6343,7 @@ def validate_mtproto_gateway_state(
 
     if public_profile is not None:
         expected_domain = str(fronting.get("mtprotoDomain") or "").strip()
+        expected_tls_domain = str(fronting.get("mtprotoTlsDomain") or expected_domain).strip()
         expected_port = int(fronting.get("mtprotoPublicPort") or 443)
         if state.public_profile_file and state.public_profile_file != str(public_profile.path):
             findings.append(_finding("warning", "mtproto-public-profile-file", "mtproto runtime-state public profile path diverges from the validated public-profile.json"))
@@ -6350,8 +6351,8 @@ def validate_mtproto_gateway_state(
             findings.append(_finding("warning", "mtproto-public-profile-server", "MTProto public profile server diverges from mtproto runtime-state domain"))
         if public_profile.port != state.public_port or public_profile.port != expected_port:
             findings.append(_finding("warning", "mtproto-public-profile-port", "MTProto public profile port diverges from mtproto runtime-state publicPort"))
-        if public_profile.domain != state.domain or public_profile.domain != expected_domain:
-            findings.append(_finding("warning", "mtproto-public-profile-domain", "MTProto public profile domain diverges from mtproto runtime-state domain"))
+        if public_profile.domain != expected_tls_domain:
+            findings.append(_finding("warning", "mtproto-public-profile-domain", "MTProto public profile TLS domain diverges from runtime-contract"))
         if public_profile.transport != "tls":
             findings.append(_finding("warning", "mtproto-public-profile-transport", f"MTProto public profile transport is not tls: {public_profile.transport}"))
         if public_profile.profile_name != MTPROTO_FAKE_TLS_PROFILE_NAME:

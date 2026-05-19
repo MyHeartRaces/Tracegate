@@ -207,3 +207,4 @@ wireguard:
 mtproto:
   enabled: true
   domain: mtproto.example.com
+  tlsDomain: www.example.com

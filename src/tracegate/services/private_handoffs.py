@@ -1308,7 +1308,7 @@ def _render_fronting_cfg(
     ws_tls_upstream: str,
     mtproto_upstream: str,
     ws_sni: str,
-    mtproto_domain: str,
+    mtproto_sni: str,
 ) -> str:
     lines = [
         "global",
@@ -1331,11 +1331,11 @@ def _render_fronting_cfg(
         "  tcp-request content accept if { req.ssl_sni -m found }",
         "  tcp-request content accept if WAIT_END",
     ]
-    if mtproto_domain:
-        lines.append(f"  acl mtproto_sni req.ssl_sni -i {mtproto_domain}")
+    if mtproto_sni:
+        lines.append(f"  acl mtproto_sni req.ssl_sni -i {mtproto_sni}")
     if ws_sni:
         lines.append(f"  acl ws_tls_sni req.ssl_sni -i {ws_sni}")
-    if mtproto_domain:
+    if mtproto_sni:
         lines.append("  use_backend be_mtproto if mtproto_sni")
     if ws_sni:
         lines.append("  use_backend be_ws_tls if ws_tls_sni")
@@ -1384,7 +1384,12 @@ def _write_fronting_state(
         public_udp_port = TRACEGATE_PUBLIC_UDP_PORT
     public_udp_owner = str(fronting.get("publicUdpOwner") or "").strip()
     udp443_owner = str(fronting.get("udp443Owner") or public_udp_owner).strip()
-    mtproto_domain = str(settings.private_fronting_mtproto_domain_override or "").strip() or str(fronting.get("mtprotoDomain") or "").strip()
+    mtproto_domain = str(fronting.get("mtprotoDomain") or "").strip()
+    mtproto_sni = (
+        str(settings.private_fronting_mtproto_domain_override or "").strip()
+        or str(fronting.get("mtprotoTlsDomain") or "").strip()
+        or mtproto_domain
+    )
     ws_sni = str(settings.private_fronting_ws_sni or "").strip() or str(settings.default_transit_host or "").strip()
 
     payload = {
@@ -1400,6 +1405,7 @@ def _write_fronting_state(
         "mtprotoProfileFile": _mtproto_profile_path(settings),
         "touchUdp443": bool(fronting.get("touchUdp443", settings.fronting_touch_udp_443)),
         "mtprotoDomain": mtproto_domain,
+        "mtprotoTlsDomain": mtproto_sni,
         "mtprotoFrontingMode": str(fronting.get("mtprotoFrontingMode") or settings.mtproto_fronting_mode or "dedicated-dns-only").strip().lower(),
         "tcp443Owner": str(fronting.get("tcp443Owner") or "").strip(),
         "publicUdpPort": public_udp_port,
@@ -1415,7 +1421,7 @@ def _write_fronting_state(
         ws_tls_upstream=payload["wsTlsUpstream"],
         mtproto_upstream=payload["mtprotoUpstream"],
         ws_sni=payload["wsSni"],
-        mtproto_domain=payload["mtprotoDomain"],
+        mtproto_sni=payload["mtprotoTlsDomain"],
     )
 
     changed = False
@@ -1451,6 +1457,7 @@ def _write_mtproto_state(
         "backend": str(settings.private_mtproto_backend or "").strip().lower() or "private",
         "runtime": mtproto_runtime,
         "domain": str(settings.mtproto_domain or "").strip(),
+        "tlsDomain": str(settings.mtproto_tls_domain or settings.mtproto_domain or "").strip(),
         "publicPort": int(settings.mtproto_public_port or 443),
         "upstreamHost": str(settings.private_mtproto_upstream_host or "").strip() or "127.0.0.1",
         "upstreamPort": int(settings.private_mtproto_upstream_port or 9443),
@@ -1471,13 +1478,14 @@ def _write_mtproto_state(
     if secret_file.is_file() and payload["domain"] and payload["publicPort"] > 0:
         try:
             normalized_domain = normalize_mtproto_domain(payload["domain"])
+            normalized_tls_domain = normalize_mtproto_domain(payload["tlsDomain"])
             server_secret_hex = _read_secret_hex(secret_file)
             share = build_mtproto_share_links(
                 server=normalized_domain,
                 port=int(payload["publicPort"]),
                 secret_hex=server_secret_hex,
                 transport="tls",
-                domain=normalized_domain,
+                domain=normalized_tls_domain,
             )
             if mtproto_runtime == "telemt":
                 telemt_config = build_mtproto_telemt_config(
@@ -1485,7 +1493,7 @@ def _write_mtproto_state(
                     listen_ip=str(payload["upstreamHost"]),
                     public_host=normalized_domain,
                     public_port=int(payload["publicPort"]),
-                    tls_domain=normalized_domain,
+                    tls_domain=normalized_tls_domain,
                     primary_secret_hex=server_secret_hex,
                     issued_secret_entries=load_mtproto_issued_secret_entries(issued_state_file),
                 )
@@ -1499,7 +1507,8 @@ def _write_mtproto_state(
                 "server": normalized_domain,
                 "port": int(payload["publicPort"]),
                 "transport": "tls",
-                "domain": normalized_domain,
+                "domain": normalized_tls_domain,
+                "tlsDomain": normalized_tls_domain,
                 "secretPolicy": "shared",
                 "clientSecretHex": share.client_secret_hex,
                 "tgUri": share.tg_uri,

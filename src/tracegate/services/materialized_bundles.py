@@ -364,6 +364,7 @@ class MaterializedBundleRenderContext:
     entry_tls_server_name: str
     transit_tls_server_name: str
     mtproto_domain: str
+    mtproto_tls_domain: str
     mtproto_upstream: str
     decoy_dir: str
     transit_decoy_agent_upstream: str
@@ -503,6 +504,7 @@ class MaterializedBundleRenderContext:
         entry_tls_server_name = _first(env, "ENTRY_TLS_SERVER_NAME", default=entry_host)
         transit_tls_server_name = _first(env, "TRANSIT_TLS_SERVER_NAME", default=transit_host)
         mtproto_domain = _first(env, "MTPROTO_DOMAIN")
+        mtproto_tls_domain = _first(env, "MTPROTO_TLS_DOMAIN", default=mtproto_domain)
         mtproto_upstream = _haproxy_server_address(
             _first(
                 env,
@@ -574,6 +576,7 @@ class MaterializedBundleRenderContext:
             entry_tls_server_name=entry_tls_server_name,
             transit_tls_server_name=transit_tls_server_name,
             mtproto_domain=mtproto_domain,
+            mtproto_tls_domain=mtproto_tls_domain,
             mtproto_upstream=mtproto_upstream,
             decoy_dir=decoy_dir,
             transit_decoy_agent_upstream=transit_decoy_agent_upstream,
@@ -679,6 +682,7 @@ def _materialized_manifest_payload(ctx: "MaterializedBundleRenderContext") -> di
                     "echEnabled": ech_enabled,
                     "mtprotoFrontingEnabled": role_upper == "TRANSIT" and bool(str(ctx.mtproto_domain or "").strip()),
                     "mtprotoDomain": str(ctx.mtproto_domain or "").strip() if role_upper == "TRANSIT" else "",
+                    "mtprotoTlsDomain": str(ctx.mtproto_tls_domain or ctx.mtproto_domain or "").strip() if role_upper == "TRANSIT" else "",
                     "decoyDir": str(ctx.decoy_dir or "").strip(),
                     "transitDecoySecretPath": ctx.transit_decoy_secret_path if role_upper == "TRANSIT" else "",
                 },
@@ -1051,8 +1055,9 @@ def render_materialized_bundles(ctx: MaterializedBundleRenderContext) -> None:
     mtproto_acl = ""
     mtproto_route = ""
     mtproto_backend = ""
+    mtproto_sni = str(ctx.mtproto_tls_domain or ctx.mtproto_domain or "").strip()
     if ctx.mtproto_domain:
-        mtproto_acl = f"  acl mtproto_sni req.ssl_sni -i {ctx.mtproto_domain}"
+        mtproto_acl = f"  acl mtproto_sni req.ssl_sni -i {mtproto_sni}"
         mtproto_route = "  use_backend be_transit_mtproto if mtproto_sni"
         mtproto_backend = (
             f"\nbackend be_transit_mtproto\n"

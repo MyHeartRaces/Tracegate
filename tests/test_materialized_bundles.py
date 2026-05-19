@@ -95,6 +95,7 @@ def test_context_uses_shared_defaults_and_fallback_values(tmp_path: Path) -> Non
     assert ctx.entry_tls_server_name == "entry.tracegate.test"
     assert ctx.transit_tls_server_name == "transit.tracegate.test"
     assert ctx.mtproto_domain == "proxied.tracegate.test"
+    assert ctx.mtproto_tls_domain == "proxied.tracegate.test"
     assert ctx.mtproto_upstream == "127.0.0.1:9443"
     assert ctx.decoy_dir == "/var/www/decoy"
     assert ctx.transit_decoy_agent_upstream == "http://127.0.0.1:8070"

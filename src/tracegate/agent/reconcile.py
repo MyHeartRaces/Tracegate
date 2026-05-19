@@ -1029,6 +1029,7 @@ def _build_runtime_contract_payload(settings: Settings) -> dict[str, object]:
             ],
             "touchUdp443": bool(settings.fronting_touch_udp_443),
             "mtprotoDomain": str(settings.mtproto_domain or "").strip(),
+            "mtprotoTlsDomain": str(settings.mtproto_tls_domain or settings.mtproto_domain or "").strip(),
             "mtprotoPublicPort": int(settings.mtproto_public_port),
             "mtprotoFrontingMode": str(settings.mtproto_fronting_mode or "").strip().lower() or "dedicated-dns-only",
         },

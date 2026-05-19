@@ -307,6 +307,8 @@ spec:
               value: {{ .Values.controlPlane.env.vlessWsPath | quote }}
             - name: MTPROTO_DOMAIN
               value: {{ (.Values.mtproto.domain | default .Values.controlPlane.env.mtprotoDomain) | quote }}
+            - name: MTPROTO_TLS_DOMAIN
+              value: {{ (.Values.mtproto.tlsDomain | default (.Values.mtproto.domain | default .Values.controlPlane.env.mtprotoDomain)) | quote }}
             - name: NAIVEPROXY_HOST
               value: {{ (.Values.controlPlane.env.naiveproxyHost | default .Values.naiveproxy.domain) | quote }}
             - name: NAIVEPROXY_PUBLIC_TCP_PORT
