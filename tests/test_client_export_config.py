@@ -4,7 +4,7 @@ from urllib.parse import parse_qs, urlparse
 
 import pytest
 
-from tracegate.client_export.v2rayn import V2RayNExportError, export_v2rayn
+from tracegate.client_export.config import ClientConfigExportError, export_client_config
 
 
 def _extra_content(out, title: str) -> str:
@@ -24,7 +24,7 @@ def test_export_vless_reality_uri() -> None:
         "xhttp": {"mode": "auto", "path": "/api/v1/update"},
         "profile": "V1-VLESS-Reality-Direct",
     }
-    out = export_v2rayn(effective)
+    out = export_client_config(effective)
     assert out.kind == "uri"
     assert out.content.startswith("vless://11111111-2222-3333-4444-555555555555@t.example.com:443?")
     assert "security=reality" in out.content
@@ -56,7 +56,7 @@ def test_export_hysteria2_uri() -> None:
         "obfs": {"type": "salamander", "password": "obfs-secret"},
         "profile": "V3-Hysteria2-QUIC-Direct",
     }
-    out = export_v2rayn(effective)
+    out = export_client_config(effective)
     assert out.kind == "uri"
     assert out.content.startswith("hysteria2://u:p@t.example.com:4443/")
     assert "insecure=0" not in out.content
@@ -98,7 +98,7 @@ def test_export_hysteria2_chain_caps_stale_bandwidth_to_chain_limit() -> None:
         "chain": {"type": "entry-transit"},
     }
 
-    out = export_v2rayn(effective)
+    out = export_client_config(effective)
     attachment = json.loads((out.attachment_content or b"").decode("utf-8"))
 
     assert attachment["outbounds"][0]["up_mbps"] == 10
@@ -118,7 +118,7 @@ def test_export_hysteria2_direct_keeps_explicit_bandwidth_override() -> None:
         "rate_limit": {"enabled": False},
     }
 
-    out = export_v2rayn(effective)
+    out = export_client_config(effective)
     attachment = json.loads((out.attachment_content or b"").decode("utf-8"))
 
     assert attachment["outbounds"][0]["up_mbps"] == 200
@@ -143,7 +143,7 @@ def test_export_naiveproxy_shadowrocket_uri_and_http3_attachment() -> None:
             },
         },
     }
-    out = export_v2rayn(effective)
+    out = export_client_config(effective)
 
     assert out.kind == "uri"
     assert out.title == "NaiveProxy link · Shadowrocket"
@@ -177,8 +177,8 @@ def test_export_hysteria2_rejects_missing_salamander() -> None:
         "profile": "V3-Hysteria2-QUIC-Direct",
     }
 
-    with pytest.raises(V2RayNExportError, match="Salamander"):
-        export_v2rayn(effective)
+    with pytest.raises(ClientConfigExportError, match="Salamander"):
+        export_client_config(effective)
 
 
 def test_export_hysteria2_token_uri() -> None:
@@ -194,7 +194,7 @@ def test_export_hysteria2_token_uri() -> None:
         "obfs": {"type": "salamander", "password": "obfs-secret"},
         "profile": "V3-Hysteria2-QUIC-Direct",
     }
-    out = export_v2rayn(effective)
+    out = export_client_config(effective)
     assert out.kind == "uri"
     assert out.content.startswith("hysteria2://client-token%3Adevice-token@t.example.com:4443/")
     assert "insecure=0" not in out.content
@@ -220,7 +220,7 @@ def test_export_hysteria2_token_uri_falls_back_to_raw_token_when_it_is_not_split
         "obfs": {"type": "salamander", "password": "obfs-secret"},
         "profile": "V3-Hysteria2-QUIC-Direct",
     }
-    out = export_v2rayn(effective)
+    out = export_client_config(effective)
     assert out.content.startswith("hysteria2://opaque-token@t.example.com:4443/")
 
 
@@ -236,7 +236,7 @@ def test_export_hysteria2_ip_sni_forces_insecure_tls() -> None:
         "profile": "V3-Hysteria2-QUIC-Direct",
     }
 
-    out = export_v2rayn(effective)
+    out = export_client_config(effective)
     attachment = json.loads((out.attachment_content or b"").decode("utf-8"))
 
     assert "insecure=1" in out.content
@@ -253,7 +253,7 @@ def test_export_mtproto_tls_link() -> None:
         "domain": "proxied.tracegate.test",
         "profile": "MTProto-FakeTLS-Direct",
     }
-    out = export_v2rayn(effective)
+    out = export_client_config(effective)
     assert out.kind == "uri"
     assert out.title == "Telegram Proxy link · MTProto-FakeTLS-Direct"
     assert out.content.startswith("https://t.me/proxy?server=proxied.tracegate.test&port=443&secret=ee95f0")
@@ -271,7 +271,7 @@ def test_export_vless_ws_tls_uri() -> None:
         "tls": {"server_name": "t.example.com", "insecure": True},
         "profile": "V1-VLESS-WS-TLS-Direct",
     }
-    out = export_v2rayn(effective)
+    out = export_client_config(effective)
     assert out.kind == "uri"
     assert out.content.startswith("vless://11111111-2222-3333-4444-555555555555@t.example.com:443?")
     assert "security=tls" in out.content
@@ -302,7 +302,7 @@ def test_export_vless_ws_tls_can_use_alternate_connect_host_with_domain_sni() ->
         "profile": "V0-WS-VLESS",
     }
 
-    out = export_v2rayn(effective)
+    out = export_client_config(effective)
     attachment = json.loads((out.attachment_content or b"").decode("utf-8"))
 
     assert out.content.startswith("vless://11111111-2222-3333-4444-555555555555@edge-connect.tracegate.test:443?")
@@ -324,7 +324,7 @@ def test_export_vless_grpc_tls_uri() -> None:
         "tls": {"server_name": "t.example.com", "insecure": False},
         "profile": "V1-VLESS-gRPC-TLS-Direct",
     }
-    out = export_v2rayn(effective)
+    out = export_client_config(effective)
     assert out.kind == "uri"
     assert out.content.startswith("vless://11111111-2222-3333-4444-555555555555@t.example.com:443?")
     assert "security=tls" in out.content
@@ -355,7 +355,7 @@ def test_export_vless_grpc_tls_can_use_alternate_connect_host_with_domain_sni() 
         "profile": "V0-gRPC-VLESS",
     }
 
-    out = export_v2rayn(effective)
+    out = export_client_config(effective)
     attachment = json.loads((out.attachment_content or b"").decode("utf-8"))
 
     assert out.content.startswith("vless://11111111-2222-3333-4444-555555555555@edge-connect.tracegate.test:443?")
@@ -380,7 +380,7 @@ def test_export_uses_explicit_local_socks_credentials() -> None:
         },
     }
 
-    out = export_v2rayn(effective)
+    out = export_client_config(effective)
     attachment = json.loads((out.attachment_content or b"").decode("utf-8"))
 
     assert attachment["inbounds"][0]["port"] == 18080
@@ -406,8 +406,8 @@ def test_export_rejects_non_loopback_local_socks_listener() -> None:
         },
     }
 
-    with pytest.raises(V2RayNExportError, match="loopback"):
-        export_v2rayn(effective)
+    with pytest.raises(ClientConfigExportError, match="loopback"):
+        export_client_config(effective)
 
 
 def test_export_rejects_disabled_local_socks_auth() -> None:
@@ -424,8 +424,8 @@ def test_export_rejects_disabled_local_socks_auth() -> None:
         },
     }
 
-    with pytest.raises(V2RayNExportError, match="explicitly disabled"):
-        export_v2rayn(effective)
+    with pytest.raises(ClientConfigExportError, match="explicitly disabled"):
+        export_client_config(effective)
 
 
 def test_export_rejects_client_side_xray_handler_service() -> None:
@@ -440,8 +440,8 @@ def test_export_rejects_client_side_xray_handler_service() -> None:
         "xray_api": {"enabled": True, "services": ["HandlerService"]},
     }
 
-    with pytest.raises(V2RayNExportError, match="HandlerService"):
-        export_v2rayn(effective)
+    with pytest.raises(ClientConfigExportError, match="HandlerService"):
+        export_client_config(effective)
 
 
 def test_export_shadowsocks2022_shadowtls_single_line_uri() -> None:
@@ -464,7 +464,7 @@ def test_export_shadowsocks2022_shadowtls_single_line_uri() -> None:
         },
     }
 
-    out = export_v2rayn(effective)
+    out = export_client_config(effective)
 
     assert out.kind == "uri"
     assert out.content.startswith("ss://")
@@ -531,7 +531,7 @@ def test_export_wireguard_wstunnel_attachment_requires_local_auth() -> None:
         },
     }
 
-    out = export_v2rayn(effective)
+    out = export_client_config(effective)
     attachment = json.loads((out.attachment_content or b"").decode("utf-8"))
 
     assert out.kind == "attachment"
@@ -565,8 +565,8 @@ def test_export_wireguard_wstunnel_rejects_invalid_wstunnel_target() -> None:
         },
     }
 
-    with pytest.raises(V2RayNExportError, match="wss://host:443/path"):
-        export_v2rayn(effective)
+    with pytest.raises(ClientConfigExportError, match="wss://host:443/path"):
+        export_client_config(effective)
 
 
 @pytest.mark.parametrize("url", ["wss://edge.example.com:443/cdn ws", "wss://edge.example.com:443/cdn/ws?debug=1"])
@@ -588,8 +588,8 @@ def test_export_wireguard_wstunnel_rejects_unclean_wstunnel_target(url: str) -> 
         },
     }
 
-    with pytest.raises(V2RayNExportError, match="wss://host:443/path"):
-        export_v2rayn(effective)
+    with pytest.raises(ClientConfigExportError, match="wss://host:443/path"):
+        export_client_config(effective)
 
 
 def test_export_wireguard_wstunnel_rejects_non_loopback_local_udp() -> None:
@@ -610,8 +610,8 @@ def test_export_wireguard_wstunnel_rejects_non_loopback_local_udp() -> None:
         },
     }
 
-    with pytest.raises(V2RayNExportError, match="loopback"):
-        export_v2rayn(effective)
+    with pytest.raises(ClientConfigExportError, match="loopback"):
+        export_client_config(effective)
 
 
 def test_export_wireguard_wstunnel_rejects_unsafe_mtu() -> None:
@@ -633,8 +633,8 @@ def test_export_wireguard_wstunnel_rejects_unsafe_mtu() -> None:
         },
     }
 
-    with pytest.raises(V2RayNExportError, match="1200..1420"):
-        export_v2rayn(effective)
+    with pytest.raises(ClientConfigExportError, match="1200..1420"):
+        export_client_config(effective)
 
 
 @pytest.mark.parametrize(
@@ -692,7 +692,7 @@ def test_export_wireguard_wstunnel_rejects_unsafe_mtu() -> None:
     ],
 )
 def test_exported_local_proxy_attachments_always_require_auth(effective: dict) -> None:
-    out = export_v2rayn(effective)
+    out = export_client_config(effective)
     attachment = json.loads((out.attachment_content or b"").decode("utf-8"))
     inbound = attachment["inbounds"][0]
 
@@ -713,8 +713,8 @@ def test_exported_local_proxy_attachments_always_require_auth(effective: dict) -
 
 def test_export_rejects_unsupported_protocol() -> None:
     effective = {"protocol": "unknown"}
-    with pytest.raises(V2RayNExportError, match="Unsupported protocol"):
-        export_v2rayn(effective)
+    with pytest.raises(ClientConfigExportError, match="Unsupported protocol"):
+        export_client_config(effective)
 
 
 def test_export_vless_reality_uri_defaults_to_xhttp_without_xhttp_block() -> None:
@@ -727,7 +727,7 @@ def test_export_vless_reality_uri_defaults_to_xhttp_without_xhttp_block() -> Non
         "reality": {"public_key": "PUBKEY", "short_id": "abcd"},
         "profile": "legacy-vless",
     }
-    out = export_v2rayn(effective)
+    out = export_client_config(effective)
     assert out.kind == "uri"
     assert "security=reality" in out.content
     assert "type=xhttp" in out.content

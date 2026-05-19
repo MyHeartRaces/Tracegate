@@ -467,6 +467,7 @@ async def test_send_client_config_handles_attachment_only_export(monkeypatch: py
 
     monkeypatch.setattr(main.api, "get_connection", _get_connection)
     monkeypatch.setattr(main, "export_client_config", lambda _effective: exported)
+    monkeypatch.setattr(main.settings, "public_base_url", "")
 
     callback = _DummyCallback("send")
     await main._send_client_config(
@@ -516,6 +517,7 @@ async def test_send_client_config_hides_local_socks_extra_message(monkeypatch: p
     monkeypatch.setattr(main.api, "get_connection", _get_connection)
     monkeypatch.setattr(main, "export_client_config", lambda _effective: exported)
     monkeypatch.setattr(main, "_build_qr_png", lambda payload: payload.encode("utf-8"))
+    monkeypatch.setattr(main.settings, "public_base_url", "")
 
     callback = _DummyCallback("send")
     await main._send_client_config(
@@ -534,6 +536,60 @@ async def test_send_client_config_hides_local_socks_extra_message(monkeypatch: p
     assert len(callback.message.answer_photo_calls) == 1
     assert not any("Local SOCKS5 credentials" in str(args[0]) for args, _kwargs in callback.message.answer_calls)
     assert not any("Password: local-pass" in str(args[0]) for args, _kwargs in callback.message.answer_calls)
+
+
+@pytest.mark.asyncio
+async def test_send_client_config_includes_universal_url_when_public_base_is_configured(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def _get_connection(_connection_id: str) -> dict:
+        return {
+            "id": "conn-1",
+            "user_id": 1,
+            "device_id": "dev-1",
+            "device_name": "Phone",
+            "protocol": "vless_ws_tls",
+            "mode": "direct",
+            "variant": "V1",
+        }
+
+    exported = SimpleNamespace(
+        kind="uri",
+        title="VLESS WS+TLS",
+        content="vless://user@example.com:443?security=tls&type=ws#Tracegate",
+        alternate_title=None,
+        alternate_content=None,
+        extra_messages=(),
+        attachment_content=None,
+        attachment_filename=None,
+        attachment_mime=None,
+    )
+
+    monkeypatch.setattr(main.api, "get_connection", _get_connection)
+    monkeypatch.setattr(main, "export_client_config", lambda _effective: exported)
+    monkeypatch.setattr(main, "_build_qr_png", lambda payload: payload.encode("utf-8"))
+    monkeypatch.setattr(main.settings, "public_base_url", "https://tg.example/")
+    monkeypatch.setattr(main.settings, "pseudonym_secret", "client-config-secret")
+    monkeypatch.setattr(main.settings, "api_internal_token", "")
+
+    callback = _DummyCallback("send")
+    await main._send_client_config(
+        callback,
+        {
+            "id": "rev-1",
+            "slot": 0,
+            "connection_id": "conn-1",
+            "effective_config_json": {"protocol": "vless"},
+        },
+        context="created",
+    )
+
+    messages = [str(args[0]) for args, _kwargs in callback.message.answer_calls]
+    universal = next(message for message in messages if message.startswith("Universal import URL"))
+    assert "https://tg.example/client-config/" in universal
+    assert "?format=json" in universal
+    assert "?format=singbox" in universal
+    assert "?format=base64" in universal
 
 
 @pytest.mark.asyncio

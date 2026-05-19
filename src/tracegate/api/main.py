@@ -6,7 +6,7 @@ import anyio
 import uvicorn
 from fastapi import FastAPI
 
-from tracegate.api.routers import admin, auth, bot_messages, connections, devices, dispatch, grafana, health, metrics, mtproto_access, nodes, revisions, sni, users
+from tracegate.api.routers import admin, auth, bot_messages, client_configs, connections, devices, dispatch, grafana, health, metrics, mtproto_access, nodes, revisions, sni, users
 from tracegate.api.inventory_metrics import inventory_refresh_loop, register_inventory_metrics
 from tracegate.cli.migrate_db import migrate_db
 from tracegate.db import get_sessionmaker
@@ -58,6 +58,7 @@ app.include_router(admin.router)
 app.include_router(sni.router)
 app.include_router(users.router)
 app.include_router(mtproto_access.router)
+app.include_router(client_configs.router)
 app.include_router(devices.router)
 app.include_router(connections.router)
 app.include_router(revisions.router)

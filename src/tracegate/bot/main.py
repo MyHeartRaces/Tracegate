@@ -66,7 +66,7 @@ from tracegate.bot.keyboards import (
     sni_page_keyboard_issue,
     sni_page_keyboard_new,
 )
-from tracegate.client_export.v2rayn import V2RayNExportError, export_client_config
+from tracegate.client_export.config import ClientConfigExportError, export_client_config
 from tracegate.enums import ConnectionMode, ConnectionProtocol, ConnectionVariant
 from tracegate.observability import configure_logging
 from tracegate.services.bot_blocks import (
@@ -80,6 +80,11 @@ from tracegate.services.connection_profiles import (
     connection_profile_display_label,
     enabled_profile_keys,
     supported_profile_specs,
+)
+from tracegate.services.client_config_tokens import (
+    ClientConfigTokenError,
+    build_client_config_token,
+    client_config_token_secret,
 )
 from tracegate.settings import get_settings
 
@@ -105,6 +110,34 @@ def _visible_export_extra_messages(extra_messages: object) -> tuple[tuple[str, s
             continue
         visible.append((normalized_title, str(content or "")))
     return tuple(visible)
+
+
+def _client_config_public_url(*, subject_type: str, subject_id: str) -> str | None:
+    base_url = str(settings.public_base_url or "").strip().rstrip("/")
+    if not base_url:
+        return None
+    secret = client_config_token_secret(settings)
+    if not secret:
+        return None
+    try:
+        token = build_client_config_token(subject_type=subject_type, subject_id=subject_id, secret=secret)
+    except ClientConfigTokenError:
+        return None
+    return f"{base_url}/client-config/{token}"
+
+
+def _client_config_url_message(url: str) -> tuple[str, str]:
+    return (
+        "Universal import URL",
+        "\n".join(
+            [
+                url,
+                f"JSON: {url}?format=json",
+                f"sing-box JSON: {url}?format=singbox",
+                f"Base64 subscription: {url}?format=base64",
+            ]
+        ),
+    )
 
 
 def _app_version() -> str:
@@ -1075,10 +1108,19 @@ async def _send_client_config(callback: CallbackQuery, revision: dict, *, contex
 
     try:
         exported = export_client_config(effective)
-    except V2RayNExportError as exc:
+    except ClientConfigExportError as exc:
         await callback.message.answer(_msg_error(f"Не смог собрать конфиг для клиента: {exc}"))
         return
     visible_extra_messages = _visible_export_extra_messages(exported.extra_messages)
+    client_config_subject_type = "device" if device_id else "revision"
+    client_config_subject_id = device_id or revision_id
+    if client_config_subject_id:
+        client_config_url = _client_config_public_url(
+            subject_type=client_config_subject_type,
+            subject_id=client_config_subject_id,
+        )
+        if client_config_url:
+            visible_extra_messages = (_client_config_url_message(client_config_url), *visible_extra_messages)
 
     if exported.kind == "uri":
         summary_msg = await callback.message.answer(
