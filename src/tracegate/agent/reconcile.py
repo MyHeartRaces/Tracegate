@@ -558,6 +558,11 @@ def _collect_hysteria_runtime_state(runtime_hysteria: dict[str, object], *, conf
 
 def _build_link_crypto_contract_payload(settings: Settings) -> dict[str, object]:
     role_upper = str(settings.agent_role or "").strip().upper()
+    try:
+        mtproto_public_port = int(settings.mtproto_public_port or TRACEGATE_PUBLIC_TCP_PORT)
+    except (TypeError, ValueError):
+        mtproto_public_port = TRACEGATE_PUBLIC_TCP_PORT
+    mtproto_uses_tcp8443 = role_upper == "TRANSIT" and mtproto_public_port == TRACEGATE_FORBIDDEN_PUBLIC_TCP_PORT
     classes: list[str] = []
     local_ports: dict[str, int] = {}
     selected_profiles: dict[str, list[str]] = {}
@@ -768,7 +773,7 @@ def _build_link_crypto_contract_payload(settings: Settings) -> dict[str, object]
         "portSplit": {
             "publicUdpPort": TRACEGATE_PUBLIC_UDP_PORT,
             "forbidUdp443": False,
-            "forbidTcp8443": True,
+            "forbidTcp8443": not mtproto_uses_tcp8443,
         },
         "requiredLayers": [
             "hysteria2-quic",

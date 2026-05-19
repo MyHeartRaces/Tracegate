@@ -23,6 +23,23 @@ def _mtproto_secret_policy(base_profile: dict[str, Any]) -> str:
     return "per-user"
 
 
+def _mtproto_profile_ports(base_profile: dict[str, Any]) -> list[int]:
+    candidates: list[object] = [base_profile.get("port")]
+    raw_public_ports = base_profile.get("publicPorts")
+    if isinstance(raw_public_ports, list):
+        candidates.extend(raw_public_ports)
+
+    ports: list[int] = []
+    for candidate in candidates:
+        try:
+            port = int(candidate or 0)
+        except (TypeError, ValueError):
+            continue
+        if port > 0 and port not in ports:
+            ports.append(port)
+    return ports
+
+
 def _raw_secret_from_client_secret(base_profile: dict[str, Any]) -> str:
     client_secret = "".join(
         ch for ch in str(base_profile.get("clientSecretHex") or "").strip().lower() if ch in "0123456789abcdef"
@@ -213,28 +230,42 @@ def issue_mtproto_access_profile(
 
     try:
         secret_hex = str(base_profile["clientSecretHex"]) if secret_policy == "shared" else str(current["secretHex"])
-        links = build_mtproto_share_links(
-            server=str(base_profile["server"]),
-            port=int(base_profile["port"]),
-            secret_hex=secret_hex,
-            transport=None if secret_policy == "shared" else str(base_profile.get("transport") or "tls"),
-            domain=str(base_profile.get("domain") or base_profile["server"]),
-        )
+        ports = _mtproto_profile_ports(base_profile)
+        if not ports:
+            raise ValueError("base MTProto profile does not expose a usable public port")
+        link_rows = []
+        for port in ports:
+            links = build_mtproto_share_links(
+                server=str(base_profile["server"]),
+                port=port,
+                secret_hex=secret_hex,
+                transport=None if secret_policy == "shared" else str(base_profile.get("transport") or "tls"),
+                domain=str(base_profile.get("domain") or base_profile["server"]),
+            )
+            link_rows.append(
+                {
+                    "port": port,
+                    "clientSecretHex": links.client_secret_hex,
+                    "tgUri": links.tg_uri,
+                    "httpsUrl": links.https_url,
+                }
+            )
     except (KeyError, TypeError, ValueError, MTProtoConfigError) as exc:
         if changed:
             set_mtproto_access_entries(settings, previous_entries)
         raise DecoyAuthConfigError("unable to build MTProto access profile") from exc
+    primary_link = link_rows[0]
 
     profile = {
         "protocol": "mtproto",
         "profile": str(base_profile.get("profile") or MTPROTO_FAKE_TLS_PROFILE_NAME),
         "server": str(base_profile["server"]),
-        "port": int(base_profile["port"]),
+        "port": int(primary_link["port"]),
         "transport": str(base_profile.get("transport") or "tls"),
         "domain": str(base_profile.get("domain") or base_profile["server"]),
-        "clientSecretHex": links.client_secret_hex,
-        "tgUri": links.tg_uri,
-        "httpsUrl": links.https_url,
+        "clientSecretHex": str(primary_link["clientSecretHex"]),
+        "tgUri": str(primary_link["tgUri"]),
+        "httpsUrl": str(primary_link["httpsUrl"]),
         "ephemeral": False,
         "telegramId": int(current["telegramId"]),
         "issuedAt": str(current["issuedAt"]),
@@ -242,6 +273,9 @@ def issue_mtproto_access_profile(
         "reused": not changed,
         "secretPolicy": secret_policy,
     }
+    if len(link_rows) > 1:
+        profile["publicPorts"] = ports
+        profile["links"] = link_rows
     if current.get("label"):
         profile["label"] = str(current["label"])
     if current.get("issuedBy"):

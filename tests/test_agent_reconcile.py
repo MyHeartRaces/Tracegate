@@ -962,6 +962,7 @@ def test_reconcile_materializes_private_runtime_handoff_surfaces_for_transit(tmp
         default_transit_host="nlconn.tracegate.test",
         mtproto_domain="proxied.tracegate.test",
         mtproto_tls_domain="www.apple.com",
+        mtproto_public_port=8443,
         private_mtproto_secret_file=str(tmp_path / "secrets" / "mtproto.txt"),
     )
 
@@ -1072,10 +1073,17 @@ def test_reconcile_materializes_private_runtime_handoff_surfaces_for_transit(tmp
     assert mtproto_state.telemt_config_file == str(private_root / "mtproto" / "runtime" / "config.toml")
     telemt_config = (private_root / "mtproto" / "runtime" / "config.toml").read_text(encoding="utf-8")
     assert 'public_host = "proxied.tracegate.test"' in telemt_config
+    assert "public_port = 8443" in telemt_config
     assert "proxy_protocol = true" in telemt_config
     assert 'tls_domain = "www.apple.com"' in telemt_config
     assert public_profile.server == "proxied.tracegate.test"
+    assert public_profile.port == 8443
     assert public_profile.domain == "www.apple.com"
+    public_profile_payload = json.loads((private_root / "mtproto" / "public-profile.json").read_text(encoding="utf-8"))
+    assert public_profile_payload["publicPorts"] == [8443, 443]
+    assert [row["port"] for row in public_profile_payload["links"]] == [8443, 443]
+    assert "port=8443" in public_profile_payload["links"][0]["httpsUrl"]
+    assert "port=443" in public_profile_payload["links"][1]["httpsUrl"]
     assert '"tracegate_shared" = "00112233445566778899aabbccddeeff"' in telemt_config
     issued = json.loads((private_root / "mtproto" / "issued.json").read_text(encoding="utf-8"))
     assert issued == {"version": 1, "entries": []}
@@ -2145,6 +2153,34 @@ def test_reconcile_materializes_router_udp_link_without_entry_transit(
         "enabled": True,
         "maxUnvalidatedBytes": 1200,
     }
+
+
+def test_reconcile_clears_link_crypto_tcp8443_guard_for_mtproto_fallback(tmp_path: Path) -> None:
+    settings = Settings(
+        agent_data_root=str(tmp_path),
+        agent_runtime_mode="systemd",
+        agent_role="TRANSIT",
+        agent_runtime_profile="xray-centric",
+        private_runtime_root=str(tmp_path / "private"),
+        agent_reload_link_crypto_cmd="reload-link-crypto",
+        default_entry_host="entry.tracegate.test",
+        default_transit_host="transit.tracegate.test",
+        private_link_crypto_enabled=True,
+        private_udp_link_enabled=True,
+        private_udp_link_paired_obfs_enabled=True,
+        mtproto_domain="proto.tracegate.test",
+        mtproto_tls_domain="www.apple.com",
+        mtproto_public_port=8443,
+    )
+
+    changed = reconcile_all(settings)
+
+    assert "link-crypto" in changed
+    runtime_contract = json.loads((tmp_path / "runtime/runtime-contract.json").read_text(encoding="utf-8"))
+    state = json.loads((tmp_path / "private/link-crypto/transit/desired-state.json").read_text(encoding="utf-8"))
+    assert runtime_contract["fronting"]["forbiddenTcp8443"] is False
+    assert runtime_contract["linkCrypto"]["udp"]["dpiResistance"]["portSplit"]["forbidTcp8443"] is False
+    assert state["udpLinks"][0]["dpiResistance"]["portSplit"]["forbidTcp8443"] is False
 
 
 def test_reconcile_xray_centric_live_sync_passes_hysteria_user_specs(

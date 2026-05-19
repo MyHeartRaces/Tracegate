@@ -4,7 +4,11 @@ import json
 from pathlib import Path
 from typing import Any
 
-from tracegate.constants import TRACEGATE_PUBLIC_UDP_PORT
+from tracegate.constants import (
+    TRACEGATE_FORBIDDEN_PUBLIC_TCP_PORT,
+    TRACEGATE_PUBLIC_TCP_PORT,
+    TRACEGATE_PUBLIC_UDP_PORT,
+)
 from tracegate.services.mtproto import (
     MTPROTO_FAKE_TLS_PROFILE_NAME,
     MTProtoConfigError,
@@ -355,14 +359,22 @@ def _udp_link_hardening(settings: Settings) -> dict[str, Any]:
     }
 
 
-def _udp_link_dpi_resistance(settings: Settings) -> dict[str, Any]:
+def _mtproto_uses_tcp8443(settings: Settings, *, role_upper: str) -> bool:
+    try:
+        mtproto_public_port = int(settings.mtproto_public_port or TRACEGATE_PUBLIC_TCP_PORT)
+    except (TypeError, ValueError):
+        mtproto_public_port = TRACEGATE_PUBLIC_TCP_PORT
+    return role_upper == "TRANSIT" and mtproto_public_port == TRACEGATE_FORBIDDEN_PUBLIC_TCP_PORT
+
+
+def _udp_link_dpi_resistance(settings: Settings, *, role_upper: str) -> dict[str, Any]:
     return {
         "enabled": True,
         "mode": "salamander-plus-scoped-paired-obfs",
         "portSplit": {
             "publicUdpPort": TRACEGATE_PUBLIC_UDP_PORT,
             "forbidUdp443": False,
-            "forbidTcp8443": True,
+            "forbidTcp8443": not _mtproto_uses_tcp8443(settings, role_upper=role_upper),
         },
         "requiredLayers": [
             "hysteria2-quic",
@@ -680,7 +692,7 @@ def _udp_link_row(
             },
         },
         "hardening": _udp_link_hardening(settings),
-        "dpiResistance": _udp_link_dpi_resistance(settings),
+        "dpiResistance": _udp_link_dpi_resistance(settings, role_upper=role_upper),
         "selectedProfiles": selected_profiles,
         "rotation": {
             "strategy": "generation-drain",
@@ -1435,6 +1447,14 @@ def _read_secret_hex(path: Path) -> str:
     return "".join(ch for ch in raw if ch.lower() in "0123456789abcdef").lower()
 
 
+def _mtproto_public_ports(primary_port: int) -> tuple[int, ...]:
+    ports: list[int] = []
+    for candidate in (int(primary_port or 0), TRACEGATE_PUBLIC_TCP_PORT):
+        if candidate > 0 and candidate not in ports:
+            ports.append(candidate)
+    return tuple(ports)
+
+
 def _write_mtproto_state(
     settings: Settings,
     *,
@@ -1480,13 +1500,18 @@ def _write_mtproto_state(
             normalized_domain = normalize_mtproto_domain(payload["domain"])
             normalized_tls_domain = normalize_mtproto_domain(payload["tlsDomain"])
             server_secret_hex = _read_secret_hex(secret_file)
-            share = build_mtproto_share_links(
-                server=normalized_domain,
-                port=int(payload["publicPort"]),
-                secret_hex=server_secret_hex,
-                transport="tls",
-                domain=normalized_tls_domain,
-            )
+            public_ports = _mtproto_public_ports(int(payload["publicPort"]))
+            shares = {
+                port: build_mtproto_share_links(
+                    server=normalized_domain,
+                    port=port,
+                    secret_hex=server_secret_hex,
+                    transport="tls",
+                    domain=normalized_tls_domain,
+                )
+                for port in public_ports
+            }
+            share = shares[int(payload["publicPort"])]
             if mtproto_runtime == "telemt":
                 telemt_config = build_mtproto_telemt_config(
                     listen_port=int(payload["upstreamPort"]),
@@ -1513,6 +1538,15 @@ def _write_mtproto_state(
                 "clientSecretHex": share.client_secret_hex,
                 "tgUri": share.tg_uri,
                 "httpsUrl": share.https_url,
+                "publicPorts": list(public_ports),
+                "links": [
+                    {
+                        "port": port,
+                        "tgUri": shares[port].tg_uri,
+                        "httpsUrl": shares[port].https_url,
+                    }
+                    for port in public_ports
+                ],
             }
             changed = _write_text_if_changed(profile_path, _json_text(profile_payload)) or changed
             if mtproto_runtime == "telemt":

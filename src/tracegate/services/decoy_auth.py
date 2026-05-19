@@ -147,6 +147,29 @@ def load_mtproto_public_profile(settings: Settings) -> dict[str, Any]:
     if not server or port <= 0 or not transport or not client_secret_hex or not tg_uri or not https_url:
         raise DecoyAuthConfigError(f"incomplete mtproto public profile payload: {path}")
 
+    public_ports: list[int] = []
+    for raw_port in [port, *(raw.get("publicPorts") if isinstance(raw.get("publicPorts"), list) else [])]:
+        try:
+            parsed_port = int(raw_port or 0)
+        except (TypeError, ValueError):
+            continue
+        if parsed_port > 0 and parsed_port not in public_ports:
+            public_ports.append(parsed_port)
+
+    links: list[dict[str, object]] = []
+    if isinstance(raw.get("links"), list):
+        for row in raw["links"]:
+            if not isinstance(row, dict):
+                continue
+            try:
+                link_port = int(row.get("port") or 0)
+            except (TypeError, ValueError):
+                continue
+            link_tg_uri = str(row.get("tgUri") or "").strip()
+            link_https_url = str(row.get("httpsUrl") or "").strip()
+            if link_port > 0 and link_tg_uri and link_https_url:
+                links.append({"port": link_port, "tgUri": link_tg_uri, "httpsUrl": link_https_url})
+
     payload = {
         "protocol": "mtproto",
         "server": server,
@@ -158,6 +181,10 @@ def load_mtproto_public_profile(settings: Settings) -> dict[str, Any]:
         "tgUri": tg_uri,
         "httpsUrl": https_url,
     }
+    if "publicPorts" in raw:
+        payload["publicPorts"] = public_ports
+    if links:
+        payload["links"] = links
     if secret_policy:
         payload["secretPolicy"] = secret_policy
     return payload

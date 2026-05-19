@@ -119,6 +119,7 @@ spec:
         tracegate.io/restart-boundary: static-topology-only
         tracegate.io/private-profiles: external-secret
         tracegate.io/no-host-wide-nfqueue: {{ not $.Values.interconnect.zapret2.hostWideInterception | quote }}
+        checksum/tracegate-configmaps: {{ include (print $.Template.BasePath "/configmaps.yaml") $ | sha256sum | quote }}
     spec:
       hostNetwork: {{ $.Values.gateway.hostNetwork }}
       dnsPolicy: {{ $.Values.gateway.dnsPolicy }}
@@ -406,8 +407,8 @@ spec:
               cp /base/nginx/nginx.conf /state/base/nginx/nginx.conf
               [ -f /state/runtime/xray/config.json ] || cp /state/base/xray/config.json /state/runtime/xray/config.json
               cp /state/base/hysteria/server.yaml /state/runtime/hysteria/server.yaml
-              [ -f /state/runtime/haproxy/haproxy.cfg ] || cp /state/base/haproxy/haproxy.cfg /state/runtime/haproxy/haproxy.cfg
-              [ -f /state/runtime/nginx/nginx.conf ] || cp /state/base/nginx/nginx.conf /state/runtime/nginx/nginx.conf
+              cp /state/base/haproxy/haproxy.cfg /state/runtime/haproxy/haproxy.cfg
+              cp /state/base/nginx/nginx.conf /state/runtime/nginx/nginx.conf
 {{- if and (eq $roleName "transit") $.Values.mtproto.enabled }}
               mtproto_config="/state/private/mtproto/runtime/config.toml"
               mkdir -p "$(dirname "${mtproto_config}")"
@@ -727,6 +728,8 @@ spec:
               value: {{ $mtprotoDomain | quote }}
             - name: MTPROTO_TLS_DOMAIN
               value: {{ $mtprotoTlsDomain | quote }}
+            - name: MTPROTO_PUBLIC_PORT
+              value: {{ $mtprotoPublicPort | quote }}
           volumeMounts:
             - name: gateway-state
               mountPath: /var/lib/tracegate

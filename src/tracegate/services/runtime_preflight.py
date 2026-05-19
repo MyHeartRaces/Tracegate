@@ -4616,6 +4616,7 @@ def _validate_link_crypto_contract_alignment(
                     dpi=_row_dict(udp_contract, "dpiResistance"),
                     code_prefix=f"{prefix}-udp-contract",
                     label=f"{prefix.replace('-', ' ')} UDP runtime-contract",
+                    allow_tcp8443_for_mtproto=_contract_mtproto_uses_tcp8443(contract, role_upper=role_upper),
                 )
             )
 
@@ -5008,11 +5009,22 @@ def _validate_link_crypto_udp_hardening(
     return findings
 
 
+def _contract_mtproto_uses_tcp8443(contract: dict[str, Any], *, role_upper: str) -> bool:
+    fronting = _row_dict(contract, "fronting")
+    return (
+        role_upper == "TRANSIT"
+        and _row_int(fronting, "mtprotoPublicPort") == TRACEGATE_FORBIDDEN_PUBLIC_TCP_PORT
+        and _row_int(fronting, "mtprotoFallbackPublicPort") == TRACEGATE_FORBIDDEN_PUBLIC_TCP_PORT
+        and not bool(fronting.get("forbiddenTcp8443", True))
+    )
+
+
 def _validate_link_crypto_udp_dpi_resistance(
     *,
     dpi: dict[str, Any],
     code_prefix: str,
     label: str,
+    allow_tcp8443_for_mtproto: bool = False,
 ) -> list[RuntimePreflightFinding]:
     findings: list[RuntimePreflightFinding] = []
     if not dpi:
@@ -5041,7 +5053,17 @@ def _validate_link_crypto_udp_dpi_resistance(
     forbid_udp_443_expected = False
     if bool(port_split.get("forbidUdp443", False)) != forbid_udp_443_expected:
         findings.append(_finding("error", f"{code_prefix}-dpi-resistance-udp443", f"{label} must keep UDP/443 unclaimed by V2"))
-    if not bool(port_split.get("forbidTcp8443", False)):
+    forbid_tcp8443 = bool(port_split.get("forbidTcp8443", False))
+    if allow_tcp8443_for_mtproto:
+        if forbid_tcp8443:
+            findings.append(
+                _finding(
+                    "error",
+                    f"{code_prefix}-dpi-resistance-tcp8443-mtproto",
+                    f"{label} must leave TCP/8443 available for MTProto fallback",
+                )
+            )
+    elif not forbid_tcp8443:
         findings.append(_finding("error", f"{code_prefix}-dpi-resistance-tcp8443", f"{label} must forbid TCP/8443"))
 
     required_layers = set(_string_list(dpi.get("requiredLayers")))
@@ -5099,6 +5121,7 @@ def _validate_link_crypto_udp_row(
     index: int,
     prefix: str,
     known_profile_variants: set[str],
+    allow_tcp8443_for_mtproto: bool = False,
 ) -> list[RuntimePreflightFinding]:
     findings: list[RuntimePreflightFinding] = []
     link_class = _row_string(row, "class")
@@ -5218,6 +5241,7 @@ def _validate_link_crypto_udp_row(
             dpi=_row_dict(row, "dpiResistance"),
             code_prefix=code_prefix,
             label=label,
+            allow_tcp8443_for_mtproto=allow_tcp8443_for_mtproto,
         )
     )
 
@@ -5305,6 +5329,7 @@ def validate_link_crypto_state(
                 index=index,
                 prefix=prefix,
                 known_profile_variants=known_profile_variants,
+                allow_tcp8443_for_mtproto=_contract_mtproto_uses_tcp8443(contract, role_upper=role_upper),
             )
         )
 
@@ -5437,6 +5462,7 @@ def _validate_router_route(
     index: int,
     prefix: str,
     transport: str,
+    allow_tcp8443_for_mtproto: bool = False,
 ) -> list[RuntimePreflightFinding]:
     findings: list[RuntimePreflightFinding] = []
     link_class = _row_string(row, "class")
@@ -5581,6 +5607,7 @@ def _validate_router_route(
                 dpi=_row_dict(row, "dpiResistance"),
                 code_prefix=code_prefix,
                 label=label,
+                allow_tcp8443_for_mtproto=allow_tcp8443_for_mtproto,
             )
         )
         stability = _row_dict(row, "stability")
@@ -5658,7 +5685,16 @@ def validate_router_handoff_state(
     for index, row in enumerate(state.tcp_routes):
         findings.extend(_validate_router_route(row=row, role_upper=role_upper, index=index, prefix=prefix, transport="tcp"))
     for index, row in enumerate(state.udp_routes):
-        findings.extend(_validate_router_route(row=row, role_upper=role_upper, index=index, prefix=prefix, transport="udp"))
+        findings.extend(
+            _validate_router_route(
+                row=row,
+                role_upper=role_upper,
+                index=index,
+                prefix=prefix,
+                transport="udp",
+                allow_tcp8443_for_mtproto=_contract_mtproto_uses_tcp8443(contract, role_upper=role_upper),
+            )
+        )
 
     return findings
 
@@ -5769,6 +5805,7 @@ def _validate_router_client_route(
     prefix: str,
     transport: str,
     handoff_routes: dict[str, dict[str, Any]],
+    allow_tcp8443_for_mtproto: bool = False,
 ) -> list[RuntimePreflightFinding]:
     findings: list[RuntimePreflightFinding] = []
     link_class = _row_string(row, "class")
@@ -5903,6 +5940,7 @@ def _validate_router_client_route(
                 dpi=_row_dict(row, "dpiResistance"),
                 code_prefix=code_prefix,
                 label=label,
+                allow_tcp8443_for_mtproto=allow_tcp8443_for_mtproto,
             )
         )
 
@@ -6035,6 +6073,11 @@ def validate_router_client_bundle(
                 prefix=prefix,
                 transport="udp-quic",
                 handoff_routes=udp_handoff_routes,
+                allow_tcp8443_for_mtproto=(
+                    _contract_mtproto_uses_tcp8443(contract, role_upper=role_upper)
+                    if contract is not None
+                    else False
+                ),
             )
         )
 

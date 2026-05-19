@@ -349,7 +349,7 @@ data:
           portSplit:
             publicUdpPort: {{ int .Values.gateway.roles.transit.ports.publicUdp }}
             forbidUdp443: false
-            forbidTcp8443: true
+            forbidTcp8443: {{ not (and .Values.mtproto.enabled (eq (int .Values.mtproto.publicPort) 8443)) }}
           requiredLayers:
             - hysteria2-quic
             - salamander
@@ -561,10 +561,6 @@ data:
 {{- if $mtprotoFallbackPublicPort }}
     frontend fe_tracegate_{{ $roleName }}_mtproto_{{ $mtprotoPublicPort }}
       bind :{{ $mtprotoPublicPort }}
-      tcp-request inspect-delay 5s
-      tcp-request content accept if { req.ssl_hello_type 1 }
-      tcp-request content accept if { req.ssl_sni -m found }
-      tcp-request content accept if WAIT_END
       default_backend be_mtproto
 
 {{- end }}

@@ -141,3 +141,27 @@ def test_issue_mtproto_access_profile_reuses_shared_runtime_secret(tmp_path) -> 
     assert profile["secretPolicy"] == "shared"
     assert profile["clientSecretHex"] == payload["clientSecretHex"]
     assert next_entries[0]["secretHex"] == "00112233445566778899aabbccddeeff"
+
+
+def test_issue_mtproto_access_profile_returns_all_public_ports(tmp_path) -> None:
+    profile_path = tmp_path / "public-profile.json"
+    access_state_path = tmp_path / "issued.json"
+    _write_profile(profile_path)
+    payload = json.loads(profile_path.read_text(encoding="utf-8"))
+    payload["port"] = 8443
+    payload["publicPorts"] = [8443, 443]
+    payload["secretPolicy"] = "shared"
+    profile_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    settings = Settings(
+        mtproto_public_profile_file=str(profile_path),
+        mtproto_issued_state_file=str(access_state_path),
+    )
+
+    profile, _previous_entries, _next_entries, _changed = issue_mtproto_access_profile(settings, telegram_id=123456)
+
+    assert profile["port"] == 8443
+    assert profile["publicPorts"] == [8443, 443]
+    assert [row["port"] for row in profile["links"]] == [8443, 443]
+    assert "port=8443" in profile["links"][0]["httpsUrl"]
+    assert "port=443" in profile["links"][1]["httpsUrl"]

@@ -1285,6 +1285,67 @@ def _link_crypto_outer_carrier_contract(*, enabled: bool = True) -> dict:
     }
 
 
+def _entry_transit_link_crypto_contract(*, role: str, forbid_tcp8443: bool = True) -> dict:
+    role_upper = role.strip().upper()
+    tcp_port = 10881 if role_upper == "ENTRY" else 10882
+    udp_port = 14481 if role_upper == "ENTRY" else 14482
+    udp_dpi = _link_crypto_udp_dpi_resistance()
+    udp_dpi["portSplit"]["forbidTcp8443"] = forbid_tcp8443
+    return {
+        "enabled": True,
+        "carrier": "mieru",
+        "manager": "link-crypto",
+        "profileSource": "private-file-reference",
+        "secretMaterial": False,
+        "xrayBackhaul": False,
+        "generation": 1,
+        "remotePort": 443,
+        "outerCarrier": _link_crypto_outer_carrier_contract(),
+        "dpiResistance": _link_crypto_tcp_dpi_resistance(),
+        "classes": ["entry-transit"],
+        "counts": {
+            "total": 1,
+            "entryTransit": 1,
+            "routerEntry": 0,
+            "routerTransit": 0,
+        },
+        "localPorts": {"entry-transit": tcp_port},
+        "selectedProfiles": {"entry-transit": ["V1", "V3"]},
+        "udp": {
+            "enabled": True,
+            "carrier": "hysteria2",
+            "transport": "udp-quic",
+            "manager": "link-crypto",
+            "profileSource": "private-file-reference",
+            "secretMaterial": False,
+            "xrayBackhaul": False,
+            "remotePort": TRACEGATE_PUBLIC_UDP_PORT,
+            "obfs": {"type": "salamander", "required": True},
+            "pairedObfs": {
+                "enabled": True,
+                "backend": "udp2raw",
+                "mode": "udp2raw-faketcp",
+                "requiresBothSides": True,
+                "failClosed": True,
+                "noHostWideInterception": True,
+                "noNfqueue": True,
+            },
+            "hardening": _link_crypto_udp_hardening(),
+            "dpiResistance": udp_dpi,
+            "classes": ["entry-transit-udp"],
+            "counts": {
+                "total": 1,
+                "entryTransitUdp": 1,
+                "routerEntryUdp": 0,
+                "routerTransitUdp": 0,
+            },
+            "localPorts": {"entry-transit-udp": udp_port},
+            "selectedProfiles": {"entry-transit-udp": ["V2"]},
+        },
+        "zapret2": _link_crypto_zapret2_policy(),
+    }
+
+
 def _router_link_crypto_contract(*, role: str) -> dict:
     role_upper = role.strip().upper()
     tcp_class = "router-entry" if role_upper == "ENTRY" else "router-transit"
@@ -1939,6 +2000,7 @@ def test_validate_runtime_contract_pair_accepts_mtproto_tcp8443_fallback() -> No
     transit["fronting"]["forbiddenPublicPorts"] = []
     transit["fronting"]["mtprotoPublicPort"] = 8443
     transit["fronting"]["mtprotoFallbackPublicPort"] = 8443
+    transit["linkCrypto"] = _entry_transit_link_crypto_contract(role="TRANSIT", forbid_tcp8443=False)
 
     findings = validate_runtime_contract_pair(entry, transit)
 
@@ -2820,6 +2882,42 @@ def test_validate_link_crypto_state_accepts_udp_hysteria2_handoff(tmp_path: Path
         state=load_link_crypto_state(state_path),
         contract=contract,
         expected_role="ENTRY",
+        contract_path=str(contract_path),
+    )
+
+    assert findings == []
+
+
+def test_validate_link_crypto_state_accepts_mtproto_tcp8443_exception(tmp_path: Path) -> None:
+    contract = _runtime_contract(role="TRANSIT")
+    contract["contract"]["expectedPorts"] = [
+        {"protocol": "tcp", "port": 8443, "name": "listen tcp/8443 mtproto fallback"},
+    ]
+    contract["contract"]["forbiddenPorts"] = [
+        {"protocol": "udp", "port": 8443, "name": "blocked udp/8443"},
+    ]
+    contract["fronting"]["forbiddenTcp8443"] = False
+    contract["fronting"]["forbiddenPublicPorts"] = []
+    contract["fronting"]["mtprotoPublicPort"] = 8443
+    contract["fronting"]["mtprotoFallbackPublicPort"] = 8443
+    contract["linkCrypto"] = _entry_transit_link_crypto_contract(role="TRANSIT", forbid_tcp8443=False)
+    contract_path = tmp_path / "transit.json"
+    contract_path.write_text(json.dumps(contract) + "\n", encoding="utf-8")
+    udp_row = _link_crypto_udp_row(role="TRANSIT")
+    udp_row["dpiResistance"]["portSplit"]["forbidTcp8443"] = False
+    state_path = _write_link_crypto_state(
+        tmp_path,
+        "private/link-crypto/transit/desired-state.json",
+        contract=contract,
+        role="TRANSIT",
+        runtime_contract_path=str(contract_path),
+        udp_links=[udp_row],
+    )
+
+    findings = validate_link_crypto_state(
+        state=load_link_crypto_state(state_path),
+        contract=contract,
+        expected_role="TRANSIT",
         contract_path=str(contract_path),
     )
 

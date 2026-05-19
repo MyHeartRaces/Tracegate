@@ -1725,6 +1725,7 @@ def test_tracegate21_templates_keep_user_state_out_of_rollout_checksums() -> Non
     assert "progressDeadlineSeconds: {{ int $.Values.gateway.progressDeadlineSeconds }}" in gateways
     assert "checksum/users" not in gateways
     assert "checksum/secrets" not in gateways
+    assert "checksum/tracegate-configmaps" in gateways
     assert "static-topology-only" in gateways
     assert "shareProcessNamespace" in gateways
     assert "terminationGracePeriodSeconds: {{ int $.Values.gateway.terminationGracePeriodSeconds }}" in gateways
@@ -1823,6 +1824,10 @@ def test_tracegate21_templates_keep_user_state_out_of_rollout_checksums() -> Non
     assert '\\\\\\"router\\\\\\"' in gateways
     assert '\\\\\\"clientBundle\\\\\\"' in gateways
     assert '\\\\\\"clientEnv\\\\\\"' in gateways
+    assert "cp /state/base/haproxy/haproxy.cfg /state/runtime/haproxy/haproxy.cfg" in gateways
+    assert "cp /state/base/nginx/nginx.conf /state/runtime/nginx/nginx.conf" in gateways
+    assert "[ -f /state/runtime/haproxy/haproxy.cfg ] ||" not in gateways
+    assert "[ -f /state/runtime/nginx/nginx.conf ] ||" not in gateways
 
 
 def test_tracegate21_gateway_probes_are_local_only() -> None:
@@ -1873,11 +1878,17 @@ def test_mtproto_public_port_8443_renders_dedicated_fallback_frontend(tmp_path: 
     assert rendered.returncode == 0, rendered.stderr
     assert "frontend fe_tracegate_transit_mtproto_8443" in rendered.stdout
     assert "frontend fe_tracegate_entry_mtproto_8443" not in rendered.stdout
+    fallback_frontend = rendered.stdout.split("frontend fe_tracegate_transit_mtproto_8443", 1)[
+        1
+    ].split("frontend fe_tracegate_transit_tls", 1)[0]
     assert "bind :8443" in rendered.stdout
+    assert "tcp-request inspect-delay" not in fallback_frontend
+    assert "req.ssl_sni" not in fallback_frontend
     assert "default_backend be_mtproto" in rendered.stdout
     assert 'public_port = 8443' in rendered.stdout
     assert "name: mtproto-fb" in rendered.stdout
     assert "containerPort: 8443" in rendered.stdout
+    assert "forbidTcp8443: false" in rendered.stdout
 
 
 def test_tracegate22_control_plane_receives_reality_client_material(tmp_path: Path) -> None:
