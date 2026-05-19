@@ -1853,8 +1853,8 @@ def test_tracegate21_templates_include_grpc_mtproto_and_mieru_surfaces() -> None
     assert "be_mtproto" in text
     assert "/app/telemt" in text
     assert "/var/lib/tracegate/private/mtproto/runtime/config.toml" in text
-    assert "tracegate mtproto: waiting for ${config}" in text
-    assert 'exec /app/telemt run "${config}"' in text
+    assert 'mtproto_config="/state/private/mtproto/runtime/config.toml"' in text
+    assert "MTProto secret must contain exactly 16 bytes in hex" in text
     assert "private/mtproto/runtime/config.toml" in text
     assert "/mtg" not in text
     assert "simple-run" not in text
