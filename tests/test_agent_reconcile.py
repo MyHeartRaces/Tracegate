@@ -798,6 +798,7 @@ def test_reconcile_runtime_contract_exposes_private_wrapper_state(tmp_path: Path
         "mtprotoDomain": "proxied.tracegate.test",
         "mtprotoTlsDomain": "proxied.tracegate.test",
         "mtprotoPublicPort": 443,
+        "mtprotoFallbackPublicPort": 0,
         "mtprotoFrontingMode": "dedicated-dns-only",
     }
 

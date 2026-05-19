@@ -508,6 +508,8 @@ data:
 {{- $mtprotoDomain := $.Values.mtproto.domain | default $.Values.controlPlane.env.mtprotoDomain }}
 {{- $mtprotoTlsDomain := $.Values.mtproto.tlsDomain | default $mtprotoDomain }}
 {{- $mtprotoSniDomains := compact (uniq (list $mtprotoTlsDomain $mtprotoDomain)) }}
+{{- $mtprotoPublicPort := int $.Values.mtproto.publicPort }}
+{{- $mtprotoFallbackPublicPort := and (eq $roleName "transit") $.Values.mtproto.enabled (ne $mtprotoPublicPort (int $role.ports.publicTcp)) }}
 {{- $realityMultiInboundGroups := $.Values.gateway.realityMultiInboundGroups | default (list) }}
 {{- $chainBridge := $.Values.interconnect.emergencyXrayChain }}
 {{- $chainBridgeSni := $chainBridge.serverName | default (first $.Values.gateway.roles.transit.reality.serverNames) }}
@@ -556,6 +558,16 @@ data:
       timeout server 5m
       timeout tunnel 1h
 
+{{- if $mtprotoFallbackPublicPort }}
+    frontend fe_tracegate_{{ $roleName }}_mtproto_{{ $mtprotoPublicPort }}
+      bind :{{ $mtprotoPublicPort }}
+      tcp-request inspect-delay 5s
+      tcp-request content accept if { req.ssl_hello_type 1 }
+      tcp-request content accept if { req.ssl_sni -m found }
+      tcp-request content accept if WAIT_END
+      default_backend be_mtproto
+
+{{- end }}
     frontend fe_tracegate_{{ $roleName }}_tls
       bind :{{ int $role.ports.publicTcp }}
 {{- range $bind := ($role.ports.publicTcpExtraBinds | default (list)) }}

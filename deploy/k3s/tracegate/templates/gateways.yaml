@@ -47,6 +47,8 @@
 {{- $roleNodeEncryptionRequired := and $.Values.gateway.nodeEncryption.enabled $.Values.gateway.nodeEncryption.required $.Values.gateway.nodeEncryption.runtimeInitValidation (or (eq $roleName "entry") (eq $roleName "transit")) }}
 {{- $mtprotoDomain := $.Values.mtproto.domain | default $.Values.controlPlane.env.mtprotoDomain }}
 {{- $mtprotoTlsDomain := $.Values.mtproto.tlsDomain | default $mtprotoDomain }}
+{{- $mtprotoPublicPort := int $.Values.mtproto.publicPort }}
+{{- $mtprotoFallbackPublicPort := and (eq $roleName "transit") $.Values.mtproto.enabled (ne $mtprotoPublicPort (int $role.ports.publicTcp)) }}
 {{- $linkOuterCarrier := $.Values.interconnect.entryTransit.outerCarrier }}
 {{- $linkOuterCarrierPathPrefix := trimPrefix "/" (toString $linkOuterCarrier.publicPath) }}
 {{- $linkWssCarrierEnabled := and $.Values.interconnect.entryTransit.enabled $linkOuterCarrier.enabled (eq (toString $linkOuterCarrier.mode) "wss") }}
@@ -750,6 +752,11 @@ spec:
             - name: https
               containerPort: {{ int $role.ports.publicTcp }}
               protocol: TCP
+{{- if $mtprotoFallbackPublicPort }}
+            - name: mtproto-fb
+              containerPort: {{ $mtprotoPublicPort }}
+              protocol: TCP
+{{- end }}
 {{- if $.Values.gateway.probes.enabled }}
           startupProbe:
             exec:

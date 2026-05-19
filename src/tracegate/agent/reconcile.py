@@ -17,6 +17,7 @@ from tracegate.constants import (
     TRACEGATE_NAIVEPROXY_HOST,
     TRACEGATE_NAIVEPROXY_PUBLIC_TCP_PORT,
     TRACEGATE_NAIVEPROXY_PUBLIC_UDP_PORT,
+    TRACEGATE_PUBLIC_TCP_PORT,
     TRACEGATE_PUBLIC_UDP_PORT,
 )
 from tracegate.agent.hysteria_clients import build_hysteria_xray_clients
@@ -902,6 +903,21 @@ def _build_runtime_contract_payload(settings: Settings) -> dict[str, object]:
     if contract.manages_component("naiveproxy") and naiveproxy_demux_enabled:
         tcp443_owner = "haproxy-demux"
     udp443_owner = "naiveproxy" if bool(settings.naiveproxy_enabled) else public_udp_owner
+    mtproto_public_port = int(settings.mtproto_public_port or TRACEGATE_PUBLIC_TCP_PORT)
+    mtproto_uses_tcp8443 = (
+        str(settings.agent_role or "").strip().upper() == "TRANSIT"
+        and mtproto_public_port == TRACEGATE_FORBIDDEN_PUBLIC_TCP_PORT
+    )
+    expected_ports = list(contract.expected_ports(settings.agent_role))
+    forbidden_ports = list(contract.forbidden_ports(settings.agent_role))
+    if mtproto_uses_tcp8443:
+        if ("tcp", TRACEGATE_FORBIDDEN_PUBLIC_TCP_PORT, "listen tcp/8443 mtproto fallback") not in expected_ports:
+            expected_ports.append(("tcp", TRACEGATE_FORBIDDEN_PUBLIC_TCP_PORT, "listen tcp/8443 mtproto fallback"))
+        forbidden_ports = [
+            row
+            for row in forbidden_ports
+            if not (row[0] == "tcp" and row[1] == TRACEGATE_FORBIDDEN_PUBLIC_TCP_PORT)
+        ]
     payload = {
         "role": str(settings.agent_role or "").strip().upper() or "UNKNOWN",
         "runtimeProfile": contract.name,
@@ -916,11 +932,11 @@ def _build_runtime_contract_payload(settings: Settings) -> dict[str, object]:
             "xrayBackhaulAllowed": contract.xray_backhaul_allowed,
             "expectedPorts": [
                 {"protocol": protocol, "port": port, "name": name}
-                for protocol, port, name in contract.expected_ports(settings.agent_role)
+                for protocol, port, name in expected_ports
             ],
             "forbiddenPorts": [
                 {"protocol": protocol, "port": port, "name": name}
-                for protocol, port, name in contract.forbidden_ports(settings.agent_role)
+                for protocol, port, name in forbidden_ports
             ],
         },
         "transportProfiles": {
@@ -1023,14 +1039,17 @@ def _build_runtime_contract_payload(settings: Settings) -> dict[str, object]:
             "udp443Owner": udp443_owner,
             "udpPublicPort": TRACEGATE_PUBLIC_UDP_PORT,
             "forbiddenUdp443": False,
-            "forbiddenTcp8443": True,
+            "forbiddenTcp8443": not mtproto_uses_tcp8443,
             "forbiddenPublicPorts": [
                 {"protocol": "tcp", "port": TRACEGATE_FORBIDDEN_PUBLIC_TCP_PORT, "action": "drop"},
-            ],
+            ]
+            if not mtproto_uses_tcp8443
+            else [],
             "touchUdp443": bool(settings.fronting_touch_udp_443),
             "mtprotoDomain": str(settings.mtproto_domain or "").strip(),
             "mtprotoTlsDomain": str(settings.mtproto_tls_domain or settings.mtproto_domain or "").strip(),
-            "mtprotoPublicPort": int(settings.mtproto_public_port),
+            "mtprotoPublicPort": mtproto_public_port,
+            "mtprotoFallbackPublicPort": mtproto_public_port if mtproto_uses_tcp8443 else 0,
             "mtprotoFrontingMode": str(settings.mtproto_fronting_mode or "").strip().lower() or "dedicated-dns-only",
         },
         "paths": {

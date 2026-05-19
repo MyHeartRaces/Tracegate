@@ -831,7 +831,8 @@ def test_tracegate21_chart_disables_hostwide_interception_by_default() -> None:
     assert "interconnect.entryTransit.udp.hardening.mtu.mode must stay clamp" in _chart_text()
     assert "interconnect.entryTransit.udp.hardening.sourceValidation.mode must stay profile-bound-remote" in _chart_text()
     assert "shadowsocks2022.enabled=false is forbidden when gateway.entrySmall.enabled=true" in _chart_text()
-    assert "gateway.roles.%s.ports.publicTcp must stay 443; TCP/8443 is forbidden" in _chart_text()
+    assert "gateway.roles.%s.ports.publicTcp must stay 443; use mtproto.publicPort=8443" in _chart_text()
+    assert "mtproto.publicPort must be 443 or the dedicated MTProto fallback port 8443" in _chart_text()
     assert "gateway.roles.%s.ports.publicUdp must stay 4443; UDP/443 is reserved for NaiveProxy V4" in _chart_text()
     assert "Keep rollout and preflight guards enabled" in Path("deploy/k3s/README.md").read_text(encoding="utf-8")
     assert "fallback: none" in Path("deploy/k3s/values-prod.example.yaml").read_text(encoding="utf-8")
@@ -1864,6 +1865,19 @@ def test_tracegate21_templates_include_grpc_mtproto_and_mieru_surfaces() -> None
     assert "/home/app/wstunnel server" in text
     assert "wstunnel-link-crypto" in text
     assert "/home/app/wstunnel client --http-upgrade-path-prefix" in text
+
+
+def test_mtproto_public_port_8443_renders_dedicated_fallback_frontend(tmp_path: Path) -> None:
+    rendered = _helm_template_with_values(tmp_path, {"mtproto": {"publicPort": 8443}})
+
+    assert rendered.returncode == 0, rendered.stderr
+    assert "frontend fe_tracegate_transit_mtproto_8443" in rendered.stdout
+    assert "frontend fe_tracegate_entry_mtproto_8443" not in rendered.stdout
+    assert "bind :8443" in rendered.stdout
+    assert "default_backend be_mtproto" in rendered.stdout
+    assert 'public_port = 8443' in rendered.stdout
+    assert "name: mtproto-fb" in rendered.stdout
+    assert "containerPort: 8443" in rendered.stdout
 
 
 def test_tracegate22_control_plane_receives_reality_client_material(tmp_path: Path) -> None:

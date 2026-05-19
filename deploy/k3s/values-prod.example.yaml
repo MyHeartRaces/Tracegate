@@ -208,3 +208,4 @@ mtproto:
   enabled: true
   domain: mtproto.example.com
   tlsDomain: www.example.com
+  publicPort: 443

@@ -7,6 +7,7 @@ from typing import Any
 
 import httpx
 
+from tracegate.constants import TRACEGATE_FORBIDDEN_PUBLIC_TCP_PORT
 from tracegate.services.bundle_files import decode_bundle_file_content
 from tracegate.services.runtime_contract import resolve_runtime_contract
 
@@ -206,15 +207,23 @@ async def gather_health_checks(
     role: str,
     runtime_mode: str,  # kept for backward compatibility with legacy container deployments
     runtime_profile: str = "tracegate-2.2",
+    *,
+    mtproto_public_port: int = 443,
 ) -> list[dict]:
     contract = resolve_runtime_contract(runtime_profile)
     checks: list[dict] = []
+    role_upper = str(role or "").strip().upper()
+    mtproto_uses_tcp8443 = role_upper == "TRANSIT" and int(mtproto_public_port or 0) == TRACEGATE_FORBIDDEN_PUBLIC_TCP_PORT
 
     for protocol, port, name in contract.expected_ports(role):
         ok, details = check_port(protocol, port)
         checks.append({"name": name, "ok": ok, "details": details})
 
     for protocol, port, name in contract.forbidden_ports(role):
+        if protocol == "tcp" and port == TRACEGATE_FORBIDDEN_PUBLIC_TCP_PORT and mtproto_uses_tcp8443:
+            ok, details = check_port(protocol, port)
+            checks.append({"name": "listen tcp/8443 mtproto fallback", "ok": ok, "details": details})
+            continue
         ok, details = check_port_blocked(protocol, port)
         checks.append({"name": name, "ok": ok, "details": details})
 

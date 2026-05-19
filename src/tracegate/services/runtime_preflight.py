@@ -6596,9 +6596,13 @@ def _validate_forbidden_public_ports(contract: dict[str, Any], *, role_prefix: s
         (_row_string(row, "protocol").lower(), _row_int(row, "port")): _row_string(row, "name")
         for row in rows
     }
-    required = {
-        ("tcp", TRACEGATE_FORBIDDEN_PUBLIC_TCP_PORT): f"blocked tcp/{TRACEGATE_FORBIDDEN_PUBLIC_TCP_PORT}",
-    }
+    mtproto_uses_tcp8443 = (
+        role_prefix == "transit"
+        and int(fronting.get("mtprotoPublicPort") or 0) == TRACEGATE_FORBIDDEN_PUBLIC_TCP_PORT
+    )
+    required = {}
+    if not mtproto_uses_tcp8443:
+        required[("tcp", TRACEGATE_FORBIDDEN_PUBLIC_TCP_PORT)] = f"blocked tcp/{TRACEGATE_FORBIDDEN_PUBLIC_TCP_PORT}"
     for (protocol, port), expected_name in required.items():
         actual_name = actual.get((protocol, port))
         if actual_name != expected_name:
@@ -6607,6 +6611,28 @@ def _validate_forbidden_public_ports(contract: dict[str, Any], *, role_prefix: s
                     "error",
                     f"{role_prefix}-forbidden-{protocol}-{port}",
                     f"{role_prefix} runtime-contract must declare {expected_name} as a forbidden public surface",
+                )
+            )
+    if mtproto_uses_tcp8443:
+        expected_rows = _dict_list(contract_block.get("expectedPorts"))
+        expected_actual = {
+            (_row_string(row, "protocol").lower(), _row_int(row, "port")): _row_string(row, "name")
+            for row in expected_rows
+        }
+        if expected_actual.get(("tcp", TRACEGATE_FORBIDDEN_PUBLIC_TCP_PORT)) != "listen tcp/8443 mtproto fallback":
+            findings.append(
+                _finding(
+                    "error",
+                    f"{role_prefix}-expected-tcp-{TRACEGATE_FORBIDDEN_PUBLIC_TCP_PORT}",
+                    f"{role_prefix} runtime-contract must declare tcp/{TRACEGATE_FORBIDDEN_PUBLIC_TCP_PORT} as the MTProto fallback listener",
+                )
+            )
+        if ("tcp", TRACEGATE_FORBIDDEN_PUBLIC_TCP_PORT) in actual:
+            findings.append(
+                _finding(
+                    "error",
+                    f"{role_prefix}-forbidden-tcp-{TRACEGATE_FORBIDDEN_PUBLIC_TCP_PORT}-mtproto",
+                    f"{role_prefix} runtime-contract cannot mark tcp/{TRACEGATE_FORBIDDEN_PUBLIC_TCP_PORT} forbidden while MTProto uses it",
                 )
             )
 
@@ -6624,6 +6650,14 @@ def _validate_forbidden_public_ports(contract: dict[str, Any], *, role_prefix: s
                     f"{role_prefix} fronting contract must mark {protocol}/{port} as drop-only",
                 )
             )
+    if mtproto_uses_tcp8443 and fronting_actual.get(("tcp", TRACEGATE_FORBIDDEN_PUBLIC_TCP_PORT)) == "drop":
+        findings.append(
+            _finding(
+                "error",
+                f"{role_prefix}-fronting-forbidden-tcp-{TRACEGATE_FORBIDDEN_PUBLIC_TCP_PORT}-mtproto",
+                f"{role_prefix} fronting contract cannot mark tcp/{TRACEGATE_FORBIDDEN_PUBLIC_TCP_PORT} drop-only while MTProto uses it",
+            )
+        )
 
     if bool(fronting.get("forbiddenUdp443", False)):
         findings.append(
@@ -6633,7 +6667,16 @@ def _validate_forbidden_public_ports(contract: dict[str, Any], *, role_prefix: s
                 f"{role_prefix} fronting contract has an invalid forbiddenUdp443 flag",
             )
         )
-    if not bool(fronting.get("forbiddenTcp8443", False)):
+    if mtproto_uses_tcp8443:
+        if bool(fronting.get("forbiddenTcp8443", False)):
+            findings.append(
+                _finding(
+                    "error",
+                    f"{role_prefix}-fronting-forbidden-tcp-8443-flag",
+                    f"{role_prefix} fronting contract must clear forbiddenTcp8443 when MTProto uses tcp/{TRACEGATE_FORBIDDEN_PUBLIC_TCP_PORT}",
+                )
+            )
+    elif not bool(fronting.get("forbiddenTcp8443", False)):
         findings.append(
             _finding(
                 "error",

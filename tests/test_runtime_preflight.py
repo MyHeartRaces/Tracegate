@@ -136,6 +136,7 @@ def _runtime_contract(
             "touchUdp443": touch_udp_443,
             "mtprotoDomain": "proxied.tracegate.test" if role == "TRANSIT" else "",
             "mtprotoPublicPort": 443,
+            "mtprotoFallbackPublicPort": 0,
             "mtprotoFrontingMode": "dedicated-dns-only",
         },
         "transportProfiles": transport_profiles,
@@ -1923,6 +1924,23 @@ def test_validate_runtime_contract_pair_accepts_tracegate22_standalone_hysteria(
         _runtime_contract(role="ENTRY", runtime_profile="tracegate-2.2"),
         _runtime_contract(role="TRANSIT", runtime_profile="tracegate-2.2"),
     )
+
+    assert findings == []
+
+
+def test_validate_runtime_contract_pair_accepts_mtproto_tcp8443_fallback() -> None:
+    entry = _runtime_contract(role="ENTRY", runtime_profile="tracegate-2.2")
+    transit = _runtime_contract(role="TRANSIT", runtime_profile="tracegate-2.2")
+    transit["contract"]["expectedPorts"] = [
+        {"protocol": "tcp", "port": 8443, "name": "listen tcp/8443 mtproto fallback"},
+    ]
+    transit["contract"]["forbiddenPorts"] = []
+    transit["fronting"]["forbiddenTcp8443"] = False
+    transit["fronting"]["forbiddenPublicPorts"] = []
+    transit["fronting"]["mtprotoPublicPort"] = 8443
+    transit["fronting"]["mtprotoFallbackPublicPort"] = 8443
+
+    findings = validate_runtime_contract_pair(entry, transit)
 
     assert findings == []
 
