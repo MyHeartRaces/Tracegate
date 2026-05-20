@@ -1995,7 +1995,7 @@ def test_reconcile_materializes_router_transit_link_crypto_without_entry_transit
             "ENTRY",
             "private_udp_link_router_entry_enabled",
             "router-entry-udp",
-            "entry.tracegate.test:443",
+            "entry.tracegate.test:4443",
             ["V2"],
             14483,
         ),
@@ -2003,7 +2003,7 @@ def test_reconcile_materializes_router_transit_link_crypto_without_entry_transit
             "TRANSIT",
             "private_udp_link_router_transit_enabled",
             "router-transit-udp",
-            "transit.tracegate.test:443",
+            "transit.tracegate.test:4443",
             ["V2"],
             14484,
         ),
@@ -2134,6 +2134,7 @@ def test_reconcile_materializes_router_udp_link_without_entry_transit(
 
     runtime_contract = json.loads((tmp_path / "runtime/runtime-contract.json").read_text(encoding="utf-8"))
     assert runtime_contract["linkCrypto"]["enabled"] is True
+    assert "dpiResistance" not in runtime_contract["linkCrypto"]
     assert runtime_contract["linkCrypto"]["classes"] == []
     assert runtime_contract["linkCrypto"]["udp"]["enabled"] is True
     assert runtime_contract["linkCrypto"]["udp"]["classes"] == [expected_class]

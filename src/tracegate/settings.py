@@ -333,7 +333,7 @@ class Settings(BaseSettings):
     private_udp_link_transit_port: int = 14482
     private_udp_link_router_entry_port: int = 14483
     private_udp_link_router_transit_port: int = 14484
-    private_udp_link_remote_port: int = 443
+    private_udp_link_remote_port: int = TRACEGATE_PUBLIC_UDP_PORT
     private_udp_link_profile_dir: str = "/etc/tracegate/private/udp-link"
     private_udp_link_client_profile: str = "client.yaml"
     private_udp_link_server_profile: str = "server.yaml"

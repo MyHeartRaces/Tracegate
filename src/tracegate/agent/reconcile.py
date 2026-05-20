@@ -695,8 +695,9 @@ def _build_link_crypto_contract_payload(settings: Settings) -> dict[str, object]
     ]
     if outer_carrier_enabled:
         tcp_required_layers.extend(["outer-wss-tls", "spki-sha256-pin", "hmac-admission"])
+    tcp_link_enabled = bool(classes)
     tcp_dpi_resistance = {
-        "enabled": True,
+        "enabled": tcp_link_enabled,
         "mode": "mieru-wss-spki-hmac-zapret2-scoped" if outer_carrier_enabled else "mieru-zapret2-scoped",
         "requiredLayers": tcp_required_layers,
         "outerCarrier": {
@@ -771,8 +772,9 @@ def _build_link_crypto_contract_payload(settings: Settings) -> dict[str, object]
             "mode": str(settings.private_udp_link_source_validation_mode or "").strip() or "profile-bound-remote",
         },
     }
+    udp_link_enabled = bool(udp_classes)
     udp_dpi_resistance = {
-        "enabled": True,
+        "enabled": udp_link_enabled,
         "mode": "salamander-plus-scoped-paired-obfs",
         "portSplit": {
             "publicUdpPort": TRACEGATE_PUBLIC_UDP_PORT,
@@ -802,7 +804,7 @@ def _build_link_crypto_contract_payload(settings: Settings) -> dict[str, object]
         },
     }
 
-    return {
+    payload = {
         "enabled": bool(classes or udp_classes),
         "entryTransitEnabled": bool(settings.private_link_crypto_enabled),
         "routerEntryEnabled": bool(settings.private_link_crypto_router_entry_enabled),
@@ -816,7 +818,6 @@ def _build_link_crypto_contract_payload(settings: Settings) -> dict[str, object]
         "bindHost": str(settings.private_link_crypto_bind_host or "").strip() or "127.0.0.1",
         "remotePort": int(settings.private_link_crypto_remote_port or 443),
         "outerCarrier": outer_carrier,
-        "dpiResistance": tcp_dpi_resistance,
         "classes": classes,
         "counts": {
             "total": len(classes),
@@ -875,6 +876,9 @@ def _build_link_crypto_contract_payload(settings: Settings) -> dict[str, object]
             "failOpen": True,
         },
     }
+    if tcp_link_enabled:
+        payload["dpiResistance"] = tcp_dpi_resistance
+    return payload
 
 
 def _csv_values(value: str) -> list[str]:
