@@ -1929,6 +1929,30 @@ def test_mtproto_entry_transit_endpoint_route_renders_entry_proxy_and_endpoint_a
     assert "entry-transit-endpoint" in rendered.stdout
 
 
+def test_tracegate22_transit_nginx_proxies_public_client_config_url(tmp_path: Path) -> None:
+    rendered = _helm_template_with_values(tmp_path, {})
+
+    assert rendered.returncode == 0, rendered.stderr
+    docs = _helm_docs(rendered.stdout)
+    transit_nginx = next(
+        doc["data"]["nginx.conf"]
+        for doc in docs
+        if doc.get("kind") == "ConfigMap"
+        and doc.get("metadata", {}).get("name") == "tracegate-tracegate-gateway-transit-nginx"
+    )
+    entry_nginx = next(
+        doc["data"]["nginx.conf"]
+        for doc in docs
+        if doc.get("kind") == "ConfigMap"
+        and doc.get("metadata", {}).get("name") == "tracegate-tracegate-gateway-entry-nginx"
+    )
+
+    assert transit_nginx.count("location ^~ /client-config/") == 2
+    assert "proxy_pass http://tracegate-tracegate-api:8080;" in transit_nginx
+    assert "proxy_set_header X-Forwarded-Proto https;" in transit_nginx
+    assert "location ^~ /client-config/" not in entry_nginx
+
+
 def test_tracegate22_control_plane_receives_reality_client_material(tmp_path: Path) -> None:
     values = {
         "controlPlane": {
