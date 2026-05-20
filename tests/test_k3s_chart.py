@@ -1209,7 +1209,7 @@ def test_tracegate21_runtime_contract_renders_role_link_crypto_metadata(tmp_path
     assert link_crypto["udp"]["profileSource"] == "external-secret-file-reference"
     assert link_crypto["udp"]["secretMaterial"] is False
     assert link_crypto["udp"]["xrayBackhaul"] is False
-    assert link_crypto["udp"]["remotePort"] == 443
+    assert link_crypto["udp"]["remotePort"] == 4443
     assert link_crypto["udp"]["obfs"] == {"type": "salamander", "required": True}
     assert link_crypto["udp"]["pairedObfs"] == {
         "enabled": False,
@@ -1282,6 +1282,12 @@ def test_tracegate21_chart_omits_mieru_sidecar_when_entry_transit_bridge_is_disa
     rendered = _helm_template_with_values(tmp_path, {"interconnect": {"entryTransit": {"enabled": False}}})
 
     assert rendered.returncode == 0, rendered.stderr
+    contract = _rendered_runtime_contract(rendered.stdout)
+    assert contract["linkCrypto"]["enabled"] is False
+    assert "dpiResistance" not in contract["linkCrypto"]
+    assert contract["linkCrypto"]["udp"]["enabled"] is False
+    assert contract["linkCrypto"]["udp"]["remotePort"] == 4443
+    assert contract["linkCrypto"]["udp"]["dpiResistance"]["enabled"] is False
     assert "name: mieru\n" not in rendered.stdout
     assert "mieru run -c" not in rendered.stdout
     assert "mieru/client.json" not in rendered.stdout

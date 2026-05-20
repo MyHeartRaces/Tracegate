@@ -1,3 +1,5 @@
+{{- $linkCryptoEnabled := or .Values.interconnect.entryTransit.enabled .Values.interconnect.entryTransit.routerEntry.enabled .Values.interconnect.entryTransit.routerTransit.enabled -}}
+{{- $linkCryptoUdpEnabled := and .Values.interconnect.entryTransit.udp.enabled $linkCryptoEnabled -}}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -98,7 +100,7 @@ data:
     interconnect:
 {{ toYaml .Values.interconnect.entryTransit | nindent 6 }}
     linkCrypto:
-      enabled: {{ or .Values.interconnect.entryTransit.enabled .Values.interconnect.entryTransit.routerEntry.enabled .Values.interconnect.entryTransit.routerTransit.enabled (and .Values.interconnect.entryTransit.enabled .Values.interconnect.entryTransit.udp.enabled) (and .Values.interconnect.entryTransit.routerEntry.enabled .Values.interconnect.entryTransit.udp.enabled) (and .Values.interconnect.entryTransit.routerTransit.enabled .Values.interconnect.entryTransit.udp.enabled) }}
+      enabled: {{ $linkCryptoEnabled }}
       carrier: mieru
       manager: link-crypto
       profileSource: external-secret-file-reference
@@ -144,6 +146,7 @@ data:
           entryClientListen: {{ printf "127.0.0.1:%d" (int .Values.interconnect.entryTransit.outerCarrier.clientLocalPort) | quote }}
           transitServerListen: {{ printf "127.0.0.1:%d" (int .Values.interconnect.entryTransit.outerCarrier.serverLocalPort) | quote }}
           transitTarget: {{ printf "127.0.0.1:%d" (int .Values.interconnect.mieru.localSocks.transitPort) | quote }}
+{{- if $linkCryptoEnabled }}
       dpiResistance:
         enabled: true
         mode: {{ if and .Values.interconnect.entryTransit.enabled .Values.interconnect.entryTransit.outerCarrier.enabled }}mieru-wss-spki-hmac-zapret2-scoped{{ else }}mieru-zapret2-scoped{{ end }}
@@ -204,6 +207,7 @@ data:
             - hmac-admission
 {{ end }}
           secretMaterial: false
+{{- end }}
       classes:
 {{- if .Values.interconnect.entryTransit.enabled }}
         - entry-transit
@@ -298,7 +302,7 @@ data:
             {}
 {{- end }}
       udp:
-        enabled: {{ and .Values.interconnect.entryTransit.udp.enabled (or .Values.interconnect.entryTransit.enabled .Values.interconnect.entryTransit.routerEntry.enabled .Values.interconnect.entryTransit.routerTransit.enabled) }}
+        enabled: {{ $linkCryptoUdpEnabled }}
         carrier: {{ .Values.interconnect.entryTransit.udp.carrier }}
         transport: {{ .Values.interconnect.entryTransit.udp.transport }}
         manager: link-crypto
@@ -344,7 +348,7 @@ data:
             enabled: {{ .Values.interconnect.entryTransit.udp.hardening.sourceValidation.enabled }}
             mode: {{ .Values.interconnect.entryTransit.udp.hardening.sourceValidation.mode }}
         dpiResistance:
-          enabled: true
+          enabled: {{ $linkCryptoUdpEnabled }}
           mode: salamander-plus-scoped-paired-obfs
           portSplit:
             publicUdpPort: {{ int .Values.gateway.roles.transit.ports.publicUdp }}

@@ -671,7 +671,7 @@ interconnect:
       enabled: true
       carrier: hysteria2
       transport: udp-quic
-      remotePort: 443
+      remotePort: 4443
       entryPort: 14481
       transitPort: 14482
       routerEntryPort: 14483
