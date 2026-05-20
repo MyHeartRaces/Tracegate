@@ -728,7 +728,8 @@ data:
 {{- end }}
 
       server {
-        listen 127.0.0.1:{{ int $role.ports.httpsAdapter }} ssl http2;
+        listen 127.0.0.1:{{ int $role.ports.httpsAdapter }} ssl;
+        http2 on;
         server_name {{ join " " $tlsAdapterServerNames }}{{ if and (eq $roleName "transit") $linkWssCarrierEnabled }} {{ $linkOuterCarrier.serverName }}{{ end }};
 
         ssl_certificate /etc/tracegate/tls/tls.crt;

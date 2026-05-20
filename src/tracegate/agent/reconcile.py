@@ -2380,7 +2380,7 @@ def _render_naiveproxy_caddyfile(*, settings: Settings, auth_rows: list[dict[str
     domain = str(settings.naiveproxy_host or TRACEGATE_NAIVEPROXY_HOST).strip() or TRACEGATE_NAIVEPROXY_HOST
     mode = str(settings.naiveproxy_decoy_mode or "").strip() or "auth-portal"
     auth_lines = [
-        f"      basic_auth {_caddy_token(row['username'])} {_caddy_token(row['password'])}"
+        f"\t\tbasic_auth {_caddy_token(row['username'])} {_caddy_token(row['password'])}"
         for row in auth_rows
     ]
     issuer = f"https://{domain}"
@@ -2416,64 +2416,64 @@ def _render_naiveproxy_caddyfile(*, settings: Settings, auth_rows: list[dict[str
     def site_block(addresses: str) -> list[str]:
         return [
             f"{addresses} {{",
-            "  tls /etc/tracegate/tls/tls.crt /etc/tracegate/tls/tls.key",
-            "  encode zstd gzip",
-            "  log {",
-            "    output stdout",
-            "    format json",
-            "    level WARN",
-            "  }",
-            "  header {",
-            "    -Server",
-            "    Strict-Transport-Security \"max-age=31536000; includeSubDomains\"",
-            "    X-Content-Type-Options \"nosniff\"",
-            "    Referrer-Policy \"same-origin\"",
-            "    Cache-Control \"no-store\"",
-            "  }",
+            "\ttls /etc/tracegate/tls/tls.crt /etc/tracegate/tls/tls.key",
+            "\tencode zstd gzip",
+            "\tlog {",
+            "\t\toutput stdout",
+            "\t\tformat json",
+            "\t\tlevel WARN",
+            "\t}",
+            "\theader {",
+            "\t\t-Server",
+            "\t\tStrict-Transport-Security \"max-age=31536000; includeSubDomains\"",
+            "\t\tX-Content-Type-Options \"nosniff\"",
+            "\t\tReferrer-Policy \"same-origin\"",
+            "\t\tCache-Control \"no-store\"",
+            "\t}",
             "",
-            "  forward_proxy {",
+            "\tforward_proxy {",
             *auth_lines,
-            "    hide_ip",
-            "    hide_via",
-            "    probe_resistance",
-            "  }",
+            "\t\thide_ip",
+            "\t\thide_via",
+            "\t\tprobe_resistance",
+            "\t}",
             "",
-            "  @openid path /.well-known/openid-configuration",
-            "  respond @openid " + _caddy_token(openid) + " 200",
-            "  @jwks path /.well-known/jwks.json",
-            "  respond @jwks " + _caddy_token(json.dumps({"keys": []}, separators=(",", ":"))) + " 200",
-            "  @session path /auth/session /auth/token /oauth2/token",
-            "  respond @session " + _caddy_token(session_json) + " 200",
-            "  @auth path /auth* /oauth2*",
-            "  respond @auth " + _caddy_token(login_html) + " 200",
-            "  respond \"\" 204",
+            "\t@openid path /.well-known/openid-configuration",
+            "\trespond @openid " + _caddy_token(openid) + " 200",
+            "\t@jwks path /.well-known/jwks.json",
+            "\trespond @jwks " + _caddy_token(json.dumps({"keys": []}, separators=(",", ":"))) + " 200",
+            "\t@session path /auth/session /auth/token /oauth2/token",
+            "\trespond @session " + _caddy_token(session_json) + " 200",
+            "\t@auth path /auth* /oauth2*",
+            "\trespond @auth " + _caddy_token(login_html) + " 200",
+            "\trespond \"\" 204",
             "}",
             "",
         ]
 
     lines = [
         "{",
-        "  admin 127.0.0.1:2019",
-        "  auto_https off",
-        "  order forward_proxy before respond",
+        "\tadmin 127.0.0.1:2019",
+        "\tauto_https off",
+        "\torder forward_proxy before respond",
     ]
     if tcp_exposure == "demux":
         lines.extend(
             [
-                f"  servers :{demux_tcp_port} {{",
-                "    protocols h1 h2",
-                "  }",
-                f"  servers :{public_udp_port} {{",
-                "    protocols h3",
-                "  }",
+                f"\tservers :{demux_tcp_port} {{",
+                "\t\tprotocols h1 h2",
+                "\t}",
+                f"\tservers :{public_udp_port} {{",
+                "\t\tprotocols h3",
+                "\t}",
             ]
         )
     else:
         lines.extend(
             [
-                f"  servers :{public_tcp_port} {{",
-                "    protocols h1 h2 h3",
-                "  }",
+                f"\tservers :{public_tcp_port} {{",
+                "\t\tprotocols h1 h2 h3",
+                "\t}",
             ]
         )
     lines.extend(
