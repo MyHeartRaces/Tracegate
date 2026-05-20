@@ -1662,7 +1662,7 @@ def test_reconcile_materializes_link_crypto_handoff_without_private_secrets(tmp_
     assert state["udpLinks"][0]["xrayBackhaul"] is False
     assert state["udpLinks"][0]["remote"] == {
         "role": "TRANSIT",
-        "endpoint": "transit.tracegate.test:443",
+        "endpoint": "transit.tracegate.test:4443",
         "protocol": "udp-quic",
     }
     assert state["udpLinks"][0]["local"]["protocol"] == "udp"
@@ -1712,7 +1712,7 @@ def test_reconcile_materializes_link_crypto_handoff_without_private_secrets(tmp_
     assert "TRACEGATE_LINK_CRYPTO_UDP_COUNT='1'" in env
     assert "TRACEGATE_LINK_CRYPTO_UDP_CLASSES='entry-transit-udp'" in env
     assert "TRACEGATE_LINK_CRYPTO_UDP_CARRIER='hysteria2'" in env
-    assert "TRACEGATE_LINK_CRYPTO_UDP_REMOTE_PORT='443'" in env
+    assert "TRACEGATE_LINK_CRYPTO_UDP_REMOTE_PORT='4443'" in env
     assert "TRACEGATE_LINK_CRYPTO_UDP_SALAMANDER_REQUIRED='true'" in env
     assert "TRACEGATE_LINK_CRYPTO_UDP_HARDENING_ENABLED='true'" in env
     assert "TRACEGATE_LINK_CRYPTO_UDP_ANTI_REPLAY_ENABLED='true'" in env
