@@ -535,16 +535,34 @@ def test_export_wireguard_wstunnel_attachment_requires_local_auth() -> None:
     attachment = json.loads((out.attachment_content or b"").decode("utf-8"))
 
     assert out.kind == "attachment"
-    assert out.attachment_filename == "v7-wireguard-wstunnel-direct.singbox.json"
-    assert dict(out.extra_messages)["WSTunnel target"] == "wss://edge.example.com:443/cdn/ws"
+    assert out.attachment_filename == "v7-wireguard-wstunnel-direct.wgws.json"
+    assert dict(out.extra_messages)["WGWS transport"] == "wss://edge.example.com:443/cdn/ws"
+    assert dict(out.extra_messages)["WG local UDP"] == "127.0.0.1:51820"
     assert "Local SOCKS5 credentials" in dict(out.extra_messages)
-    assert attachment["inbounds"][0]["listen_port"] == 18083
-    assert attachment["inbounds"][0]["users"] == [{"username": "wg-local", "password": "wg-pass"}]
-    assert attachment["outbounds"][0]["type"] == "wireguard"
-    assert attachment["outbounds"][0]["server"] == "127.0.0.1"
-    assert attachment["outbounds"][0]["server_port"] == 51820
-    assert attachment["outbounds"][0]["local_address"] == ["10.70.0.2/32"]
-    assert attachment["outbounds"][0]["pre_shared_key"] == "wg-psk"
+    assert attachment["type"] == "wgws"
+    assert attachment["schema"] == "tracegate.wgws-client.v1"
+    assert attachment["wireguard"]["local_address"] == ["10.70.0.2/32"]
+    assert attachment["wireguard"]["peer_public_key"] == "server-public"
+    assert attachment["wireguard"]["pre_shared_key"] == "wg-psk"
+    assert attachment["websocket"] == {
+        "server": "edge.example.com",
+        "server_port": 443,
+        "tls": True,
+        "sni": "edge.example.com",
+        "host": "edge.example.com",
+        "path": "/cdn/ws",
+        "headers": {},
+    }
+    assert attachment["wstunnel"]["local_udp_listen"] == "127.0.0.1:51820"
+    assert attachment["wstunnel"]["http_upgrade_path_prefix"] == "cdn/ws"
+    assert attachment["singbox"]["inbounds"][0]["listen_port"] == 18083
+    assert attachment["singbox"]["inbounds"][0]["users"] == [{"username": "wg-local", "password": "wg-pass"}]
+    endpoint = attachment["singbox"]["endpoints"][0]
+    assert endpoint["type"] == "wireguard"
+    assert endpoint["address"] == ["10.70.0.2/32"]
+    assert endpoint["peers"][0]["address"] == "127.0.0.1"
+    assert endpoint["peers"][0]["port"] == 51820
+    assert endpoint["peers"][0]["pre_shared_key"] == "wg-psk"
 
 
 def test_export_wireguard_wstunnel_rejects_invalid_wstunnel_target() -> None:
@@ -694,7 +712,7 @@ def test_export_wireguard_wstunnel_rejects_unsafe_mtu() -> None:
 def test_exported_local_proxy_attachments_always_require_auth(effective: dict) -> None:
     out = export_client_config(effective)
     attachment = json.loads((out.attachment_content or b"").decode("utf-8"))
-    inbound = attachment["inbounds"][0]
+    inbound = (attachment.get("singbox") or attachment)["inbounds"][0]
 
     if inbound.get("protocol") == "socks":
         assert inbound["settings"]["auth"] == "password"

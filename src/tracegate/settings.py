@@ -538,7 +538,7 @@ class Settings(BaseSettings):
     )
     wireguard_mtu: int = Field(default=1280, validation_alias=AliasChoices("WIREGUARD_MTU", "WG_MTU"))
     wireguard_wstunnel_path: str = Field(
-        default="/cdn-cgi/tracegate",
+        default="/wgws",
         validation_alias=AliasChoices("WIREGUARD_WSTUNNEL_PATH", "WG_WSTUNNEL_PATH"),
     )
 

@@ -79,7 +79,7 @@ class EndpointSet:
     wireguard_dns: str = "1.1.1.1"
     wireguard_allowed_ips: tuple[str, ...] = ("0.0.0.0/0", "::/0")
     wireguard_mtu: int = 1280
-    wstunnel_path: str = "/cdn-cgi/tracegate"
+    wstunnel_path: str = "/wgws"
     naiveproxy_host: str = TRACEGATE_NAIVEPROXY_HOST
     naiveproxy_public_tcp_port: int = TRACEGATE_NAIVEPROXY_PUBLIC_TCP_PORT
     naiveproxy_public_udp_port: int = TRACEGATE_NAIVEPROXY_PUBLIC_UDP_PORT

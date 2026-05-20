@@ -54,7 +54,9 @@ def _artifact(exported: ExportResult) -> dict[str, Any] | None:
     parsed = _json_attachment(exported)
     if parsed is not None:
         artifact["json"] = parsed
-    if exported.attachment_filename.endswith(".singbox.json"):
+    if exported.attachment_filename.endswith(".wgws.json"):
+        artifact["kind"] = "wgws-config"
+    elif exported.attachment_filename.endswith(".singbox.json"):
         artifact["kind"] = "sing-box-config"
     elif exported.attachment_filename.endswith(".xray.json"):
         artifact["kind"] = "xray-config"
@@ -178,8 +180,6 @@ def _singbox_outbounds_for_profile(
     warnings: list[str] = []
     from_attachment, primary = _singbox_outbounds_from_attachment(exported, tag_prefix=tag_prefix)
     if from_attachment:
-        if str(effective.get("protocol") or "").strip().lower() == "wireguard":
-            warnings.append("wireguard_wstunnel_requires_external_wstunnel_udp_bridge")
         return from_attachment, primary, warnings
 
     proto = str(effective.get("protocol") or "").strip().lower()
@@ -192,6 +192,8 @@ def _singbox_outbounds_for_profile(
         if outbound:
             return [outbound], tag, warnings
         warnings.append("vless_transport_not_representable_as_official_singbox_outbound")
+    elif proto == "wireguard":
+        warnings.append("wireguard_wstunnel_requires_wgws_transport")
     elif proto == "mtproto":
         warnings.append("mtproto_not_representable_as_singbox_outbound")
     return [], None, warnings

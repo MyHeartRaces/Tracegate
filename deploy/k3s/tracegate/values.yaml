@@ -744,7 +744,7 @@ wireguard:
   wstunnel:
     enabled: true
     mode: wireguard-over-websocket
-    publicPath: /cdn-cgi/tracegate
+    publicPath: /wgws
     localWireguardPort: 51820
     websocketPort: 51821
 

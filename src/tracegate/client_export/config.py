@@ -306,6 +306,125 @@ def _build_singbox_client_attachment(
     return json.dumps(config, ensure_ascii=True, indent=2).encode("utf-8"), filename
 
 
+def _build_wgws_client_attachment(
+    effective: dict[str, Any],
+    *,
+    wstunnel_url: str,
+    local_udp_host: str,
+    local_udp_port: int,
+    local_addresses: list[str],
+    private_key: str,
+    peer_public_key: str,
+    preshared_key: str,
+    mtu: int,
+) -> tuple[bytes, str]:
+    profile_name = str(effective.get("profile") or "v0-wgws-wireguard").strip() or "v0-wgws-wireguard"
+    parsed = urlparse(wstunnel_url)
+    ws_server = str(parsed.hostname or "").strip()
+    ws_port = int(parsed.port or 443)
+    ws_path = parsed.path or "/wgws"
+    wstunnel = effective.get("wstunnel") if isinstance(effective.get("wstunnel"), dict) else {}
+    wireguard = effective.get("wireguard") if isinstance(effective.get("wireguard"), dict) else {}
+    allowed_ips = wireguard.get("allowed_ips")
+    if isinstance(allowed_ips, str):
+        allowed_ip_values = [allowed_ips] if allowed_ips else []
+    elif isinstance(allowed_ips, (list, tuple)):
+        allowed_ip_values = [str(item).strip() for item in allowed_ips if str(item).strip()]
+    else:
+        allowed_ip_values = []
+    if not allowed_ip_values:
+        allowed_ip_values = ["0.0.0.0/0", "::/0"]
+
+    local_socks_host, local_socks_port = _local_socks_endpoint(effective)
+    socks_username, socks_password = _local_socks_auth(effective)
+    persistent_keepalive = int(wireguard.get("persistent_keepalive") or 25)
+    endpoint_peer: dict[str, Any] = {
+        "address": local_udp_host,
+        "port": local_udp_port,
+        "public_key": peer_public_key,
+        "allowed_ips": allowed_ip_values,
+        "persistent_keepalive_interval": persistent_keepalive,
+    }
+    if preshared_key:
+        endpoint_peer["pre_shared_key"] = preshared_key
+    endpoint: dict[str, Any] = {
+        "type": "wireguard",
+        "tag": "proxy",
+        "system": False,
+        "address": local_addresses,
+        "private_key": private_key,
+        "peers": [endpoint_peer],
+        "mtu": mtu,
+        "workers": 4,
+    }
+    singbox = {
+        "log": {"level": "warn"},
+        "inbounds": [
+            {
+                "type": "mixed",
+                "tag": "local-in",
+                "listen": local_socks_host,
+                "listen_port": local_socks_port,
+                "users": [{"username": socks_username, "password": socks_password}],
+            }
+        ],
+        "endpoints": [endpoint],
+        "outbounds": [{"type": "direct", "tag": "direct"}],
+        "route": {"auto_detect_interface": True, "final": "proxy"},
+    }
+
+    host_header = str(wstunnel.get("host") or ws_server).strip()
+    headers = {str(key): str(value) for key, value in (wstunnel.get("headers") or {}).items()} if isinstance(wstunnel.get("headers"), dict) else {}
+    if host_header and host_header != ws_server:
+        headers.setdefault("Host", host_header)
+    local_udp_listen = f"{local_udp_host}:{local_udp_port}"
+    websocket = {
+        "server": ws_server,
+        "server_port": ws_port,
+        "tls": parsed.scheme == "wss",
+        "sni": str(wstunnel.get("tls_server_name") or effective.get("sni") or ws_server).strip(),
+        "host": host_header or ws_server,
+        "path": ws_path,
+        "headers": headers,
+    }
+    attachment = {
+        "type": "wgws",
+        "schema": "tracegate.wgws-client.v1",
+        "name": profile_name,
+        "wireguard": {
+            "local_address": local_addresses,
+            "private_key": private_key,
+            "peer_public_key": peer_public_key,
+            "allowed_ips": allowed_ip_values,
+            "dns": wireguard.get("dns") or "1.1.1.1",
+            "mtu": mtu,
+            "persistent_keepalive": persistent_keepalive,
+        },
+        "websocket": websocket,
+        "wstunnel": {
+            "mode": "wireguard-over-websocket",
+            "url": wstunnel_url,
+            "local_udp_listen": local_udp_listen,
+            "remote_udp_endpoint": f"127.0.0.1:{local_udp_port}",
+            "http_upgrade_path_prefix": ws_path.lstrip("/"),
+            "client_command": (
+                f"wstunnel client --http-upgrade-path-prefix {ws_path.lstrip('/')} "
+                f"-L udp://{local_udp_listen}:127.0.0.1:{local_udp_port} "
+                f"wss://{ws_server}:{ws_port}"
+            ),
+        },
+        "singbox": singbox,
+        "local_socks": {
+            "listen": f"{local_socks_host}:{local_socks_port}",
+            "auth": {"username": socks_username, "password": socks_password},
+        },
+    }
+    if preshared_key:
+        attachment["wireguard"]["pre_shared_key"] = preshared_key
+    filename = f"{_safe_filename_fragment(profile_name)}.wgws.json"
+    return json.dumps(attachment, ensure_ascii=True, indent=2).encode("utf-8"), filename
+
+
 def _is_hysteria_chain_profile(effective: dict[str, Any]) -> bool:
     mode = str(effective.get("mode") or "").strip().lower()
     if mode == "chain":
@@ -895,29 +1014,27 @@ def _export_wireguard_wstunnel(effective: dict[str, Any]) -> ExportResult:
         default="127.0.0.1:51820",
     )
 
-    outbound = {
-        "type": "wireguard",
-        "tag": "proxy",
-        "server": local_udp_host,
-        "server_port": local_udp_port,
-        "local_address": local_addresses,
-        "private_key": private_key,
-        "peer_public_key": peer_public_key,
-        "mtu": _validated_wireguard_mtu(wireguard),
-        "workers": 4,
-    }
+    mtu = _validated_wireguard_mtu(wireguard)
     preshared_key = str(wireguard.get("preshared_key") or "").strip()
-    if preshared_key:
-        outbound["pre_shared_key"] = preshared_key
-    attachment_content, attachment_filename = _build_singbox_client_attachment(effective, outbound)
+    attachment_content, attachment_filename = _build_wgws_client_attachment(
+        effective,
+        wstunnel_url=wstunnel_url,
+        local_udp_host=local_udp_host,
+        local_udp_port=local_udp_port,
+        local_addresses=local_addresses,
+        private_key=private_key,
+        peer_public_key=peer_public_key,
+        preshared_key=preshared_key,
+        mtu=mtu,
+    )
     extra_messages = (_local_socks_extra_message(effective),)
-    extra_messages = (("WSTunnel target", wstunnel_url), *extra_messages)
+    extra_messages = (("WGWS transport", wstunnel_url), ("WG local UDP", f"{local_udp_host}:{local_udp_port}"), *extra_messages)
     return ExportResult(
         kind="attachment",
-        title="WireGuard over WSTunnel config",
+        title="WGWS config",
         content=(
-            f"Use the attached sing-box config for {profile}. Start WSTunnel toward {wstunnel_url}; "
-            "local SOCKS5 authentication is required."
+            f"Use the attached WGWS config for {profile}. It includes WireGuard keys, "
+            "the WebSocket transport, and the inner sing-box endpoint config."
         ),
         extra_messages=extra_messages,
         attachment_content=attachment_content,

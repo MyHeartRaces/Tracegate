@@ -107,7 +107,7 @@ def test_client_config_bundle_collects_universal_links_artifacts_and_singbox() -
     assert bundle["counts"] == {
         "profiles": 5,
         "links": 6,
-        "singboxOutbounds": 5,
+        "singboxOutbounds": 4,
         "errors": 0,
     }
     assert render_subscription_text(bundle) == "\n".join(bundle["subscription"]["links"])
@@ -127,7 +127,7 @@ def test_client_config_bundle_collects_universal_links_artifacts_and_singbox() -
     assert all("protocol" not in outbound for outbound in bundle["singbox"]["outbounds"])
     assert any(outbound["type"] == "vless" and outbound["transport"]["type"] == "ws" for outbound in bundle["singbox"]["outbounds"])
     assert any(outbound["type"] == "naive" and outbound["quic"] is True for outbound in bundle["singbox"]["outbounds"])
-    assert any(outbound["type"] == "wireguard" for outbound in bundle["singbox"]["outbounds"])
+    assert not any(outbound["type"] == "wireguard" for outbound in bundle["singbox"]["outbounds"])
 
     ss_outbound = next(outbound for outbound in bundle["singbox"]["outbounds"] if outbound["type"] == "shadowsocks")
     assert ss_outbound["detour"].startswith("tg-3-ss2022-shadowtls-")
@@ -136,7 +136,10 @@ def test_client_config_bundle_collects_universal_links_artifacts_and_singbox() -
     profiles = {profile["profile"]: profile for profile in bundle["profiles"]}
     assert profiles["VLESS-WS"]["singbox"]["supported"] is True
     assert profiles["SS2022-ShadowTLS"]["artifacts"][0]["kind"] == "sing-box-config"
-    assert profiles["WGWS"]["warnings"] == ["wireguard_wstunnel_requires_external_wstunnel_udp_bridge"]
+    assert profiles["WGWS"]["singbox"]["supported"] is False
+    assert profiles["WGWS"]["artifacts"][0]["kind"] == "wgws-config"
+    assert profiles["WGWS"]["artifacts"][0]["json"]["type"] == "wgws"
+    assert profiles["WGWS"]["warnings"] == ["wireguard_wstunnel_requires_wgws_transport"]
 
 
 def test_client_config_bundle_records_profile_export_errors() -> None:
