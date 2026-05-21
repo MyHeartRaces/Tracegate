@@ -416,14 +416,14 @@ def _build_wgws_client_attachment(
     local_address_families = _ip_prefix_families(local_addresses)
     if local_address_families == {4}:
         singbox["dns"] = {
-            "servers": [{"type": "local", "tag": "local"}],
-            "final": "local",
+            "servers": [{"type": "udp", "tag": "cloudflare", "server": "1.1.1.1", "server_port": 53}],
+            "final": "cloudflare",
             "strategy": "ipv4_only",
         }
     elif local_address_families == {6}:
         singbox["dns"] = {
-            "servers": [{"type": "local", "tag": "local"}],
-            "final": "local",
+            "servers": [{"type": "udp", "tag": "cloudflare-v6", "server": "2606:4700:4700::1111", "server_port": 53}],
+            "final": "cloudflare-v6",
             "strategy": "ipv6_only",
         }
 

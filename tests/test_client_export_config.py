@@ -559,7 +559,11 @@ def test_export_wireguard_wstunnel_attachment_requires_local_auth() -> None:
     assert attachment["wstunnel"]["http_upgrade_path_prefix"] == "cdn/ws"
     assert attachment["singbox"]["inbounds"][0]["listen_port"] == 18083
     assert attachment["singbox"]["inbounds"][0]["users"] == [{"username": "wg-local", "password": "wg-pass"}]
-    assert attachment["singbox"]["dns"]["strategy"] == "ipv4_only"
+    assert attachment["singbox"]["dns"] == {
+        "servers": [{"type": "udp", "tag": "cloudflare", "server": "1.1.1.1", "server_port": 53}],
+        "final": "cloudflare",
+        "strategy": "ipv4_only",
+    }
     endpoint = attachment["singbox"]["endpoints"][0]
     assert endpoint["type"] == "wireguard"
     assert endpoint["address"] == ["10.70.0.2/32"]
