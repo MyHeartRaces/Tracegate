@@ -104,21 +104,25 @@ def _current_peer_state(interface: str) -> dict[str, WireGuardPeer]:
     peers: dict[str, WireGuardPeer] = {}
     for line in result.stdout.splitlines():
         fields = line.split("\t")
-        if len(fields) < 9 or fields[0] != interface:
+        if len(fields) >= 9 and fields[0] == interface:
+            offset = 1
+        elif len(fields) >= 8:
+            offset = 0
+        else:
             continue
-        public_key = _normalize_wg_value(fields[1])
+        public_key = _normalize_wg_value(fields[offset])
         if not public_key:
             continue
         allowed_ips = tuple(
             item.strip()
-            for item in _normalize_wg_value(fields[4]).split(",")
+            for item in _normalize_wg_value(fields[offset + 3]).split(",")
             if item.strip()
         )
         peers[public_key] = WireGuardPeer(
             public_key=public_key,
             allowed_ips=allowed_ips,
-            preshared_key=_normalize_wg_value(fields[2]),
-            persistent_keepalive=max(0, min(60, _int_value(fields[8], 0))),
+            preshared_key=_normalize_wg_value(fields[offset + 1]),
+            persistent_keepalive=max(0, min(60, _int_value(fields[offset + 7], 0))),
         )
     return peers
 
