@@ -541,6 +541,7 @@ def test_export_wireguard_wstunnel_attachment_requires_local_auth() -> None:
     assert "Local SOCKS5 credentials" in dict(out.extra_messages)
     assert attachment["type"] == "wgws"
     assert attachment["schema"] == "tracegate.wgws-client.v1"
+    assert attachment["endpoint"] == "edge.example.com:443"
     assert attachment["wireguard"]["local_address"] == ["10.70.0.2/32"]
     assert attachment["wireguard"]["peer_public_key"] == "server-public"
     assert attachment["wireguard"]["pre_shared_key"] == "wg-psk"

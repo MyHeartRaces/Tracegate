@@ -91,6 +91,38 @@ def _current_peers(interface: str) -> set[str]:
     return {line.strip() for line in result.stdout.splitlines() if line.strip()}
 
 
+def _normalize_wg_value(value: str) -> str:
+    raw = str(value or "").strip()
+    return "" if raw == "(none)" else raw
+
+
+def _current_peer_state(interface: str) -> dict[str, WireGuardPeer]:
+    result = _run_wg(["show", interface, "dump"], check=False)
+    if result.returncode != 0:
+        return {}
+
+    peers: dict[str, WireGuardPeer] = {}
+    for line in result.stdout.splitlines():
+        fields = line.split("\t")
+        if len(fields) < 9 or fields[0] != interface:
+            continue
+        public_key = _normalize_wg_value(fields[1])
+        if not public_key:
+            continue
+        allowed_ips = tuple(
+            item.strip()
+            for item in _normalize_wg_value(fields[4]).split(",")
+            if item.strip()
+        )
+        peers[public_key] = WireGuardPeer(
+            public_key=public_key,
+            allowed_ips=allowed_ips,
+            preshared_key=_normalize_wg_value(fields[2]),
+            persistent_keepalive=max(0, min(60, _int_value(fields[8], 0))),
+        )
+    return peers
+
+
 def _interface_ready(interface: str) -> bool:
     return _run_wg(["show", interface], check=False).returncode == 0
 
@@ -136,14 +168,18 @@ def sync_once(
         return {"ready": 0, "desired": 0, "applied": 0, "removed": 0}
 
     desired = _load_desired_peers(state_path, interface=interface)
+    current = _current_peer_state(interface)
     applied = 0
     for peer in desired.values():
+        if current.get(peer.public_key) == peer:
+            continue
         _apply_peer(interface, peer)
         applied += 1
 
     removed = 0
     if remove_stale_peers:
-        for public_key in sorted(_current_peers(interface) - set(desired)):
+        current_keys = set(current) or _current_peers(interface)
+        for public_key in sorted(current_keys - set(desired)):
             _run_wg(["set", interface, "peer", public_key, "remove"])
             removed += 1
 

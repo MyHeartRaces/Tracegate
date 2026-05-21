@@ -391,6 +391,7 @@ def _build_wgws_client_attachment(
         "type": "wgws",
         "schema": "tracegate.wgws-client.v1",
         "name": profile_name,
+        "endpoint": f"{ws_server}:{ws_port}",
         "wireguard": {
             "local_address": local_addresses,
             "private_key": private_key,

@@ -30,6 +30,8 @@ def test_wireguard_sync_runner_applies_desired_peers_and_removes_stale(tmp_path:
     def fake_run(args: list[str], *, check: bool = True) -> subprocess.CompletedProcess[str]:
         if args == ["show", "wg0"]:
             return subprocess.CompletedProcess(["wg", *args], 0, "", "")
+        if args == ["show", "wg0", "dump"]:
+            return subprocess.CompletedProcess(["wg", *args], 1, "", "dump unavailable")
         if args == ["show", "wg0", "peers"]:
             return subprocess.CompletedProcess(["wg", *args], 0, "stale-public\nclient-public\n", "")
         calls.append(args)
@@ -46,6 +48,50 @@ def test_wireguard_sync_runner_applies_desired_peers_and_removes_stale(tmp_path:
     assert calls[0][:4] == ["set", "wg0", "peer", "client-public"]
     assert calls[0][-4:] == ["allowed-ips", "10.70.1.2/32", "persistent-keepalive", "25"]
     assert calls[1] == ["set", "wg0", "peer", "stale-public", "remove"]
+
+
+def test_wireguard_sync_runner_skips_unchanged_peer(tmp_path: Path, monkeypatch) -> None:
+    state_path = tmp_path / "desired-state.json"
+    state_path.write_text(
+        json.dumps(
+            {
+                "wireguardWSTunnel": [
+                    {
+                        "wireguard": {
+                            "clientPublicKey": "client-public",
+                            "presharedKey": "client-psk",
+                            "allowedIps": ["10.70.1.2/32"],
+                            "persistentKeepalive": 25,
+                        },
+                        "sync": {"interface": "wg0"},
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    calls: list[list[str]] = []
+
+    def fake_run(args: list[str], *, check: bool = True) -> subprocess.CompletedProcess[str]:
+        if args == ["show", "wg0"]:
+            return subprocess.CompletedProcess(["wg", *args], 0, "", "")
+        if args == ["show", "wg0", "dump"]:
+            return subprocess.CompletedProcess(
+                ["wg", *args],
+                0,
+                "wg0\tserver-private\tserver-public\t51820\toff\n"
+                "wg0\tclient-public\tclient-psk\t127.0.0.1:50000\t10.70.1.2/32\t0\t0\t0\t25\n",
+                "",
+            )
+        calls.append(args)
+        return subprocess.CompletedProcess(["wg", *args], 0, "", "")
+
+    monkeypatch.setattr(wireguard_sync_runner, "_run_wg", fake_run)
+
+    summary = wireguard_sync_runner.sync_once(state_path=state_path, interface="wg0")
+
+    assert summary == {"ready": 1, "desired": 1, "applied": 0, "removed": 0}
+    assert calls == []
 
 
 def test_wireguard_sync_runner_waits_for_interface(tmp_path: Path, monkeypatch) -> None:
