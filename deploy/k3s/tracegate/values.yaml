@@ -64,7 +64,7 @@ controlPlane:
     naiveproxyHost: auth.example.com
     localSocksAuth: required
     botWelcomeRequired: true
-    botWelcomeVersion: tracegate-2.2-ui-v3
+    botWelcomeVersion: tracegate-2.2.7-ui-v1
     botWelcomeMessageSecret:
       name: tracegate-bot-welcome
       key: message

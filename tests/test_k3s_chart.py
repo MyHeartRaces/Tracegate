@@ -665,7 +665,7 @@ def test_tracegate21_chart_externalizes_private_profiles() -> None:
     assert "interconnect.entryTransit.routerTransit.enabled=true requires the Transit gateway role" in _chart_text()
     assert "router link-crypto profiles require interconnect.mieru.enabled=true" in _chart_text()
     assert values["controlPlane"]["env"]["botWelcomeRequired"] is True
-    assert values["controlPlane"]["env"]["botWelcomeVersion"] == "tracegate-2.2-ui-v3"
+    assert values["controlPlane"]["env"]["botWelcomeVersion"] == "tracegate-2.2.7-ui-v1"
     assert values["controlPlane"]["env"]["botWelcomeMessageSecret"] == {
         "name": "tracegate-bot-welcome",
         "key": "message",
@@ -712,7 +712,7 @@ def test_tracegate21_bot_welcome_message_is_secret_backed(tmp_path: Path) -> Non
     container = bot["spec"]["template"]["spec"]["containers"][0]
     env_by_name = {row["name"]: row for row in container["env"]}
     assert env_by_name["BOT_WELCOME_REQUIRED"]["value"] == "true"
-    assert env_by_name["BOT_WELCOME_VERSION"]["value"] == "tracegate-2.2-ui-v3"
+    assert env_by_name["BOT_WELCOME_VERSION"]["value"] == "tracegate-2.2.7-ui-v1"
     assert env_by_name["BOT_WELCOME_MESSAGE"]["valueFrom"]["secretKeyRef"] == {
         "name": "tracegate-bot-welcome",
         "key": "message",
@@ -1912,8 +1912,8 @@ def test_mtproto_entry_transit_endpoint_route_renders_entry_proxy_and_endpoint_a
                 "publicPort": 8443,
                 "route": {
                     "mode": "entry-transit-endpoint",
-                    "entry": {"upstreamHost": "185.105.108.109"},
-                    "endpoint": {"allowedProxySources": ["185.105.108.109"]},
+                    "entry": {"upstreamHost": "198.51.100.109"},
+                    "endpoint": {"allowedProxySources": ["198.51.100.109"]},
                 },
             }
         },
@@ -1928,12 +1928,12 @@ def test_mtproto_entry_transit_endpoint_route_renders_entry_proxy_and_endpoint_a
     endpoint_fallback = rendered.stdout.split("frontend fe_tracegate_transit_mtproto_8443", 1)[
         1
     ].split("frontend fe_tracegate_transit_tls", 1)[0]
-    assert "server mtproto_transit_tls 185.105.108.109:443 check" in rendered.stdout
-    assert "server mtproto_transit 185.105.108.109:8443 check" in rendered.stdout
+    assert "server mtproto_transit_tls 198.51.100.109:443 check" in rendered.stdout
+    assert "server mtproto_transit 198.51.100.109:8443 check" in rendered.stdout
     assert "use_backend be_mtproto_tls if mtproto_sni" in rendered.stdout
     assert "acl mtproto_sni req.ssl_sni -i" in rendered.stdout
     assert "use_backend be_mtproto if mtproto_sni mtproto_proxy_src" in rendered.stdout
-    assert "acl mtproto_proxy_src src 185.105.108.109" in endpoint_fallback
+    assert "acl mtproto_proxy_src src 198.51.100.109" in endpoint_fallback
     assert "tcp-request connection reject unless mtproto_proxy_src" in endpoint_fallback
     assert "tcp-request connection reject unless mtproto_proxy_src" not in entry_fallback
     assert "MTPROTO_ROUTE_MODE" in rendered.stdout

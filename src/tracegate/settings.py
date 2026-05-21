@@ -156,7 +156,7 @@ class Settings(BaseSettings):
     # Welcome text shown before the normal /start flow. Deployments can still
     # override it from private env/Secrets.
     bot_welcome_required: bool = True
-    bot_welcome_version: str = "tracegate-2.2-ui-v3"
+    bot_welcome_version: str = "tracegate-2.2.7-ui-v1"
     bot_welcome_message: str = (
         "Добро пожаловать в Tracegate 2.\n\n"
         "Этот бот выпускает подключения для твоих устройств, показывает актуальные конфиги и помогает "

@@ -557,7 +557,7 @@ async def _edit_or_answer_guide(callback: CallbackQuery) -> None:
 
 
 def _bot_welcome_version() -> str:
-    return str(settings.bot_welcome_version or "").strip() or "tracegate-2.2-ui-v3"
+    return str(settings.bot_welcome_version or "").strip() or "tracegate-2.2.7-ui-v1"
 
 
 def _bot_welcome_text() -> str:
