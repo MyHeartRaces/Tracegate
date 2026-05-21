@@ -545,6 +545,7 @@ def test_export_wireguard_wstunnel_attachment_requires_local_auth() -> None:
     assert attachment["wireguard"]["local_address"] == ["10.70.0.2/32"]
     assert attachment["wireguard"]["peer_public_key"] == "server-public"
     assert attachment["wireguard"]["pre_shared_key"] == "wg-psk"
+    assert attachment["wireguard"]["allowed_ips"] == ["0.0.0.0/0"]
     assert attachment["websocket"] == {
         "server": "edge.example.com",
         "server_port": 443,
@@ -558,12 +559,14 @@ def test_export_wireguard_wstunnel_attachment_requires_local_auth() -> None:
     assert attachment["wstunnel"]["http_upgrade_path_prefix"] == "cdn/ws"
     assert attachment["singbox"]["inbounds"][0]["listen_port"] == 18083
     assert attachment["singbox"]["inbounds"][0]["users"] == [{"username": "wg-local", "password": "wg-pass"}]
+    assert attachment["singbox"]["dns"]["strategy"] == "ipv4_only"
     endpoint = attachment["singbox"]["endpoints"][0]
     assert endpoint["type"] == "wireguard"
     assert endpoint["address"] == ["10.70.0.2/32"]
     assert endpoint["peers"][0]["address"] == "127.0.0.1"
     assert endpoint["peers"][0]["port"] == 51820
     assert endpoint["peers"][0]["pre_shared_key"] == "wg-psk"
+    assert endpoint["peers"][0]["allowed_ips"] == ["0.0.0.0/0"]
 
 
 def test_export_wireguard_wstunnel_rejects_invalid_wstunnel_target() -> None:

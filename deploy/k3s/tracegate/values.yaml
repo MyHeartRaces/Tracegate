@@ -741,6 +741,7 @@ interconnect:
 wireguard:
   enabled: false
   variant: V0
+  clientCidr: 10.70.0.0/16
   wstunnel:
     enabled: true
     mode: wireguard-over-websocket

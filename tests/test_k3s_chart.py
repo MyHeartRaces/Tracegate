@@ -1436,6 +1436,7 @@ def test_tracegate21_chart_guards_v5_v6_v7_transport_shape() -> None:
     assert values["shadowsocks2022"]["shadowtls"]["enabled"] is True
     assert values["shadowsocks2022"]["shadowtls"]["version"] == 3
     assert values["wireguard"]["variant"] == "V0"
+    assert values["wireguard"]["clientCidr"] == "10.70.0.0/16"
     assert values["wireguard"]["wstunnel"]["enabled"] is True
     assert values["wireguard"]["wstunnel"]["mode"] == "wireguard-over-websocket"
     assert values["wireguard"]["wstunnel"]["publicPath"].startswith("/")
@@ -1446,6 +1447,7 @@ def test_tracegate21_chart_guards_v5_v6_v7_transport_shape() -> None:
     assert "wireguard.variant must stay V0" in text
     assert "wireguard.wstunnel.enabled=false is forbidden" in text
     assert "wireguard.wstunnel.mode must stay wireguard-over-websocket" in text
+    assert "wireguard.clientCidr must be an IPv4 CIDR for WGWS egress NAT" in text
     assert "wireguard.wstunnel.publicPath must be an absolute HTTP path" in text
     assert "wireguard.wstunnel.publicPath must be a clean absolute HTTP path" in text
 
@@ -1471,6 +1473,9 @@ def test_tracegate21_wireguard_sidecar_uses_portable_lifecycle_script(tmp_path: 
     syntax = subprocess.run(["sh", "-n"], input=script, check=False, capture_output=True, text=True)
     assert syntax.returncode == 0, syntax.stderr
     assert "wg-quick up /etc/tracegate/private/wireguard/wg.conf" in script
+    assert 'wireguard_client_cidr="10.70.0.0/16"' in script
+    assert 'iptables -t nat -A POSTROUTING -s "$wireguard_client_cidr" -o "$wireguard_out_if" -j MASQUERADE' in script
+    assert "teardown_wireguard_egress()" in script
     assert "teardown_wireguard()" in script
     assert "sleep infinity" not in script
     assert 'while :; do sleep 3600 & wait "$!"; done' in script

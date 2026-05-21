@@ -4,7 +4,7 @@ import base64
 import hashlib
 import json
 from dataclasses import dataclass
-from ipaddress import ip_address
+from ipaddress import ip_address, ip_network
 from typing import Any
 from urllib.parse import quote, urlencode, urlparse
 
@@ -85,6 +85,46 @@ def _is_ip_literal(host: str) -> bool:
         return True
     except ValueError:
         return False
+
+
+def _ip_prefix_families(values: list[str]) -> set[int]:
+    families: set[int] = set()
+    for value in values:
+        normalized = str(value or "").strip().strip("[]")
+        if not normalized:
+            continue
+        try:
+            families.add(ip_network(normalized, strict=False).version)
+        except ValueError:
+            try:
+                families.add(ip_address(normalized.split("/", 1)[0]).version)
+            except ValueError:
+                continue
+    return families
+
+
+def _wireguard_default_allowed_ips(local_addresses: list[str]) -> list[str]:
+    families = _ip_prefix_families(local_addresses)
+    allowed = ["0.0.0.0/0"] if not families or 4 in families else []
+    if 6 in families:
+        allowed.append("::/0")
+    return allowed or ["0.0.0.0/0"]
+
+
+def _wireguard_allowed_ips_for_local_addresses(allowed_ips: list[str], local_addresses: list[str]) -> list[str]:
+    families = _ip_prefix_families(local_addresses)
+    if not families:
+        return allowed_ips
+    filtered: list[str] = []
+    for value in allowed_ips:
+        try:
+            family = ip_network(value, strict=False).version
+        except ValueError:
+            filtered.append(value)
+            continue
+        if family in families:
+            filtered.append(value)
+    return filtered or _wireguard_default_allowed_ips(local_addresses)
 
 
 def _client_connect_server(effective: dict[str, Any]) -> str:
@@ -333,7 +373,8 @@ def _build_wgws_client_attachment(
     else:
         allowed_ip_values = []
     if not allowed_ip_values:
-        allowed_ip_values = ["0.0.0.0/0", "::/0"]
+        allowed_ip_values = _wireguard_default_allowed_ips(local_addresses)
+    allowed_ip_values = _wireguard_allowed_ips_for_local_addresses(allowed_ip_values, local_addresses)
 
     local_socks_host, local_socks_port = _local_socks_endpoint(effective)
     socks_username, socks_password = _local_socks_auth(effective)
@@ -372,6 +413,19 @@ def _build_wgws_client_attachment(
         "outbounds": [{"type": "direct", "tag": "direct"}],
         "route": {"auto_detect_interface": True, "final": "proxy"},
     }
+    local_address_families = _ip_prefix_families(local_addresses)
+    if local_address_families == {4}:
+        singbox["dns"] = {
+            "servers": [{"type": "local", "tag": "local"}],
+            "final": "local",
+            "strategy": "ipv4_only",
+        }
+    elif local_address_families == {6}:
+        singbox["dns"] = {
+            "servers": [{"type": "local", "tag": "local"}],
+            "final": "local",
+            "strategy": "ipv6_only",
+        }
 
     host_header = str(wstunnel.get("host") or ws_server).strip()
     headers = {str(key): str(value) for key, value in (wstunnel.get("headers") or {}).items()} if isinstance(wstunnel.get("headers"), dict) else {}
