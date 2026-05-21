@@ -1964,6 +1964,25 @@ def test_tracegate22_transit_nginx_proxies_public_client_config_url(tmp_path: Pa
     assert "location ^~ /client-config/" not in entry_nginx
 
 
+def test_tracegate22_grafana_host_redirect_preserves_requested_path(tmp_path: Path) -> None:
+    rendered = _helm_template_with_values(
+        tmp_path,
+        {"controlPlane": {"env": {"grafanaHost": "grafana.example.com"}}},
+    )
+
+    assert rendered.returncode == 0, rendered.stderr
+    docs = _helm_docs(rendered.stdout)
+    transit_nginx = next(
+        doc["data"]["nginx.conf"]
+        for doc in docs
+        if doc.get("kind") == "ConfigMap"
+        and doc.get("metadata", {}).get("name") == "tracegate-tracegate-gateway-transit-nginx"
+    )
+
+    assert transit_nginx.count('if ($host = "grafana.example.com")') == 2
+    assert transit_nginx.count("return 302 /grafana$request_uri;") == 2
+
+
 def test_tracegate22_control_plane_receives_reality_client_material(tmp_path: Path) -> None:
     values = {
         "controlPlane": {

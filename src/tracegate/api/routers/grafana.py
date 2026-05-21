@@ -11,7 +11,7 @@ import secrets
 from datetime import datetime, timedelta, timezone
 from enum import Enum
 from typing import Any
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit, urlunsplit
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
@@ -174,6 +174,61 @@ def _grafana_session_established_response(
         max_age=int(ttl_seconds),
     )
     return resp
+
+
+def _grafana_prefixed_path(path: str) -> str:
+    normalized = str(path or "").strip() or "/"
+    if not normalized.startswith("/"):
+        normalized = f"/{normalized}"
+    if normalized == "/grafana" or normalized.startswith("/grafana/"):
+        return normalized
+    return f"/grafana{normalized}"
+
+
+def _grafana_host_candidates(value: str) -> set[str]:
+    host = str(value or "").strip().lower()
+    if not host:
+        return set()
+    candidates = {host}
+    if host.endswith(":443") or host.endswith(":80"):
+        candidates.add(host.rsplit(":", 1)[0])
+    return candidates
+
+
+def _rewrite_grafana_location(
+    value: str,
+    *,
+    upstream_base_url: str,
+    request_host: str,
+) -> str:
+    raw = str(value or "").strip()
+    if not raw:
+        return value
+    if raw.startswith(("#", "?")):
+        return value
+    if raw.startswith("/"):
+        return _grafana_prefixed_path(raw)
+
+    parsed = urlsplit(raw)
+    if not parsed.scheme and not parsed.netloc:
+        return _grafana_prefixed_path(raw)
+
+    upstream = urlsplit(str(upstream_base_url or "").rstrip("/"))
+    allowed_hosts: set[str] = set()
+    allowed_hosts.update(_grafana_host_candidates(upstream.netloc))
+    allowed_hosts.update(_grafana_host_candidates(request_host))
+    if parsed.netloc.lower() not in allowed_hosts:
+        return value
+
+    return urlunsplit(
+        (
+            "",
+            "",
+            _grafana_prefixed_path(parsed.path or "/"),
+            parsed.query,
+            parsed.fragment,
+        )
+    )
 
 
 def _b64url(data: bytes) -> str:
@@ -901,6 +956,15 @@ async def grafana_proxy(
         }
     }
     headers["x-webauth-user"] = user_pid(settings, telegram_id)
+    headers["x-forwarded-prefix"] = "/grafana"
+    headers.setdefault(
+        "x-forwarded-host",
+        request.headers.get("x-forwarded-host") or request.headers.get("host", ""),
+    )
+    headers.setdefault(
+        "x-forwarded-proto",
+        request.headers.get("x-forwarded-proto") or request.url.scheme,
+    )
     if out_cookie_header:
         headers["cookie"] = out_cookie_header
 
@@ -937,11 +1001,13 @@ async def grafana_proxy(
                 media_type="application/json",
             )
 
-    response_headers = {
-        k: v
-        for (k, v) in r.headers.items()
-        if k.lower()
-        not in {
+    response_headers = {}
+    request_host = (
+        request.headers.get("x-forwarded-host") or request.headers.get("host") or ""
+    )
+    for k, v in r.headers.items():
+        header_name = k.lower()
+        if header_name in {
             "content-encoding",
             "transfer-encoding",
             "connection",
@@ -949,8 +1015,13 @@ async def grafana_proxy(
             "content-type",
             "date",
             "server",
-        }
-    }
+        }:
+            continue
+        if header_name == "location":
+            v = _rewrite_grafana_location(
+                v, upstream_base_url=upstream, request_host=request_host
+            )
+        response_headers[k] = v
     return Response(
         content=raw_body,
         status_code=r.status_code,

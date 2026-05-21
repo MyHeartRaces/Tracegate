@@ -735,7 +735,7 @@ data:
         location / {
 {{- if $grafanaHost }}
           if ($host = "{{ $grafanaHost }}") {
-            return 302 /grafana/;
+            return 302 /grafana$request_uri;
           }
 {{- end }}
           try_files $uri $uri/ /index.html;
@@ -863,7 +863,7 @@ data:
 {{- if eq $roleName "transit" }}
 {{- if $grafanaHost }}
           if ($host = "{{ $grafanaHost }}") {
-            return 302 /grafana/;
+            return 302 /grafana$request_uri;
           }
 {{- end }}
 {{- end }}

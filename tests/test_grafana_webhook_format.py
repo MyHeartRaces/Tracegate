@@ -137,6 +137,39 @@ def test_grafana_otp_login_url_keeps_code_in_path() -> None:
     assert "?" not in url
 
 
+def test_grafana_proxy_location_rewrite_preserves_subpath() -> None:
+    kwargs = {
+        "upstream_base_url": "http://tracegate-grafana:3000",
+        "request_host": "grafana.tracegate.test",
+    }
+
+    assert _MODULE._rewrite_grafana_location("/login", **kwargs) == "/grafana/login"
+    assert (
+        _MODULE._rewrite_grafana_location("/public/build/app.js", **kwargs)
+        == "/grafana/public/build/app.js"
+    )
+    assert (
+        _MODULE._rewrite_grafana_location(
+            "http://tracegate-grafana:3000/login?redirect=%2F", **kwargs
+        )
+        == "/grafana/login?redirect=%2F"
+    )
+    assert (
+        _MODULE._rewrite_grafana_location(
+            "https://grafana.tracegate.test/grafana/login", **kwargs
+        )
+        == "/grafana/login"
+    )
+    assert (
+        _MODULE._rewrite_grafana_location(
+            "https://grafana.tracegate.test/login",
+            upstream_base_url="http://tracegate-grafana:3000",
+            request_host="grafana.tracegate.test:443",
+        )
+        == "/grafana/login"
+    )
+
+
 @pytest.mark.asyncio
 async def test_grafana_login_without_code_returns_help_page(
     monkeypatch: pytest.MonkeyPatch,
