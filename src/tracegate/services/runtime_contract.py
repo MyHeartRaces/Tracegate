@@ -94,6 +94,7 @@ TRACEGATE22_CLIENT_PROFILES = (
     "v3-direct-shadowtls-shadowsocks",
     "v3-chain-shadowtls-shadowsocks",
     "v4-direct-naiveproxy",
+    "v0-encrypted-reality-vless",
     "v0-ws-vless",
     "v0-grpc-vless",
     "v0-wgws-wireguard",

@@ -209,7 +209,7 @@ def connection_create_categories_keyboard_for(*, enabled_specs: set[str] | None 
             ),
             *(
                 [[InlineKeyboardButton(text="🧰 Other", callback_data="conncat:other")]]
-                if enabled is None or enabled & {"v0ws", "v0grpc", "v0wgws"}
+                if enabled is None or enabled & {"v0realityenc", "v0ws", "v0grpc", "v0wgws"}
                 else []
             ),
             [InlineKeyboardButton(text="↩️ Назад", callback_data="connections")],
@@ -238,6 +238,7 @@ def connection_create_profiles_keyboard(
         add_row(rows, "v2chain", "V2-Chain-QUIC-Hysteria")
         add_row(rows, "v3chain", "V3-Chain-ShadowTLS-Shadowsocks")
     else:
+        add_row(rows, "v0realityenc", "V0-Encrypted-Reality-VLESS")
         add_row(rows, "v0ws", "V0-WS-VLESS")
         add_row(rows, "v0grpc", "V0-gRPC-VLESS")
         add_row(rows, "v0wgws", "V0-WGWS-WireGuard")
@@ -328,19 +329,8 @@ def sni_page_keyboard_new(
     page: int,
     page_count: int,
     sni_rows_page: list[dict],
-    encrypted_sni: str | None = None,
 ) -> InlineKeyboardMarkup:
     rows: list[list[InlineKeyboardButton]] = []
-    encrypted_label = str(encrypted_sni or "").strip()
-    if encrypted_label:
-        rows.append(
-            [
-                InlineKeyboardButton(
-                    text=f"🔐 Encrypted: {encrypted_label}",
-                    callback_data=f"snienc:{spec}:{device_id}",
-                )
-            ]
-        )
     for row in sni_rows_page:
         rows.append(
             [

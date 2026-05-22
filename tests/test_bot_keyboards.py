@@ -56,7 +56,7 @@ def test_provider_choices_exclude_beeline_and_other() -> None:
     assert "other" not in provider_codes
 
 
-def test_sni_picker_exposes_encrypted_reality_action() -> None:
+def test_sni_picker_does_not_expose_encrypted_reality_action() -> None:
     kb = sni_page_keyboard_new(
         spec="v1direct",
         device_id="dev-1",
@@ -64,12 +64,11 @@ def test_sni_picker_exposes_encrypted_reality_action() -> None:
         page=0,
         page_count=1,
         sni_rows_page=[{"id": 100, "fqdn": "yandex.ru"}],
-        encrypted_sni="passport.yandex.ru",
     )
 
     first = kb.inline_keyboard[0][0]
-    assert first.text == "🔐 Encrypted: passport.yandex.ru"
-    assert first.callback_data == "snienc:v1direct:dev-1"
+    assert first.text == "yandex.ru"
+    assert first.callback_data == "sni:v1direct:dev-1:100"
 
 
 def test_main_menu_does_not_include_sni_catalog_button() -> None:
@@ -216,13 +215,14 @@ def test_connection_create_profiles_keyboard_uses_new_profile_names() -> None:
 
     kb = connection_create_profiles_keyboard(category="other", device_id="dev-42")
     texts = _button_texts(kb)
+    assert "V0-Encrypted-Reality-VLESS" in texts
     assert "V0-WS-VLESS" in texts
     assert "V0-gRPC-VLESS" in texts
     assert "V0-WGWS-WireGuard" in texts
 
 
 def test_connection_create_keyboards_hide_disabled_profiles() -> None:
-    enabled = {"v1direct", "v2direct", "v0ws", "v0grpc"}
+    enabled = {"v1direct", "v2direct", "v0realityenc", "v0ws", "v0grpc"}
     categories = _button_texts(connection_create_categories_keyboard_for(enabled_specs=enabled))
     assert "⚡ Direct" in categories
     assert "🧰 Other" in categories
@@ -234,6 +234,7 @@ def test_connection_create_keyboards_hide_disabled_profiles() -> None:
     assert "V3-Direct-ShadowTLS-Shadowsocks" not in direct
 
     other = _button_texts(connection_create_profiles_keyboard(category="other", device_id="dev-42", enabled_specs=enabled))
+    assert "V0-Encrypted-Reality-VLESS" in other
     assert "V0-WS-VLESS" in other
     assert "V0-gRPC-VLESS" in other
     assert "V0-WGWS-WireGuard" not in other

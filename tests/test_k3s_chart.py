@@ -1365,6 +1365,7 @@ def test_tracegate21_chart_declares_required_client_profiles_and_socks_auth() ->
     assert "v3-direct-shadowtls-shadowsocks" in profiles
     assert "v3-chain-shadowtls-shadowsocks" in profiles
     assert "v4-direct-naiveproxy" in profiles
+    assert "v0-encrypted-reality-vless" in profiles
     assert "v0-wgws-wireguard" in profiles
     assert "MTProto-FakeTLS-Direct" in profiles
     assert "MTProto-TCP443-Direct" not in profiles
@@ -1683,6 +1684,7 @@ def test_tracegate21_wireguard_sidecar_uses_portable_lifecycle_script(tmp_path: 
                         "v3-direct-shadowtls-shadowsocks",
                         "v3-chain-shadowtls-shadowsocks",
                         "v4-direct-naiveproxy",
+                        "v0-encrypted-reality-vless",
                         "v0-ws-vless",
                         "v0-grpc-vless",
                         "v0-wgws-wireguard",

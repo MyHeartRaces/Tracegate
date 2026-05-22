@@ -173,6 +173,7 @@ def test_provider_label_uses_public_provider_caption() -> None:
 
 def test_connection_profile_label_uses_variant_and_family() -> None:
     assert main._connection_profile_label({"protocol": "vless_reality", "mode": "direct", "variant": "V1"}) == "V1-Direct-Reality-VLESS"
+    assert main._connection_profile_label({"protocol": "vless_reality", "mode": "direct", "variant": "V0"}) == "V0-Encrypted-Reality-VLESS"
     assert main._connection_profile_label({"protocol": "hysteria2", "mode": "chain", "variant": "V2"}) == "V2-Chain-QUIC-Hysteria"
     assert main._connection_profile_label({"protocol": "vless_grpc_tls", "mode": "direct", "variant": "V0"}) == "V0-gRPC-VLESS"
     assert main._connection_profile_label({"protocol": "vless_ws_tls", "mode": "direct", "variant": "V0"}) == "V0-WS-VLESS"

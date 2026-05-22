@@ -468,8 +468,13 @@ def build_effective_config(
     overrides = connection.custom_overrides_json or {}
 
     if connection.protocol == ConnectionProtocol.VLESS_REALITY:
-        if connection.variant != ConnectionVariant.V1:
-            raise ValueError("VLESS/REALITY supports only V1")
+        vless_encryption_requested = bool(overrides.get("vless_encryption", False))
+        if connection.variant == ConnectionVariant.V0 and not vless_encryption_requested:
+            raise ValueError("VLESS/REALITY V0 requires VLESS encryption")
+        if connection.variant == ConnectionVariant.V0 and connection.mode != ConnectionMode.DIRECT:
+            raise ValueError("VLESS/REALITY V0 supports only direct mode")
+        if connection.variant not in {ConnectionVariant.V0, ConnectionVariant.V1}:
+            raise ValueError("VLESS/REALITY supports only V1 legacy or V0 encrypted direct")
         if selected_sni is None:
             raise ValueError("camouflage SNI is required for VLESS/REALITY")
 
@@ -482,7 +487,6 @@ def build_effective_config(
         else:
             pbk = endpoints.reality_public_key_entry or endpoints.reality_public_key
             sid = endpoints.reality_short_id_entry or endpoints.reality_short_id
-        vless_encryption_requested = bool(overrides.get("vless_encryption", False))
         vless_encryption = _vless_encryption_payload(endpoints) if vless_encryption_requested else None
         if vless_encryption_requested and vless_encryption is None:
             raise ValueError("VLESS/REALITY encryption was requested but VLESS encryption is not configured")
@@ -524,7 +528,7 @@ def build_effective_config(
         if vless_encryption is not None:
             common["vless_encryption"] = vless_encryption
 
-        if connection.mode == ConnectionMode.DIRECT and connection.variant == ConnectionVariant.V1:
+        if connection.mode == ConnectionMode.DIRECT and connection.variant in {ConnectionVariant.V0, ConnectionVariant.V1}:
             return {
                 **common,
                 "profile": connection_profile_label(connection.protocol, connection.mode, connection.variant),

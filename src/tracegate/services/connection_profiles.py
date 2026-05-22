@@ -17,6 +17,7 @@ _PROFILE_LIST_ORDER = {
     "v1chain": 110,
     "v2chain": 120,
     "v3chain": 130,
+    "v0realityenc": 205,
     "v0ws": 210,
     "v0grpc": 220,
     "v0wgws": 230,
@@ -34,6 +35,8 @@ def connection_profile_label(
     version = conn_variant.value.lower()
 
     if proto == ConnectionProtocol.VLESS_REALITY:
+        if conn_variant == ConnectionVariant.V0 and conn_mode == ConnectionMode.DIRECT:
+            return "v0-encrypted-reality-vless"
         return f"{version}-{conn_mode.value}-reality-vless"
     if proto == ConnectionProtocol.HYSTERIA2:
         return f"{version}-{conn_mode.value}-quic-hysteria"
@@ -62,6 +65,8 @@ def connection_profile_display_label(
     mode_label = conn_mode.value.capitalize()
 
     if proto == ConnectionProtocol.VLESS_REALITY:
+        if conn_variant == ConnectionVariant.V0 and conn_mode == ConnectionMode.DIRECT:
+            return "V0-Encrypted-Reality-VLESS"
         return f"{version}-{mode_label}-Reality-VLESS"
     if proto == ConnectionProtocol.HYSTERIA2:
         return f"{version}-{mode_label}-QUIC-Hysteria"
@@ -87,6 +92,7 @@ def supported_profile_specs() -> dict[str, tuple[ConnectionProtocol, ConnectionM
         "v3direct": (ConnectionProtocol.SHADOWSOCKS2022_SHADOWTLS, ConnectionMode.DIRECT, ConnectionVariant.V3),
         "v3chain": (ConnectionProtocol.SHADOWSOCKS2022_SHADOWTLS, ConnectionMode.CHAIN, ConnectionVariant.V3),
         "v4direct": (ConnectionProtocol.NAIVEPROXY, ConnectionMode.DIRECT, ConnectionVariant.V4),
+        "v0realityenc": (ConnectionProtocol.VLESS_REALITY, ConnectionMode.DIRECT, ConnectionVariant.V0),
         "v0ws": (ConnectionProtocol.VLESS_WS_TLS, ConnectionMode.DIRECT, ConnectionVariant.V0),
         "v0grpc": (ConnectionProtocol.VLESS_GRPC_TLS, ConnectionMode.DIRECT, ConnectionVariant.V0),
         "v0wgws": (ConnectionProtocol.WIREGUARD_WSTUNNEL, ConnectionMode.DIRECT, ConnectionVariant.V0),

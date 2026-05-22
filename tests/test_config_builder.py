@@ -133,8 +133,8 @@ def test_vless_encryption_marks_new_reality_profile_and_uses_reserved_sni() -> N
         device_id=device.id,
         protocol=ConnectionProtocol.VLESS_REALITY,
         mode=ConnectionMode.DIRECT,
-        variant=ConnectionVariant.V1,
-        profile_name="v1-direct-reality-vless",
+        variant=ConnectionVariant.V0,
+        profile_name="v0-encrypted-reality-vless",
         custom_overrides_json={"vless_encryption": True},
         status=RecordStatus.ACTIVE,
     )
@@ -157,6 +157,7 @@ def test_vless_encryption_marks_new_reality_profile_and_uses_reserved_sni() -> N
     )
 
     assert cfg["sni"] == "passport.yandex.ru"
+    assert cfg["profile"] == "v0-encrypted-reality-vless"
     assert cfg["vless_encryption"] == {
         "enabled": True,
         "encryption": "mlkem768x25519plus.native.0rtt.CLIENT",
@@ -200,6 +201,32 @@ def test_vless_encryption_is_opt_in_for_reality_profiles() -> None:
 
     assert cfg["sni"] == "yandex.ru"
     assert "vless_encryption" not in cfg
+
+
+def test_v0_reality_requires_vless_encryption_override() -> None:
+    user = _user()
+    device = _device(user.telegram_id)
+    conn = Connection(
+        id=uuid4(),
+        user_id=user.telegram_id,
+        device_id=device.id,
+        protocol=ConnectionProtocol.VLESS_REALITY,
+        mode=ConnectionMode.DIRECT,
+        variant=ConnectionVariant.V0,
+        profile_name="v0-encrypted-reality-vless",
+        custom_overrides_json={},
+        status=RecordStatus.ACTIVE,
+    )
+    sni = SniCatalogEntry(id=1, fqdn="yandex.ru", enabled=True, is_test=False, providers=[], note=None)
+
+    with pytest.raises(ValueError, match="VLESS/REALITY V0 requires VLESS encryption"):
+        build_effective_config(
+            user=user,
+            device=device,
+            connection=conn,
+            selected_sni=sni,
+            endpoints=EndpointSet(transit_host="transit.example.com", entry_host="entry.example.com"),
+        )
 
 
 def test_local_socks_credentials_can_be_connection_scoped_overrides() -> None:
