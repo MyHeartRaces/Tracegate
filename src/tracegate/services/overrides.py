@@ -159,11 +159,15 @@ def validate_overrides(protocol: ConnectionProtocol, overrides: dict[str, Any]) 
             "local_socks_username",
             "local_socks_password",
             "tcp_fast_open",
+            "vless_encryption",
         }
         forbidden = {"port", "server_port", "reality_server_port", "chain_sni"}
         _ensure_keys(overrides, allowed, forbidden)
         _validate_local_socks_port(overrides)
         _validate_local_socks_credentials(overrides)
+        if "vless_encryption" in overrides and overrides.get("vless_encryption") is not None:
+            if not isinstance(overrides.get("vless_encryption"), bool):
+                raise OverrideValidationError("vless_encryption must be true or false")
 
     elif protocol == ConnectionProtocol.VLESS_WS_TLS:
         allowed = {

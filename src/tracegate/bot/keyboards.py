@@ -328,8 +328,19 @@ def sni_page_keyboard_new(
     page: int,
     page_count: int,
     sni_rows_page: list[dict],
+    encrypted_sni: str | None = None,
 ) -> InlineKeyboardMarkup:
     rows: list[list[InlineKeyboardButton]] = []
+    encrypted_label = str(encrypted_sni or "").strip()
+    if encrypted_label:
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    text=f"🔐 Encrypted: {encrypted_label}",
+                    callback_data=f"snienc:{spec}:{device_id}",
+                )
+            ]
+        )
     for row in sni_rows_page:
         rows.append(
             [

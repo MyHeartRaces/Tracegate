@@ -2510,6 +2510,38 @@ async def new_vless_with_sni(callback: CallbackQuery) -> None:
             mode,
             variant,
             int(sni_id_raw),
+            custom_overrides_json={"vless_encryption": False},
+        )
+        text, keyboard = await render_connections_page(callback.from_user.id)
+        await _safe_edit_text(callback.message, text, reply_markup=keyboard)
+        await _send_client_config(callback, revision, context="created")
+    except Exception as exc:  # noqa: BLE001
+        await callback.message.answer(_msg_error(exc))
+
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("snienc:"))
+async def new_vless_encrypted(callback: CallbackQuery) -> None:
+    _, spec, device_id = callback.data.split(":", 2)
+
+    try:
+        _ensure_profile_enabled(spec)
+        if not settings.vless_encryption_enabled or not settings.vless_encryption:
+            raise ValueError("VLESS encryption is not configured.")
+        if not str(settings.vless_encryption_reality_sni or "").strip():
+            raise ValueError("VLESS encryption REALITY SNI is not configured.")
+
+        user = await ensure_user(callback.from_user.id)
+        protocol, mode, variant = _profile(spec)
+        connection, revision = await api.create_connection_and_revision(
+            user["telegram_id"],
+            device_id,
+            protocol,
+            mode,
+            variant,
+            None,
+            custom_overrides_json={"vless_encryption": True},
         )
         text, keyboard = await render_connections_page(callback.from_user.id)
         await _safe_edit_text(callback.message, text, reply_markup=keyboard)
@@ -2563,6 +2595,7 @@ async def _render_sni_picker_new(*, spec: str, device_id: str, provider: str, pa
         page=page,
         page_count=page_count,
         sni_rows_page=page_rows,
+        encrypted_sni=settings.vless_encryption_reality_sni if settings.vless_encryption_enabled else None,
     )
     return text, keyboard
 

@@ -16,6 +16,7 @@ from tracegate.bot.keyboards import (
     main_menu_keyboard,
     mtproto_delivery_keyboard,
     revisions_keyboard,
+    sni_page_keyboard_new,
     vless_transport_keyboard,
 )
 
@@ -53,6 +54,22 @@ def test_provider_choices_exclude_beeline_and_other() -> None:
     provider_codes = {code for _, code in PROVIDER_CHOICES}
     assert "beeline" not in provider_codes
     assert "other" not in provider_codes
+
+
+def test_sni_picker_exposes_encrypted_reality_action() -> None:
+    kb = sni_page_keyboard_new(
+        spec="v1direct",
+        device_id="dev-1",
+        provider="all",
+        page=0,
+        page_count=1,
+        sni_rows_page=[{"id": 100, "fqdn": "yandex.ru"}],
+        encrypted_sni="passport.yandex.ru",
+    )
+
+    first = kb.inline_keyboard[0][0]
+    assert first.text == "🔐 Encrypted: passport.yandex.ru"
+    assert first.callback_data == "snienc:v1direct:dev-1"
 
 
 def test_main_menu_does_not_include_sni_catalog_button() -> None:

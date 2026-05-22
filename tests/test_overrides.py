@@ -11,14 +11,21 @@ def test_vless_overrides_whitelist() -> None:
             "camouflage_sni_id": 1,
             "connect_timeout_ms": 5000,
             "local_socks_port": 1080,
+            "vless_encryption": True,
         },
     )
     assert result["camouflage_sni_id"] == 1
+    assert result["vless_encryption"] is True
 
 
 def test_vless_port_override_rejected() -> None:
     with pytest.raises(OverrideValidationError):
         validate_overrides(ConnectionProtocol.VLESS_REALITY, {"port": 8443})
+
+
+def test_vless_encryption_override_must_be_boolean() -> None:
+    with pytest.raises(OverrideValidationError, match="vless_encryption must be true or false"):
+        validate_overrides(ConnectionProtocol.VLESS_REALITY, {"vless_encryption": "yes"})
 
 
 def test_local_socks_port_override_must_be_valid_user_port() -> None:

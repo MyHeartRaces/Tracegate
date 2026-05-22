@@ -482,7 +482,10 @@ def build_effective_config(
         else:
             pbk = endpoints.reality_public_key_entry or endpoints.reality_public_key
             sid = endpoints.reality_short_id_entry or endpoints.reality_short_id
-        vless_encryption = _vless_encryption_payload(endpoints)
+        vless_encryption_requested = bool(overrides.get("vless_encryption", False))
+        vless_encryption = _vless_encryption_payload(endpoints) if vless_encryption_requested else None
+        if vless_encryption_requested and vless_encryption is None:
+            raise ValueError("VLESS/REALITY encryption was requested but VLESS encryption is not configured")
         sni = selected_sni.fqdn
         if vless_encryption is not None:
             sni = str(endpoints.vless_encryption_reality_sni or "").strip()
