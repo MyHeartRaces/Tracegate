@@ -152,11 +152,11 @@ def test_vless_encryption_marks_new_reality_profile_and_uses_reserved_sni() -> N
             reality_short_id_transit="sid-t",
             vless_encryption_enabled=True,
             vless_encryption="mlkem768x25519plus.native.0rtt.CLIENT",
-            vless_encryption_reality_sni="www.cloudflare.com",
+            vless_encryption_reality_sni="passport.yandex.ru",
         ),
     )
 
-    assert cfg["sni"] == "www.cloudflare.com"
+    assert cfg["sni"] == "passport.yandex.ru"
     assert cfg["vless_encryption"] == {
         "enabled": True,
         "encryption": "mlkem768x25519plus.native.0rtt.CLIENT",

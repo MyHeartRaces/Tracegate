@@ -1887,13 +1887,13 @@ def test_vless_encryption_renders_separate_xray_surfaces(tmp_path: Path) -> None
     values = _values()
     values["vlessEncryption"]["enabled"] = True
     values["vlessEncryption"]["encryption"] = "mlkem768x25519plus.native.0rtt.CLIENT"
-    values["vlessEncryption"]["realitySni"] = "www.cloudflare.com"
+    values["vlessEncryption"]["realitySni"] = "passport.yandex.ru"
 
     result = _helm_template_with_values(tmp_path, values)
     assert result.returncode == 0, result.stderr
     rendered = result.stdout
 
-    assert "acl vless_encryption_reality_sni req.ssl_sni -i www.cloudflare.com" in rendered
+    assert "acl vless_encryption_reality_sni req.ssl_sni -i passport.yandex.ru" in rendered
     assert "server xray_reality_enc 127.0.0.1:2444 check" in rendered
     assert '"tag": "entry-enc-in"' in rendered
     assert '"tag": "vless-reality-enc-in"' in rendered
@@ -1915,6 +1915,32 @@ def test_vless_encryption_rejects_legacy_reality_sni_collision(tmp_path: Path) -
     result = _helm_template_with_values(tmp_path, values)
     assert result.returncode != 0
     assert "vlessEncryption.realitySni must not reuse legacy REALITY demux SNI yandex.ru" in result.stderr
+
+
+def test_vless_encryption_rejects_emergency_xray_chain_sni_collision(tmp_path: Path) -> None:
+    values = _values()
+    values["vlessEncryption"]["enabled"] = True
+    values["vlessEncryption"]["encryption"] = "mlkem768x25519plus.native.0rtt.CLIENT"
+    values["vlessEncryption"]["realitySni"] = "www.cloudflare.com"
+    values["interconnect"]["emergencyXrayChain"]["enabled"] = True
+    values["interconnect"]["emergencyXrayChain"]["serverName"] = "www.cloudflare.com"
+
+    result = _helm_template_with_values(tmp_path, values)
+    assert result.returncode != 0
+    assert "vlessEncryption.realitySni must not reuse emergency Xray chain SNI www.cloudflare.com" in result.stderr
+
+
+def test_vless_encryption_rejects_tls_demux_sni_collision(tmp_path: Path) -> None:
+    values = _values()
+    values["vlessEncryption"]["enabled"] = True
+    values["vlessEncryption"]["encryption"] = "mlkem768x25519plus.native.0rtt.CLIENT"
+    values["vlessEncryption"]["realitySni"] = "www.apple.com"
+    values["mtproto"]["enabled"] = True
+    values["mtproto"]["tlsDomain"] = "www.apple.com"
+
+    result = _helm_template_with_values(tmp_path, values)
+    assert result.returncode != 0
+    assert "vlessEncryption.realitySni must not reuse TLS demux SNI www.apple.com" in result.stderr
 
 
 def test_mtproto_public_port_8443_renders_dedicated_fallback_frontend(tmp_path: Path) -> None:

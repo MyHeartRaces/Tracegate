@@ -55,7 +55,7 @@ def test_export_vless_reality_uri_uses_vless_encryption() -> None:
         "server": "t.example.com",
         "port": 443,
         "uuid": "11111111-2222-3333-4444-555555555555",
-        "sni": "www.cloudflare.com",
+        "sni": "passport.yandex.ru",
         "reality": {"public_key": "PUBKEY", "short_id": "abcd"},
         "xhttp": {"mode": "auto", "path": "/api/v1/update"},
         "profile": "V1-VLESS-Reality-Direct",

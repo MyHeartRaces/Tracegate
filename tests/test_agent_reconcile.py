@@ -317,7 +317,7 @@ def test_reconcile_keeps_encrypted_vless_clients_on_separate_inbounds(tmp_path: 
                 "protocol": "vless_reality",
                 "config": {
                     "uuid": "new",
-                    "sni": "www.cloudflare.com",
+                    "sni": "passport.yandex.ru",
                     "vless_encryption": {"enabled": True, "encryption": "mlkem768x25519plus.native.0rtt.CLIENT"},
                 },
             }
@@ -348,7 +348,7 @@ def test_reconcile_keeps_encrypted_vless_clients_on_separate_inbounds(tmp_path: 
     assert [row["id"] for row in inbounds["vless-reality-in"]["settings"]["clients"]] == ["old"]
     assert [row["id"] for row in inbounds["vless-reality-enc-in"]["settings"]["clients"]] == ["new"]
     assert inbounds["vless-reality-enc-in"]["settings"]["decryption"] == "mlkem768x25519plus.native.600s.SERVER"
-    assert inbounds["vless-reality-enc-in"]["streamSettings"]["realitySettings"]["serverNames"] == ["www.cloudflare.com"]
+    assert inbounds["vless-reality-enc-in"]["streamSettings"]["realitySettings"]["serverNames"] == ["passport.yandex.ru"]
     assert inbounds["vless-ws-in"]["settings"]["clients"] == []
     assert [row["id"] for row in inbounds["vless-ws-enc-in"]["settings"]["clients"]] == ["ws-new"]
     assert inbounds["vless-ws-enc-in"]["settings"]["decryption"] == "mlkem768x25519plus.native.600s.SERVER"
