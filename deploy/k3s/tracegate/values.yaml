@@ -116,6 +116,16 @@ observability:
       tag: v1.8.2
       pullPolicy: IfNotPresent
 
+vlessEncryption:
+  # Xray VLESS Encryption for newly issued VLESS profiles.
+  # Existing issued configs remain on their original inbounds and keep their original encryption value.
+  enabled: false
+  encryption: ""
+  realitySni: ""
+  wsPath: /ws-enc
+  grpcServiceName: tracegate.v1.EdgeEnc
+  grpcPath: /tracegate.v1.EdgeEnc/
+
 privateProfiles:
   required: true
   existingSecretName: tracegate-private-profiles
@@ -146,6 +156,8 @@ privateProfiles:
     shadowtlsTransit: shadowtls/transit-config.yaml
     shadowtlsPasswordEntry: credentials/shadowtls-entry-password
     shadowtlsPasswordTransit: credentials/shadowtls-transit-password
+    vlessEncryptionDecryptionEntry: credentials/vless-encryption-decryption-entry
+    vlessEncryptionDecryptionTransit: credentials/vless-encryption-decryption-transit
     wireguard: wireguard/wg.conf
     mtproto: mtproto/secret.txt
     labMieruDirect: lab/mieru-direct-server.json
@@ -176,6 +188,8 @@ privateProfiles:
     shadowtlsTransit: shadowtls-transit-config-yaml
     shadowtlsPasswordEntry: shadowtls-entry-password
     shadowtlsPasswordTransit: shadowtls-transit-password
+    vlessEncryptionDecryptionEntry: vless-encryption-decryption-entry
+    vlessEncryptionDecryptionTransit: vless-encryption-decryption-transit
     wireguard: wireguard-wg-conf
     mtproto: mtproto-secret-txt
     labMieruDirect: lab-mieru-direct-server-json
@@ -570,9 +584,12 @@ gateway:
         publicTcpExtraBinds: []
         publicUdp: 4443
         reality: 2443
+        realityEncrypted: 2444
         httpsAdapter: 10443
         vlessWs: 10000
+        vlessWsEncrypted: 10002
         vlessGrpc: 10001
+        vlessGrpcEncrypted: 10003
         xrayApi: 8080
       tls:
         serverName: entry.example.com
@@ -604,9 +621,12 @@ gateway:
         publicTcpExtraBinds: []
         publicUdp: 4443
         reality: 2443
+        realityEncrypted: 2444
         httpsAdapter: 10443
         vlessWs: 10000
+        vlessWsEncrypted: 10002
         vlessGrpc: 10001
+        vlessGrpcEncrypted: 10003
         xrayApi: 8080
         mtproto: 9443
       tls:

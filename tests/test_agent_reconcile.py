@@ -249,6 +249,111 @@ def test_reconcile_xray_centric_updates_vless_and_hysteria_inbounds(tmp_path: Pa
     assert changed2 == []
 
 
+def test_reconcile_keeps_encrypted_vless_clients_on_separate_inbounds(tmp_path: Path) -> None:
+    settings = Settings(
+        agent_data_root=str(tmp_path),
+        agent_runtime_mode="kubernetes",
+        agent_role="TRANSIT",
+        agent_runtime_profile="xray-centric",
+        vless_encryption_enabled=True,
+        vless_encryption_decryption="mlkem768x25519plus.native.600s.SERVER",
+    )
+
+    _write(
+        tmp_path / "base/xray/config.json",
+        json.dumps(
+            {
+                "inbounds": [
+                    {
+                        "tag": "vless-reality-in",
+                        "protocol": "vless",
+                        "settings": {"clients": [], "decryption": "none"},
+                        "streamSettings": {"security": "reality", "realitySettings": {"serverNames": []}},
+                    },
+                    {
+                        "tag": "vless-reality-enc-in",
+                        "protocol": "vless",
+                        "settings": {"clients": [], "decryption": "REPLACE"},
+                        "streamSettings": {"security": "reality", "realitySettings": {"serverNames": []}},
+                    },
+                    {
+                        "tag": "vless-ws-in",
+                        "protocol": "vless",
+                        "settings": {"clients": [], "decryption": "none"},
+                        "streamSettings": {"network": "ws", "security": "none"},
+                    },
+                    {
+                        "tag": "vless-ws-enc-in",
+                        "protocol": "vless",
+                        "settings": {"clients": [], "decryption": "REPLACE"},
+                        "streamSettings": {"network": "ws", "security": "none"},
+                    },
+                ],
+                "outbounds": [{"protocol": "freedom"}],
+            }
+        ),
+    )
+    _write(
+        tmp_path / "users/u1/connection-old.json",
+        json.dumps(
+            {
+                "user_id": "u1",
+                "device_id": "d1",
+                "connection_id": "old",
+                "revision_id": "r-old",
+                "protocol": "vless_reality",
+                "config": {"uuid": "old", "sni": "yandex.ru"},
+            }
+        ),
+    )
+    _write(
+        tmp_path / "users/u1/connection-new.json",
+        json.dumps(
+            {
+                "user_id": "u1",
+                "device_id": "d1",
+                "connection_id": "new",
+                "revision_id": "r-new",
+                "protocol": "vless_reality",
+                "config": {
+                    "uuid": "new",
+                    "sni": "www.cloudflare.com",
+                    "vless_encryption": {"enabled": True, "encryption": "mlkem768x25519plus.native.0rtt.CLIENT"},
+                },
+            }
+        ),
+    )
+    _write(
+        tmp_path / "users/u1/connection-ws-new.json",
+        json.dumps(
+            {
+                "user_id": "u1",
+                "device_id": "d1",
+                "connection_id": "ws-new",
+                "revision_id": "r-ws-new",
+                "protocol": "vless_ws_tls",
+                "config": {
+                    "uuid": "ws-new",
+                    "vless_encryption": {"enabled": True, "encryption": "mlkem768x25519plus.native.0rtt.CLIENT"},
+                },
+            }
+        ),
+    )
+
+    changed = reconcile_all(settings)
+    assert changed == ["xray"]
+
+    rendered = json.loads((tmp_path / "runtime/xray/config.json").read_text(encoding="utf-8"))
+    inbounds = {row["tag"]: row for row in rendered["inbounds"]}
+    assert [row["id"] for row in inbounds["vless-reality-in"]["settings"]["clients"]] == ["old"]
+    assert [row["id"] for row in inbounds["vless-reality-enc-in"]["settings"]["clients"]] == ["new"]
+    assert inbounds["vless-reality-enc-in"]["settings"]["decryption"] == "mlkem768x25519plus.native.600s.SERVER"
+    assert inbounds["vless-reality-enc-in"]["streamSettings"]["realitySettings"]["serverNames"] == ["www.cloudflare.com"]
+    assert inbounds["vless-ws-in"]["settings"]["clients"] == []
+    assert [row["id"] for row in inbounds["vless-ws-enc-in"]["settings"]["clients"]] == ["ws-new"]
+    assert inbounds["vless-ws-enc-in"]["settings"]["decryption"] == "mlkem768x25519plus.native.600s.SERVER"
+
+
 def test_reconcile_entry_updates_xray_only_in_xray_centric_runtime(tmp_path: Path) -> None:
     settings = Settings(
         agent_data_root=str(tmp_path),

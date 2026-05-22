@@ -142,6 +142,36 @@ def test_client_config_bundle_collects_universal_links_artifacts_and_singbox() -
     assert profiles["WGWS"]["warnings"] == ["wireguard_wstunnel_requires_wgws_transport"]
 
 
+def test_client_config_bundle_does_not_emit_singbox_outbound_for_vless_encryption() -> None:
+    bundle = build_client_config_bundle(
+        [
+            _item(
+                1,
+                {
+                    "protocol": "vless",
+                    "transport": "ws_tls",
+                    "server": "edge.example.com",
+                    "port": 443,
+                    "uuid": "11111111-2222-3333-4444-555555555555",
+                    "sni": "front.example.com",
+                    "ws": {"path": "/ws-enc", "host": "front.example.com"},
+                    "profile": "VLESS-WS-Encrypted",
+                    "vless_encryption": {
+                        "enabled": True,
+                        "encryption": "mlkem768x25519plus.native.0rtt.CLIENT",
+                    },
+                },
+            )
+        ],
+        subject_type="device",
+        subject_id="dev-1",
+        generated_at=datetime(2026, 5, 19, 12, 0, tzinfo=timezone.utc),
+    )
+
+    assert bundle["counts"]["singboxOutbounds"] == 0
+    assert bundle["profiles"][0]["warnings"] == ["vless_encryption_requires_xray_client"]
+
+
 def test_client_config_bundle_records_profile_export_errors() -> None:
     bundle = build_client_config_bundle(
         [_item(1, {"protocol": "unknown", "profile": "Broken"})],

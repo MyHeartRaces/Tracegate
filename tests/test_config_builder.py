@@ -124,6 +124,48 @@ def test_direct_reality_uses_transit_reality_keys() -> None:
     assert cfg["local_socks"]["auth"]["username"].startswith("tg_v1_")
 
 
+def test_vless_encryption_marks_new_reality_profile_and_uses_reserved_sni() -> None:
+    user = _user()
+    device = _device(user.telegram_id)
+    conn = Connection(
+        id=uuid4(),
+        user_id=user.telegram_id,
+        device_id=device.id,
+        protocol=ConnectionProtocol.VLESS_REALITY,
+        mode=ConnectionMode.DIRECT,
+        variant=ConnectionVariant.V1,
+        profile_name="v1-direct-reality-vless",
+        custom_overrides_json={},
+        status=RecordStatus.ACTIVE,
+    )
+    sni = SniCatalogEntry(id=1, fqdn="yandex.ru", enabled=True, is_test=False, providers=[], note=None)
+
+    cfg = build_effective_config(
+        user=user,
+        device=device,
+        connection=conn,
+        selected_sni=sni,
+        endpoints=EndpointSet(
+            transit_host="transit.example.com",
+            entry_host="entry.example.com",
+            reality_public_key_transit="pub-t",
+            reality_short_id_transit="sid-t",
+            vless_encryption_enabled=True,
+            vless_encryption="mlkem768x25519plus.native.0rtt.CLIENT",
+            vless_encryption_reality_sni="www.cloudflare.com",
+        ),
+    )
+
+    assert cfg["sni"] == "www.cloudflare.com"
+    assert cfg["vless_encryption"] == {
+        "enabled": True,
+        "encryption": "mlkem768x25519plus.native.0rtt.CLIENT",
+        "handshake": "mlkem768x25519plus",
+        "packet_mode": "native",
+        "session_resumption": "0rtt",
+    }
+
+
 def test_local_socks_credentials_can_be_connection_scoped_overrides() -> None:
     user = _user()
     device = _device(user.telegram_id)

@@ -63,6 +63,11 @@ class EndpointSet:
     vless_ws_tls_port: int = 443
     vless_grpc_service_name: str = "tracegate.v1.Edge"
     vless_grpc_tls_port: int = 443
+    vless_encryption_enabled: bool = False
+    vless_encryption: str = ""
+    vless_encryption_reality_sni: str = ""
+    vless_encryption_ws_path: str = "/ws-enc"
+    vless_encryption_grpc_service_name: str = "tracegate.v1.EdgeEnc"
     hysteria_ech_config_list_entry: str = ""
     hysteria_ech_config_list_transit: str = ""
     hysteria_ech_force_query_entry: str = ""
@@ -385,6 +390,21 @@ def _hysteria_hygiene_payload(*, is_chain: bool, public_udp_port: int) -> dict[s
     }
 
 
+def _vless_encryption_payload(endpoints: EndpointSet) -> dict[str, Any] | None:
+    if not endpoints.vless_encryption_enabled:
+        return None
+    encryption = str(endpoints.vless_encryption or "").strip()
+    if not encryption:
+        raise ValueError("VLESS encryption is enabled but client encryption material is empty")
+    return {
+        "enabled": True,
+        "encryption": encryption,
+        "handshake": "mlkem768x25519plus",
+        "packet_mode": "native",
+        "session_resumption": "0rtt",
+    }
+
+
 def _entry_transit_private_relay(
     *,
     endpoints: EndpointSet,
@@ -462,6 +482,12 @@ def build_effective_config(
         else:
             pbk = endpoints.reality_public_key_entry or endpoints.reality_public_key
             sid = endpoints.reality_short_id_entry or endpoints.reality_short_id
+        vless_encryption = _vless_encryption_payload(endpoints)
+        sni = selected_sni.fqdn
+        if vless_encryption is not None:
+            sni = str(endpoints.vless_encryption_reality_sni or "").strip()
+            if not sni:
+                raise ValueError("VLESS/REALITY encryption requires vless_encryption_reality_sni")
 
         common = {
             "protocol": "vless",
@@ -474,7 +500,7 @@ def build_effective_config(
             # Use connection-scoped UUID so one user can have multiple VLESS connections safely.
             "uuid": str(connection.id),
             "device_id": str(device.id),
-            "sni": selected_sni.fqdn,
+            "sni": sni,
             "reality": {
                 "public_key": pbk or "REPLACE_REALITY_PUBLIC_KEY",
                 "short_id": sid or "REPLACE_REALITY_SHORT_ID",
@@ -492,6 +518,8 @@ def build_effective_config(
                 "tcp_fast_open": bool(overrides.get("tcp_fast_open", True)),
             },
         }
+        if vless_encryption is not None:
+            common["vless_encryption"] = vless_encryption
 
         if connection.mode == ConnectionMode.DIRECT and connection.variant == ConnectionVariant.V1:
             return {
@@ -556,6 +584,15 @@ def build_effective_config(
             str(overrides.get("grpc_service_name") or endpoints.vless_grpc_service_name or "tracegate.v1.Edge").strip()
             or "tracegate.v1.Edge"
         )
+        vless_encryption = _vless_encryption_payload(endpoints)
+        if vless_encryption is not None:
+            if is_grpc:
+                grpc_service_name = (
+                    str(endpoints.vless_encryption_grpc_service_name or "tracegate.v1.EdgeEnc").strip()
+                    or "tracegate.v1.EdgeEnc"
+                )
+            else:
+                ws_path = str(endpoints.vless_encryption_ws_path or "/ws-enc").strip() or "/ws-enc"
         grpc_authority = str(overrides.get("grpc_authority") or tls_server_name or "").strip()
 
         common = {
@@ -592,6 +629,8 @@ def build_effective_config(
                 "tcp_fast_open": bool(overrides.get("tcp_fast_open", True)),
             },
         }
+        if vless_encryption is not None:
+            common["vless_encryption"] = vless_encryption
 
         return {
             **common,

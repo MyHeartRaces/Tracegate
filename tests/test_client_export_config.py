@@ -47,6 +47,29 @@ def test_export_vless_reality_uri() -> None:
     assert attachment["outbounds"][0]["streamSettings"]["realitySettings"]["serverName"] == "google.com"
 
 
+def test_export_vless_reality_uri_uses_vless_encryption() -> None:
+    encryption = "mlkem768x25519plus.native.0rtt.CLIENT"
+    effective = {
+        "protocol": "vless",
+        "transport": "reality",
+        "server": "t.example.com",
+        "port": 443,
+        "uuid": "11111111-2222-3333-4444-555555555555",
+        "sni": "www.cloudflare.com",
+        "reality": {"public_key": "PUBKEY", "short_id": "abcd"},
+        "xhttp": {"mode": "auto", "path": "/api/v1/update"},
+        "profile": "V1-VLESS-Reality-Direct",
+        "vless_encryption": {"enabled": True, "encryption": encryption},
+    }
+
+    out = export_client_config(effective)
+    query = parse_qs(urlparse(out.content).query)
+    assert query["encryption"] == [encryption]
+
+    attachment = json.loads((out.attachment_content or b"").decode("utf-8"))
+    assert attachment["outbounds"][0]["settings"]["vnext"][0]["users"][0]["encryption"] == encryption
+
+
 def test_export_hysteria2_uri() -> None:
     effective = {
         "protocol": "hysteria2",

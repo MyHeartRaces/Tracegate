@@ -466,6 +466,14 @@ class Settings(BaseSettings):
     # Optional VLESS over WebSocket+TLS settings (operator-controlled; must match Xray inbound settings).
     vless_ws_path: str = "/ws"
     vless_ws_tls_port: int = 443
+    # Optional Xray VLESS Encryption for newly issued VLESS profiles.
+    # Existing effective configs keep their previous encryption mode.
+    vless_encryption_enabled: bool = False
+    vless_encryption: str = ""
+    vless_encryption_decryption: str = ""
+    vless_encryption_reality_sni: str = ""
+    vless_encryption_ws_path: str = "/ws-enc"
+    vless_encryption_grpc_service_name: str = "tracegate.v1.EdgeEnc"
     # Hysteria2 public UDP surface. TCP/443 stays reserved for fronting/demux;
     # UDP/443 is reserved for NaiveProxy V4 HTTP/3 on auth.example.com.
     hysteria_udp_port: int = TRACEGATE_PUBLIC_UDP_PORT

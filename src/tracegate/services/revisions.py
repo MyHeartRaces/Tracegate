@@ -157,6 +157,11 @@ async def _resolve_endpoints(session: AsyncSession) -> EndpointSet:
         reality_short_id_entry=settings.reality_short_id_entry,
         vless_ws_path=settings.vless_ws_path,
         vless_ws_tls_port=settings.vless_ws_tls_port,
+        vless_encryption_enabled=settings.vless_encryption_enabled,
+        vless_encryption=settings.vless_encryption,
+        vless_encryption_reality_sni=settings.vless_encryption_reality_sni,
+        vless_encryption_ws_path=settings.vless_encryption_ws_path,
+        vless_encryption_grpc_service_name=settings.vless_encryption_grpc_service_name,
         hysteria_ech_config_list_entry=settings.hysteria_ech_config_list_entry,
         hysteria_ech_config_list_transit=settings.hysteria_ech_config_list_transit,
         hysteria_ech_force_query_entry=settings.hysteria_ech_force_query_entry,
@@ -274,6 +279,14 @@ async def create_revision(
     selected_sni = await _resolve_sni(session, connection.protocol, camouflage_sni_id, connection.custom_overrides_json)
     if selected_sni is not None and not _is_allowed_reality_sni(selected_sni.fqdn):
         raise RevisionError("Selected SNI is blocked by REALITY SNI policy (reality_sni_allow_suffixes).")
+    settings = get_settings()
+    if (
+        connection.protocol == ConnectionProtocol.VLESS_REALITY
+        and settings.vless_encryption_enabled
+        and settings.vless_encryption_reality_sni
+        and not _is_allowed_reality_sni(settings.vless_encryption_reality_sni)
+    ):
+        raise RevisionError("VLESS encryption REALITY SNI is blocked by REALITY SNI policy.")
     endpoints = await _resolve_endpoints(session)
 
     active_revisions = sorted(

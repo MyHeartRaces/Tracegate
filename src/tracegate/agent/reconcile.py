@@ -1299,6 +1299,19 @@ def _merge_shadowsocks2022_clients(existing: list[dict] | None, dynamic: list[di
     return [out[key] for key in sorted(out, key=str)]
 
 
+def _vless_encryption_enabled(cfg: dict) -> bool:
+    block = cfg.get("vless_encryption") if isinstance(cfg, dict) else None
+    return isinstance(block, dict) and bool(block.get("enabled", False))
+
+
+def _vless_encryption_decryption(settings: Settings, inbound_settings: dict) -> str:
+    configured = str(settings.vless_encryption_decryption or "").strip()
+    if configured:
+        return configured
+    existing = str(inbound_settings.get("decryption") or "").strip()
+    return existing or "none"
+
+
 def _split_host_port(value: str) -> tuple[str, str]:
     raw = str(value or "").strip()
     if not raw:
@@ -1900,10 +1913,13 @@ def reconcile_xray(settings: Settings) -> ReconcileXrayResult:
             sni_to_group_id.setdefault(sni, group.id)
 
     clients_reality: list[dict] = []
+    clients_reality_encrypted: list[dict] = []
     clients_reality_fallback: list[dict] = []
     clients_reality_by_group: dict[str, list[dict]] = {group.id: [] for group in groups}
     clients_ws: list[dict] = []
+    clients_ws_encrypted: list[dict] = []
     clients_grpc: list[dict] = []
+    clients_grpc_encrypted: list[dict] = []
     clients_ss2022: list[dict] = []
     xray_public_artifacts = [row for row in artifacts if _artifact_applies_to_xray_public_runtime(settings, row)]
     clients_hysteria_xray = build_hysteria_xray_clients(xray_public_artifacts)
@@ -1929,6 +1945,7 @@ def reconcile_xray(settings: Settings) -> ReconcileXrayResult:
     # Prefer a stable, pre-seeded REALITY SNI allow-list.
     # In grouped mode each inbound owns its own SNI list.
     server_names_legacy: set[str] = set([str(s).strip().lower() for s in (settings.sni_seed or []) if str(s).strip()])
+    server_names_encrypted: set[str] = set()
     fallback_server_names: set[str] = set([str(s).strip().lower() for s in (settings.sni_seed or []) if str(s).strip()])
     group_server_names: dict[str, set[str]] = {
         group.id: set([str(s).strip().lower() for s in group.snis if str(s).strip()])
@@ -1965,8 +1982,18 @@ def reconcile_xray(settings: Settings) -> ReconcileXrayResult:
         uuid = cfg.get("uuid")
         if not uuid:
             continue
+        encrypted = _vless_encryption_enabled(cfg)
         if proto == "vless_reality":
             sni = (cfg.get("sni") or "").strip().lower()
+            client_row = {
+                "id": uuid,
+                "email": _connection_marker(row),
+            }
+            if encrypted:
+                if sni:
+                    server_names_encrypted.add(sni)
+                clients_reality_encrypted.append(client_row)
+                continue
             if sni:
                 if groups:
                     group_id = sni_to_group_id.get(sni)
@@ -1984,10 +2011,6 @@ def reconcile_xray(settings: Settings) -> ReconcileXrayResult:
                         selected_reality_sni = sni
                         selected_reality_sni_ts = op_ts
 
-            client_row = {
-                "id": uuid,
-                "email": _connection_marker(row),
-            }
             if groups:
                 # Compatibility fallback for clients/paths whose REALITY ClientHello does not expose
                 # SNI early enough for HAProxy demux. The SNI-specific inbounds remain primary, but
@@ -1999,14 +2022,16 @@ def reconcile_xray(settings: Settings) -> ReconcileXrayResult:
             else:
                 clients_reality.append(client_row)
         elif proto == "vless_ws_tls":
-            clients_ws.append(
+            target = clients_ws_encrypted if encrypted else clients_ws
+            target.append(
                 {
                     "id": uuid,
                     "email": _connection_marker(row),
                 }
             )
         else:
-            clients_grpc.append(
+            target = clients_grpc_encrypted if encrypted else clients_grpc
+            target.append(
                 {
                     "id": uuid,
                     "email": _connection_marker(row),
@@ -2015,11 +2040,14 @@ def reconcile_xray(settings: Settings) -> ReconcileXrayResult:
 
     # Stable ordering for deterministic diffs.
     clients_reality.sort(key=lambda c: str(c.get("id") or ""))
+    clients_reality_encrypted.sort(key=lambda c: str(c.get("id") or ""))
     clients_reality_fallback.sort(key=lambda c: str(c.get("id") or ""))
     for bucket in clients_reality_by_group.values():
         bucket.sort(key=lambda c: str(c.get("id") or ""))
     clients_ws.sort(key=lambda c: str(c.get("id") or ""))
+    clients_ws_encrypted.sort(key=lambda c: str(c.get("id") or ""))
     clients_grpc.sort(key=lambda c: str(c.get("id") or ""))
+    clients_grpc_encrypted.sort(key=lambda c: str(c.get("id") or ""))
     clients_ss2022.sort(key=lambda c: str(c.get("email") or c.get("password") or ""))
 
     inbounds = base.get("inbounds", [])
@@ -2027,8 +2055,11 @@ def reconcile_xray(settings: Settings) -> ReconcileXrayResult:
         inbounds = []
         base["inbounds"] = inbounds
     managed_reality_tags = {"vless-reality-in", "entry-in"}
+    managed_reality_encrypted_tags = {"vless-reality-enc-in", "entry-enc-in"}
     managed_ws_tags = {"vless-ws-in"}
+    managed_ws_encrypted_tags = {"vless-ws-enc-in"}
     managed_grpc_tags = {"vless-grpc-in"}
+    managed_grpc_encrypted_tags = {"vless-grpc-enc-in"}
     managed_ss2022_tags = {"ss2022-in", "shadowsocks2022-in"}
     has_tagged_reality = any(str((row or {}).get("tag") or "").strip() in managed_reality_tags for row in inbounds)
     has_tagged_ws = any(str((row or {}).get("tag") or "").strip() in managed_ws_tags for row in inbounds)
@@ -2081,6 +2112,11 @@ def reconcile_xray(settings: Settings) -> ReconcileXrayResult:
 
     managed_reality_runtime_tags = set(managed_reality_base_tags)
     managed_reality_runtime_tags.update(group_tag_to_group_id.keys())
+    managed_reality_runtime_tags.update(
+        str((row or {}).get("tag") or "").strip()
+        for row in inbounds
+        if isinstance(row, dict) and str(row.get("tag") or "").strip() in managed_reality_encrypted_tags
+    )
 
     desired_by_tag: dict[str, dict[str, dict[str, str]]] = {}
 
@@ -2090,6 +2126,44 @@ def reconcile_xray(settings: Settings) -> ReconcileXrayResult:
         tag = str(inbound.get("tag") or "").strip()
         stream = inbound.get("streamSettings") or {}
         is_reality = inbound.get("protocol") == "vless" and stream.get("security") == "reality"
+        if is_reality and tag in managed_reality_encrypted_tags:
+            inbound_settings = inbound.setdefault("settings", {})
+            merged_clients = _merge_clients(
+                inbound_settings.get("clients") if isinstance(inbound_settings.get("clients"), list) else [],
+                clients_reality_encrypted,
+            )
+            inbound_settings["clients"] = merged_clients
+            inbound_settings["decryption"] = _vless_encryption_decryption(settings, inbound_settings)
+
+            stream = inbound.setdefault("streamSettings", {})
+            reality = stream.setdefault("realitySettings", {})
+            existing = reality.get("serverNames") or []
+            if not isinstance(existing, list):
+                existing = []
+            merged_server_names = sorted(set([*existing, *server_names_encrypted]), key=lambda s: str(s).lower())
+            if merged_server_names:
+                reality["serverNames"] = merged_server_names
+
+            dest_host = _reality_dest_host_for_inbound(
+                selected_sni=next(iter(sorted(server_names_encrypted, key=str.lower)), None),
+                inbound_reality_settings=reality,
+                fallback_dest=settings.reality_dest,
+            )
+            if dest_host:
+                reality["dest"] = f"{dest_host}:443"
+
+            if tag:
+                desired: dict[str, dict[str, str]] = {}
+                for row in merged_clients:
+                    if not isinstance(row, dict):
+                        continue
+                    email = str(row.get("email") or "").strip()
+                    client_id = str(row.get("id") or "").strip()
+                    if email and client_id:
+                        desired[email] = {"protocol": "vless", "uuid": client_id}
+                desired_by_tag[tag] = desired
+            continue
+
         should_manage_reality = (tag in managed_reality_runtime_tags) if managed_reality_runtime_tags else is_reality
         if is_reality:
             if not should_manage_reality:
@@ -2158,6 +2232,26 @@ def reconcile_xray(settings: Settings) -> ReconcileXrayResult:
 
         # VLESS over WebSocket (with or without TLS termination upstream).
         is_ws = inbound.get("protocol") == "vless" and str((stream.get("network") or "")).lower() == "ws"
+        if is_ws and tag in managed_ws_encrypted_tags:
+            inbound_settings = inbound.setdefault("settings", {})
+            merged_clients = _merge_clients(
+                inbound_settings.get("clients") if isinstance(inbound_settings.get("clients"), list) else [],
+                clients_ws_encrypted,
+            )
+            inbound_settings["clients"] = merged_clients
+            inbound_settings["decryption"] = _vless_encryption_decryption(settings, inbound_settings)
+
+            if tag:
+                desired: dict[str, dict[str, str]] = {}
+                for row in merged_clients:
+                    if not isinstance(row, dict):
+                        continue
+                    email = str(row.get("email") or "").strip()
+                    client_id = str(row.get("id") or "").strip()
+                    if email and client_id:
+                        desired[email] = {"protocol": "vless", "uuid": client_id}
+                desired_by_tag[tag] = desired
+            continue
         if is_ws:
             should_manage_ws = (tag in managed_ws_tags) if has_tagged_ws else True
             if not should_manage_ws:
@@ -2183,6 +2277,26 @@ def reconcile_xray(settings: Settings) -> ReconcileXrayResult:
 
         # VLESS over gRPC (with TLS termination upstream).
         is_grpc = inbound.get("protocol") == "vless" and str((stream.get("network") or "")).lower() == "grpc"
+        if is_grpc and tag in managed_grpc_encrypted_tags:
+            inbound_settings = inbound.setdefault("settings", {})
+            merged_clients = _merge_clients(
+                inbound_settings.get("clients") if isinstance(inbound_settings.get("clients"), list) else [],
+                clients_grpc_encrypted,
+            )
+            inbound_settings["clients"] = merged_clients
+            inbound_settings["decryption"] = _vless_encryption_decryption(settings, inbound_settings)
+
+            if tag:
+                desired: dict[str, dict[str, str]] = {}
+                for row in merged_clients:
+                    if not isinstance(row, dict):
+                        continue
+                    email = str(row.get("email") or "").strip()
+                    client_id = str(row.get("id") or "").strip()
+                    if email and client_id:
+                        desired[email] = {"protocol": "vless", "uuid": client_id}
+                desired_by_tag[tag] = desired
+            continue
         if is_grpc:
             should_manage_grpc = (tag in managed_grpc_tags) if has_tagged_grpc else True
             if not should_manage_grpc:

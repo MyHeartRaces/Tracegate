@@ -1883,6 +1883,40 @@ def test_tracegate21_templates_include_grpc_mtproto_and_mieru_surfaces() -> None
     assert "/home/app/wstunnel client --http-upgrade-path-prefix" in text
 
 
+def test_vless_encryption_renders_separate_xray_surfaces(tmp_path: Path) -> None:
+    values = _values()
+    values["vlessEncryption"]["enabled"] = True
+    values["vlessEncryption"]["encryption"] = "mlkem768x25519plus.native.0rtt.CLIENT"
+    values["vlessEncryption"]["realitySni"] = "www.cloudflare.com"
+
+    result = _helm_template_with_values(tmp_path, values)
+    assert result.returncode == 0, result.stderr
+    rendered = result.stdout
+
+    assert "acl vless_encryption_reality_sni req.ssl_sni -i www.cloudflare.com" in rendered
+    assert "server xray_reality_enc 127.0.0.1:2444 check" in rendered
+    assert '"tag": "entry-enc-in"' in rendered
+    assert '"tag": "vless-reality-enc-in"' in rendered
+    assert '"tag": "vless-ws-enc-in"' in rendered
+    assert '"tag": "vless-grpc-enc-in"' in rendered
+    assert "REPLACE_VLESS_ENCRYPTION_DECRYPTION" in rendered
+    assert "VLESS_ENCRYPTION_DECRYPTION" in rendered
+
+
+def test_vless_encryption_rejects_legacy_reality_sni_collision(tmp_path: Path) -> None:
+    values = _values()
+    values["vlessEncryption"]["enabled"] = True
+    values["vlessEncryption"]["encryption"] = "mlkem768x25519plus.native.0rtt.CLIENT"
+    values["vlessEncryption"]["realitySni"] = "yandex.ru"
+    values["gateway"]["realityMultiInboundGroups"] = [
+        {"id": "legacy", "port": 2515, "dest": "yandex.ru", "snis": ["yandex.ru"]},
+    ]
+
+    result = _helm_template_with_values(tmp_path, values)
+    assert result.returncode != 0
+    assert "vlessEncryption.realitySni must not reuse legacy REALITY demux SNI yandex.ru" in result.stderr
+
+
 def test_mtproto_public_port_8443_renders_dedicated_fallback_frontend(tmp_path: Path) -> None:
     rendered = _helm_template_with_values(tmp_path, {"mtproto": {"publicPort": 8443}})
 

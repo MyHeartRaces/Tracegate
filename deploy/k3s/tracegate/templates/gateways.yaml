@@ -12,6 +12,7 @@
 {{- $roleShadowsocks2022SecretKey := ternary $.Values.privateProfiles.secretKeys.shadowsocks2022Entry $.Values.privateProfiles.secretKeys.shadowsocks2022Transit (eq $roleName "entry") }}
 {{- $roleShadowsocks2022PasswordKey := ternary $.Values.privateProfiles.keys.shadowsocks2022PasswordEntry $.Values.privateProfiles.keys.shadowsocks2022PasswordTransit (eq $roleName "entry") }}
 {{- $roleShadowsocks2022PasswordSecretKey := ternary $.Values.privateProfiles.secretKeys.shadowsocks2022PasswordEntry $.Values.privateProfiles.secretKeys.shadowsocks2022PasswordTransit (eq $roleName "entry") }}
+{{- $roleVlessEncryptionDecryptionSecretKey := ternary $.Values.privateProfiles.secretKeys.vlessEncryptionDecryptionEntry $.Values.privateProfiles.secretKeys.vlessEncryptionDecryptionTransit (eq $roleName "entry") }}
 {{- $roleShadowtlsKey := ternary $.Values.privateProfiles.keys.shadowtlsEntry $.Values.privateProfiles.keys.shadowtlsTransit (eq $roleName "entry") }}
 {{- $roleShadowtlsSecretKey := ternary $.Values.privateProfiles.secretKeys.shadowtlsEntry $.Values.privateProfiles.secretKeys.shadowtlsTransit (eq $roleName "entry") }}
 {{- $roleShadowtlsPasswordKey := ternary $.Values.privateProfiles.keys.shadowtlsPasswordEntry $.Values.privateProfiles.keys.shadowtlsPasswordTransit (eq $roleName "entry") }}
@@ -405,6 +406,9 @@ spec:
 {{- if $.Values.shadowsocks2022.enabled }}
               replace_xray_literal REPLACE_SHADOWSOCKS2022_PASSWORD "$(read_secret_file "{{ $.Values.privateProfiles.mountPath }}/{{ $roleShadowsocks2022PasswordKey }}")"
 {{- end }}
+{{- if $.Values.vlessEncryption.enabled }}
+              replace_xray_literal REPLACE_VLESS_ENCRYPTION_DECRYPTION "${VLESS_ENCRYPTION_DECRYPTION}"
+{{- end }}
               replace_hysteria_literal REPLACE_HYSTERIA_SALAMANDER_PASSWORD "$(read_secret_file "{{ $.Values.privateProfiles.mountPath }}/{{ $roleHysteriaSalamanderKey }}")"
               replace_hysteria_literal REPLACE_HYSTERIA_STATS_SECRET "$(read_secret_file "{{ $.Values.privateProfiles.mountPath }}/{{ $roleHysteriaStatsKey }}")"
               cp /base/haproxy/haproxy.cfg /state/base/haproxy/haproxy.cfg
@@ -469,6 +473,13 @@ spec:
                 secretKeyRef:
                   name: {{ include "tracegate.privateProfilesSecretName" $ }}
                   key: {{ ternary $.Values.privateProfiles.secretKeys.realityPrivateKeyEntry $.Values.privateProfiles.secretKeys.realityPrivateKeyTransit (eq $roleName "entry") }}
+{{- if $.Values.vlessEncryption.enabled }}
+            - name: VLESS_ENCRYPTION_DECRYPTION
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "tracegate.privateProfilesSecretName" $ }}
+                  key: {{ $roleVlessEncryptionDecryptionSecretKey }}
+{{- end }}
           volumeMounts:
             - name: gateway-state
               mountPath: /state
@@ -627,6 +638,15 @@ spec:
               value: {{ printf "127.0.0.1:%d" (int $role.ports.xrayApi) | quote }}
             - name: REALITY_MULTI_INBOUND_GROUPS
               value: {{ toJson ($.Values.gateway.realityMultiInboundGroups | default (list)) | quote }}
+            - name: VLESS_ENCRYPTION_ENABLED
+              value: {{ $.Values.vlessEncryption.enabled | quote }}
+{{- if $.Values.vlessEncryption.enabled }}
+            - name: VLESS_ENCRYPTION_DECRYPTION
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "tracegate.privateProfilesSecretName" $ }}
+                  key: {{ $roleVlessEncryptionDecryptionSecretKey }}
+{{- end }}
             - name: AGENT_STATS_URL
               value: "http://127.0.0.1:9999/traffic"
             - name: AGENT_STATS_SECRET

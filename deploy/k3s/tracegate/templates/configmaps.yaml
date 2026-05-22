@@ -536,6 +536,9 @@ data:
 {{- $naiveproxyDemuxRole := toString $.Values.naiveproxy.demux.role }}
 {{- $naiveproxyTcpDemuxEnabled := and $.Values.naiveproxy.enabled (eq $naiveproxyTcpExposure "demux") (eq $roleName $naiveproxyDemuxRole) }}
 {{- $userTrafficInbounds := list "entry-in" "entry-chain-socks-in" "ss2022-in" "vless-reality-in" "vless-ws-in" "vless-grpc-in" }}
+{{- if $.Values.vlessEncryption.enabled }}
+{{- $userTrafficInbounds = concat $userTrafficInbounds (list "entry-enc-in" "vless-reality-enc-in" "vless-ws-enc-in" "vless-grpc-enc-in") }}
+{{- end }}
 {{- $grafanaHost := toString $.Values.controlPlane.env.grafanaHost }}
 {{- $ruBypassDomains := list "geosite:category-ru" "full:cp.cloudflare.com" "regexp:(?i)\\.ru$" "regexp:(?i)\\.su$" "regexp:(?i)\\.xn--p1ai$" "regexp:(?i)\\.рф$" "regexp:(?i)\\.moscow$" "regexp:(?i)\\.xn--80adxhks$" "regexp:(?i)\\.москва$" "regexp:(?i)\\.tatar$" "regexp:(?i)\\.xn--p1acf$" "regexp:(?i)\\.рус$" "regexp:(?i)\\.xn--d1acj3b$" "regexp:(?i)\\.дети$" }}
 {{- range $line := splitList "\n" ($.Files.Get "files/russia-mobile-internet-whitelist.txt") }}
@@ -618,6 +621,10 @@ data:
       acl shadowtls_sni req.ssl_sni -i {{ $roleShadowtlsServerName }}
       use_backend be_shadowtls if shadowtls_sni
 {{- end }}
+{{- if and $.Values.vlessEncryption.enabled $.Values.vlessEncryption.realitySni }}
+      acl vless_encryption_reality_sni req.ssl_sni -i {{ $.Values.vlessEncryption.realitySni }}
+      use_backend be_reality_enc if vless_encryption_reality_sni
+{{- end }}
 {{- range $group := $realityMultiInboundGroups }}
 {{- $groupName := regexReplaceAll "[^a-z0-9_]+" (lower (toString $group.id)) "_" | trimAll "_" }}
       acl reality_{{ $groupName }}_sni req.ssl_sni -i {{ join " " $group.snis }}
@@ -628,6 +635,11 @@ data:
 
     backend be_reality
       server xray_reality 127.0.0.1:{{ int $role.ports.reality }} check
+{{- if $.Values.vlessEncryption.enabled }}
+
+    backend be_reality_enc
+      server xray_reality_enc 127.0.0.1:{{ int $role.ports.realityEncrypted }} check
+{{- end }}
 {{- range $group := $realityMultiInboundGroups }}
 {{- $groupName := regexReplaceAll "[^a-z0-9_]+" (lower (toString $group.id)) "_" | trimAll "_" }}
 
@@ -776,6 +788,21 @@ data:
           proxy_set_header X-Forwarded-Proto https;
         }
 
+{{- if $.Values.vlessEncryption.enabled }}
+        location {{ $.Values.vlessEncryption.wsPath }} {
+          proxy_pass http://127.0.0.1:{{ int $role.ports.vlessWsEncrypted }};
+          proxy_http_version 1.1;
+          proxy_connect_timeout 5s;
+          proxy_read_timeout 5m;
+          proxy_send_timeout 5m;
+          proxy_set_header Upgrade $http_upgrade;
+          proxy_set_header Connection "upgrade";
+          proxy_set_header Host $host;
+          proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+          proxy_set_header X-Forwarded-Proto https;
+        }
+
+{{- end }}
         location {{ $.Values.controlPlane.env.vlessGrpcPath }} {
           grpc_read_timeout 5m;
           grpc_send_timeout 5m;
@@ -783,6 +810,15 @@ data:
           grpc_pass grpc://127.0.0.1:{{ int $role.ports.vlessGrpc }};
         }
 
+{{- if $.Values.vlessEncryption.enabled }}
+        location {{ $.Values.vlessEncryption.grpcPath }} {
+          grpc_read_timeout 5m;
+          grpc_send_timeout 5m;
+          grpc_set_header Host $host;
+          grpc_pass grpc://127.0.0.1:{{ int $role.ports.vlessGrpcEncrypted }};
+        }
+
+{{- end }}
 {{- if and (eq $roleName "transit") $.Values.wireguard.enabled $.Values.wireguard.wstunnel.enabled }}
         location {{ $.Values.wireguard.wstunnel.publicPath }} {
           proxy_pass http://127.0.0.1:{{ int $.Values.wireguard.wstunnel.websocketPort }};
@@ -1016,6 +1052,32 @@ data:
           },
           "sniffing": {"enabled": true, "destOverride": ["http", "tls", "quic"]}
         },
+{{- if $.Values.vlessEncryption.enabled }}
+        {
+          "tag": "{{ ternary "entry-enc-in" "vless-reality-enc-in" (eq $roleName "entry") }}",
+          "listen": "127.0.0.1",
+          "port": {{ int $role.ports.realityEncrypted }},
+          "protocol": "vless",
+          "settings": {
+            "clients": [],
+            "decryption": "REPLACE_VLESS_ENCRYPTION_DECRYPTION"
+          },
+          "streamSettings": {
+            "network": "xhttp",
+            "security": "reality",
+            "realitySettings": {
+              "show": false,
+              "dest": {{ $role.reality.dest | quote }},
+              "xver": 0,
+              "serverNames": [{{ $.Values.vlessEncryption.realitySni | quote }}],
+              "privateKey": "REPLACE_REALITY_PRIVATE_KEY",
+              "shortIds": {{ toJson $role.reality.shortIds }}
+            },
+            "xhttpSettings": {"mode": "auto", "path": "/api/v1/update"}
+          },
+          "sniffing": {"enabled": true, "destOverride": ["http", "tls", "quic"]}
+        },
+{{- end }}
         {
           "tag": "vless-ws-in",
           "listen": "127.0.0.1",
@@ -1025,6 +1087,17 @@ data:
           "streamSettings": {"network": "ws", "security": "none", "wsSettings": {"path": {{ $.Values.controlPlane.env.vlessWsPath | quote }}, "heartbeatPeriod": 15}},
           "sniffing": {"enabled": true, "destOverride": ["http", "tls", "quic"]}
         },
+{{- if $.Values.vlessEncryption.enabled }}
+        {
+          "tag": "vless-ws-enc-in",
+          "listen": "127.0.0.1",
+          "port": {{ int $role.ports.vlessWsEncrypted }},
+          "protocol": "vless",
+          "settings": {"clients": [], "decryption": "REPLACE_VLESS_ENCRYPTION_DECRYPTION"},
+          "streamSettings": {"network": "ws", "security": "none", "wsSettings": {"path": {{ $.Values.vlessEncryption.wsPath | quote }}, "heartbeatPeriod": 15}},
+          "sniffing": {"enabled": true, "destOverride": ["http", "tls", "quic"]}
+        },
+{{- end }}
         {
           "tag": "vless-grpc-in",
           "listen": "127.0.0.1",
@@ -1034,6 +1107,18 @@ data:
           "streamSettings": {"network": "grpc", "security": "none", "grpcSettings": {"serviceName": {{ $.Values.controlPlane.env.vlessGrpcServiceName | quote }}}},
           "sniffing": {"enabled": true, "destOverride": ["http", "tls", "quic"]}
         }
+{{- if $.Values.vlessEncryption.enabled }}
+        ,
+        {
+          "tag": "vless-grpc-enc-in",
+          "listen": "127.0.0.1",
+          "port": {{ int $role.ports.vlessGrpcEncrypted }},
+          "protocol": "vless",
+          "settings": {"clients": [], "decryption": "REPLACE_VLESS_ENCRYPTION_DECRYPTION"},
+          "streamSettings": {"network": "grpc", "security": "none", "grpcSettings": {"serviceName": {{ $.Values.vlessEncryption.grpcServiceName | quote }}}},
+          "sniffing": {"enabled": true, "destOverride": ["http", "tls", "quic"]}
+        }
+{{- end }}
       ],
       "outbounds": [
 {{- if and (eq $roleName "entry") $chainBridge.enabled }}

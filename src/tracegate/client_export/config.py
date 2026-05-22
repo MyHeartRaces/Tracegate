@@ -49,6 +49,16 @@ def _encode_query(params: dict[str, Any], *, safe: str = "") -> str:
     return urlencode(params, safe=safe)
 
 
+def _vless_encryption(effective: dict[str, Any]) -> str:
+    block = effective.get("vless_encryption")
+    if not isinstance(block, dict) or not bool(block.get("enabled", False)):
+        return "none"
+    encryption = str(block.get("encryption") or "").strip()
+    if not encryption:
+        raise ClientConfigExportError("VLESS encryption is enabled but encryption material is missing")
+    return encryption
+
+
 def _normalize_alpn(value: object, *, default: tuple[str, ...]) -> list[str]:
     if isinstance(value, str):
         items = [value]
@@ -587,13 +597,14 @@ def _export_vless_reality(effective: dict[str, Any]) -> ExportResult:
     xhttp = effective.get("xhttp") or {}
     xhttp_mode = str((xhttp.get("mode") or "")).strip()
     xhttp_path = str((xhttp.get("path") or "")).strip()
+    encryption = _vless_encryption(effective)
 
     if not server or not uuid or not sni or not pbk or not sid:
         raise ClientConfigExportError("Missing fields for VLESS/REALITY export")
 
     # Xray share-link parameters.
     params: dict[str, str] = {
-        "encryption": "none",
+        "encryption": encryption,
         "security": "reality",
         "sni": sni,
         "fp": "chrome",
@@ -619,7 +630,7 @@ def _export_vless_reality(effective: dict[str, Any]) -> ExportResult:
                     {
                         "address": server,
                         "port": port,
-                        "users": [{"id": uuid, "encryption": "none"}],
+                        "users": [{"id": uuid, "encryption": encryption}],
                     }
                 ]
             },
@@ -663,6 +674,7 @@ def _export_vless_ws_tls(effective: dict[str, Any]) -> ExportResult:
     tls = effective.get("tls") or {}
     insecure = bool(tls.get("insecure", False))
     alpn = _normalize_alpn(tls.get("alpn"), default=("http/1.1",))
+    encryption = _vless_encryption(effective)
 
     if not server or not uuid:
         raise ClientConfigExportError("Missing fields for VLESS+WS+TLS export")
@@ -673,7 +685,7 @@ def _export_vless_ws_tls(effective: dict[str, Any]) -> ExportResult:
         ws_host = sni
 
     params = {
-        "encryption": "none",
+        "encryption": encryption,
         "security": "tls",
         "type": "ws",
         "sni": sni,
@@ -703,7 +715,7 @@ def _export_vless_ws_tls(effective: dict[str, Any]) -> ExportResult:
                     {
                         "address": server,
                         "port": port,
-                        "users": [{"id": uuid, "encryption": "none"}],
+                        "users": [{"id": uuid, "encryption": encryption}],
                     }
                 ]
             },
@@ -741,6 +753,7 @@ def _export_vless_grpc_tls(effective: dict[str, Any]) -> ExportResult:
     tls = effective.get("tls") or {}
     insecure = bool(tls.get("insecure", False))
     alpn = _normalize_alpn(tls.get("alpn"), default=("h2",))
+    encryption = _vless_encryption(effective)
 
     if not server or not uuid:
         raise ClientConfigExportError("Missing fields for VLESS+gRPC+TLS export")
@@ -748,7 +761,7 @@ def _export_vless_grpc_tls(effective: dict[str, Any]) -> ExportResult:
         sni = str(server)
 
     params = {
-        "encryption": "none",
+        "encryption": encryption,
         "security": "tls",
         "type": "grpc",
         "sni": sni,
@@ -781,7 +794,7 @@ def _export_vless_grpc_tls(effective: dict[str, Any]) -> ExportResult:
                     {
                         "address": server,
                         "port": port,
-                        "users": [{"id": uuid, "encryption": "none"}],
+                        "users": [{"id": uuid, "encryption": encryption}],
                     }
                 ]
             },

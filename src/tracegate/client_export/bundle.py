@@ -128,6 +128,9 @@ def _singbox_naive_outbound(effective: dict[str, Any], *, tag: str) -> dict[str,
 
 
 def _singbox_vless_outbound(effective: dict[str, Any], *, tag: str) -> dict[str, Any] | None:
+    vless_encryption = effective.get("vless_encryption")
+    if isinstance(vless_encryption, dict) and bool(vless_encryption.get("enabled", False)):
+        return None
     transport = str(effective.get("transport") or "").strip().lower()
     if transport not in {"ws_tls", "ws+tls", "ws-tls", "grpc_tls", "grpc+tls", "grpc-tls"}:
         return None
@@ -188,6 +191,10 @@ def _singbox_outbounds_for_profile(
         outbound = _singbox_naive_outbound(effective, tag=tag)
         return ([outbound], tag, warnings) if outbound else ([], None, ["naiveproxy_missing_singbox_fields"])
     if proto == "vless":
+        vless_encryption = effective.get("vless_encryption")
+        if isinstance(vless_encryption, dict) and bool(vless_encryption.get("enabled", False)):
+            warnings.append("vless_encryption_requires_xray_client")
+            return [], None, warnings
         outbound = _singbox_vless_outbound(effective, tag=tag)
         if outbound:
             return [outbound], tag, warnings

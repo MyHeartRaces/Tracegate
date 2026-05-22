@@ -305,6 +305,16 @@ spec:
                   key: {{ .Values.privateProfiles.secretKeys.shadowsocks2022PasswordTransit }}
             - name: VLESS_WS_PATH
               value: {{ .Values.controlPlane.env.vlessWsPath | quote }}
+            - name: VLESS_ENCRYPTION_ENABLED
+              value: {{ .Values.vlessEncryption.enabled | quote }}
+            - name: VLESS_ENCRYPTION
+              value: {{ .Values.vlessEncryption.encryption | quote }}
+            - name: VLESS_ENCRYPTION_REALITY_SNI
+              value: {{ .Values.vlessEncryption.realitySni | quote }}
+            - name: VLESS_ENCRYPTION_WS_PATH
+              value: {{ .Values.vlessEncryption.wsPath | quote }}
+            - name: VLESS_ENCRYPTION_GRPC_SERVICE_NAME
+              value: {{ .Values.vlessEncryption.grpcServiceName | quote }}
             - name: MTPROTO_DOMAIN
               value: {{ (.Values.mtproto.domain | default .Values.controlPlane.env.mtprotoDomain) | quote }}
             - name: MTPROTO_TLS_DOMAIN
@@ -466,6 +476,18 @@ spec:
                 secretKeyRef:
                   name: {{ include "tracegate.privateProfilesSecretName" $ }}
                   key: {{ $.Values.privateProfiles.secretKeys.shadowsocks2022PasswordTransit }}
+            - name: VLESS_WS_PATH
+              value: {{ $.Values.controlPlane.env.vlessWsPath | quote }}
+            - name: VLESS_ENCRYPTION_ENABLED
+              value: {{ $.Values.vlessEncryption.enabled | quote }}
+            - name: VLESS_ENCRYPTION
+              value: {{ $.Values.vlessEncryption.encryption | quote }}
+            - name: VLESS_ENCRYPTION_REALITY_SNI
+              value: {{ $.Values.vlessEncryption.realitySni | quote }}
+            - name: VLESS_ENCRYPTION_WS_PATH
+              value: {{ $.Values.vlessEncryption.wsPath | quote }}
+            - name: VLESS_ENCRYPTION_GRPC_SERVICE_NAME
+              value: {{ $.Values.vlessEncryption.grpcServiceName | quote }}
 {{- if eq $name "bot" }}
             - name: BOT_API_BASE_URL
               value: {{ printf "http://%s-api:%d" (include "tracegate.fullname" $) (int $.Values.controlPlane.service.port) | quote }}
