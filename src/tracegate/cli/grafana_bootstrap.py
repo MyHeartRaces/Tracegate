@@ -617,7 +617,10 @@ def _ops_alert_rules(
     group: str,
     base_labels: dict[str, str],
 ) -> list[dict[str, Any]]:
-    node_up = 'min by (node, instance) (up{namespace="tracegate",job="tracegate-node-exporter"})'
+    node_up = (
+        "max by (node, instance) "
+        '(max_over_time(up{namespace="tracegate",job="tracegate-node-exporter"}[3m]))'
+    )
     target_up = (
         "min by (job, component, node, pod, instance) "
         '(up{namespace="tracegate",job=~"tracegate-api|tracegate-bot|tracegate-agent|tracegate-dispatcher"})'
@@ -655,7 +658,7 @@ def _ops_alert_rules(
             threshold=1.0,
             annotations={
                 "summary": "Node is unreachable from Prometheus",
-                "description": "node-exporter scrape target is down or missing for at least 2 minutes",
+                "description": "node-exporter scrape target has no successful scrapes for at least 3 minutes",
             },
             labels={
                 **base_labels,
@@ -672,7 +675,10 @@ def _ops_alert_rules(
             folder_uid=folder_uid,
             group=group,
             ds_uid=ds_uid,
-            expr='count(up{namespace="tracegate",job="tracegate-node-exporter"} == 1)',
+            expr=(
+                "count(max by (node) "
+                '(max_over_time(up{namespace="tracegate",job="tracegate-node-exporter"}[3m])) == 1)'
+            ),
             evaluator="lt",
             threshold=3.0,
             annotations={

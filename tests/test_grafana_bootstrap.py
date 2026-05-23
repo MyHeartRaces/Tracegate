@@ -416,7 +416,12 @@ def test_ops_alert_rules_cover_nodes_pods_delivery_and_runtime_health() -> None:
     assert node_down["labels"]["severity"] == "critical"
     assert node_down["labels"]["kind"] == "slo"
     assert 'job="tracegate-node-exporter"' in node_down["data"][0]["model"]["expr"]
+    assert "max_over_time" in node_down["data"][0]["model"]["expr"]
     assert node_down["noDataState"] == "Alerting"
+
+    node_count = by_uid["tg-ops-node-count-low"]
+    assert "max_over_time" in node_count["data"][0]["model"]["expr"]
+    assert 'job="tracegate-node-exporter"' in node_count["data"][0]["model"]["expr"]
 
     pod_down = by_uid["tg-ops-target-down"]
     assert (
