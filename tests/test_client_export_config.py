@@ -169,16 +169,31 @@ def test_export_naiveproxy_shadowrocket_uri_and_http3_attachment() -> None:
     out = export_client_config(effective)
 
     assert out.kind == "uri"
-    assert out.title == "NaiveProxy link · Shadowrocket"
+    assert out.title == "NaiveProxy link · Shadowrocket / Exclave"
     assert out.content == "naive+https://tg_v4_user:secret-pass@auth.example.com?padding=true#v4-direct-naiveproxy"
     assert out.alternate_title == "NaiveProxy HTTP/3 URI"
     assert out.alternate_content == "naive+quic://tg_v4_user:secret-pass@auth.example.com?padding=true#v4-direct-naiveproxy"
     assert out.extra_messages == (
         (
-            "Shadowrocket import",
+            "Shadowrocket / Exclave import",
             "Use the QR code below with Shadowrocket's built-in scanner, or import the single-line "
-            "`naive+https://...` URI from the previous message. The attached `.naive.json` file is "
-            "for native NaiveProxy clients, not for Shadowrocket.",
+            "`naive+https://...` URI from the previous message. Exclave can also import the "
+            "`naive+https://...` and `naive+quic://...` URIs. The attached `.naive.json` file is "
+            "for native NaiveProxy clients, not for Shadowrocket or Exclave.",
+        ),
+        (
+            "Anywhere import",
+            "Deep link HTTP/2 (Android, iOS, macOS, Apple TV):\n"
+            "anywhere://add-proxy?link=https%3A%2F%2Ftg_v4_user%3Asecret-pass%40auth.example.com%3A443%23v4-direct-naiveproxy\n"
+            "\n"
+            "Raw HTTP/2:\n"
+            "https://tg_v4_user:secret-pass@auth.example.com:443#v4-direct-naiveproxy\n"
+            "\n"
+            "Deep link HTTP/3 (iOS, macOS, Apple TV):\n"
+            "anywhere://add-proxy?link=quic%3A%2F%2Ftg_v4_user%3Asecret-pass%40auth.example.com%3A443%23v4-direct-naiveproxy\n"
+            "\n"
+            "Raw HTTP/3:\n"
+            "quic://tg_v4_user:secret-pass@auth.example.com:443#v4-direct-naiveproxy",
         ),
     )
     assert out.attachment_filename == "v4-direct-naiveproxy.naive.json"

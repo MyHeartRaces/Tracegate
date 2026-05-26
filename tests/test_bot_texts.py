@@ -86,7 +86,7 @@ def test_format_config_delivery_message_mentions_hysteria_fallbacks() -> None:
     )
 
     assert "fallback-ссылка для совместимости клиента" in text
-    assert "дополнительные параметры транспорта" in text
+    assert "дополнительные ссылки или параметры транспорта" in text
     assert "локальный SOCKS5" not in text
 
 

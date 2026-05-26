@@ -979,7 +979,7 @@ def _format_config_delivery_message(
     if has_alternate_uri:
         next_steps.append("5. Ниже будет отдельная fallback-ссылка для совместимости клиента.")
     if has_extra_messages:
-        next_steps.append("6. Ниже будут дополнительные параметры транспорта.")
+        next_steps.append("6. Ниже будут дополнительные ссылки или параметры транспорта.")
     return (
         f"🔗 Конфигурация готова\n\n"
         f"{_config_delivery_context_label(context)}\n"

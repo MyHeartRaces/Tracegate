@@ -936,6 +936,11 @@ def _export_naiveproxy(effective: dict[str, Any]) -> ExportResult:
     label = profile or "Tracegate NaiveProxy"
     shadowrocket_uri = f"naive+{h2_proxy}?padding=true#{_q(label)}"
     h3_uri = f"naive+{h3_proxy}?padding=true#{_q(label)}"
+    anywhere_authority = f"{_q(username)}:{_q(password)}@{server}:{port}"
+    anywhere_h2_uri = f"https://{anywhere_authority}#{_q(label)}"
+    anywhere_h3_uri = f"quic://{anywhere_authority}#{_q(label)}"
+    anywhere_h2_deep_link = f"anywhere://add-proxy?link={_q(anywhere_h2_uri)}"
+    anywhere_h3_deep_link = f"anywhere://add-proxy?link={_q(anywhere_h3_uri)}"
 
     config = {
         "listen": listen,
@@ -946,16 +951,35 @@ def _export_naiveproxy(effective: dict[str, Any]) -> ExportResult:
     filename = f"{_safe_filename_fragment(profile)}.naive.json"
     return ExportResult(
         kind="uri",
-        title="NaiveProxy link · Shadowrocket",
+        title="NaiveProxy link · Shadowrocket / Exclave",
         content=shadowrocket_uri,
         alternate_title="NaiveProxy HTTP/3 URI",
         alternate_content=h3_uri,
         extra_messages=(
             (
-                "Shadowrocket import",
+                "Shadowrocket / Exclave import",
                 "Use the QR code below with Shadowrocket's built-in scanner, or import the single-line "
-                "`naive+https://...` URI from the previous message. The attached `.naive.json` file is "
-                "for native NaiveProxy clients, not for Shadowrocket.",
+                "`naive+https://...` URI from the previous message. Exclave can also import the "
+                "`naive+https://...` and `naive+quic://...` URIs. The attached `.naive.json` file is "
+                "for native NaiveProxy clients, not for Shadowrocket or Exclave.",
+            ),
+            (
+                "Anywhere import",
+                "\n".join(
+                    (
+                        "Deep link HTTP/2 (Android, iOS, macOS, Apple TV):",
+                        anywhere_h2_deep_link,
+                        "",
+                        "Raw HTTP/2:",
+                        anywhere_h2_uri,
+                        "",
+                        "Deep link HTTP/3 (iOS, macOS, Apple TV):",
+                        anywhere_h3_deep_link,
+                        "",
+                        "Raw HTTP/3:",
+                        anywhere_h3_uri,
+                    )
+                ),
             ),
         ),
         attachment_content=attachment_content,
