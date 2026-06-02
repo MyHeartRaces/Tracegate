@@ -24,6 +24,10 @@ class XrayApiInboundMissing(XrayApiError):
     pass
 
 
+class XrayApiInboundNotUserManager(XrayApiError):
+    pass
+
+
 def _is_loopback_host(host: str) -> bool:
     normalized = str(host or "").strip().lower()
     if normalized == "localhost":
@@ -178,6 +182,8 @@ def list_inbound_user_emails(settings: Settings, *, inbound_tag: str) -> set[str
         details = str(exc)
         if "handler not found" in details or "failed to get handler" in details:
             raise XrayApiInboundMissing(f"inbound not found: {inbound_tag}") from exc
+        if "not a usermanager" in details.lower() or "not a user manager" in details.lower():
+            raise XrayApiInboundNotUserManager(f"inbound is not user-managed: {inbound_tag}") from exc
         raise XrayApiError(f"GetInboundUsers failed for inbound={inbound_tag}: {exc}") from exc
     finally:
         channel.close()
@@ -274,7 +280,7 @@ def sync_inbound_users(settings: Settings, *, inbound_tag: str, desired_email_to
 
     try:
         current = list_inbound_user_emails(settings, inbound_tag=inbound_tag)
-    except XrayApiInboundMissing:
+    except (XrayApiInboundMissing, XrayApiInboundNotUserManager):
         return False
     desired_emails = set(desired.keys())
 

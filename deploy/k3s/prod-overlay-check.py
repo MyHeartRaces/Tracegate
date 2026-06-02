@@ -70,6 +70,14 @@ def _is_placeholder_repo(value: Any) -> bool:
     return "your-org" in raw or raw.startswith("example/")
 
 
+def _effective_public_host(configured: Any, fallback: Any) -> str:
+    configured_text = _text(configured)
+    fallback_text = _text(fallback)
+    if fallback_text and (not configured_text or _is_example_host(configured_text)):
+        return fallback_text
+    return configured_text
+
+
 def _has_value(value: Any) -> bool:
     return bool(_text(value))
 
@@ -274,19 +282,21 @@ def validate_prod_overlay(chart_values: Path, prod_values: Path, *, strict: bool
         )
 
     env = _as_dict(control_plane.get("env"))
+    roles = _as_dict(gateway.get("roles"))
+    entry = _as_dict(roles.get("entry"))
+    transit = _as_dict(roles.get("transit"))
+    entry_default_host = _effective_public_host(env.get("defaultEntryHost"), _as_dict(entry.get("tls")).get("serverName"))
+    transit_default_host = _effective_public_host(env.get("defaultTransitHost"), _as_dict(transit.get("tls")).get("serverName"))
     for label, value in (
         ("global.publicBaseUrl", global_values.get("publicBaseUrl")),
-        ("controlPlane.env.defaultEntryHost", env.get("defaultEntryHost")),
-        ("controlPlane.env.defaultTransitHost", env.get("defaultTransitHost")),
+        ("effective Entry host", entry_default_host),
+        ("effective Transit host", transit_default_host),
         ("controlPlane.env.naiveproxyHost", env.get("naiveproxyHost")),
         ("controlPlane.env.mtprotoDomain", env.get("mtprotoDomain")),
     ):
         require(_has_value(value), f"{label} must be set for production")
         require(not _is_example_host(value), f"{label} must not use example.com")
 
-    roles = _as_dict(gateway.get("roles"))
-    entry = _as_dict(roles.get("entry"))
-    transit = _as_dict(roles.get("transit"))
     entry_enabled = bool(entry.get("enabled", False))
     transit_enabled = bool(transit.get("enabled", False))
     if bool(gateway.get("hostNetwork", False)) and entry_enabled and transit_enabled:
@@ -301,7 +311,9 @@ def validate_prod_overlay(chart_values: Path, prod_values: Path, *, strict: bool
             continue
         tls = _as_dict(role.get("tls"))
         reality = _as_dict(role.get("reality"))
-        require(not _is_example_host(tls.get("serverName")), f"gateway.roles.{role_name}.tls.serverName must not use example.com")
+        role_default_host = entry_default_host if role_name == "entry" else transit_default_host
+        effective_tls_server_name = _effective_public_host(tls.get("serverName"), role_default_host)
+        require(not _is_example_host(effective_tls_server_name), f"gateway.roles.{role_name}.tls.serverName must not use example.com")
         require(_has_value(tls.get("existingSecretName")), f"gateway.roles.{role_name}.tls.existingSecretName must reference a TLS Secret")
         require(bool(_as_list(reality.get("serverNames"))), f"gateway.roles.{role_name}.reality.serverNames must not be empty")
 
@@ -359,6 +371,38 @@ def validate_prod_overlay(chart_values: Path, prod_values: Path, *, strict: bool
     require(not invalid_egress_ips, f"network.egressIsolation.egressPublicIPs contains invalid/non-public IPs: {', '.join(invalid_egress_ips)}")
     overlap = sorted(ingress_public_ips.intersection(egress_public_ips))
     require(not overlap, f"network.egressIsolation ingressPublicIPs and egressPublicIPs must be disjoint: {', '.join(overlap)}")
+
+    topology = _as_dict(merged.get("topology"))
+    topology_servers = _as_dict(topology.get("servers"))
+    canonical_servers = {
+        "endpoint": "Endpoint",
+        "transit": "Transit",
+        "entry": "Entry",
+    }
+    for server_key, display_name in canonical_servers.items():
+        server = _as_dict(topology_servers.get(server_key))
+        public_ip = _text(server.get("publicIp"))
+        public_ips, invalid_public_ips = _valid_public_ip_set({public_ip} if public_ip else set())
+        require(_text(server.get("displayName")) == display_name, f"topology.servers.{server_key}.displayName must be {display_name}")
+        require(bool(public_ips), f"topology.servers.{server_key}.publicIp must be a public IP")
+        require(not invalid_public_ips, f"topology.servers.{server_key}.publicIp is invalid/non-public: {public_ip}")
+        require(bool(_as_dict(server.get("nodeSelector"))), f"topology.servers.{server_key}.nodeSelector must be non-empty")
+    endpoint_topology = _as_dict(topology_servers.get("endpoint"))
+    transit_topology = _as_dict(topology_servers.get("transit"))
+    entry_topology = _as_dict(topology_servers.get("entry"))
+    require(_text(endpoint_topology.get("publicIp")) in egress_public_ips, "Endpoint publicIp must be listed as an egress public IP")
+    require(_text(transit_topology.get("publicIp")) in ingress_public_ips, "Transit publicIp must be listed as an ingress public IP")
+    require(_text(entry_topology.get("publicIp")) in ingress_public_ips, "Entry publicIp must be listed as an ingress public IP")
+    require(
+        _as_dict(entry_topology.get("nodeSelector")) == _as_dict(entry.get("nodeSelector")),
+        "topology.servers.entry.nodeSelector must match gateway.roles.entry.nodeSelector",
+    )
+    require(
+        _as_dict(endpoint_topology.get("nodeSelector")) == _as_dict(transit.get("nodeSelector")),
+        "topology.servers.endpoint.nodeSelector must match the endpoint gateway selector",
+    )
+    require(_text(entry.get("canonicalServer")) == "entry", "gateway.roles.entry.canonicalServer must be entry")
+    require(_text(transit.get("canonicalServer")) == "endpoint", "gateway.roles.transit.canonicalServer must be endpoint")
 
     rollout = _as_dict(gateway.get("rollingUpdate"))
     private_preflight = _as_dict(gateway.get("privatePreflight"))
@@ -498,6 +542,7 @@ def validate_prod_overlay(chart_values: Path, prod_values: Path, *, strict: bool
     require(bool(naiveproxy.get("enabled", False)), "naiveproxy.enabled must stay true for the V4 production surface")
     require(_text(naiveproxy.get("role")) == "NAIVEPROXY", "naiveproxy.role must stay NAIVEPROXY")
     require(_text(naiveproxy.get("runtimeProfile")) == "tracegate-naiveproxy-v4", "naiveproxy.runtimeProfile must stay tracegate-naiveproxy-v4")
+    require(_text(naiveproxy.get("canonicalServer")) == "endpoint", "naiveproxy.canonicalServer must be endpoint")
     require(naive_tcp_exposure == "demux", "naiveproxy.tcpExposure must stay demux for shared endpoint TCP/443")
     require(_has_value(naiveproxy.get("domain")), "naiveproxy.domain must be set")
     require(not _is_example_host(naiveproxy.get("domain")), "naiveproxy.domain must not use example.com")
@@ -529,6 +574,37 @@ def validate_prod_overlay(chart_values: Path, prod_values: Path, *, strict: bool
     require(bool(naive_stealth.get("hideVia", False)), "naiveproxy.stealth.hideVia must stay true")
     for required_path in ("/auth/session", "/oauth2/token", "/.well-known/openid-configuration"):
         require(required_path in naive_cover_paths, f"naiveproxy.stealth.coverPaths must include {required_path}")
+
+    transit_router = _as_dict(merged.get("transitRouter"))
+    transit_router_enabled = bool(transit_router.get("enabled", False))
+    mtproto_route = _as_dict(_as_dict(merged.get("mtproto")).get("route"))
+    mtproto_route_mode = _text(mtproto_route.get("mode")) or "endpoint-direct"
+    if mtproto_route_mode == "entry-transit-endpoint":
+        require(transit_router_enabled, "transitRouter.enabled must stay true when mtproto.route.mode=entry-transit-endpoint")
+    if transit_router_enabled:
+        transit_router_entry = _as_dict(transit_router.get("entry"))
+        transit_router_endpoint = _as_dict(transit_router.get("endpoint"))
+        transit_router_tls = _as_dict(transit_router.get("tls"))
+        transit_router_xray = _as_dict(transit_router.get("xray"))
+        transit_router_sni = _as_dict(transit_router.get("sni"))
+        transit_router_ports = _as_dict(transit_router.get("ports"))
+        require(
+            _as_dict(transit_router.get("nodeSelector")) == _as_dict(transit_topology.get("nodeSelector")),
+            "transitRouter.nodeSelector must match topology.servers.transit.nodeSelector",
+        )
+        require(
+            _text(transit_router_endpoint.get("host")) == transit_default_host,
+            "transitRouter.endpoint.host must match the canonical Endpoint host",
+        )
+        require(
+            _text(entry_topology.get("publicIp")) in _ip_set(transit_router_entry.get("allowedSources")),
+            "transitRouter.entry.allowedSources must include the Entry publicIp",
+        )
+        require(_has_value(transit_router_tls.get("existingSecretName")), "transitRouter.tls.existingSecretName must reference a TLS Secret")
+        require(_has_value(transit_router_xray.get("existingSecretName")), "transitRouter.xray.existingSecretName must reference an Xray Secret")
+        require(_has_value(transit_router_sni.get("decoy")), "transitRouter.sni.decoy must be set")
+        require(_as_int(transit_router_ports.get("publicTcp")) == 443, "transitRouter.ports.publicTcp must stay 443")
+        require(_as_int(transit_router_ports.get("mtproto")) == 8443, "transitRouter.ports.mtproto must stay 8443")
 
     interconnect = _as_dict(merged.get("interconnect"))
     entry_transit = _as_dict(interconnect.get("entryTransit"))

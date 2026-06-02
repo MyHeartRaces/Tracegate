@@ -339,6 +339,36 @@ async def test_gather_health_checks_allows_entry_mtproto_route_tcp8443(monkeypat
 
 
 @pytest.mark.asyncio
+async def test_gather_health_checks_allows_naiveproxy_demux_mtproto_tcp8443(monkeypatch):
+    def _port_check(protocol: str, port: int) -> tuple[bool, str]:
+        return (protocol, port) in {("tcp", 8443)}, f"{protocol}:{port}"
+
+    monkeypatch.setattr(system, "check_port", _port_check)
+    monkeypatch.setattr(system, "check_process", lambda name: (True, name))
+    monkeypatch.setattr(system, "check_systemd", lambda name: (False, name))
+
+    async def _stats(url, secret):  # pragma: no cover - should never be called for naiveproxy
+        raise AssertionError("hysteria stats API must not be queried for naiveproxy")
+
+    monkeypatch.setattr(system, "check_hysteria_stats_secret", _stats)
+
+    checks = await system.gather_health_checks(
+        "http://127.0.0.1:9999/traffic",
+        "secret",
+        "NAIVEPROXY",
+        "kubernetes",
+        "tracegate-naiveproxy-v4",
+        mtproto_public_port=8443,
+        naiveproxy_tcp_exposure="demux",
+    )
+
+    by_name = {row["name"]: row for row in checks}
+    assert "blocked tcp/8443" not in by_name
+    assert by_name["listen tcp/8443 mtproto fallback"]["ok"] is True
+    assert by_name["process caddy"]["ok"] is True
+
+
+@pytest.mark.asyncio
 async def test_gather_health_checks_default_profile_is_tracegate22(monkeypatch):
     monkeypatch.setattr(system, "check_port", _tracegate22_port_check)
     monkeypatch.setattr(system, "check_process", lambda name: (True, name))

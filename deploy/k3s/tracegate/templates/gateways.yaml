@@ -65,6 +65,9 @@
 {{- $roleRollingMaxUnavailable := ternary $.Values.gateway.entrySmall.rollout.maxUnavailable $.Values.gateway.rollingUpdate.maxUnavailable $entrySmallRole }}
 {{- $roleRollingMaxSurge := ternary $.Values.gateway.entrySmall.rollout.maxSurge $.Values.gateway.rollingUpdate.maxSurge $entrySmallRole }}
 {{- $roleContainerResources := $.Values.gateway.containerResources }}
+{{- $roleCanonicalServer := lower (toString ($role.canonicalServer | default $roleName)) }}
+{{- $roleTopology := index ($.Values.topology.servers | default dict) $roleCanonicalServer | default dict }}
+{{- $roleDisplayName := toString ($roleTopology.displayName | default (title $roleCanonicalServer)) }}
 {{- if $entrySmallRole }}
 {{- $roleContainerResources = mergeOverwrite (deepCopy $.Values.gateway.containerResources) $.Values.gateway.entrySmall.containerResources }}
 {{- end }}
@@ -77,6 +80,8 @@ metadata:
   labels:
     {{- include "tracegate.labels" $ | nindent 4 }}
     app.kubernetes.io/component: gateway-{{ $roleName }}
+    tracegate.io/canonical-server: {{ $roleCanonicalServer | quote }}
+    tracegate.io/display-name: {{ $roleDisplayName | quote }}
 spec:
   minAvailable: {{ $.Values.gateway.pdb.minAvailable }}
   selector:
@@ -93,6 +98,8 @@ metadata:
   labels:
     {{- include "tracegate.labels" $ | nindent 4 }}
     app.kubernetes.io/component: gateway-{{ $roleName }}
+    tracegate.io/canonical-server: {{ $roleCanonicalServer | quote }}
+    tracegate.io/display-name: {{ $roleDisplayName | quote }}
 spec:
   strategy:
     type: {{ $roleGatewayStrategy }}
@@ -120,6 +127,8 @@ spec:
       labels:
         {{- include "tracegate.selectorLabels" $ | nindent 8 }}
         app.kubernetes.io/component: gateway-{{ $roleName }}
+        tracegate.io/canonical-server: {{ $roleCanonicalServer | quote }}
+        tracegate.io/display-name: {{ $roleDisplayName | quote }}
       annotations:
         tracegate.io/restart-boundary: static-topology-only
         tracegate.io/private-profiles: external-secret
@@ -617,9 +626,9 @@ spec:
             - name: AGENT_NODE_ENCRYPTION_ANNOTATION_EXPECTED_VALUE
               value: {{ $.Values.gateway.nodeEncryption.nodeAnnotations.expectedValue | quote }}
             - name: DEFAULT_ENTRY_HOST
-              value: {{ $.Values.controlPlane.env.defaultEntryHost | quote }}
+              value: {{ include "tracegate.entryHost" $ | quote }}
             - name: DEFAULT_TRANSIT_HOST
-              value: {{ $.Values.controlPlane.env.defaultTransitHost | quote }}
+              value: {{ include "tracegate.transitHost" $ | quote }}
             - name: NAIVEPROXY_HOST
               value: {{ ($.Values.controlPlane.env.naiveproxyHost | default $.Values.naiveproxy.domain) | quote }}
             - name: NAIVEPROXY_PUBLIC_TCP_PORT
@@ -1461,6 +1470,11 @@ spec:
 {{- if and .Values.gateway.enabled .Values.naiveproxy.enabled }}
 {{- $naiveproxyTcpExposure := toString .Values.naiveproxy.tcpExposure }}
 {{- $naiveproxyTcpDemuxEnabled := eq $naiveproxyTcpExposure "demux" }}
+{{- $naiveproxyDemuxRoleName := toString .Values.naiveproxy.demux.role }}
+{{- $naiveproxyDemuxRole := index .Values.gateway.roles $naiveproxyDemuxRoleName | default dict }}
+{{- $naiveproxyCanonicalServer := lower (toString (.Values.naiveproxy.canonicalServer | default ($naiveproxyDemuxRole.canonicalServer | default $naiveproxyDemuxRoleName))) }}
+{{- $naiveproxyTopology := index (.Values.topology.servers | default dict) $naiveproxyCanonicalServer | default dict }}
+{{- $naiveproxyDisplayName := toString ($naiveproxyTopology.displayName | default (title $naiveproxyCanonicalServer)) }}
 {{- $naiveproxyTcpContainerPort := ternary (int .Values.naiveproxy.demux.backendPort) (int .Values.naiveproxy.ports.publicTcp) $naiveproxyTcpDemuxEnabled }}
 ---
 apiVersion: apps/v1
@@ -1471,6 +1485,8 @@ metadata:
   labels:
     {{- include "tracegate.labels" . | nindent 4 }}
     app.kubernetes.io/component: naiveproxy
+    tracegate.io/canonical-server: {{ $naiveproxyCanonicalServer | quote }}
+    tracegate.io/display-name: {{ $naiveproxyDisplayName | quote }}
 spec:
   replicas: 1
   strategy:
@@ -1485,11 +1501,14 @@ spec:
       labels:
         {{- include "tracegate.selectorLabels" . | nindent 8 }}
         app.kubernetes.io/component: naiveproxy
+        tracegate.io/canonical-server: {{ $naiveproxyCanonicalServer | quote }}
+        tracegate.io/display-name: {{ $naiveproxyDisplayName | quote }}
       annotations:
         tracegate.io/runtime-profile: {{ .Values.naiveproxy.runtimeProfile | quote }}
         tracegate.io/public-surface: {{ ternary "tcp/443-demux,udp/443" "tcp/443,udp/443" $naiveproxyTcpDemuxEnabled | quote }}
     spec:
       hostNetwork: {{ .Values.naiveproxy.hostNetwork }}
+      shareProcessNamespace: {{ .Values.naiveproxy.shareProcessNamespace }}
       dnsPolicy: {{ .Values.naiveproxy.dnsPolicy }}
       terminationGracePeriodSeconds: {{ int .Values.naiveproxy.terminationGracePeriodSeconds }}
       {{- if .Values.global.imagePullSecrets }}
@@ -1562,6 +1581,10 @@ spec:
               value: {{ int .Values.naiveproxy.demux.backendPort | quote }}
             - name: NAIVEPROXY_DECOY_MODE
               value: {{ .Values.naiveproxy.stealth.decoyMode | quote }}
+            - name: MTPROTO_PUBLIC_PORT
+              value: {{ int .Values.mtproto.publicPort | quote }}
+            - name: MTPROTO_ROUTE_MODE
+              value: {{ .Values.mtproto.route.mode | quote }}
             - name: API_INTERNAL_TOKEN
               valueFrom:
                 secretKeyRef:

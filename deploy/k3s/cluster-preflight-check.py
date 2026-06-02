@@ -203,6 +203,12 @@ def _label_selector(selector: Mapping[str, Any]) -> str:
     return ",".join(parts)
 
 
+def _same_selector(left: Mapping[str, Any], right: Mapping[str, Any]) -> bool:
+    return {_text(key): _text(value) for key, value in left.items()} == {
+        _text(key): _text(value) for key, value in right.items()
+    }
+
+
 def _csv_set(value: Any) -> set[str]:
     raw = _text(value)
     if not raw:
@@ -396,6 +402,9 @@ def validate_cluster(
 
     gateway = _as_dict(values.get("gateway"))
     roles = _as_dict(gateway.get("roles"))
+    topology = _as_dict(values.get("topology"))
+    topology_servers = _as_dict(topology.get("servers"))
+    endpoint_selector = _as_dict(_as_dict(topology_servers.get("endpoint")).get("nodeSelector"))
     egress_isolation = _as_dict(_as_dict(values.get("network")).get("egressIsolation"))
     node_annotations = _as_dict(egress_isolation.get("nodeAnnotations"))
     check_egress_annotations = _enabled(node_annotations.get("enabled"))
@@ -423,9 +432,13 @@ def validate_cluster(
     naiveproxy = _as_dict(values.get("naiveproxy"))
     if _enabled(naiveproxy.get("enabled")):
         role_checks.append(("naiveproxy", naiveproxy))
+    transit_router = _as_dict(values.get("transitRouter"))
+    if _enabled(transit_router.get("enabled")):
+        role_checks.append(("transitRouter", transit_router))
 
     checked_node_names: set[str] = set()
     checked_ingress_annotation_nodes: set[str] = set()
+    checked_egress_annotation_nodes: set[str] = set()
     checked_encryption_nodes: set[str] = set()
     for role_name, role in role_checks:
         tls_secret = _text(_as_dict(role.get("tls")).get("existingSecretName"))
@@ -459,8 +472,11 @@ def validate_cluster(
                         checked_node_names.add(node_name)
                     annotations = _as_dict(metadata.get("annotations"))
                     if check_egress_annotations:
+                        selector_is_endpoint = bool(endpoint_selector) and _same_selector(selector, endpoint_selector)
+                        requires_ingress_annotation = not selector_is_endpoint
+                        requires_egress_annotation = role_name == "transit" or selector_is_endpoint
                         ingress_ips = _csv_set(annotations.get(ingress_annotation_key))
-                        if node_name not in checked_ingress_annotation_nodes:
+                        if requires_ingress_annotation and node_name not in checked_ingress_annotation_nodes:
                             if not ingress_ips:
                                 errors.append(f"node {node_name} is missing {ingress_annotation_key} annotation")
                             elif expected_ingress_ips and not ingress_ips.intersection(expected_ingress_ips):
@@ -469,7 +485,7 @@ def validate_cluster(
                                     "does not match network.egressIsolation.ingressPublicIPs"
                                 )
                             checked_ingress_annotation_nodes.add(node_name)
-                        if role_name == "transit":
+                        if requires_egress_annotation and node_name not in checked_egress_annotation_nodes:
                             egress_ips = _csv_set(annotations.get(egress_annotation_key))
                             if not egress_ips:
                                 errors.append(f"node {node_name} is missing {egress_annotation_key} annotation")
@@ -481,7 +497,8 @@ def validate_cluster(
                             if ingress_ips and egress_ips and ingress_ips.intersection(egress_ips):
                                 errors.append(f"node {node_name} ingress and egress public IP annotations must be disjoint")
                             checked_egress_nodes += 1
-                    if check_node_encryption and node_name not in checked_encryption_nodes:
+                            checked_egress_annotation_nodes.add(node_name)
+                    if check_node_encryption and role_name != "transitRouter" and node_name not in checked_encryption_nodes:
                         encrypted_runtime_value = _text(annotations.get(encrypted_runtime_annotation_key))
                         if encrypted_runtime_value.lower() != encrypted_runtime_expected_value.lower():
                             errors.append(

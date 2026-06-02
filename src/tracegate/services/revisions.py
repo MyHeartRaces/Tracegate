@@ -7,7 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from tracegate.enums import ConnectionProtocol, NodeRole, OutboxEventType, RecordStatus
+from tracegate.enums import ConnectionMode, ConnectionProtocol, NodeRole, OutboxEventType, RecordStatus
 from tracegate.models import Connection, ConnectionRevision, NodeEndpoint, User
 from tracegate.services.aliases import connection_alias, user_display
 from tracegate.services.config_builder import EndpointSet, build_effective_config
@@ -54,6 +54,38 @@ def _resolve_node_public_host(*, fqdn: str | None, public_ipv4: str | None, defa
         if host:
             return host
     return ""
+
+
+def _is_chain_connection(connection: Connection) -> bool:
+    mode = getattr(connection, "mode", None)
+    if mode == ConnectionMode.CHAIN:
+        return True
+    return str(getattr(mode, "value", mode) or "").strip().lower() == ConnectionMode.CHAIN.value
+
+
+def _ensure_chain_endpoint_ready(connection: Connection, endpoints: EndpointSet) -> None:
+    if not _is_chain_connection(connection):
+        return
+    entry_host = _normalize_optional_host(endpoints.entry_host)
+    if not entry_host or _is_placeholder_host(entry_host):
+        raise RevisionError(
+            "Chain connections require a configured non-placeholder Entry host "
+            "(set an active Entry node endpoint or DEFAULT_ENTRY_HOST)."
+        )
+
+
+def _ensure_chain_config_ready(connection: Connection, cfg: dict) -> None:
+    if not _is_chain_connection(connection):
+        return
+    if not isinstance(cfg, dict):
+        raise RevisionError("Chain revision cannot be applied: config is missing.")
+    server = _normalize_optional_host(str(cfg.get("server") or ""))
+    chain = cfg.get("chain") if isinstance(cfg.get("chain"), dict) else {}
+    chain_entry = _normalize_optional_host(str(chain.get("entry") or "")) if chain else None
+    if not server or _is_placeholder_host(server):
+        raise RevisionError("Chain revision cannot be applied: config.server is missing or still a placeholder Entry host.")
+    if chain_entry is not None and _is_placeholder_host(chain_entry):
+        raise RevisionError("Chain revision cannot be applied: config.chain.entry is still a placeholder Entry host.")
 
 
 async def _load_connection(session: AsyncSession, connection_id: UUID) -> Connection:
@@ -113,25 +145,27 @@ async def _resolve_endpoints(session: AsyncSession) -> EndpointSet:
         .order_by(NodeEndpoint.created_at.asc())
     )
 
+    transit_host = (
+        _resolve_node_public_host(
+            fqdn=transit.fqdn,
+            public_ipv4=transit.public_ipv4,
+            default_host=settings.default_transit_host,
+        )
+        if transit
+        else settings.default_transit_host
+    )
+    entry_host = (
+        _resolve_node_public_host(
+            fqdn=entry.fqdn,
+            public_ipv4=entry.public_ipv4,
+            default_host=settings.default_entry_host,
+        )
+        if entry
+        else settings.default_entry_host
+    )
     return EndpointSet(
-        transit_host=(
-            _resolve_node_public_host(
-                fqdn=transit.fqdn,
-                public_ipv4=transit.public_ipv4,
-                default_host=settings.default_transit_host,
-            )
-            if transit
-            else settings.default_transit_host
-        ),
-        entry_host=(
-            _resolve_node_public_host(
-                fqdn=entry.fqdn,
-                public_ipv4=entry.public_ipv4,
-                default_host=settings.default_entry_host,
-            )
-            if entry
-            else settings.default_entry_host
-        ),
+        transit_host=transit_host,
+        entry_host=entry_host,
         hysteria_auth_mode=runtime_contract.hysteria_auth_mode,
         hysteria_udp_port=settings.hysteria_udp_port,
         hysteria_salamander_password_entry=settings.hysteria_salamander_password_entry,
@@ -222,6 +256,7 @@ async def _emit_apply_for_revision(
         connection_id=str(connection.id),
     )
     cfg = revision.effective_config_json or {}
+    _ensure_chain_config_ready(connection, cfg)
     event_ts = op_ts or revision.created_at
 
     payload = {
@@ -288,6 +323,7 @@ async def create_revision(
     ):
         raise RevisionError("VLESS encryption REALITY SNI is blocked by REALITY SNI policy.")
     endpoints = await _resolve_endpoints(session)
+    _ensure_chain_endpoint_ready(connection, endpoints)
 
     active_revisions = sorted(
         [r for r in connection.revisions if r.status == RecordStatus.ACTIVE],

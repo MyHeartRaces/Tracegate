@@ -13,6 +13,27 @@ global:
     tag: "2.2.7"
   publicBaseUrl: "https://tracegate.example.com"
 
+topology:
+  servers:
+    endpoint:
+      displayName: Endpoint
+      publicIp: 198.51.100.20
+      kubernetesNodeName: tracegate-endpoint
+      nodeSelector:
+        tracegate.io/role: endpoint
+    transit:
+      displayName: Transit
+      publicIp: 203.0.113.30
+      kubernetesNodeName: tracegate-transit
+      nodeSelector:
+        tracegate.io/role: transit
+    entry:
+      displayName: Entry
+      publicIp: 203.0.113.10
+      kubernetesNodeName: tracegate-entry
+      nodeSelector:
+        tracegate.io/role: entry
+
 controlPlane:
   auth:
     existingSecretName: tracegate-control-plane-auth
@@ -22,7 +43,7 @@ controlPlane:
       key: url
   env:
     defaultEntryHost: entry.example.com
-    defaultTransitHost: transit.example.com
+    defaultTransitHost: endpoint.example.com
     naiveproxyHost: auth.example.com
     mtprotoDomain: mtproto.example.com
     grafanaPublicBaseUrl: https://grafana.example.com
@@ -59,6 +80,7 @@ network:
     # User-facing ingress IPs must never be used for user traffic SNAT.
     ingressPublicIPs:
       - 203.0.113.10
+      - 203.0.113.30
     egressPublicIPs:
       - 198.51.100.20
     nodeAnnotations:
@@ -87,9 +109,9 @@ gateway:
   nodeEncryption:
     enabled: true
     required: true
-    # Before promotion, provision /var/lib/tracegate/entry and
-    # /var/lib/tracegate/transit on encrypted storage and write this marker
-    # file inside each role directory.
+    # Before promotion, provision the Entry runtime and Endpoint gateway
+    # runtime directories on encrypted storage and write this marker file
+    # inside each role directory.
     markerFile: .tracegate-encrypted
     markerValue: tracegate-encrypted-runtime-v1
     # Set false only for verified provider-managed encrypted volumes that do
@@ -103,7 +125,7 @@ gateway:
     corsOrigins:
       - https://tracegate.example.com
       - https://entry.example.com
-      - https://transit.example.com
+      - https://endpoint.example.com
     reloadCommands:
       profiles: "sh -lc 'tracegate-k3s-private-reload --component profiles --role \"${AGENT_ROLE}\" --private-runtime-root /var/lib/tracegate/private --runtime-contract /var/lib/tracegate/runtime/runtime-contract.json'"
       linkCrypto: "sh -lc 'tracegate-k3s-private-reload --component link-crypto --role \"${AGENT_ROLE}\" --private-runtime-root /var/lib/tracegate/private --runtime-contract /var/lib/tracegate/runtime/runtime-contract.json'"
@@ -126,6 +148,7 @@ gateway:
       digest: sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
   roles:
     entry:
+      canonicalServer: entry
       nodeSelector:
         tracegate.io/role: entry
       tls:
@@ -145,10 +168,11 @@ gateway:
         # multi-IP nodes instead of wildcard :publicUdp.
         listenHost: ""
     transit:
+      canonicalServer: endpoint
       nodeSelector:
-        tracegate.io/role: transit
+        tracegate.io/role: endpoint
       tls:
-        serverName: transit.example.com
+        serverName: endpoint.example.com
         existingSecretName: tracegate-transit-tls
       reality:
         dest: www.microsoft.com:443
@@ -165,6 +189,7 @@ gateway:
 
 naiveproxy:
   enabled: true
+  canonicalServer: endpoint
   domain: auth.example.com
   runtimeProfile: tracegate-naiveproxy-v4
   tcpExposure: demux
@@ -173,11 +198,38 @@ naiveproxy:
     backendHost: 127.0.0.1
     backendPort: 11443
   nodeSelector:
-    tracegate.io/role: transit
+    tracegate.io/role: endpoint
   tls:
     existingSecretName: tracegate-naiveproxy-tls
 
+transitRouter:
+  enabled: true
+  name: tracegate-transit-router
+  nodeSelector:
+    tracegate.io/role: transit
+  endpoint:
+    host: 198.51.100.20
+  entry:
+    allowedSources:
+      - 203.0.113.10
+  tls:
+    serverName: transit.example.com
+    existingSecretName: tracegate-transit-router-tls
+  xray:
+    existingSecretName: tracegate-transit-router-xray
+  sni:
+    decoy: transit.example.com
+    reality:
+      - www.microsoft.com
+
 interconnect:
+  emergencyXrayChain:
+    # Entry -> Endpoint backhaul dial target. Keep this as the Endpoint public IP
+    # when DNS points clients at a domain/SNI but routing must use the canonical
+    # Endpoint address.
+    endpointHost: 198.51.100.20
+    endpointPort: 2443
+    endpointListenHost: "0.0.0.0"
   entryTransit:
     enabled: true
     primary: mieru

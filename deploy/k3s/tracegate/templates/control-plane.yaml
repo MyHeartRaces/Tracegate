@@ -240,9 +240,9 @@ spec:
                   name: {{ include "tracegate.controlPlaneSecretName" . }}
                   key: bot-token
             - name: DEFAULT_ENTRY_HOST
-              value: {{ .Values.controlPlane.env.defaultEntryHost | quote }}
+              value: {{ include "tracegate.entryHost" . | quote }}
             - name: DEFAULT_TRANSIT_HOST
-              value: {{ .Values.controlPlane.env.defaultTransitHost | quote }}
+              value: {{ include "tracegate.transitHost" . | quote }}
             - name: REALITY_PUBLIC_KEY
               value: {{ .Values.controlPlane.env.realityPublicKey | quote }}
             - name: REALITY_SHORT_ID

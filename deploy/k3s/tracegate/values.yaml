@@ -12,6 +12,27 @@ global:
     pullPolicy: IfNotPresent
   imagePullSecrets: []
 
+topology:
+  servers:
+    endpoint:
+      displayName: Endpoint
+      publicIp: ""
+      kubernetesNodeName: ""
+      nodeSelector:
+        tracegate.io/role: endpoint
+    transit:
+      displayName: Transit
+      publicIp: ""
+      kubernetesNodeName: ""
+      nodeSelector:
+        tracegate.io/role: transit
+    entry:
+      displayName: Entry
+      publicIp: ""
+      kubernetesNodeName: ""
+      nodeSelector:
+        tracegate.io/role: entry
+
 controlPlane:
   enabled: true
   replicas:
@@ -115,6 +136,24 @@ observability:
       repository: prom/node-exporter
       tag: v1.8.2
       pullPolicy: IfNotPresent
+  grafana:
+    enabled: false
+    name: tracegate-grafana
+    image:
+      repository: grafana/grafana
+      tag: "12.0.0"
+      digest: sha256:2d1f9ae67c1778d33e291d4c3c759cd8b650e67491f02533499eb950e075eeb5
+      pullPolicy: IfNotPresent
+    replicas: 1
+    revisionHistoryLimit: 3
+    persistence:
+      enabled: true
+      existingClaim: ""
+      size: 5Gi
+      storageClassName: local-path
+    resources: {}
+    nodeSelector: {}
+    tolerations: []
 
 vlessEncryption:
   # Xray VLESS Encryption for newly issued VLESS profiles.
@@ -209,6 +248,7 @@ decoy:
 
 naiveproxy:
   enabled: true
+  canonicalServer: ""
   domain: auth.example.com
   role: NAIVEPROXY
   runtimeProfile: tracegate-naiveproxy-v4
@@ -221,6 +261,7 @@ naiveproxy:
     backendHost: 127.0.0.1
     backendPort: 11443
   hostNetwork: true
+  shareProcessNamespace: true
   dnsPolicy: ClusterFirstWithHostNet
   nodeSelector:
     tracegate.io/role: transit
@@ -248,6 +289,56 @@ naiveproxy:
   resources:
     agent: {}
     caddy: {}
+
+transitRouter:
+  enabled: false
+  # Keep empty for the chart default. Production can set tracegate-transit-router
+  # to adopt the existing Transit router without changing the object name.
+  name: ""
+  hostNetwork: true
+  dnsPolicy: ClusterFirstWithHostNet
+  revisionHistoryLimit: 3
+  terminationGracePeriodSeconds: 10
+  nodeSelector:
+    tracegate.io/role: transit
+  tolerations: []
+  affinity: {}
+  ports:
+    publicTcp: 443
+    mtproto: 8443
+    decoy: 10443
+    reality: 2443
+  entry:
+    allowedSources: []
+  endpoint:
+    host: ""
+    publicTcp: 443
+    mtproto: 8443
+  tls:
+    serverName: transit.example.com
+    existingSecretName: tracegate-transit-router-tls
+    defaultMode: 292
+  xray:
+    existingSecretName: tracegate-transit-router-xray
+    configKey: config.json
+    defaultMode: 292
+  sni:
+    mtproto: []
+    decoy: transit.example.com
+    reality:
+      - www.microsoft.com
+  decoy:
+    hostPath: /srv/tracegate/decoy
+    hostPathType: Directory
+    mountPath: /srv/tracegate/decoy
+  images:
+    haproxy: {}
+    nginx: {}
+    xray: {}
+  resources:
+    haproxy: {}
+    nginx: {}
+    xray: {}
 
 transportProfiles:
   clientNames:
@@ -575,6 +666,7 @@ gateway:
   roles:
     entry:
       enabled: true
+      canonicalServer: entry
       role: ENTRY
       nodeSelector:
         tracegate.io/role: entry
@@ -611,6 +703,7 @@ gateway:
       resources: {}
     transit:
       enabled: true
+      canonicalServer: transit
       role: TRANSIT
       nodeSelector:
         tracegate.io/role: transit
@@ -652,7 +745,26 @@ interconnect:
   emergencyXrayChain:
     enabled: false
     socksPort: 11082
+    # Optional Entry -> Endpoint dial target for the emergency Xray chain.
+    # Empty means topology.servers.endpoint.publicIp, then defaultTransitHost.
+    endpointHost: ""
+    endpointPort: 443
+    # Keep the Endpoint Xray listener local by default. Private overlays may expose
+    # this on a restricted interconnect port when public TLS demux is unhealthy.
+    endpointListenHost: "127.0.0.1"
     serverName: chain.example.com
+    # Optional source allowlist for the Endpoint-side chain bridge SNI.
+    # When set, the Endpoint TLS mux rejects this SNI unless the source matches.
+    allowedSources: []
+    failover:
+      enabled: false
+      # Entry-local TCP gate. Xray dials this listener; HAProxy sends traffic to
+      # primaryHost unless it is down, then to fallbackHost as a backup server.
+      localPort: 11083
+      primaryHost: ""
+      primaryPort: 443
+      fallbackHost: ""
+      fallbackPort: 443
   entryTransit:
     enabled: true
     primary: mieru

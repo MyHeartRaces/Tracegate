@@ -102,3 +102,31 @@ def test_sync_inbound_users_dispatches_hysteria_add(monkeypatch) -> None:
     assert changed is True
     assert calls == [("hy2-in", "V3 - 1 - c2", "hy2-token-value")]
     assert removals == []
+
+
+def test_sync_inbound_users_skips_non_user_manager_inbound(monkeypatch) -> None:
+    monkeypatch.setattr(
+        xray_api,
+        "list_inbound_user_emails",
+        lambda _settings, *, inbound_tag: (_ for _ in ()).throw(
+            xray_api.XrayApiInboundNotUserManager(f"inbound is not user-managed: {inbound_tag}")
+        ),
+    )
+    monkeypatch.setattr(
+        xray_api,
+        "add_shadowsocks2022_user",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("unexpected ss2022 add")),
+    )
+    monkeypatch.setattr(
+        xray_api,
+        "remove_user",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("unexpected removal")),
+    )
+
+    changed = xray_api.sync_inbound_users(
+        Settings(),
+        inbound_tag="ss2022-in",
+        desired_email_to_user={"V3 - 1 - c3": {"protocol": "shadowsocks2022", "key": "user-key"}},
+    )
+
+    assert changed is False

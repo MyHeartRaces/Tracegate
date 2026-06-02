@@ -35,6 +35,9 @@ data:
       inlineProfilesAllowed: {{ .Values.privateProfiles.inlineProfiles }}
       secretName: {{ include "tracegate.privateProfilesSecretName" . }}
     network:
+      topology:
+        servers:
+{{ toYaml .Values.topology.servers | nindent 10 }}
       egressIsolation:
         required: {{ .Values.network.egressIsolation.required }}
         mode: {{ .Values.network.egressIsolation.mode }}
@@ -508,7 +511,8 @@ data:
 {{- if and $.Values.gateway.enabled $role.enabled }}
 {{- $linkOuterCarrier := $.Values.interconnect.entryTransit.outerCarrier }}
 {{- $linkWssCarrierEnabled := and $.Values.interconnect.entryTransit.enabled $linkOuterCarrier.enabled (eq (toString $linkOuterCarrier.mode) "wss") }}
-{{- $tlsAdapterServerNames := concat (list $role.tls.serverName) ($role.tls.extraServerNames | default (list)) | uniq }}
+{{- $roleTlsServerName := include "tracegate.roleTlsServerName" (dict "root" $ "role" $roleName) }}
+{{- $tlsAdapterServerNames := concat (list $roleTlsServerName) ($role.tls.extraServerNames | default (list)) | uniq }}
 {{- $mtprotoDomain := $.Values.mtproto.domain | default $.Values.controlPlane.env.mtprotoDomain }}
 {{- $mtprotoTlsDomain := $.Values.mtproto.tlsDomain | default $mtprotoDomain }}
 {{- $mtprotoSniDomains := compact (uniq (list $mtprotoTlsDomain $mtprotoDomain)) }}
@@ -517,13 +521,34 @@ data:
 {{- $mtprotoRouteMode := toString ($mtprotoRoute.mode | default "endpoint-direct") }}
 {{- $mtprotoEntryRouteEnabled := and $.Values.mtproto.enabled (eq $roleName "entry") (eq $mtprotoRouteMode "entry-transit-endpoint") }}
 {{- $mtprotoEntryUpstreamHost := toString (dig "entry" "upstreamHost" "" $mtprotoRoute) }}
+{{- $mtprotoEntryFallbackHost := trim (toString (dig "entry" "fallbackHost" "" $mtprotoRoute)) }}
+{{- $mtprotoEntryFallbackTlsPort := int (dig "entry" "fallbackTlsPort" (int $role.ports.publicTcp) $mtprotoRoute) }}
+{{- $mtprotoEntryFallbackPublicPort := int (dig "entry" "fallbackPublicPort" $mtprotoPublicPort $mtprotoRoute) }}
 {{- $mtprotoEndpointAllowedSources := dig "endpoint" "allowedProxySources" (list) $mtprotoRoute }}
 {{- $mtprotoEndpointSourceRestricted := and (eq $roleName "transit") $.Values.mtproto.enabled (gt (len $mtprotoEndpointAllowedSources) 0) }}
 {{- $mtprotoRoleHandlesPublic := or (and (eq $roleName "transit") $.Values.mtproto.enabled) $mtprotoEntryRouteEnabled }}
 {{- $mtprotoFallbackPublicPort := and $mtprotoRoleHandlesPublic (ne $mtprotoPublicPort (int $role.ports.publicTcp)) }}
 {{- $realityMultiInboundGroups := $.Values.gateway.realityMultiInboundGroups | default (list) }}
 {{- $chainBridge := $.Values.interconnect.emergencyXrayChain }}
+{{- $chainBridgeFailoverEnabled := and $chainBridge.enabled (dig "failover" "enabled" false $chainBridge) }}
+{{- $chainBridgeFailoverPort := int (dig "failover" "localPort" 11083 $chainBridge) }}
+{{- $chainBridgePrimaryHost := trim (toString (dig "failover" "primaryHost" "" $chainBridge)) }}
+{{- $chainBridgePrimaryPort := int (dig "failover" "primaryPort" 443 $chainBridge) }}
+{{- $chainBridgeEndpointHost := trim (toString ($chainBridge.endpointHost | default "")) }}
+{{- $chainBridgeEndpointPort := int ($chainBridge.endpointPort | default 443) }}
+{{- $chainBridgeEndpointListenHost := trim (toString ($chainBridge.endpointListenHost | default "127.0.0.1")) }}
+{{- $topologyEndpoint := dig "servers" "endpoint" (dict) ($.Values.topology | default dict) }}
+{{- $topologyEndpointHost := trim (toString ($topologyEndpoint.publicIp | default "")) }}
+{{- $chainBridgeDialHost := $chainBridgeEndpointHost }}
+{{- if not $chainBridgeDialHost }}{{- $chainBridgeDialHost = $topologyEndpointHost }}{{- end }}
+{{- if not $chainBridgeDialHost }}{{- $chainBridgeDialHost = include "tracegate.transitHost" $ }}{{- end }}
+{{- $chainBridgeFallbackHost := trim (toString (dig "failover" "fallbackHost" "" $chainBridge)) }}
+{{- if not $chainBridgeFallbackHost }}{{- $chainBridgeFallbackHost = $chainBridgeDialHost }}{{- end }}
+{{- $chainBridgeFallbackPort := int (dig "failover" "fallbackPort" $chainBridgeEndpointPort $chainBridge) }}
+{{- if $chainBridgeFailoverEnabled }}{{- $chainBridgeDialHost = "127.0.0.1" }}{{- $chainBridgeEndpointPort = $chainBridgeFailoverPort }}{{- end }}
+{{- if not $chainBridgeEndpointListenHost }}{{- $chainBridgeEndpointListenHost = "127.0.0.1" }}{{- end }}
 {{- $chainBridgeSni := $chainBridge.serverName | default (first $.Values.gateway.roles.transit.reality.serverNames) }}
+{{- $chainBridgeAllowedSources := dig "allowedSources" (list) $chainBridge }}
 {{- $chainBridgePublicKey := $.Values.controlPlane.env.realityPublicKeyTransit | default $.Values.controlPlane.env.realityPublicKey }}
 {{- $chainBridgeShortId := $.Values.controlPlane.env.realityShortIdTransit | default (first $.Values.gateway.roles.transit.reality.shortIds) }}
 {{- $realityServerNames := $role.reality.serverNames }}
@@ -535,6 +560,9 @@ data:
 {{- $naiveproxyTcpExposure := toString $.Values.naiveproxy.tcpExposure }}
 {{- $naiveproxyDemuxRole := toString $.Values.naiveproxy.demux.role }}
 {{- $naiveproxyTcpDemuxEnabled := and $.Values.naiveproxy.enabled (eq $naiveproxyTcpExposure "demux") (eq $roleName $naiveproxyDemuxRole) }}
+{{- $roleCanonicalServer := lower (toString ($role.canonicalServer | default $roleName)) }}
+{{- $roleTopology := index ($.Values.topology.servers | default dict) $roleCanonicalServer | default dict }}
+{{- $roleDisplayName := toString ($roleTopology.displayName | default (title $roleCanonicalServer)) }}
 {{- $userTrafficInbounds := list "entry-in" "entry-chain-socks-in" "ss2022-in" "vless-reality-in" "vless-ws-in" "vless-grpc-in" }}
 {{- if $.Values.vlessEncryption.enabled }}
 {{- $userTrafficInbounds = concat $userTrafficInbounds (list "entry-enc-in" "vless-reality-enc-in" "vless-ws-enc-in" "vless-grpc-enc-in") }}
@@ -557,6 +585,8 @@ metadata:
   labels:
     {{- include "tracegate.labels" $ | nindent 4 }}
     app.kubernetes.io/component: gateway-{{ $roleName }}
+    tracegate.io/canonical-server: {{ $roleCanonicalServer | quote }}
+    tracegate.io/display-name: {{ $roleDisplayName | quote }}
 data:
   haproxy.cfg: |
     global
@@ -582,18 +612,31 @@ data:
       default_backend be_mtproto
 
 {{- end }}
+{{- if and (eq $roleName "entry") $chainBridgeFailoverEnabled }}
+    listen fe_tracegate_entry_chain_bridge_failover
+      bind 127.0.0.1:{{ $chainBridgeFailoverPort }}
+      option tcp-check
+      tcp-check connect
+      default_backend be_chain_bridge_failover
+
+{{- end }}
     frontend fe_tracegate_{{ $roleName }}_tls
       bind :{{ int $role.ports.publicTcp }}
 {{- range $bind := ($role.ports.publicTcpExtraBinds | default (list)) }}
       bind {{ $bind }}
 {{- end }}
       tcp-request inspect-delay 5s
-      tcp-request content accept if { req.ssl_hello_type 1 }
       tcp-request content accept if { req.ssl_sni -m found }
       tcp-request content accept if WAIT_END
 {{- if and (eq $roleName "transit") $chainBridge.enabled $chainBridgeSni }}
       acl chain_bridge_sni req.ssl_sni -i {{ $chainBridgeSni }}
+{{- if $chainBridgeAllowedSources }}
+      acl chain_bridge_src src {{ join " " $chainBridgeAllowedSources }}
+      tcp-request content reject if chain_bridge_sni !chain_bridge_src
+      use_backend be_reality if chain_bridge_sni chain_bridge_src
+{{- else }}
       use_backend be_reality if chain_bridge_sni
+{{- end }}
 {{- end }}
       acl tls_adapter_sni req.ssl_sni -i {{ join " " $tlsAdapterServerNames }}
 {{- if $naiveproxyTcpDemuxEnabled }}
@@ -663,15 +706,29 @@ data:
 
     backend be_mtproto_tls
       server mtproto_transit_tls {{ required "mtproto.route.entry.upstreamHost is required when mtproto.route.mode=entry-transit-endpoint" $mtprotoEntryUpstreamHost }}:{{ int $role.ports.publicTcp }} check
+{{- if $mtprotoEntryFallbackHost }}
+      server mtproto_endpoint_tls {{ $mtprotoEntryFallbackHost }}:{{ $mtprotoEntryFallbackTlsPort }} check backup
+{{- end }}
 {{- end }}
 {{- if or (and (eq $roleName "transit") $.Values.mtproto.enabled) (and $mtprotoEntryRouteEnabled $mtprotoFallbackPublicPort) }}
 
     backend be_mtproto
 {{- if $mtprotoEntryRouteEnabled }}
       server mtproto_transit {{ required "mtproto.route.entry.upstreamHost is required when mtproto.route.mode=entry-transit-endpoint" $mtprotoEntryUpstreamHost }}:{{ $mtprotoPublicPort }} check
+{{- if $mtprotoEntryFallbackHost }}
+      server mtproto_endpoint {{ $mtprotoEntryFallbackHost }}:{{ $mtprotoEntryFallbackPublicPort }} check backup
+{{- end }}
 {{- else }}
       server mtproto 127.0.0.1:{{ int $.Values.mtproto.backendPort }} check send-proxy-v2
 {{- end }}
+{{- end }}
+{{- if and (eq $roleName "entry") $chainBridgeFailoverEnabled }}
+
+    backend be_chain_bridge_failover
+      option tcp-check
+      tcp-check connect
+      server chain_transit {{ required "interconnect.emergencyXrayChain.failover.primaryHost is required when failover is enabled" $chainBridgePrimaryHost }}:{{ $chainBridgePrimaryPort }} check inter 2s fall 2 rise 1
+      server chain_endpoint {{ required "interconnect.emergencyXrayChain.failover.fallbackHost or endpointHost is required when failover is enabled" $chainBridgeFallbackHost }}:{{ $chainBridgeFallbackPort }} check backup inter 2s fall 2 rise 1
 {{- end }}
 ---
 apiVersion: v1
@@ -682,6 +739,8 @@ metadata:
   labels:
     {{- include "tracegate.labels" $ | nindent 4 }}
     app.kubernetes.io/component: gateway-{{ $roleName }}
+    tracegate.io/canonical-server: {{ $roleCanonicalServer | quote }}
+    tracegate.io/display-name: {{ $roleDisplayName | quote }}
 data:
   nginx.conf: |
     worker_processes auto;
@@ -916,6 +975,8 @@ metadata:
   labels:
     {{- include "tracegate.labels" $ | nindent 4 }}
     app.kubernetes.io/component: gateway-{{ $roleName }}
+    tracegate.io/canonical-server: {{ $roleCanonicalServer | quote }}
+    tracegate.io/display-name: {{ $roleDisplayName | quote }}
 data:
   server.yaml: |
     listen: {{ if $hysteriaListenHost }}{{ printf "%s:%d" $hysteriaListenHost (int $role.ports.publicUdp) }}{{ else }}:{{ int $role.ports.publicUdp }}{{ end }}
@@ -973,6 +1034,8 @@ metadata:
   labels:
     {{- include "tracegate.labels" $ | nindent 4 }}
     app.kubernetes.io/component: gateway-{{ $roleName }}
+    tracegate.io/canonical-server: {{ $roleCanonicalServer | quote }}
+    tracegate.io/display-name: {{ $roleDisplayName | quote }}
 data:
   config.json: |
     {
@@ -1026,7 +1089,7 @@ data:
 {{- end }}
         {
           "tag": "{{ ternary "entry-in" "vless-reality-in" (eq $roleName "entry") }}",
-          "listen": "127.0.0.1",
+          "listen": {{ ternary $chainBridgeEndpointListenHost "127.0.0.1" (and (eq $roleName "transit") $chainBridge.enabled) | quote }},
           "port": {{ int $role.ports.reality }},
           "protocol": "vless",
           "settings": {
@@ -1128,8 +1191,8 @@ data:
           "settings": {
             "vnext": [
               {
-                "address": {{ $.Values.controlPlane.env.defaultTransitHost | quote }},
-                "port": 443,
+                "address": {{ $chainBridgeDialHost | quote }},
+                "port": {{ $chainBridgeEndpointPort }},
                 "users": [{"id": "REPLACE_XRAY_CHAIN_BRIDGE_CLIENT_ID", "encryption": "none"}]
               }
             ]

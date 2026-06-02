@@ -141,9 +141,12 @@ def test_tracegate21_chart_uses_entry_transit_roles() -> None:
     assert set(values["gateway"]["roles"]) == {"entry", "transit"}
     assert values["gateway"]["roles"]["entry"]["role"] == "ENTRY"
     assert values["gateway"]["roles"]["transit"]["role"] == "TRANSIT"
+    assert values["gateway"]["roles"]["entry"]["canonicalServer"] == "entry"
+    assert values["gateway"]["roles"]["transit"]["canonicalServer"] == "transit"
     assert values["gateway"]["roles"]["entry"]["nodeSelector"] == {"tracegate.io/role": "entry"}
     assert values["gateway"]["roles"]["transit"]["nodeSelector"] == {"tracegate.io/role": "transit"}
     assert values["naiveproxy"]["tcpExposure"] == "demux"
+    assert values["naiveproxy"]["canonicalServer"] == ""
     assert values["naiveproxy"]["demux"] == {
         "role": "transit",
         "backendHost": "127.0.0.1",
@@ -279,9 +282,28 @@ def _prod_overlay_values() -> dict:
             }
         },
         "decoy": {"hostPath": "/srv/tracegate/decoy"},
+        "topology": {
+            "servers": {
+                "endpoint": {
+                    "displayName": "Endpoint",
+                    "publicIp": "1.1.1.1",
+                    "nodeSelector": {"tracegate.io/role": "endpoint"},
+                },
+                "transit": {
+                    "displayName": "Transit",
+                    "publicIp": "8.8.8.8",
+                    "nodeSelector": {"tracegate.io/role": "transit"},
+                },
+                "entry": {
+                    "displayName": "Entry",
+                    "publicIp": "8.8.4.4",
+                    "nodeSelector": {"tracegate.io/role": "entry"},
+                },
+            }
+        },
         "network": {
             "egressIsolation": {
-                "ingressPublicIPs": ["8.8.8.8"],
+                "ingressPublicIPs": ["8.8.8.8", "8.8.4.4"],
                 "egressPublicIPs": ["1.1.1.1"],
                 "nodeAnnotations": {"enabled": True},
             }
@@ -309,16 +331,29 @@ def _prod_overlay_values() -> dict:
                 "naiveproxy": {"repository": "ghcr.io/acme/tracegate-naiveproxy-caddy", "tag": "pinned-test"},
             },
             "roles": {
-                "entry": {"tls": {"serverName": "entry.prod.test"}},
-                "transit": {"tls": {"serverName": "transit.prod.test"}},
+                "entry": {"canonicalServer": "entry", "tls": {"serverName": "entry.prod.test"}},
+                "transit": {
+                    "canonicalServer": "endpoint",
+                    "nodeSelector": {"tracegate.io/role": "endpoint"},
+                    "tls": {"serverName": "transit.prod.test"},
+                },
             },
         },
         "naiveproxy": {
+            "canonicalServer": "endpoint",
             "domain": "auth.prod.test",
             "tcpExposure": "demux",
             "demux": {"role": "transit", "backendHost": "127.0.0.1", "backendPort": 11443},
-            "nodeSelector": {"tracegate.io/role": "transit"},
+            "nodeSelector": {"tracegate.io/role": "endpoint"},
             "tls": {"existingSecretName": "tracegate-naiveproxy-tls"},
+        },
+        "transitRouter": {
+            "enabled": True,
+            "endpoint": {"host": "transit.prod.test"},
+            "entry": {"allowedSources": ["8.8.4.4"]},
+            "tls": {"serverName": "transit.prod.test", "existingSecretName": "tracegate-transit-router-tls"},
+            "xray": {"existingSecretName": "tracegate-transit-router-xray"},
+            "sni": {"decoy": "transit.prod.test"},
         },
         "interconnect": {
             "entryTransit": {
@@ -328,13 +363,46 @@ def _prod_overlay_values() -> dict:
                 }
             }
         },
-        "mtproto": {"domain": "mtproto.prod.test"},
+        "mtproto": {
+            "domain": "mtproto.prod.test",
+            "route": {
+                "mode": "entry-transit-endpoint",
+                "entry": {"upstreamHost": "8.8.8.8"},
+                "endpoint": {"allowedProxySources": ["8.8.8.8"]},
+            },
+        },
     }
 
 
 def test_k3s_strict_prod_overlay_check_accepts_private_overlay(tmp_path: Path) -> None:
     values_path = tmp_path / "values-prod.yaml"
     values_path.write_text(yaml.safe_dump(_prod_overlay_values(), sort_keys=True), encoding="utf-8")
+
+    result = subprocess.run(
+        [
+            "python3",
+            "deploy/k3s/prod-overlay-check.py",
+            "--strict",
+            "--chart-values",
+            str(CHART_ROOT / "values.yaml"),
+            "--values",
+            str(values_path),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "prod-overlay-check: OK" in result.stdout
+
+
+def test_k3s_strict_prod_overlay_check_accepts_derived_entry_hosts(tmp_path: Path) -> None:
+    values = _prod_overlay_values()
+    values["controlPlane"]["env"]["defaultEntryHost"] = "entry.example.com"
+    values["controlPlane"]["env"]["defaultTransitHost"] = "transit.example.com"
+    values_path = tmp_path / "values-prod.yaml"
+    values_path.write_text(yaml.safe_dump(values, sort_keys=True), encoding="utf-8")
 
     result = subprocess.run(
         [
@@ -469,6 +537,8 @@ if args[:2] == ["get", "nodes"]:
     selector = args[args.index("-l") + 1] if "-l" in args else ""
     if selector == "tracegate.io/role=entry":
         emit({{"items": [{{"metadata": {{"name": "entry-node", "annotations": {{"tracegate.io/ingress-public-ip": "203.0.113.10", "tracegate.io/encrypted-runtime": "true"}}}}}}]}})
+    if selector == "tracegate.io/role=endpoint":
+        emit({{"items": [{{"metadata": {{"name": "endpoint-node", "annotations": {{"tracegate.io/ingress-public-ip": "203.0.113.10", "tracegate.io/egress-public-ip": "198.51.100.20", "tracegate.io/encrypted-runtime": "true"}}}}}}]}})
     if selector == "tracegate.io/role=transit":
         emit({{"items": [{{"metadata": {{"name": "transit-node", "annotations": {{"tracegate.io/ingress-public-ip": "203.0.113.10", "tracegate.io/egress-public-ip": "198.51.100.20", "tracegate.io/encrypted-runtime": "true"}}}}}}]}})
     if selector == "tracegate.io/role=naiveproxy":
@@ -483,6 +553,7 @@ if args[:2] == ["get", "secret"]:
         "tracegate-entry-tls": {{"tls.crt", "tls.key"}},
         "tracegate-transit-tls": {{"tls.crt", "tls.key"}},
         "tracegate-naiveproxy-tls": {{"tls.crt", "tls.key"}},
+        "tracegate-transit-router-tls": {{"tls.crt", "tls.key"}},
         "tracegate-private-profiles": {sorted(private_keys)!r},
     }}
     if name not in secrets:
@@ -518,8 +589,8 @@ def test_k3s_cluster_preflight_accepts_existing_cluster_prerequisites(tmp_path: 
 
     assert result.returncode == 0, result.stderr
     assert "cluster-preflight: OK namespace=tracegate" in result.stdout
-    assert "secrets=6" in result.stdout
-    assert "nodes=2" in result.stdout
+    assert "secrets=7" in result.stdout
+    assert "nodes=3" in result.stdout
     assert "encrypted_nodes=2" in result.stdout
 
 
@@ -1962,6 +2033,9 @@ def test_mtproto_public_port_8443_renders_dedicated_fallback_frontend(tmp_path: 
     assert "name: mtproto-fb" in rendered.stdout
     assert "containerPort: 8443" in rendered.stdout
     assert "forbidTcp8443: false" in rendered.stdout
+    naiveproxy = _deployment_by_component(rendered.stdout, "naiveproxy")
+    naiveproxy_agent = _containers_by_name(naiveproxy["spec"]["template"])["agent"]
+    assert _env_value(naiveproxy_agent, "MTPROTO_PUBLIC_PORT") == "8443"
 
 
 def test_mtproto_entry_transit_endpoint_route_renders_entry_proxy_and_endpoint_acl(tmp_path: Path) -> None:
@@ -1974,8 +2048,8 @@ def test_mtproto_entry_transit_endpoint_route_renders_entry_proxy_and_endpoint_a
                 "publicPort": 8443,
                 "route": {
                     "mode": "entry-transit-endpoint",
-                    "entry": {"upstreamHost": "198.51.100.109"},
-                    "endpoint": {"allowedProxySources": ["198.51.100.109"]},
+                    "entry": {"upstreamHost": "198.51.100.109", "fallbackHost": "endpoint.tracegate.test"},
+                    "endpoint": {"allowedProxySources": ["198.51.100.109", "203.0.113.10"]},
                 },
             }
         },
@@ -1991,15 +2065,130 @@ def test_mtproto_entry_transit_endpoint_route_renders_entry_proxy_and_endpoint_a
         1
     ].split("frontend fe_tracegate_transit_tls", 1)[0]
     assert "server mtproto_transit_tls 198.51.100.109:443 check" in rendered.stdout
+    assert "server mtproto_endpoint_tls endpoint.tracegate.test:443 check backup" in rendered.stdout
     assert "server mtproto_transit 198.51.100.109:8443 check" in rendered.stdout
+    assert "server mtproto_endpoint endpoint.tracegate.test:8443 check backup" in rendered.stdout
     assert "use_backend be_mtproto_tls if mtproto_sni" in rendered.stdout
     assert "acl mtproto_sni req.ssl_sni -i" in rendered.stdout
     assert "use_backend be_mtproto if mtproto_sni mtproto_proxy_src" in rendered.stdout
-    assert "acl mtproto_proxy_src src 198.51.100.109" in endpoint_fallback
+    assert "acl mtproto_proxy_src src 198.51.100.109 203.0.113.10" in endpoint_fallback
     assert "tcp-request connection reject unless mtproto_proxy_src" in endpoint_fallback
     assert "tcp-request connection reject unless mtproto_proxy_src" not in entry_fallback
     assert "MTPROTO_ROUTE_MODE" in rendered.stdout
     assert "entry-transit-endpoint" in rendered.stdout
+
+
+def test_transit_router_renders_gitops_managed_transit_hop(tmp_path: Path) -> None:
+    rendered = _helm_template_with_values(
+        tmp_path,
+        {
+            "transitRouter": {
+                "enabled": True,
+                "name": "tracegate-transit-router",
+                "endpoint": {"host": "endpoint.tracegate.test"},
+                "entry": {"allowedSources": ["203.0.113.10"]},
+                "tls": {"serverName": "transit.tracegate.test", "existingSecretName": "tracegate-transit-router-tls"},
+                "xray": {"existingSecretName": "tracegate-transit-router-xray"},
+                "sni": {
+                    "decoy": "transit.tracegate.test",
+                    "reality": ["www.microsoft.com"],
+                },
+            },
+            "mtproto": {"domain": "proto.tracegate.test", "tlsDomain": "www.apple.com"},
+        },
+    )
+
+    assert rendered.returncode == 0, rendered.stderr
+    router = _deployment_by_component(rendered.stdout, "transit-router")
+    assert router["metadata"]["name"] == "tracegate-transit-router"
+    assert router["metadata"]["labels"]["app.kubernetes.io/managed-by"] == "Helm"
+    assert router["metadata"]["labels"]["tracegate.io/canonical-server"] == "transit"
+    assert router["metadata"]["labels"]["tracegate.io/display-name"] == "Transit"
+    assert router["spec"]["selector"]["matchLabels"] == {
+        "app.kubernetes.io/name": "tracegate-transit-router",
+        "app.kubernetes.io/component": "transit-router",
+    }
+    template = router["spec"]["template"]
+    assert template["spec"]["hostNetwork"] is True
+    assert template["spec"]["nodeSelector"] == {"tracegate.io/role": "transit"}
+    containers = _containers_by_name(template)
+    assert containers["haproxy"]["securityContext"]["capabilities"]["add"] == ["NET_BIND_SERVICE"]
+    assert containers["xray"]["volumeMounts"][0]["subPath"] == "config.json"
+
+    docs = _helm_docs(rendered.stdout)
+    haproxy = next(
+        doc["data"]["haproxy.cfg"]
+        for doc in docs
+        if doc.get("kind") == "ConfigMap" and doc.get("metadata", {}).get("name") == "tracegate-transit-router-haproxy"
+    )
+    nginx = next(
+        doc["data"]["transit-decoy.conf"]
+        for doc in docs
+        if doc.get("kind") == "ConfigMap" and doc.get("metadata", {}).get("name") == "tracegate-transit-router-nginx"
+    )
+    assert "acl entry_src src 203.0.113.10" in haproxy
+    assert "tcp-request content accept if { req.ssl_hello_type 1 }" not in haproxy
+    assert "server endpoint endpoint.tracegate.test:443 check" in haproxy
+    assert "server endpoint_mtproto_8443 endpoint.tracegate.test:8443 check" in haproxy
+    assert "acl mtproto_sni req.ssl_sni -i proto.tracegate.test www.apple.com" in haproxy
+    assert "server_name transit.tracegate.test;" in nginx
+    assert "http2 on;" in nginx
+
+
+def test_runtime_contract_renders_canonical_server_topology(tmp_path: Path) -> None:
+    rendered = _helm_template_with_values(
+        tmp_path,
+        {
+            "topology": {
+                "servers": {
+                    "endpoint": {"displayName": "Endpoint", "publicIp": "198.51.100.20"},
+                    "transit": {"displayName": "Transit", "publicIp": "203.0.113.30"},
+                    "entry": {"displayName": "Entry", "publicIp": "203.0.113.10"},
+                }
+            }
+        },
+    )
+
+    assert rendered.returncode == 0, rendered.stderr
+    contract = _rendered_runtime_contract(rendered.stdout)
+    assert contract["network"]["topology"]["servers"]["endpoint"]["displayName"] == "Endpoint"
+    assert contract["network"]["topology"]["servers"]["endpoint"]["publicIp"] == "198.51.100.20"
+    assert contract["network"]["topology"]["servers"]["transit"]["publicIp"] == "203.0.113.30"
+    assert contract["network"]["topology"]["servers"]["entry"]["publicIp"] == "203.0.113.10"
+
+
+def test_endpoint_gateway_is_canonically_labeled_when_transit_role_runs_on_endpoint(tmp_path: Path) -> None:
+    rendered = _helm_template_with_values(
+        tmp_path,
+        {
+            "topology": {
+                "servers": {
+                    "endpoint": {"displayName": "Endpoint", "nodeSelector": {"tracegate.io/role": "endpoint"}},
+                    "entry": {"displayName": "Entry", "nodeSelector": {"tracegate.io/role": "entry"}},
+                }
+            },
+            "gateway": {
+                "roles": {
+                    "transit": {
+                        "canonicalServer": "endpoint",
+                        "nodeSelector": {"tracegate.io/role": "endpoint"},
+                    }
+                }
+            },
+            "naiveproxy": {"nodeSelector": {"tracegate.io/role": "endpoint"}},
+        },
+    )
+
+    assert rendered.returncode == 0, rendered.stderr
+    gateway_doc = _gateway_deployments(rendered.stdout)["gateway-transit"]
+    gateway = gateway_doc["spec"]["template"]
+    assert gateway_doc["metadata"]["labels"]["tracegate.io/canonical-server"] == "endpoint"
+    assert gateway_doc["metadata"]["labels"]["tracegate.io/display-name"] == "Endpoint"
+    assert gateway["metadata"]["labels"]["tracegate.io/canonical-server"] == "endpoint"
+    assert gateway["metadata"]["labels"]["tracegate.io/display-name"] == "Endpoint"
+    naiveproxy = _deployment_by_component(rendered.stdout, "naiveproxy")
+    assert naiveproxy["metadata"]["labels"]["tracegate.io/canonical-server"] == "endpoint"
+    assert naiveproxy["metadata"]["labels"]["tracegate.io/display-name"] == "Endpoint"
 
 
 def test_tracegate22_transit_nginx_proxies_public_client_config_url(tmp_path: Path) -> None:
@@ -2072,6 +2261,60 @@ def test_tracegate22_control_plane_receives_reality_client_material(tmp_path: Pa
     assert _env_value(api_container, "REALITY_SHORT_ID_TRANSIT") == "transit-sid"
 
 
+def test_tracegate22_entry_hosts_are_shared_between_client_env_and_gateway_mux(tmp_path: Path) -> None:
+    rendered = _helm_template_with_values(
+        tmp_path,
+        {
+            "controlPlane": {
+                "env": {
+                    "defaultEntryHost": "entry.prod.test",
+                    "defaultTransitHost": "transit.prod.test",
+                }
+            }
+        },
+    )
+
+    assert rendered.returncode == 0, rendered.stderr
+    api = _deployment_by_component(rendered.stdout, "api")
+    api_container = _containers_by_name(api["spec"]["template"])["api"]
+    assert _env_value(api_container, "DEFAULT_ENTRY_HOST") == "entry.prod.test"
+    assert _env_value(api_container, "DEFAULT_TRANSIT_HOST") == "transit.prod.test"
+
+    gateway_entry = _deployment_by_component(rendered.stdout, "gateway-entry")
+    entry_agent = _containers_by_name(gateway_entry["spec"]["template"])["agent"]
+    assert _env_value(entry_agent, "DEFAULT_ENTRY_HOST") == "entry.prod.test"
+    assert _env_value(entry_agent, "DEFAULT_TRANSIT_HOST") == "transit.prod.test"
+
+    docs = _helm_docs(rendered.stdout)
+    entry_haproxy = next(
+        doc["data"]["haproxy.cfg"]
+        for doc in docs
+        if doc.get("kind") == "ConfigMap"
+        and doc.get("metadata", {}).get("name") == "tracegate-tracegate-gateway-entry-haproxy"
+    )
+    assert "acl tls_adapter_sni req.ssl_sni -i entry.prod.test" in entry_haproxy
+
+
+def test_tracegate22_gateway_role_hosts_backfill_client_env(tmp_path: Path) -> None:
+    rendered = _helm_template_with_values(
+        tmp_path,
+        {
+            "gateway": {
+                "roles": {
+                    "entry": {"tls": {"serverName": "entry.prod.test"}},
+                    "transit": {"tls": {"serverName": "transit.prod.test"}},
+                }
+            }
+        },
+    )
+
+    assert rendered.returncode == 0, rendered.stderr
+    api = _deployment_by_component(rendered.stdout, "api")
+    api_container = _containers_by_name(api["spec"]["template"])["api"]
+    assert _env_value(api_container, "DEFAULT_ENTRY_HOST") == "entry.prod.test"
+    assert _env_value(api_container, "DEFAULT_TRANSIT_HOST") == "transit.prod.test"
+
+
 def test_tracegate22_control_plane_receives_enabled_client_profiles(tmp_path: Path) -> None:
     values = {
         "controlPlane": {
@@ -2114,6 +2357,7 @@ def test_tracegate22_k3s_renders_reality_sni_demux_groups(tmp_path: Path) -> Non
         for doc in docs
         if doc.get("kind") == "ConfigMap" and doc.get("metadata", {}).get("name") == "tracegate-tracegate-gateway-transit-haproxy"
     )
+    assert "tcp-request content accept if { req.ssl_hello_type 1 }" not in transit_haproxy
     assert "acl reality_sni_067_sni req.ssl_sni -i splitter.wb.ru" in transit_haproxy
     assert "use_backend be_reality_sni_067 if reality_sni_067_sni" in transit_haproxy
     assert "backend be_reality_sni_069" in transit_haproxy
@@ -2145,12 +2389,15 @@ def test_tracegate22_k3s_renders_naiveproxy_tcp443_demux(tmp_path: Path) -> None
     assert "server naiveproxy 127.0.0.1:11443 check" in transit_haproxy
     assert naiveproxy["spec"]["strategy"]["type"] == "Recreate"
     assert naiveproxy_pod["metadata"]["annotations"]["tracegate.io/public-surface"] == "tcp/443-demux,udp/443"
+    assert naiveproxy_pod["spec"]["shareProcessNamespace"] is True
     assert naiveproxy_pod["spec"]["nodeSelector"] == {"tracegate.io/role": "transit"}
     assert next(port for port in caddy["ports"] if port["name"] == "naive-https")["containerPort"] == 11443
     assert next(port for port in agent["ports"] if port["name"] == "agent")["containerPort"] == 8074
     assert _env_value(agent, "AGENT_PORT") == "8074"
     assert _env_value(agent, "NAIVEPROXY_TCP_EXPOSURE") == "demux"
     assert _env_value(agent, "NAIVEPROXY_DEMUX_TCP_PORT") == "11443"
+    assert _env_value(agent, "MTPROTO_PUBLIC_PORT") == "443"
+    assert _env_value(agent, "MTPROTO_ROUTE_MODE") == "endpoint-direct"
     env_by_name = {row["name"]: row for row in agent["env"]}
     assert env_by_name["AGENT_AUTH_TOKEN"]["valueFrom"]["secretKeyRef"] == {
         "name": "tracegate-control-plane-auth",
@@ -2173,6 +2420,44 @@ def test_prometheus_scrapes_naiveproxy_agent_when_observability_enabled(tmp_path
 
     assert "job_name: tracegate-agent" in prometheus_config
     assert "regex: gateway-.+|naiveproxy" in prometheus_config
+
+
+def test_grafana_renders_as_helm_managed_observability_resource(tmp_path: Path) -> None:
+    rendered = _helm_template_with_values(
+        tmp_path,
+        {
+            "controlPlane": {
+                "env": {
+                    "grafanaEnabled": True,
+                    "grafanaPublicBaseUrl": "https://grafana.example.com",
+                    "grafanaAdminPasswordSecret": {"name": "tracegate-grafana-auth", "key": "admin-password"},
+                }
+            }
+        },
+    )
+
+    assert rendered.returncode == 0, rendered.stderr
+    docs = _helm_docs(rendered.stdout)
+    deployment = _deployment_by_component(rendered.stdout, "grafana")
+    container = deployment["spec"]["template"]["spec"]["containers"][0]
+    env_by_name = {row["name"]: row for row in container["env"]}
+
+    assert deployment["metadata"]["name"] == "tracegate-grafana"
+    assert deployment["spec"]["template"]["metadata"]["labels"] == {
+        "app.kubernetes.io/name": "tracegate-grafana",
+        "app.kubernetes.io/part-of": "tracegate",
+    }
+    assert container["image"].startswith("grafana/grafana@sha256:")
+    assert env_by_name["GF_SERVER_ROOT_URL"]["value"] == "https://grafana.example.com/grafana/"
+    assert env_by_name["GF_SECURITY_ADMIN_PASSWORD"]["valueFrom"]["secretKeyRef"] == {
+        "name": "tracegate-grafana-auth",
+        "key": "admin-password",
+    }
+
+    pvc = next(doc for doc in docs if doc.get("kind") == "PersistentVolumeClaim" and doc["metadata"]["name"] == "tracegate-grafana-data")
+    service = next(doc for doc in docs if doc.get("kind") == "Service" and doc["metadata"]["name"] == "tracegate-grafana")
+    assert pvc["spec"]["resources"]["requests"]["storage"] == "5Gi"
+    assert service["spec"]["ports"] == [{"name": "http", "port": 3000, "targetPort": "http", "protocol": "TCP"}]
 
 
 def test_tracegate22_xray_defaults_client_traffic_to_direct(tmp_path: Path) -> None:
@@ -2203,7 +2488,24 @@ def test_tracegate22_emergency_chain_bridge_routes_entry_via_transit(tmp_path: P
     rendered = _helm_template_with_values(
         tmp_path,
         {
-            "interconnect": {"emergencyXrayChain": {"enabled": True}},
+            "interconnect": {
+                "emergencyXrayChain": {
+                    "enabled": True,
+                    "endpointHost": "endpoint.tracegate.test",
+                    "endpointPort": 443,
+                    "endpointListenHost": "127.0.0.1",
+                    "allowedSources": ["203.0.113.10"],
+                    "failover": {
+                        "enabled": True,
+                        "localPort": 11083,
+                        "primaryHost": "198.51.100.109",
+                        "primaryPort": 443,
+                        "fallbackHost": "endpoint.tracegate.test",
+                        "fallbackPort": 443,
+                    },
+                }
+            },
+            "topology": {"servers": {"endpoint": {"publicIp": "198.51.100.20"}}},
             "shadowsocks2022": {"enabled": True},
             "controlPlane": {
                 "env": {
@@ -2228,6 +2530,8 @@ def test_tracegate22_emergency_chain_bridge_routes_entry_via_transit(tmp_path: P
     }
     entry_xray = json.loads(configmaps["tracegate-tracegate-gateway-entry-xray"]["data"]["config.json"])
     entry_hysteria = yaml.safe_load(configmaps["tracegate-tracegate-gateway-entry-hysteria"]["data"]["server.yaml"])
+    entry_haproxy = configmaps["tracegate-tracegate-gateway-entry-haproxy"]["data"]["haproxy.cfg"]
+    transit_haproxy = configmaps["tracegate-tracegate-gateway-transit-haproxy"]["data"]["haproxy.cfg"]
     transit_xray = json.loads(configmaps["tracegate-tracegate-gateway-transit-xray"]["data"]["config.json"])
     entry_containers = deployments["tracegate-tracegate-gateway-entry"]["spec"]["template"]["spec"]["containers"]
     transit_containers = deployments["tracegate-tracegate-gateway-transit"]["spec"]["template"]["spec"]["containers"]
@@ -2235,10 +2539,20 @@ def test_tracegate22_emergency_chain_bridge_routes_entry_via_transit(tmp_path: P
     assert any(row.get("tag") == "entry-chain-socks-in" for row in entry_xray["inbounds"])
     assert any(row.get("tag") == "ss2022-in" for row in entry_xray["inbounds"])
     assert any(row.get("tag") == "ss2022-in" for row in transit_xray["inbounds"])
+    transit_reality = next(row for row in transit_xray["inbounds"] if row.get("tag") == "vless-reality-in")
+    assert transit_reality["listen"] == "127.0.0.1"
     chain_outbound = next(row for row in entry_xray["outbounds"] if row.get("tag") == "chain-to-transit")
-    assert chain_outbound["settings"]["vnext"][0]["address"] == "transit.tracegate.test"
+    assert chain_outbound["settings"]["vnext"][0]["address"] == "127.0.0.1"
+    assert chain_outbound["settings"]["vnext"][0]["port"] == 11083
     assert chain_outbound["streamSettings"]["realitySettings"]["publicKey"] == "test-pbk"
     assert chain_outbound["streamSettings"]["realitySettings"]["shortId"] == "abc123"
+    assert "listen fe_tracegate_entry_chain_bridge_failover" in entry_haproxy
+    assert "bind 127.0.0.1:11083" in entry_haproxy
+    assert "server chain_transit 198.51.100.109:443 check" in entry_haproxy
+    assert "server chain_endpoint endpoint.tracegate.test:443 check backup" in entry_haproxy
+    assert "acl chain_bridge_src src 203.0.113.10" in transit_haproxy
+    assert "tcp-request content reject if chain_bridge_sni !chain_bridge_src" in transit_haproxy
+    assert "use_backend be_reality if chain_bridge_sni chain_bridge_src" in transit_haproxy
     routing_rules = entry_xray["routing"]["rules"]
     chain_rule_index, chain_rule = next(
         (idx, rule) for idx, rule in enumerate(routing_rules) if rule.get("outboundTag") == "chain-to-transit"

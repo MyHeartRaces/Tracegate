@@ -55,6 +55,48 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- .Values.privateProfiles.existingSecretName | default (printf "%s-private-profiles" (include "tracegate.fullname" .)) -}}
 {{- end -}}
 
+{{- define "tracegate.isExampleHost" -}}
+{{- $host := lower (trimSuffix "." (trim (toString .))) -}}
+{{- if or (eq $host "example.com") (hasSuffix ".example.com" $host) -}}true{{- else -}}false{{- end -}}
+{{- end -}}
+
+{{- define "tracegate.entryHost" -}}
+{{- $configured := trim (toString .Values.controlPlane.env.defaultEntryHost) -}}
+{{- $roleHost := trim (toString .Values.gateway.roles.entry.tls.serverName) -}}
+{{- if and $roleHost (or (not $configured) (eq (include "tracegate.isExampleHost" $configured) "true")) -}}
+{{- $roleHost -}}
+{{- else -}}
+{{- $configured -}}
+{{- end -}}
+{{- end -}}
+
+{{- define "tracegate.transitHost" -}}
+{{- $configured := trim (toString .Values.controlPlane.env.defaultTransitHost) -}}
+{{- $roleHost := trim (toString .Values.gateway.roles.transit.tls.serverName) -}}
+{{- if and $roleHost (or (not $configured) (eq (include "tracegate.isExampleHost" $configured) "true")) -}}
+{{- $roleHost -}}
+{{- else -}}
+{{- $configured -}}
+{{- end -}}
+{{- end -}}
+
+{{- define "tracegate.roleTlsServerName" -}}
+{{- $root := .root -}}
+{{- $roleName := .role -}}
+{{- $role := index $root.Values.gateway.roles $roleName -}}
+{{- $configured := trim (toString $role.tls.serverName) -}}
+{{- $defaultHost := ternary (include "tracegate.entryHost" $root) (include "tracegate.transitHost" $root) (eq $roleName "entry") -}}
+{{- if and $defaultHost (eq (include "tracegate.isExampleHost" $configured) "true") (ne (include "tracegate.isExampleHost" $defaultHost) "true") -}}
+{{- $defaultHost -}}
+{{- else -}}
+{{- $configured -}}
+{{- end -}}
+{{- end -}}
+
 {{- define "tracegate.roleName" -}}
 {{- printf "%s-gateway-%s" (include "tracegate.fullname" .root) .role -}}
+{{- end -}}
+
+{{- define "tracegate.transitRouterName" -}}
+{{- .Values.transitRouter.name | default (printf "%s-transit-router" (include "tracegate.fullname" .)) | trunc 63 | trimSuffix "-" -}}
 {{- end -}}
