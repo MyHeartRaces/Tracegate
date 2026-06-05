@@ -298,6 +298,7 @@ def build_mtproto_telemt_config(
         "",
         "[censorship]",
         f"tls_domain = {_toml_string(normalized_tls_domain)}",
+        'unknown_sni_action = "mask"',
         "mask = true",
         f"tls_emulation = {bool_value(tls_emulation)}",
         'tls_front_dir = "tlsfront"',

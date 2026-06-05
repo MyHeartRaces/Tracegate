@@ -588,6 +588,7 @@ gateway:
     shadowtls: {}
     shadowsocks: {}
     mtproto: {}
+    mtprotoOfficial: {}
     singbox: {}
     naiveproxy: {}
   # Optional static REALITY SNI demux table. Each group becomes a dedicated
@@ -657,7 +658,11 @@ gateway:
       pullPolicy: IfNotPresent
     mtproto:
       repository: ghcr.io/telemt/telemt
-      tag: "3.4.11"
+      tag: "3.4.13"
+      pullPolicy: IfNotPresent
+    mtprotoOfficial:
+      repository: mtproxy/mtproxy
+      tag: "latest"
       pullPolicy: IfNotPresent
     naiveproxy:
       repository: ghcr.io/your-org/tracegate-naiveproxy-caddy
@@ -902,10 +907,22 @@ mtproto:
   tlsDomain: ""
   publicPort: 443
   backendPort: 9443
+  fallback:
+    enabled: false
+    mode: failover
+    prefer: telemt
+    officialBackendPort: 9444
+    officialStatsPort: 2398
+    officialWorkers: 1
+    officialBindAddress: 127.0.0.1
+    officialArgs: ""
   route:
     mode: endpoint-direct
     entry:
       upstreamHost: ""
+      # Optional overrides for entry-transit-endpoint:
+      # tlsUpstreamHost/publicUpstreamHost split tcp/443 and mtproto.publicPort.
+      # tlsFallbackHost/publicFallbackHost split or disable per-port backups.
     endpoint:
       allowedProxySources: []
   obfuscationProfile: mtproto-extra

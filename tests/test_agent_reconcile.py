@@ -1182,6 +1182,7 @@ def test_reconcile_materializes_private_runtime_handoff_surfaces_for_transit(tmp
     assert "public_port = 8443" in telemt_config
     assert "proxy_protocol = true" in telemt_config
     assert 'tls_domain = "www.apple.com"' in telemt_config
+    assert 'unknown_sni_action = "mask"' in telemt_config
     assert public_profile.server == "proxied.tracegate.test"
     assert public_profile.port == 8443
     assert public_profile.domain == "www.apple.com"

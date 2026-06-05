@@ -158,6 +158,7 @@ def test_build_mtproto_telemt_config_preserves_primary_and_issued_secrets() -> N
     assert 'public_host = "proxied.tracegate.test"' in config.config_text
     assert "proxy_protocol = true" in config.config_text
     assert 'tls_domain = "proxied.tracegate.test"' in config.config_text
+    assert 'unknown_sni_action = "mask"' in config.config_text
     assert "classic = true" in config.config_text
     assert "secure = true" in config.config_text
     assert "tls = true" in config.config_text
