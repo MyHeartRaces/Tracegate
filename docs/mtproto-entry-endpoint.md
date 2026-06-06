@@ -41,9 +41,8 @@ Cloudflare Spectrum. Keep the proxy address DNS-only.
 gateway:
   images:
     mtproto:
-      repository: nineseconds/mtg
-      tag: "2"
-      digest: sha256:REPLACE_WITH_PINNED_DIGEST
+      repository: ghcr.io/your-org/tracegate
+      digest: sha256:REPLACE_WITH_APP_IMAGE_DIGEST
 
 mtproto:
   enabled: true
@@ -65,6 +64,10 @@ mtproto:
 The raw 16-byte MTProto secret remains in the external private profile Secret.
 Tracegate derives the FakeTLS client secret at runtime and the bot issues the
 resulting Telegram link through the Entry agent.
+
+The Tracegate application image includes the pinned MTG binary. Use that GHCR
+image for the MTG container so production nodes do not need Docker Hub access
+during rollout.
 
 ## Verification
 

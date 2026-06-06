@@ -23,6 +23,8 @@ RUN set -eux; \
     chmod +x /out/xray; \
     rm -f /tmp/xray-linux-64.zip
 
+FROM nineseconds/mtg@sha256:c082586a19886e4822f92aa8c1949a771df3519053d64b1b5505a9a280a3929d AS mtg-runtime
+
 FROM python:3.12-slim
 
 ARG VCS_REF=""
@@ -38,6 +40,7 @@ WORKDIR /app
 COPY --from=xray-builder /out/xray /usr/local/bin/xray
 COPY --from=xray-builder /out/geoip.dat /usr/local/bin/geoip.dat
 COPY --from=xray-builder /out/geosite.dat /usr/local/bin/geosite.dat
+COPY --from=mtg-runtime /mtg /mtg
 
 COPY pyproject.toml /app/
 COPY alembic.ini /app/

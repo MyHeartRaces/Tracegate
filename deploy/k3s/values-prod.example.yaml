@@ -144,9 +144,8 @@ gateway:
     enabled: false
   images:
     mtproto:
-      repository: nineseconds/mtg
-      tag: "2"
-      digest: sha256:c082586a19886e4822f92aa8c1949a771df3519053d64b1b5505a9a280a3929d
+      repository: ghcr.io/your-org/tracegate
+      digest: sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
     naiveproxy:
       repository: ghcr.io/your-org/tracegate-naiveproxy-caddy
       digest: sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
