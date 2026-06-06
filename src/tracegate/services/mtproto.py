@@ -331,7 +331,7 @@ def build_mtproto_mtg_config(
     domain_fronting_port: int = 443,
     listen_ip: str = "127.0.0.1",
     concurrency: int = 8192,
-    tolerate_time_skewness: str = "10s",
+    tolerate_time_skewness: str = "5m",
 ) -> MTProtoMtgConfig:
     if int(listen_port or 0) <= 0:
         raise MTProtoConfigError("MTG listen port must be a positive integer")

@@ -391,6 +391,7 @@ class Settings(BaseSettings):
     mtproto_egress_socks_port: int = 11084
     mtproto_domain_fronting_host: str = ""
     mtproto_domain_fronting_port: int = 443
+    mtproto_tolerate_time_skewness: str = "5m"
     mtproto_fronting_mode: str = "dedicated-dns-only"
     mtproto_public_profile_file: str = _DEFAULT_MTPROTO_PUBLIC_PROFILE_FILE
     mtproto_issued_state_file: str = _DEFAULT_MTPROTO_ISSUED_STATE_FILE

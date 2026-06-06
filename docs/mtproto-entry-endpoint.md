@@ -41,6 +41,13 @@ Tracegate transport. Use a fronting-site certificate whose SANs cover the
 proxy name. Serving a full HTTP decoy for the proxy hostname also requires the
 fronting site to accept that hostname.
 
+FakeTLS authenticates ClientHello timestamps. Keep Entry system time
+synchronized; Tracegate defaults MTG's tolerance window to five minutes so a
+short NTP outage does not immediately disconnect every Telegram client. When a
+provider blocks NTP/UDP 123 but exposes an accurate virtual RTC, the opt-in
+`deploy/systemd/tracegate-clock-sync-from-rtc.timer` can keep the host clock
+aligned.
+
 ## Helm Values
 
 ```yaml

@@ -61,6 +61,7 @@
 {{- $mtprotoEgressSocksPort := int (dig "socksPort" 11084 $mtprotoEgress) }}
 {{- $mtprotoDomainFrontingHost := trim (toString (dig "domainFrontingHost" $mtprotoTlsDomain $mtprotoEgress)) }}
 {{- $mtprotoDomainFrontingPort := int (dig "domainFrontingPort" 443 $mtprotoEgress) }}
+{{- $mtprotoTolerateTimeSkewness := toString ($.Values.mtproto.tolerateTimeSkewness | default "5m") }}
 {{- $mtprotoFallback := $.Values.mtproto.fallback | default dict }}
 {{- $mtprotoOfficialFallbackEnabled := and $mtprotoRuntimeRoleEnabled (eq $mtprotoRuntime "telemt") (eq $roleName "transit") (dig "enabled" false $mtprotoFallback) }}
 {{- $mtprotoOfficialBackendPort := int (dig "officialBackendPort" 9444 $mtprotoFallback) }}
@@ -511,7 +512,7 @@ spec:
                 printf '%s\n' 'concurrency = 8192'
                 printf '%s\n' 'prefer-ip = "only-ipv4"'
                 printf '%s\n' 'auto-update = false'
-                printf '%s\n' 'tolerate-time-skewness = "10s"'
+                printf '%s\n' 'tolerate-time-skewness = {{ $mtprotoTolerateTimeSkewness | quote }}'
                 printf '%s\n' 'allow-fallback-on-unknown-dc = true'
                 printf '%s\n' ''
                 printf '%s\n' '[domain-fronting]'
@@ -846,6 +847,8 @@ spec:
               value: {{ $mtprotoDomainFrontingHost | quote }}
             - name: MTPROTO_DOMAIN_FRONTING_PORT
               value: {{ $mtprotoDomainFrontingPort | quote }}
+            - name: MTPROTO_TOLERATE_TIME_SKEWNESS
+              value: {{ $mtprotoTolerateTimeSkewness | quote }}
           volumeMounts:
             - name: gateway-state
               mountPath: /var/lib/tracegate

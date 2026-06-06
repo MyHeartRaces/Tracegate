@@ -1541,6 +1541,7 @@ def _write_mtproto_state(
                     socks5_proxy=f"socks5://127.0.0.1:{int(settings.mtproto_egress_socks_port or 11084)}",
                     domain_fronting_host=settings.mtproto_domain_fronting_host or normalized_tls_domain,
                     domain_fronting_port=int(settings.mtproto_domain_fronting_port or 443),
+                    tolerate_time_skewness=settings.mtproto_tolerate_time_skewness,
                 )
             else:
                 raise MTProtoConfigError(f"unsupported MTProto runtime: {mtproto_runtime}")

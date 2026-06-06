@@ -908,6 +908,7 @@ mtproto:
   tlsDomain: ""
   publicPort: 443
   backendPort: 9443
+  tolerateTimeSkewness: 5m
   egress:
     mode: socks5-only
     socksPort: 11084

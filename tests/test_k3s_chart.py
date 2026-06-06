@@ -2269,6 +2269,7 @@ def test_mtproto_mtg_runs_on_entry_with_fail_closed_endpoint_egress(tmp_path: Pa
     assert 'proxies = ["socks5://127.0.0.1:11084"]' in rendered.stdout
     assert {"name": "MTPROTO_DOMAIN_FRONTING_HOST", "value": "tracegate.test"} in entry_containers["agent"]["env"]
     assert {"name": "MTPROTO_DOMAIN_FRONTING_PORT", "value": "443"} in entry_containers["agent"]["env"]
+    assert {"name": "MTPROTO_TOLERATE_TIME_SKEWNESS", "value": "5m"} in entry_containers["agent"]["env"]
 
 
 def test_transit_router_renders_gitops_managed_transit_hop(tmp_path: Path) -> None:

@@ -181,6 +181,7 @@ def test_build_mtproto_mtg_config_is_fail_closed_through_socks5() -> None:
     assert "proxy-protocol-listener = true" in config.config_text
     assert 'host = "tracegate.test"' in config.config_text
     assert 'proxies = ["socks5://127.0.0.1:11084"]' in config.config_text
+    assert 'tolerate-time-skewness = "5m"' in config.config_text
     assert 'proxies = [""]' not in config.config_text
     assert "[defense.anti-replay]" in config.config_text
 
