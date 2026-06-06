@@ -2261,7 +2261,8 @@ def test_mtproto_mtg_runs_on_entry_with_fail_closed_endpoint_egress(tmp_path: Pa
     ].split("frontend fe_tracegate_entry_tls", 1)[0]
     assert "req.ssl_sni" not in entry_fallback
     assert "default_backend be_mtproto" in entry_fallback
-    assert "server mtproto 127.0.0.1:9443 check send-proxy-v2" in rendered.stdout
+    assert "server mtproto 127.0.0.1:9443 send-proxy-v2" in rendered.stdout
+    assert "server mtproto 127.0.0.1:9443 check send-proxy-v2" not in rendered.stdout
     assert "acl mtproto_sni req.ssl_sni -i tracegate.test proto.tracegate.test" in rendered.stdout
     assert '"tag": "mtproto-egress-socks-in"' in rendered.stdout
     assert '"port": 11084' in rendered.stdout
@@ -2270,6 +2271,33 @@ def test_mtproto_mtg_runs_on_entry_with_fail_closed_endpoint_egress(tmp_path: Pa
     assert {"name": "MTPROTO_DOMAIN_FRONTING_HOST", "value": "tracegate.test"} in entry_containers["agent"]["env"]
     assert {"name": "MTPROTO_DOMAIN_FRONTING_PORT", "value": "443"} in entry_containers["agent"]["env"]
     assert {"name": "MTPROTO_TOLERATE_TIME_SKEWNESS", "value": "5m"} in entry_containers["agent"]["env"]
+
+
+def test_mtproto_mtg_seed_runtime_pins_legacy_fronting_ip(tmp_path: Path) -> None:
+    rendered = _helm_template_with_values(
+        tmp_path,
+        {
+            "mtproto": {
+                "runtime": "mtg",
+                "domain": "proto.tracegate.test",
+                "tlsDomain": "yandex.ru",
+                "publicPort": 8443,
+                "fallback": {"enabled": False},
+                "egress": {
+                    "mode": "socks5-only",
+                    "socksPort": 11084,
+                    "domainFrontingHost": "77.88.55.88",
+                    "domainFrontingPort": 443,
+                },
+                "route": {"mode": "entry-local-endpoint-egress"},
+            },
+            "interconnect": {"emergencyXrayChain": {"enabled": True}},
+        },
+    )
+
+    assert rendered.returncode == 0, rendered.stderr
+    assert 'domain-fronting-ip = "77.88.55.88"' in rendered.stdout
+    assert 'host = "77.88.55.88"' in rendered.stdout
 
 
 def test_transit_router_renders_gitops_managed_transit_hop(tmp_path: Path) -> None:

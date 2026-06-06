@@ -61,6 +61,10 @@
 {{- $mtprotoEgressSocksPort := int (dig "socksPort" 11084 $mtprotoEgress) }}
 {{- $mtprotoDomainFrontingHost := trim (toString (dig "domainFrontingHost" $mtprotoTlsDomain $mtprotoEgress)) }}
 {{- $mtprotoDomainFrontingPort := int (dig "domainFrontingPort" 443 $mtprotoEgress) }}
+{{- $mtprotoDomainFrontingLegacyIP := "" }}
+{{- if regexMatch "^([0-9]{1,3}\\.){3}[0-9]{1,3}$" $mtprotoDomainFrontingHost }}
+{{- $mtprotoDomainFrontingLegacyIP = $mtprotoDomainFrontingHost }}
+{{- end }}
 {{- $mtprotoTolerateTimeSkewness := toString ($.Values.mtproto.tolerateTimeSkewness | default "5m") }}
 {{- $mtprotoFallback := $.Values.mtproto.fallback | default dict }}
 {{- $mtprotoOfficialFallbackEnabled := and $mtprotoRuntimeRoleEnabled (eq $mtprotoRuntime "telemt") (eq $roleName "transit") (dig "enabled" false $mtprotoFallback) }}
@@ -514,6 +518,9 @@ spec:
                 printf '%s\n' 'auto-update = false'
                 printf '%s\n' 'tolerate-time-skewness = {{ $mtprotoTolerateTimeSkewness | quote }}'
                 printf '%s\n' 'allow-fallback-on-unknown-dc = true'
+{{- if $mtprotoDomainFrontingLegacyIP }}
+                printf '%s\n' 'domain-fronting-ip = {{ $mtprotoDomainFrontingLegacyIP | quote }}'
+{{- end }}
                 printf '%s\n' ''
                 printf '%s\n' '[domain-fronting]'
                 printf '%s\n' 'host = {{ $mtprotoDomainFrontingHost | quote }}'

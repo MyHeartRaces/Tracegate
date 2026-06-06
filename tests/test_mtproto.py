@@ -182,8 +182,22 @@ def test_build_mtproto_mtg_config_is_fail_closed_through_socks5() -> None:
     assert 'host = "tracegate.test"' in config.config_text
     assert 'proxies = ["socks5://127.0.0.1:11084"]' in config.config_text
     assert 'tolerate-time-skewness = "5m"' in config.config_text
+    assert "domain-fronting-ip" not in config.config_text
     assert 'proxies = [""]' not in config.config_text
     assert "[defense.anti-replay]" in config.config_text
+
+
+def test_build_mtproto_mtg_config_pins_legacy_and_current_fronting_ip() -> None:
+    config = build_mtproto_mtg_config(
+        listen_port=9443,
+        tls_domain="yandex.ru",
+        primary_secret_hex="95f0d81f7539ecbe1bd880f48b6a739a",
+        socks5_proxy="socks5://127.0.0.1:11084",
+        domain_fronting_host="77.88.55.88",
+    )
+
+    assert 'domain-fronting-ip = "77.88.55.88"' in config.config_text
+    assert 'host = "77.88.55.88"' in config.config_text
 
 
 def test_build_mtproto_mtg_config_rejects_direct_egress() -> None:

@@ -754,7 +754,11 @@ data:
       server mtproto_official 127.0.0.1:{{ $mtprotoOfficialBackendPort }} check backup
 {{- end }}
 {{- else }}
+{{- if eq $mtprotoRuntime "mtg" }}
+      server mtproto 127.0.0.1:{{ int $.Values.mtproto.backendPort }} send-proxy-v2
+{{- else }}
       server mtproto 127.0.0.1:{{ int $.Values.mtproto.backendPort }} check send-proxy-v2
+{{- end }}
 {{- end }}
 {{- end }}
 {{- if and (eq $roleName "entry") $chainBridgeFailoverEnabled }}

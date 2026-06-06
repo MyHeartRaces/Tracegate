@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ipaddress
 import json
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -342,6 +343,10 @@ def build_mtproto_mtg_config(
 
     normalized_tls_domain = normalize_mtproto_domain(tls_domain)
     normalized_fronting_host = normalize_mtproto_domain(domain_fronting_host)
+    try:
+        legacy_fronting_ip = str(ipaddress.ip_address(normalized_fronting_host))
+    except ValueError:
+        legacy_fronting_ip = ""
     primary_secret = _normalize_hex(primary_secret_hex)
     if len(primary_secret) != 32:
         raise MTProtoConfigError("MTG primary secret must contain exactly 16 bytes in hex")
@@ -365,32 +370,40 @@ def build_mtproto_mtg_config(
         "auto-update = false",
         f"tolerate-time-skewness = {_toml_string(tolerate_time_skewness)}",
         "allow-fallback-on-unknown-dc = true",
-        "",
-        "[domain-fronting]",
-        f"host = {_toml_string(normalized_fronting_host)}",
-        f"port = {int(domain_fronting_port)}",
-        "",
-        "[network]",
-        f"proxies = [{_toml_string(proxy)}]",
-        "",
-        "[network.timeout]",
-        'tcp = "10s"',
-        'http = "15s"',
-        'idle = "10m"',
-        'handshake = "15s"',
-        "",
-        "[network.keep-alive]",
-        "disabled = false",
-        'idle = "15s"',
-        'interval = "15s"',
-        "count = 9",
-        "",
-        "[defense.anti-replay]",
-        "enabled = true",
-        'max-size = "1mib"',
-        "error-rate = 0.001",
-        "",
     ]
+    if legacy_fronting_ip:
+        # MTG 2.2.x uses the legacy top-level IP while newer builds use
+        # [domain-fronting].host. Emit both so a pinned fronting IP is honored.
+        lines.append(f"domain-fronting-ip = {_toml_string(legacy_fronting_ip)}")
+    lines.extend(
+        [
+            "",
+            "[domain-fronting]",
+            f"host = {_toml_string(normalized_fronting_host)}",
+            f"port = {int(domain_fronting_port)}",
+            "",
+            "[network]",
+            f"proxies = [{_toml_string(proxy)}]",
+            "",
+            "[network.timeout]",
+            'tcp = "10s"',
+            'http = "15s"',
+            'idle = "10m"',
+            'handshake = "15s"',
+            "",
+            "[network.keep-alive]",
+            "disabled = false",
+            'idle = "15s"',
+            'interval = "15s"',
+            "count = 9",
+            "",
+            "[defense.anti-replay]",
+            "enabled = true",
+            'max-size = "1mib"',
+            "error-rate = 0.001",
+            "",
+        ]
+    )
     return MTProtoMtgConfig(config_text="\n".join(lines), client_secret_hex=client_secret)
 
 
