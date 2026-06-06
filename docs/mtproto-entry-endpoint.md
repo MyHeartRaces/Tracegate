@@ -33,7 +33,10 @@ fronting site:
   domain-fronting fallback.
 
 A normal Cloudflare proxied record cannot carry arbitrary MTProto TCP without
-Cloudflare Spectrum. Keep the proxy address DNS-only.
+Cloudflare Spectrum. Keep the proxy address DNS-only. Both names are routed to
+MTG on Entry so a normal TLS probe of the proxy name is relayed to the fronting
+site instead of exposing another Tracegate transport. Use a fronting-site
+certificate whose SANs also cover the proxy name.
 
 ## Helm Values
 

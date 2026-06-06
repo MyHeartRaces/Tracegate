@@ -522,7 +522,7 @@ data:
 {{- $mtprotoEntryRouteEnabled := and $.Values.mtproto.enabled (eq $roleName "entry") (eq $mtprotoRouteMode "entry-transit-endpoint") }}
 {{- $mtprotoEntryLocalEnabled := and $.Values.mtproto.enabled (eq $roleName "entry") (eq $mtprotoRouteMode "entry-local-endpoint-egress") }}
 {{- $mtprotoRuntimeRoleEnabled := and $.Values.mtproto.enabled (or $mtprotoEntryLocalEnabled (and (eq $roleName "transit") (ne $mtprotoRouteMode "entry-local-endpoint-egress"))) }}
-{{- $mtprotoSniDomains := compact (uniq (ternary (list $mtprotoTlsDomain) (list $mtprotoTlsDomain $mtprotoDomain) (eq $mtprotoRouteMode "entry-local-endpoint-egress"))) }}
+{{- $mtprotoSniDomains := compact (uniq (list $mtprotoTlsDomain $mtprotoDomain)) }}
 {{- $mtprotoEgress := $.Values.mtproto.egress | default dict }}
 {{- $mtprotoEgressSocksPort := int (dig "socksPort" 11084 $mtprotoEgress) }}
 {{- $mtprotoEntryUpstreamHost := trim (toString (dig "entry" "upstreamHost" "" $mtprotoRoute)) }}
