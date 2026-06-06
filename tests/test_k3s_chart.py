@@ -2233,6 +2233,7 @@ def test_mtproto_mtg_runs_on_entry_with_fail_closed_endpoint_egress(tmp_path: Pa
                 "runtime": "mtg",
                 "domain": "proto.tracegate.test",
                 "tlsDomain": "tracegate.test",
+                "publicPort": 8443,
                 "fallback": {"enabled": False},
                 "egress": {
                     "mode": "socks5-only",
@@ -2254,6 +2255,12 @@ def test_mtproto_mtg_runs_on_entry_with_fail_closed_endpoint_egress(tmp_path: Pa
 
     assert entry_containers["mtproto"]["command"] == ["/mtg"]
     assert "mtproto" not in transit_containers
+    assert "frontend fe_tracegate_entry_mtproto_8443" in rendered.stdout
+    entry_fallback = rendered.stdout.split("frontend fe_tracegate_entry_mtproto_8443", 1)[
+        1
+    ].split("frontend fe_tracegate_entry_tls", 1)[0]
+    assert "req.ssl_sni" not in entry_fallback
+    assert "default_backend be_mtproto" in entry_fallback
     assert "server mtproto 127.0.0.1:9443 check send-proxy-v2" in rendered.stdout
     assert "acl mtproto_sni req.ssl_sni -i tracegate.test proto.tracegate.test" in rendered.stdout
     assert '"tag": "mtproto-egress-socks-in"' in rendered.stdout

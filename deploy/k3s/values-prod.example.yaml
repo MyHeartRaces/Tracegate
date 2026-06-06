@@ -266,7 +266,7 @@ mtproto:
   runtime: mtg
   domain: mtproto.example.com
   tlsDomain: www.example.com
-  publicPort: 443
+  publicPort: 8443
   egress:
     mode: socks5-only
     socksPort: 11084

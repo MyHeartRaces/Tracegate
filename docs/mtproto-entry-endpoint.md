@@ -26,7 +26,9 @@ regional direct-routing rules. It can only use the encrypted Endpoint tunnel.
 ## Public Names
 
 Use separate names for the address Telegram connects to and the FakeTLS
-fronting site:
+fronting site. Prefer the dedicated `8443` listener as the primary profile
+port so Telegram ClientHello changes cannot be misrouted by the shared `443`
+SNI demultiplexer; generated profiles also keep `443` as a fallback:
 
 - `proto.example.com`: DNS-only A/AAAA record for Entry.
 - `example.com`: real HTTPS site used as the FakeTLS SNI and MTG
