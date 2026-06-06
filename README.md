@@ -76,6 +76,8 @@ of public documentation.
 - [alembic](alembic): database migrations.
 - [tests](tests): automated coverage for behavior and generated artifacts.
 - [docs](docs): public documentation that avoids live deployment coordinates.
+- [docs/mtproto-entry-endpoint.md](docs/mtproto-entry-endpoint.md): fail-closed
+  MTG on Entry with encrypted Endpoint egress.
 
 ## Local Development
 

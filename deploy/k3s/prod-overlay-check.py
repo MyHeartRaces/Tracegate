@@ -651,6 +651,17 @@ def validate_prod_overlay(chart_values: Path, prod_values: Path, *, strict: bool
     mtproto = _as_dict(merged.get("mtproto"))
     require(bool(mtproto.get("enabled", False)), "mtproto.enabled must stay true in core Tracegate 2.2")
     require(not _is_example_host(mtproto.get("domain")), "mtproto.domain must not use example.com")
+    mtproto_egress = _as_dict(mtproto.get("egress"))
+    if mtproto_route_mode == "entry-local-endpoint-egress":
+        require(_text(mtproto.get("runtime")) == "mtg", "entry-local-endpoint-egress requires mtproto.runtime=mtg")
+        require(
+            bool(_as_dict(interconnect.get("emergencyXrayChain")).get("enabled", False)),
+            "entry-local-endpoint-egress requires interconnect.emergencyXrayChain.enabled=true",
+        )
+        require(_text(mtproto_egress.get("mode")) == "socks5-only", "entry-local-endpoint-egress requires mtproto.egress.mode=socks5-only")
+        require(_as_int(mtproto_egress.get("socksPort")) > 0, "entry-local-endpoint-egress requires mtproto.egress.socksPort")
+        require(_has_value(mtproto_egress.get("domainFrontingHost")), "entry-local-endpoint-egress requires mtproto.egress.domainFrontingHost")
+        require(not bool(_as_dict(mtproto.get("fallback")).get("enabled", False)), "entry-local-endpoint-egress forbids MTProto fallback runtimes")
     bridge_server_name = _text(outer_carrier.get("serverName")).lower().rstrip(".")
     transit_tls_server_name = _text(_as_dict(transit.get("tls")).get("serverName")).lower().rstrip(".")
     mtproto_domain = _text(mtproto.get("domain") or env.get("mtprotoDomain")).lower().rstrip(".")

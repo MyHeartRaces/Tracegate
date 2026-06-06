@@ -6,6 +6,7 @@ from tracegate.services.mtproto import (
     MTProtoIssuedSecret,
     MTProtoConfigError,
     build_mtproto_client_secret,
+    build_mtproto_mtg_config,
     build_mtproto_official_proxy_command,
     build_mtproto_share_links,
     build_mtproto_telemt_config,
@@ -164,6 +165,35 @@ def test_build_mtproto_telemt_config_preserves_primary_and_issued_secrets() -> N
     assert "tls = true" in config.config_text
     assert '"tracegate_shared" = "95f0d81f7539ecbe1bd880f48b6a739a"' in config.config_text
     assert '"tg_101" = "fedcba98765432100123456789abcdef"' in config.config_text
+
+
+def test_build_mtproto_mtg_config_is_fail_closed_through_socks5() -> None:
+    config = build_mtproto_mtg_config(
+        listen_port=9443,
+        tls_domain="tracegate.test",
+        primary_secret_hex="95f0d81f7539ecbe1bd880f48b6a739a",
+        socks5_proxy="socks5://127.0.0.1:11084",
+        domain_fronting_host="tracegate.test",
+    )
+
+    assert config.client_secret_hex.startswith("ee95f0d81f7539ecbe1bd880f48b6a739a")
+    assert 'bind-to = "127.0.0.1:9443"' in config.config_text
+    assert "proxy-protocol-listener = true" in config.config_text
+    assert 'host = "tracegate.test"' in config.config_text
+    assert 'proxies = ["socks5://127.0.0.1:11084"]' in config.config_text
+    assert 'proxies = [""]' not in config.config_text
+    assert "[defense.anti-replay]" in config.config_text
+
+
+def test_build_mtproto_mtg_config_rejects_direct_egress() -> None:
+    with pytest.raises(MTProtoConfigError, match="socks5"):
+        build_mtproto_mtg_config(
+            listen_port=9443,
+            tls_domain="tracegate.test",
+            primary_secret_hex="95f0d81f7539ecbe1bd880f48b6a739a",
+            socks5_proxy="",
+            domain_fronting_host="tracegate.test",
+        )
 
 
 def test_build_mtproto_official_proxy_command_accepts_primary_and_issued_secrets() -> None:

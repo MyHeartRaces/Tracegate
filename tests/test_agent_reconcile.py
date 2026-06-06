@@ -1262,6 +1262,50 @@ def test_reconcile_preserves_existing_mtproto_issued_state(tmp_path: Path) -> No
     assert '"tg_255761416" = "95d7ed79d0ab4494cab81c5f4acba241"' in telemt_config
 
 
+def test_reconcile_materializes_mtg_runtime_on_entry_with_endpoint_egress(tmp_path: Path) -> None:
+    settings = Settings(
+        agent_data_root=str(tmp_path),
+        agent_runtime_mode="systemd",
+        agent_role="ENTRY",
+        agent_runtime_profile="xray-centric",
+        default_entry_host="entry.tracegate.test",
+        mtproto_domain="proto.tracegate.test",
+        mtproto_tls_domain="tracegate.test",
+        mtproto_public_port=443,
+        mtproto_route_mode="entry-local-endpoint-egress",
+        mtproto_egress_socks_port=11084,
+        mtproto_domain_fronting_host="splitter.wb.test",
+        mtproto_domain_fronting_port=8443,
+        private_mtproto_runtime="mtg",
+        private_mtproto_secret_file=str(tmp_path / "secrets" / "mtproto.txt"),
+    )
+
+    _write(tmp_path / "secrets" / "mtproto.txt", "00112233445566778899aabbccddeeff")
+    _write(
+        tmp_path / "base/xray/config.json",
+        json.dumps({"inbounds": [], "outbounds": [{"tag": "direct", "protocol": "freedom"}], "routing": {"rules": []}}),
+    )
+    _write(tmp_path / "base/nginx/nginx.conf", "events {}\nhttp {}\n")
+    _write(tmp_path / "base/haproxy/haproxy.cfg", "frontend fe\n  bind :443\n")
+
+    reconcile_all(settings)
+
+    private_root = tmp_path / "private"
+    state = load_mtproto_gateway_state(private_root / "mtproto" / "last-action.json")
+    config = (private_root / "mtproto" / "runtime" / "config.toml").read_text(encoding="utf-8")
+    public_profile = json.loads((private_root / "mtproto" / "public-profile.json").read_text(encoding="utf-8"))
+
+    assert state.role == "ENTRY"
+    assert state.runtime == "mtg"
+    assert 'bind-to = "127.0.0.1:9443"' in config
+    assert 'host = "splitter.wb.test"' in config
+    assert "port = 8443" in config
+    assert 'proxies = ["socks5://127.0.0.1:11084"]' in config
+    assert public_profile["server"] == "proto.tracegate.test"
+    assert public_profile["domain"] == "tracegate.test"
+    assert public_profile["secretPolicy"] == "shared"
+
+
 def test_reconcile_emits_obfuscation_change_only_when_reload_hook_is_configured(tmp_path: Path) -> None:
     settings = Settings(
         agent_data_root=str(tmp_path),

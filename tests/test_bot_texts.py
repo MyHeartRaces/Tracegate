@@ -74,6 +74,21 @@ def test_format_config_delivery_message_mentions_attachment_when_available() -> 
     assert "4. После импорта" in text
 
 
+def test_format_config_delivery_message_can_prefer_xray_attachment() -> None:
+    text = main._format_config_delivery_message(
+        marker="V1 - 1 - dev-1 - conn-1",
+        title="VLESS REALITY link",
+        revision={"id": "rev-1", "slot": 0},
+        context="created",
+        has_attachment=True,
+        prefer_attachment=True,
+    )
+
+    assert "1. Скачайте приложенный `.json` файл" in text
+    assert "2. Ссылка и QR ниже - запасной вариант" in text
+    assert "Скопируйте ссылку одной строкой" not in text
+
+
 def test_format_config_delivery_message_mentions_hysteria_fallbacks() -> None:
     text = main._format_config_delivery_message(
         marker="V3 - 1 - dev-1 - conn-1",

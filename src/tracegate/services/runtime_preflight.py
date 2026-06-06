@@ -6349,8 +6349,9 @@ def validate_mtproto_gateway_state(
 ) -> list[RuntimePreflightFinding]:
     findings: list[RuntimePreflightFinding] = []
 
-    if state.role != "TRANSIT":
-        findings.append(_finding("error", "mtproto-role", f"mtproto runtime-state role must be TRANSIT, got {state.role or 'missing'}"))
+    expected_role = _role_name(transit_contract) or "TRANSIT"
+    if state.role != expected_role:
+        findings.append(_finding("error", "mtproto-role", f"mtproto runtime-state role must be {expected_role}, got {state.role or 'missing'}"))
 
     fronting = _fronting_block(transit_contract)
     if state.domain != str(fronting.get("mtprotoDomain") or "").strip():
@@ -6374,10 +6375,10 @@ def validate_mtproto_gateway_state(
 
     if not state.backend:
         findings.append(_finding("warning", "mtproto-backend", "mtproto runtime-state does not advertise a backend"))
-    if state.runtime not in {"telemt", "official"}:
-        findings.append(_finding("warning", "mtproto-runtime", f"mtproto runtime must be telemt or official, got {state.runtime or 'missing'}"))
-    if state.runtime == "telemt" and not state.telemt_config_file:
-        findings.append(_finding("warning", "mtproto-telemt-config-file", "mtproto runtime-state does not advertise telemtConfigFile"))
+    if state.runtime not in {"mtg", "telemt", "official"}:
+        findings.append(_finding("warning", "mtproto-runtime", f"mtproto runtime must be mtg, telemt or official, got {state.runtime or 'missing'}"))
+    if state.runtime in {"mtg", "telemt"} and not state.telemt_config_file:
+        findings.append(_finding("warning", "mtproto-runtime-config-file", "mtproto runtime-state does not advertise its config file"))
     if not state.issued_state_file:
         findings.append(_finding("warning", "mtproto-issued-state-file", "mtproto runtime-state does not advertise issuedStateFile"))
     elif state.public_profile_file:

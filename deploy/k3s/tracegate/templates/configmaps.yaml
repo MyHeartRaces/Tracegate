@@ -515,11 +515,16 @@ data:
 {{- $tlsAdapterServerNames := concat (list $roleTlsServerName) ($role.tls.extraServerNames | default (list)) | uniq }}
 {{- $mtprotoDomain := $.Values.mtproto.domain | default $.Values.controlPlane.env.mtprotoDomain }}
 {{- $mtprotoTlsDomain := $.Values.mtproto.tlsDomain | default $mtprotoDomain }}
-{{- $mtprotoSniDomains := compact (uniq (list $mtprotoTlsDomain $mtprotoDomain)) }}
 {{- $mtprotoPublicPort := int $.Values.mtproto.publicPort }}
+{{- $mtprotoRuntime := lower (toString ($.Values.mtproto.runtime | default "mtg")) }}
 {{- $mtprotoRoute := $.Values.mtproto.route | default dict }}
 {{- $mtprotoRouteMode := toString ($mtprotoRoute.mode | default "endpoint-direct") }}
 {{- $mtprotoEntryRouteEnabled := and $.Values.mtproto.enabled (eq $roleName "entry") (eq $mtprotoRouteMode "entry-transit-endpoint") }}
+{{- $mtprotoEntryLocalEnabled := and $.Values.mtproto.enabled (eq $roleName "entry") (eq $mtprotoRouteMode "entry-local-endpoint-egress") }}
+{{- $mtprotoRuntimeRoleEnabled := and $.Values.mtproto.enabled (or $mtprotoEntryLocalEnabled (and (eq $roleName "transit") (ne $mtprotoRouteMode "entry-local-endpoint-egress"))) }}
+{{- $mtprotoSniDomains := compact (uniq (ternary (list $mtprotoTlsDomain) (list $mtprotoTlsDomain $mtprotoDomain) (eq $mtprotoRouteMode "entry-local-endpoint-egress"))) }}
+{{- $mtprotoEgress := $.Values.mtproto.egress | default dict }}
+{{- $mtprotoEgressSocksPort := int (dig "socksPort" 11084 $mtprotoEgress) }}
 {{- $mtprotoEntryUpstreamHost := trim (toString (dig "entry" "upstreamHost" "" $mtprotoRoute)) }}
 {{- $mtprotoEntryTlsUpstreamHost := trim (toString (dig "entry" "tlsUpstreamHost" $mtprotoEntryUpstreamHost $mtprotoRoute)) }}
 {{- $mtprotoEntryPublicUpstreamHost := trim (toString (dig "entry" "publicUpstreamHost" $mtprotoEntryUpstreamHost $mtprotoRoute)) }}
@@ -530,10 +535,10 @@ data:
 {{- $mtprotoEntryFallbackPublicPort := int (dig "entry" "fallbackPublicPort" $mtprotoPublicPort $mtprotoRoute) }}
 {{- $mtprotoEndpointAllowedSources := dig "endpoint" "allowedProxySources" (list) $mtprotoRoute }}
 {{- $mtprotoEndpointSourceRestricted := and (eq $roleName "transit") $.Values.mtproto.enabled (gt (len $mtprotoEndpointAllowedSources) 0) }}
-{{- $mtprotoRoleHandlesPublic := or (and (eq $roleName "transit") $.Values.mtproto.enabled) $mtprotoEntryRouteEnabled }}
+{{- $mtprotoRoleHandlesPublic := or $mtprotoRuntimeRoleEnabled $mtprotoEntryRouteEnabled }}
 {{- $mtprotoFallbackPublicPort := and $mtprotoRoleHandlesPublic (ne $mtprotoPublicPort (int $role.ports.publicTcp)) }}
 {{- $mtprotoFallback := $.Values.mtproto.fallback | default dict }}
-{{- $mtprotoOfficialFallbackEnabled := and $.Values.mtproto.enabled (eq $roleName "transit") (dig "enabled" false $mtprotoFallback) }}
+{{- $mtprotoOfficialFallbackEnabled := and $mtprotoRuntimeRoleEnabled (eq $mtprotoRuntime "telemt") (eq $roleName "transit") (dig "enabled" false $mtprotoFallback) }}
 {{- $mtprotoFallbackMode := lower (toString (dig "mode" "failover" $mtprotoFallback)) }}
 {{- $mtprotoFallbackPrefer := lower (toString (dig "prefer" "telemt" $mtprotoFallback)) }}
 {{- $mtprotoOfficialBackendPort := int (dig "officialBackendPort" 9444 $mtprotoFallback) }}
@@ -730,7 +735,7 @@ data:
     backend be_mtproto_sni
       server mtproto_official 127.0.0.1:{{ $mtprotoOfficialBackendPort }} check
 {{- end }}
-{{- if or (and (eq $roleName "transit") $.Values.mtproto.enabled) (and $mtprotoEntryRouteEnabled $mtprotoFallbackPublicPort) }}
+{{- if or $mtprotoRuntimeRoleEnabled (and $mtprotoEntryRouteEnabled $mtprotoFallbackPublicPort) }}
 
     backend be_mtproto
 {{- if $mtprotoEntryRouteEnabled }}
@@ -1102,6 +1107,16 @@ data:
           "sniffing": {"enabled": true, "destOverride": ["http", "tls", "quic"]}
         },
 {{- end }}
+{{- if $mtprotoEntryLocalEnabled }}
+        {
+          "tag": "mtproto-egress-socks-in",
+          "listen": "127.0.0.1",
+          "port": {{ $mtprotoEgressSocksPort }},
+          "protocol": "socks",
+          "settings": {"auth": "noauth", "udp": false},
+          "sniffing": {"enabled": false}
+        },
+{{- end }}
 {{- if $.Values.shadowsocks2022.enabled }}
         {
           "tag": "ss2022-in",
@@ -1249,6 +1264,9 @@ data:
         "domainStrategy": "IPIfNonMatch",
         "rules": [
           {"type": "field", "inboundTag": ["api"], "outboundTag": "api"},
+{{- if $mtprotoEntryLocalEnabled }}
+          {"type": "field", "inboundTag": ["mtproto-egress-socks-in"], "outboundTag": "chain-to-transit"},
+{{- end }}
           {"type": "field", "inboundTag": {{ toJson $userTrafficInbounds }}, "protocol": ["bittorrent"], "outboundTag": "block"},
 {{- if eq $roleName "entry" }}
           {"type": "field", "inboundTag": {{ toJson $userTrafficInbounds }}, "domain": {{ toJson $ruBypassDomains }}, "outboundTag": "direct"},

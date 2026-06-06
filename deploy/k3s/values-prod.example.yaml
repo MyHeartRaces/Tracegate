@@ -143,6 +143,10 @@ gateway:
     # to roughly 1 GB RAM and 1 vCPU. This mode requires V3 to be enabled.
     enabled: false
   images:
+    mtproto:
+      repository: nineseconds/mtg
+      tag: "2"
+      digest: sha256:c082586a19886e4822f92aa8c1949a771df3519053d64b1b5505a9a280a3929d
     naiveproxy:
       repository: ghcr.io/your-org/tracegate-naiveproxy-caddy
       digest: sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
@@ -224,6 +228,8 @@ transitRouter:
 
 interconnect:
   emergencyXrayChain:
+    enabled: true
+    socksPort: 11082
     # Entry -> Endpoint backhaul dial target. Keep this as the Endpoint public IP
     # when DNS points clients at a domain/SNI but routing must use the canonical
     # Endpoint address.
@@ -258,6 +264,16 @@ wireguard:
 
 mtproto:
   enabled: true
+  runtime: mtg
   domain: mtproto.example.com
   tlsDomain: www.example.com
   publicPort: 443
+  egress:
+    mode: socks5-only
+    socksPort: 11084
+    domainFrontingHost: www.example.com
+    domainFrontingPort: 443
+  fallback:
+    enabled: false
+  route:
+    mode: entry-local-endpoint-egress

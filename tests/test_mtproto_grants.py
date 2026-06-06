@@ -75,6 +75,22 @@ def _transit_node() -> NodeEndpoint:
     )
 
 
+def _entry_node() -> NodeEndpoint:
+    now = datetime.now(timezone.utc)
+    return NodeEndpoint(
+        id=uuid4(),
+        role=NodeRole.ENTRY,
+        name="entry-a",
+        base_url="http://entry-a:8070",
+        public_ipv4="203.0.113.11",
+        fqdn="entry.tracegate.test",
+        proxy_fqdn=None,
+        active=True,
+        created_at=now,
+        updated_at=now,
+    )
+
+
 @pytest.mark.asyncio
 async def test_issue_mtproto_grant_upserts_local_metadata(monkeypatch: pytest.MonkeyPatch) -> None:
     session = _DummySession(user=_user(), grant=None, nodes=[_transit_node()])
@@ -131,6 +147,33 @@ async def test_issue_mtproto_grant_rejects_blocked_user() -> None:
         )
 
     assert exc.value.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_issue_mtproto_grant_targets_entry_for_local_endpoint_egress(monkeypatch: pytest.MonkeyPatch) -> None:
+    session = _DummySession(user=_user(), grant=None, nodes=[_entry_node()])
+
+    async def _request(_settings, *, node, method, path, json_payload=None):  # noqa: ANN001
+        assert node.name == "entry-a"
+        return {
+            "changed": False,
+            "profile": {
+                "protocol": "mtproto",
+                "server": "proto.tracegate.test",
+                "httpsUrl": "https://t.me/proxy?server=proto.tracegate.test",
+            },
+        }
+
+    monkeypatch.setattr("tracegate.services.mtproto_grants._request_transit_agent", _request)
+
+    _grant, profile, _changed, node_name = await issue_mtproto_grant(
+        session,
+        settings=Settings(agent_auth_token="agent-token", mtproto_route_mode="entry-local-endpoint-egress"),
+        telegram_id=100,
+    )
+
+    assert node_name == "entry-a"
+    assert profile["server"] == "proto.tracegate.test"
 
 
 @pytest.mark.asyncio

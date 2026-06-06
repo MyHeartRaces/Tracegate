@@ -12,6 +12,7 @@ from tracegate.constants import (
 from tracegate.services.mtproto import (
     MTPROTO_FAKE_TLS_PROFILE_NAME,
     MTProtoConfigError,
+    build_mtproto_mtg_config,
     build_mtproto_share_links,
     build_mtproto_telemt_config,
     load_mtproto_issued_secret_entries,
@@ -1464,13 +1465,15 @@ def _write_mtproto_state(
     runtime_contract_payload: dict[str, Any],
 ) -> bool:
     role_upper = str(runtime_contract_payload.get("role") or "").strip().upper()
-    if role_upper != "TRANSIT":
+    mtproto_route_mode = str(settings.mtproto_route_mode or "").strip().lower()
+    runtime_role = "ENTRY" if mtproto_route_mode == "entry-local-endpoint-egress" else "TRANSIT"
+    if role_upper != runtime_role:
         return False
 
     state_dir = Path(effective_mtproto_public_profile_file(settings)).parent
     runtime_dir = state_dir / "runtime"
     issued_state_file = Path(effective_mtproto_issued_state_file(settings))
-    obfuscation_state_json = _role_state_dir(settings, role_lower="transit") / "runtime-state.json"
+    obfuscation_state_json = _role_state_dir(settings, role_lower=runtime_role.lower()) / "runtime-state.json"
     mtproto_runtime = str(settings.private_mtproto_runtime or "telemt").strip().lower() or "telemt"
     telemt_config_file = runtime_dir / "config.toml"
 
@@ -1525,6 +1528,18 @@ def _write_mtproto_state(
                     primary_secret_hex=server_secret_hex,
                     issued_secret_entries=load_mtproto_issued_secret_entries(issued_state_file),
                 )
+            elif mtproto_runtime == "mtg":
+                mtg_config = build_mtproto_mtg_config(
+                    listen_port=int(payload["upstreamPort"]),
+                    listen_ip=str(payload["upstreamHost"]),
+                    tls_domain=normalized_tls_domain,
+                    primary_secret_hex=server_secret_hex,
+                    socks5_proxy=f"socks5://127.0.0.1:{int(settings.mtproto_egress_socks_port or 11084)}",
+                    domain_fronting_host=settings.mtproto_domain_fronting_host or normalized_tls_domain,
+                    domain_fronting_port=int(settings.mtproto_domain_fronting_port or 443),
+                )
+            else:
+                raise MTProtoConfigError(f"unsupported MTProto runtime: {mtproto_runtime}")
         except (MTProtoConfigError, OSError, ValueError):
             changed = _remove_if_exists(profile_path) or changed
             changed = _remove_if_exists(telemt_config_file) or changed
@@ -1554,6 +1569,8 @@ def _write_mtproto_state(
             changed = _write_text_if_changed(profile_path, _json_text(profile_payload)) or changed
             if mtproto_runtime == "telemt":
                 changed = _write_text_if_changed(telemt_config_file, telemt_config.config_text) or changed
+            elif mtproto_runtime == "mtg":
+                changed = _write_text_if_changed(telemt_config_file, mtg_config.config_text) or changed
             else:
                 changed = _remove_if_exists(telemt_config_file) or changed
     else:

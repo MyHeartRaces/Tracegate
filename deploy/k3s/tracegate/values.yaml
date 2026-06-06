@@ -903,10 +903,16 @@ shadowsocks2022:
 
 mtproto:
   enabled: true
+  runtime: telemt
   domain: ""
   tlsDomain: ""
   publicPort: 443
   backendPort: 9443
+  egress:
+    mode: socks5-only
+    socksPort: 11084
+    domainFrontingHost: ""
+    domainFrontingPort: 443
   fallback:
     enabled: false
     mode: failover

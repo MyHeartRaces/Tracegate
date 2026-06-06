@@ -958,28 +958,31 @@ def _format_config_delivery_message(
     has_primary_uri: bool = True,
     has_alternate_uri: bool = False,
     has_extra_messages: bool = False,
+    prefer_attachment: bool = False,
 ) -> str:
+    next_steps: list[str] = []
+
+    def append_step(text: str) -> None:
+        next_steps.append(f"{len(next_steps) + 1}. {text}")
+
     if has_primary_uri:
-        next_steps = [
-            "1. Скопируйте ссылку одной строкой из следующего сообщения и импортируйте её в клиент.",
-            "2. Или используйте QR из сообщения ниже.",
-        ]
-        if has_attachment:
-            next_steps.insert(1, "2. Если клиент плохо импортирует URI, используйте приложенный `.json` файл.")
-            next_steps[2] = "3. Или используйте QR из сообщения ниже."
-            next_steps.append("4. После импорта вернитесь к устройству или ревизиям по кнопкам.")
+        if has_attachment and prefer_attachment:
+            append_step("Скачайте приложенный `.json` файл и импортируйте его в клиент.")
+            append_step("Ссылка и QR ниже - запасной вариант для клиентов, которые поддерживают этот URI.")
         else:
-            next_steps.append("3. После импорта вернитесь к устройству или ревизиям по кнопкам.")
+            append_step("Скопируйте ссылку одной строкой из следующего сообщения и импортируйте её в клиент.")
+            if has_attachment:
+                append_step("Если клиент плохо импортирует URI, используйте приложенный `.json` файл.")
+            append_step("Или используйте QR из сообщения ниже.")
+        append_step("После импорта вернитесь к устройству или ревизиям по кнопкам.")
     else:
-        next_steps = [
-            "1. Скачайте приложенный `.json` файл.",
-            "2. Импортируйте файл в клиент, который поддерживает sing-box JSON.",
-            "3. После импорта вернитесь к устройству или ревизиям по кнопкам.",
-        ]
+        append_step("Скачайте приложенный `.json` файл.")
+        append_step("Импортируйте файл в клиент, который поддерживает sing-box JSON.")
+        append_step("После импорта вернитесь к устройству или ревизиям по кнопкам.")
     if has_alternate_uri:
-        next_steps.append("5. Ниже будет отдельная fallback-ссылка для совместимости клиента.")
+        append_step("Ниже будет отдельная fallback-ссылка для совместимости клиента.")
     if has_extra_messages:
-        next_steps.append("6. Ниже будут дополнительные ссылки или параметры транспорта.")
+        append_step("Ниже будут дополнительные ссылки или параметры транспорта.")
     return (
         f"🔗 Конфигурация готова\n\n"
         f"{_config_delivery_context_label(context)}\n"
@@ -1148,6 +1151,11 @@ async def _send_client_config(callback: CallbackQuery, revision: dict, *, contex
             visible_extra_messages = (_client_config_url_message(client_config_url), *visible_extra_messages)
 
     if exported.kind == "uri":
+        prefer_attachment = bool(
+            exported.attachment_content
+            and exported.attachment_filename
+            and exported.attachment_filename.endswith(".xray.json")
+        )
         summary_msg = await callback.message.answer(
             _format_config_delivery_message(
                 marker=marker,
@@ -1157,6 +1165,7 @@ async def _send_client_config(callback: CallbackQuery, revision: dict, *, contex
                 has_attachment=bool(exported.attachment_content and exported.attachment_filename),
                 has_alternate_uri=bool(exported.alternate_content),
                 has_extra_messages=bool(visible_extra_messages),
+                prefer_attachment=prefer_attachment,
             ),
             reply_markup=(
                 config_delivery_keyboard(connection_id=connection_id, device_id=device_id)

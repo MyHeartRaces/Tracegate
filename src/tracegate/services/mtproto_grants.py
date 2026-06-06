@@ -38,7 +38,7 @@ def _detail_from_response(response: httpx.Response) -> str:
         detail = str(payload.get("detail") or "").strip()
         if detail:
             return detail
-    return (response.text or "").strip() or f"Transit agent request failed with status {response.status_code}"
+    return (response.text or "").strip() or f"MTProto agent request failed with status {response.status_code}"
 
 
 async def _request_transit_agent(
@@ -68,18 +68,26 @@ async def _request_transit_agent(
     return payload if isinstance(payload, dict) else {}
 
 
-async def resolve_transit_node(session: AsyncSession) -> NodeEndpoint:
+def _mtproto_node_role(settings: Settings) -> NodeRole:
+    if str(settings.mtproto_route_mode or "").strip().lower() == "entry-local-endpoint-egress":
+        return NodeRole.ENTRY
+    return NodeRole.TRANSIT
+
+
+async def resolve_mtproto_node(session: AsyncSession, *, settings: Settings) -> NodeEndpoint:
+    role = _mtproto_node_role(settings)
+    role_label = role.value.title()
     rows = (
         await session.execute(
             select(NodeEndpoint)
-            .where(NodeEndpoint.active.is_(True), NodeEndpoint.role == NodeRole.TRANSIT)
+            .where(NodeEndpoint.active.is_(True), NodeEndpoint.role == role)
             .order_by(NodeEndpoint.created_at.asc(), NodeEndpoint.name.asc())
         )
     ).scalars().all()
     if not rows:
-        raise MTProtoGrantError(status_code=503, detail="Active Transit node is not configured")
+        raise MTProtoGrantError(status_code=503, detail=f"Active {role_label} node is not configured")
     if len(rows) > 1:
-        raise MTProtoGrantError(status_code=409, detail="Multiple active Transit nodes are configured")
+        raise MTProtoGrantError(status_code=409, detail=f"Multiple active {role_label} nodes are configured")
     return rows[0]
 
 
@@ -110,7 +118,7 @@ async def issue_mtproto_grant(
     if user.entitlement_status == EntitlementStatus.BLOCKED:
         raise MTProtoGrantError(status_code=403, detail="User entitlement is blocked")
 
-    node = await resolve_transit_node(session)
+    node = await resolve_mtproto_node(session, settings=settings)
     effective_label = str(label or "").strip() or default_mtproto_label(user)
     effective_issued_by = str(issued_by or "").strip()
     payload = {
@@ -128,7 +136,7 @@ async def issue_mtproto_grant(
     )
     profile = response.get("profile")
     if not isinstance(profile, dict):
-        raise MTProtoGrantError(status_code=502, detail="Transit agent returned invalid MTProto profile payload")
+        raise MTProtoGrantError(status_code=502, detail="MTProto agent returned invalid profile payload")
 
     now = datetime.now(timezone.utc)
     grant = await session.get(MTProtoAccessGrant, telegram_id)
@@ -158,7 +166,7 @@ async def revoke_mtproto_grant(
     ignore_missing: bool = False,
 ) -> tuple[MTProtoAccessGrant | None, bool, str]:
     grant = await session.get(MTProtoAccessGrant, telegram_id)
-    node = await resolve_transit_node(session)
+    node = await resolve_mtproto_node(session, settings=settings)
 
     removed_remote = False
     try:

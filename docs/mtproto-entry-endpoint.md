@@ -1,0 +1,83 @@
+# MTProto Entry With Endpoint Egress
+
+Tracegate supports a production MTProto layout where the public proxy binary
+runs on Entry while every outbound Telegram and domain-fronting connection is
+forced through Endpoint.
+
+## Architecture
+
+```text
+Telegram client
+  -> Entry tcp/443 HAProxy SNI demux
+  -> Entry MTG on loopback
+  -> dedicated loopback SOCKS5 inbound
+  -> authenticated Entry-to-Endpoint Xray REALITY tunnel
+  -> Endpoint internet egress
+```
+
+The MTG proxy receives PROXY protocol v2 from HAProxy and has exactly one
+configured network proxy. An empty or direct network path is not included.
+If the local SOCKS5 tunnel is unavailable, Telegram upstream connections fail
+closed instead of leaving through Entry.
+
+The dedicated MTProto SOCKS inbound has its own Xray routing rule before all
+regional direct-routing rules. It can only use the encrypted Endpoint tunnel.
+
+## Public Names
+
+Use separate names for the address Telegram connects to and the FakeTLS
+fronting site:
+
+- `proto.example.com`: DNS-only A/AAAA record for Entry.
+- `example.com`: real HTTPS site used as the FakeTLS SNI and MTG
+  domain-fronting fallback.
+
+A normal Cloudflare proxied record cannot carry arbitrary MTProto TCP without
+Cloudflare Spectrum. Keep the proxy address DNS-only.
+
+## Helm Values
+
+```yaml
+gateway:
+  images:
+    mtproto:
+      repository: nineseconds/mtg
+      tag: "2"
+      digest: sha256:REPLACE_WITH_PINNED_DIGEST
+
+mtproto:
+  enabled: true
+  runtime: mtg
+  domain: proto.example.com
+  tlsDomain: example.com
+  publicPort: 443
+  egress:
+    mode: socks5-only
+    socksPort: 11084
+    domainFrontingHost: example.com
+    domainFrontingPort: 443
+  fallback:
+    enabled: false
+  route:
+    mode: entry-local-endpoint-egress
+```
+
+The raw 16-byte MTProto secret remains in the external private profile Secret.
+Tracegate derives the FakeTLS client secret at runtime and the bot issues the
+resulting Telegram link through the Entry agent.
+
+## Verification
+
+Before promotion:
+
+1. Render and lint Helm with the private overlay.
+2. Run `mtg doctor` from the Entry pod.
+3. Confirm the dedicated SOCKS inbound reports Endpoint's egress address.
+4. Confirm Entry HAProxy routes only the configured FakeTLS SNI to MTG.
+5. Confirm the bot-issued link contains the proxy hostname and the configured
+   FakeTLS domain.
+
+No MTProto configuration can guarantee permanent availability. Telegram client
+JA3/JA4 fingerprints and destination IPs can be blocked before traffic reaches
+the server. Keep replacement Entry IPs and fronting names operationally
+rotatable.

@@ -1950,7 +1950,7 @@ def test_tracegate21_templates_include_grpc_mtproto_and_mieru_surfaces() -> None
     assert 'mtproto_config="/state/private/mtproto/runtime/config.toml"' in text
     assert "MTProto secret must contain exactly 16 bytes in hex" in text
     assert "private/mtproto/runtime/config.toml" in text
-    assert "/mtg" not in text
+    assert "/mtg" in text
     assert "simple-run" not in text
     assert "mieru run -c" in text
     assert "/home/app/wstunnel server" in text
@@ -2222,6 +2222,47 @@ def test_mtproto_entry_transit_endpoint_route_renders_entry_proxy_and_endpoint_a
     assert "tcp-request connection reject unless mtproto_proxy_src" not in entry_fallback
     assert "MTPROTO_ROUTE_MODE" in rendered.stdout
     assert "entry-transit-endpoint" in rendered.stdout
+
+
+def test_mtproto_mtg_runs_on_entry_with_fail_closed_endpoint_egress(tmp_path: Path) -> None:
+    rendered = _helm_template_with_values(
+        tmp_path,
+        {
+            "gateway": {"images": {"mtproto": {"repository": "nineseconds/mtg", "tag": "2"}}},
+            "mtproto": {
+                "runtime": "mtg",
+                "domain": "proto.tracegate.test",
+                "tlsDomain": "tracegate.test",
+                "fallback": {"enabled": False},
+                "egress": {
+                    "mode": "socks5-only",
+                    "socksPort": 11084,
+                    "domainFrontingHost": "tracegate.test",
+                    "domainFrontingPort": 443,
+                },
+                "route": {"mode": "entry-local-endpoint-egress"},
+            },
+            "interconnect": {"emergencyXrayChain": {"enabled": True}},
+        },
+    )
+
+    assert rendered.returncode == 0, rendered.stderr
+    entry = _deployment_by_component(rendered.stdout, "gateway-entry")
+    transit = _deployment_by_component(rendered.stdout, "gateway-transit")
+    entry_containers = _containers_by_name(entry["spec"]["template"])
+    transit_containers = _containers_by_name(transit["spec"]["template"])
+
+    assert entry_containers["mtproto"]["command"] == ["/mtg"]
+    assert "mtproto" not in transit_containers
+    assert "server mtproto 127.0.0.1:9443 check send-proxy-v2" in rendered.stdout
+    assert "acl mtproto_sni req.ssl_sni -i tracegate.test" in rendered.stdout
+    assert "acl mtproto_sni req.ssl_sni -i tracegate.test proto.tracegate.test" not in rendered.stdout
+    assert '"tag": "mtproto-egress-socks-in"' in rendered.stdout
+    assert '"port": 11084' in rendered.stdout
+    assert '"inboundTag": ["mtproto-egress-socks-in"], "outboundTag": "chain-to-transit"' in rendered.stdout
+    assert 'proxies = ["socks5://127.0.0.1:11084"]' in rendered.stdout
+    assert {"name": "MTPROTO_DOMAIN_FRONTING_HOST", "value": "tracegate.test"} in entry_containers["agent"]["env"]
+    assert {"name": "MTPROTO_DOMAIN_FRONTING_PORT", "value": "443"} in entry_containers["agent"]["env"]
 
 
 def test_transit_router_renders_gitops_managed_transit_hop(tmp_path: Path) -> None:
