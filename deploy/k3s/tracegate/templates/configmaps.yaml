@@ -522,8 +522,7 @@ data:
 {{- $mtprotoEntryRouteEnabled := and $.Values.mtproto.enabled (eq $roleName "entry") (eq $mtprotoRouteMode "entry-transit-endpoint") }}
 {{- $mtprotoEntryLocalEnabled := and $.Values.mtproto.enabled (eq $roleName "entry") (eq $mtprotoRouteMode "entry-local-endpoint-egress") }}
 {{- $mtprotoRuntimeRoleEnabled := and $.Values.mtproto.enabled (or $mtprotoEntryLocalEnabled (and (eq $roleName "transit") (ne $mtprotoRouteMode "entry-local-endpoint-egress"))) }}
-{{- $mtprotoPublicProbeEnabled := and $mtprotoEntryLocalEnabled (ne $mtprotoDomain $mtprotoTlsDomain) }}
-{{- $mtprotoSniDomains := compact (uniq (ternary (list $mtprotoTlsDomain) (list $mtprotoTlsDomain $mtprotoDomain) $mtprotoEntryLocalEnabled)) }}
+{{- $mtprotoSniDomains := compact (uniq (list $mtprotoTlsDomain $mtprotoDomain)) }}
 {{- $mtprotoEgress := $.Values.mtproto.egress | default dict }}
 {{- $mtprotoEgressSocksPort := int (dig "socksPort" 11084 $mtprotoEgress) }}
 {{- $mtprotoEntryUpstreamHost := trim (toString (dig "entry" "upstreamHost" "" $mtprotoRoute)) }}
@@ -680,10 +679,6 @@ data:
       use_backend be_mtproto if mtproto_sni
 {{- end }}
 {{- end }}
-{{- end }}
-{{- if $mtprotoPublicProbeEnabled }}
-      acl mtproto_public_probe_sni req.ssl_sni -i {{ $mtprotoDomain }}
-      use_backend be_https_adapter if mtproto_public_probe_sni
 {{- end }}
 {{- if and $.Values.shadowsocks2022.enabled $roleShadowtlsServerName }}
       acl shadowtls_sni req.ssl_sni -i {{ $roleShadowtlsServerName }}

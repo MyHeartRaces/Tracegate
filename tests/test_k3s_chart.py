@@ -2255,10 +2255,7 @@ def test_mtproto_mtg_runs_on_entry_with_fail_closed_endpoint_egress(tmp_path: Pa
     assert entry_containers["mtproto"]["command"] == ["/mtg"]
     assert "mtproto" not in transit_containers
     assert "server mtproto 127.0.0.1:9443 check send-proxy-v2" in rendered.stdout
-    assert "acl mtproto_sni req.ssl_sni -i tracegate.test" in rendered.stdout
-    assert "acl mtproto_sni req.ssl_sni -i tracegate.test proto.tracegate.test" not in rendered.stdout
-    assert "acl mtproto_public_probe_sni req.ssl_sni -i proto.tracegate.test" in rendered.stdout
-    assert "use_backend be_https_adapter if mtproto_public_probe_sni" in rendered.stdout
+    assert "acl mtproto_sni req.ssl_sni -i tracegate.test proto.tracegate.test" in rendered.stdout
     assert '"tag": "mtproto-egress-socks-in"' in rendered.stdout
     assert '"port": 11084' in rendered.stdout
     assert '"inboundTag": ["mtproto-egress-socks-in"], "outboundTag": "chain-to-transit"' in rendered.stdout

@@ -33,10 +33,11 @@ fronting site:
   domain-fronting fallback.
 
 A normal Cloudflare proxied record cannot carry arbitrary MTProto TCP without
-Cloudflare Spectrum. Keep the proxy address DNS-only. Telegram's FakeTLS SNI is
-routed to MTG. A normal TLS probe using the proxy hostname is routed to Entry's
-local HTTPS decoy instead of exposing another Tracegate transport. Use an Entry
-certificate whose SANs cover the proxy name.
+Cloudflare Spectrum. Keep the proxy address DNS-only. Both names are routed to
+MTG on Entry so a normal TLS probe of the proxy name does not expose another
+Tracegate transport. Use a fronting-site certificate whose SANs cover the
+proxy name. Serving a full HTTP decoy for the proxy hostname also requires the
+fronting site to accept that hostname.
 
 ## Helm Values
 
