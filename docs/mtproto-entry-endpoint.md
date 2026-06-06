@@ -10,28 +10,32 @@ forced through Endpoint.
 Telegram client
   -> Entry tcp/443 HAProxy SNI demux
   -> Entry MTG on loopback
-  -> dedicated loopback SOCKS5 inbound
-  -> authenticated Entry-to-Endpoint Xray REALITY tunnel
+  -> Entry ShadowTLS v3 client on loopback
+  -> Endpoint tcp/443 HAProxy SNI and source-address demux
+  -> Endpoint ShadowTLS v3 server on loopback
+  -> Endpoint loopback SOCKS5 inbound
   -> Endpoint internet egress
 ```
 
 The MTG proxy receives PROXY protocol v2 from HAProxy and has exactly one
-configured network proxy. An empty or direct network path is not included.
-If the local SOCKS5 tunnel is unavailable, Telegram upstream connections fail
-closed instead of leaving through Entry.
+configured network proxy: the Entry-side ShadowTLS client. An empty or direct
+network path is not included. If the encrypted tunnel or Endpoint SOCKS inbound
+is unavailable, Telegram upstream connections fail closed instead of leaving
+through Entry.
 
-The dedicated MTProto SOCKS inbound has its own Xray routing rule before all
-regional direct-routing rules. It can only use the encrypted Endpoint tunnel.
+Endpoint HAProxy accepts the dedicated ShadowTLS SNI only from configured Entry
+source addresses. The Endpoint-side SOCKS inbound is loopback-only and uses
+Endpoint's direct internet egress. This path is independent from the general
+Entry-to-Endpoint Xray chain.
 
 ## Public Names
 
 Use separate names for the address Telegram connects to and the FakeTLS
-fronting site. Prefer the dedicated `8443` listener as the primary profile
-port so Telegram ClientHello changes cannot be misrouted by the shared `443`
-SNI demultiplexer; generated profiles also keep `443` as a fallback:
+fronting site. Use `443` as the public profile port when alternate provider
+ports are filtered:
 
 - `proto.example.com`: DNS-only A/AAAA record for Entry.
-- `example.com`: real HTTPS site used as the FakeTLS SNI and MTG
+- `yandex.ru`: real HTTPS site used as the FakeTLS SNI and MTG
   domain-fronting fallback.
 
 A normal Cloudflare proxied record cannot carry arbitrary MTProto TCP without
@@ -61,13 +65,22 @@ mtproto:
   enabled: true
   runtime: mtg
   domain: proto.example.com
-  tlsDomain: example.com
+  tlsDomain: yandex.ru
   publicPort: 443
   egress:
     mode: socks5-only
     socksPort: 11084
-    domainFrontingHost: example.com
+    domainFrontingHost: yandex.ru
     domainFrontingPort: 443
+    shadowtls:
+      enabled: true
+      serverName: splitter.wb.ru
+      endpointHost: 198.51.100.20
+      endpointPort: 443
+      serverListenPort: 14444
+      endpointSocksPort: 11085
+      allowedSources:
+        - 203.0.113.10
   fallback:
     enabled: false
   route:
@@ -88,10 +101,13 @@ Before promotion:
 
 1. Render and lint Helm with the private overlay.
 2. Run `mtg doctor` from the Entry pod.
-3. Confirm the dedicated SOCKS inbound reports Endpoint's egress address.
+3. Confirm MTG can generate a Telegram auth key through the Entry ShadowTLS
+   client and Endpoint SOCKS inbound.
 4. Confirm Entry HAProxy routes only the configured FakeTLS SNI to MTG.
-5. Confirm the bot-issued link contains the proxy hostname and the configured
-   FakeTLS domain.
+5. Confirm Endpoint HAProxy routes the egress ShadowTLS SNI only for the Entry
+   source allowlist.
+6. Generate a Telegram auth key through the public host and port using the
+   current bot-issued shared profile.
 
 No MTProto configuration can guarantee permanent availability. Telegram client
 JA3/JA4 fingerprints and destination IPs can be blocked before traffic reaches

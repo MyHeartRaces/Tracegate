@@ -2273,6 +2273,68 @@ def test_mtproto_mtg_runs_on_entry_with_fail_closed_endpoint_egress(tmp_path: Pa
     assert {"name": "MTPROTO_TOLERATE_TIME_SKEWNESS", "value": "5m"} in entry_containers["agent"]["env"]
 
 
+def test_mtproto_mtg_can_use_source_restricted_shadowtls_endpoint_egress(tmp_path: Path) -> None:
+    rendered = _helm_template_with_values(
+        tmp_path,
+        {
+            "gateway": {"images": {"mtproto": {"repository": "nineseconds/mtg", "tag": "2"}}},
+            "mtproto": {
+                "runtime": "mtg",
+                "domain": "proto.tracegate.test",
+                "tlsDomain": "yandex.ru",
+                "publicPort": 8443,
+                "fallback": {"enabled": False},
+                "egress": {
+                    "mode": "socks5-only",
+                    "socksPort": 11084,
+                    "domainFrontingHost": "77.88.55.88",
+                    "domainFrontingPort": 443,
+                    "shadowtls": {
+                        "enabled": True,
+                        "serverName": "splitter.wb.ru",
+                        "endpointHost": "endpoint.tracegate.test",
+                        "endpointPort": 443,
+                        "serverListenPort": 14444,
+                        "endpointSocksPort": 11085,
+                        "allowedSources": ["203.0.113.10"],
+                    },
+                },
+                "route": {"mode": "entry-local-endpoint-egress"},
+            },
+            "interconnect": {"emergencyXrayChain": {"enabled": True}},
+        },
+    )
+
+    assert rendered.returncode == 0, rendered.stderr
+    entry = _deployment_by_component(rendered.stdout, "gateway-entry")
+    transit = _deployment_by_component(rendered.stdout, "gateway-transit")
+    entry_containers = _containers_by_name(entry["spec"]["template"])
+    transit_containers = _containers_by_name(transit["spec"]["template"])
+    configmaps = {
+        doc["metadata"]["name"]: doc
+        for doc in _helm_docs(rendered.stdout)
+        if doc.get("kind") == "ConfigMap" and isinstance(doc.get("data"), dict)
+    }
+    entry_xray = json.loads(configmaps["tracegate-tracegate-gateway-entry-xray"]["data"]["config.json"])
+    transit_xray = json.loads(configmaps["tracegate-tracegate-gateway-transit-xray"]["data"]["config.json"])
+    transit_haproxy = configmaps["tracegate-tracegate-gateway-transit-haproxy"]["data"]["haproxy.cfg"]
+
+    assert "mtproto-egress-shadowtls" in entry_containers
+    assert "mtproto-egress-shadowtls" in transit_containers
+    assert "shadow-tls --v3 client" in entry_containers["mtproto-egress-shadowtls"]["command"][2]
+    assert "shadow-tls --v3 server" in transit_containers["mtproto-egress-shadowtls"]["command"][2]
+    assert not any(row.get("tag") == "mtproto-egress-socks-in" for row in entry_xray["inbounds"])
+    assert any(row.get("tag") == "mtproto-egress-endpoint-socks-in" for row in transit_xray["inbounds"])
+    assert "acl mtproto_egress_shadowtls_sni req.ssl_sni -i splitter.wb.ru" in transit_haproxy
+    assert "acl mtproto_egress_shadowtls_src src 203.0.113.10" in transit_haproxy
+    assert (
+        "use_backend be_mtproto_egress_shadowtls if mtproto_egress_shadowtls_sni mtproto_egress_shadowtls_src"
+        in transit_haproxy
+    )
+    assert "tcp-request content reject if mtproto_egress_shadowtls_sni" not in transit_haproxy
+    assert "server mtproto_egress_shadowtls 127.0.0.1:14444 check" in transit_haproxy
+
+
 def test_mtproto_mtg_seed_runtime_pins_legacy_fronting_ip(tmp_path: Path) -> None:
     rendered = _helm_template_with_values(
         tmp_path,
@@ -2810,7 +2872,6 @@ def test_tracegate22_emergency_chain_bridge_routes_entry_via_transit(tmp_path: P
     assert entry_hysteria["outbounds"][0]["socks5"]["addr"] == "127.0.0.1:11082"
     assert all(row["name"] != "shadowsocks-2022" for row in entry_containers)
     assert all(row["name"] != "shadowsocks-2022" for row in transit_containers)
-    transit_reality = next(row for row in transit_xray["inbounds"] if row.get("tag") == "vless-reality-in")
     transit_clients = transit_reality["settings"]["clients"]
     assert transit_clients == [{"id": "REPLACE_XRAY_CHAIN_BRIDGE_CLIENT_ID", "email": "Tracegate Entry-Transit Chain Bridge"}]
 

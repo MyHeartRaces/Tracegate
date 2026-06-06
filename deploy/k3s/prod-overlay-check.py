@@ -653,6 +653,7 @@ def validate_prod_overlay(chart_values: Path, prod_values: Path, *, strict: bool
     require(not _is_example_host(mtproto.get("domain")), "mtproto.domain must not use example.com")
     mtproto_egress = _as_dict(mtproto.get("egress"))
     if mtproto_route_mode == "entry-local-endpoint-egress":
+        mtproto_egress_shadowtls = _as_dict(mtproto_egress.get("shadowtls"))
         require(_text(mtproto.get("runtime")) == "mtg", "entry-local-endpoint-egress requires mtproto.runtime=mtg")
         require(
             bool(_as_dict(interconnect.get("emergencyXrayChain")).get("enabled", False)),
@@ -662,6 +663,14 @@ def validate_prod_overlay(chart_values: Path, prod_values: Path, *, strict: bool
         require(_as_int(mtproto_egress.get("socksPort")) > 0, "entry-local-endpoint-egress requires mtproto.egress.socksPort")
         require(_has_value(mtproto_egress.get("domainFrontingHost")), "entry-local-endpoint-egress requires mtproto.egress.domainFrontingHost")
         require(not bool(_as_dict(mtproto.get("fallback")).get("enabled", False)), "entry-local-endpoint-egress forbids MTProto fallback runtimes")
+        require(bool(mtproto_egress_shadowtls.get("enabled", False)), "entry-local-endpoint-egress requires mtproto.egress.shadowtls.enabled=true")
+        require(
+            _text(mtproto_egress_shadowtls.get("serverName")).lower().rstrip(".") in {"yandex.ru", "splitter.wb.ru"},
+            "mtproto.egress.shadowtls.serverName must be yandex.ru or splitter.wb.ru",
+        )
+        require(_has_value(mtproto_egress_shadowtls.get("endpointHost")), "mtproto.egress.shadowtls.endpointHost must be set")
+        require(_as_int(mtproto_egress_shadowtls.get("endpointPort")) == 443, "mtproto.egress.shadowtls.endpointPort must stay 443")
+        require(bool(mtproto_egress_shadowtls.get("allowedSources")), "mtproto.egress.shadowtls.allowedSources must include Entry source addresses")
     bridge_server_name = _text(outer_carrier.get("serverName")).lower().rstrip(".")
     transit_tls_server_name = _text(_as_dict(transit.get("tls")).get("serverName")).lower().rstrip(".")
     mtproto_domain = _text(mtproto.get("domain") or env.get("mtprotoDomain")).lower().rstrip(".")

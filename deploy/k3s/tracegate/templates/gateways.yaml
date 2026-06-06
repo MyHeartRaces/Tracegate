@@ -59,6 +59,17 @@
 {{- $mtprotoFallbackPublicPort := and $mtprotoRoleHandlesPublic (ne $mtprotoPublicPort (int $role.ports.publicTcp)) }}
 {{- $mtprotoEgress := $.Values.mtproto.egress | default dict }}
 {{- $mtprotoEgressSocksPort := int (dig "socksPort" 11084 $mtprotoEgress) }}
+{{- $mtprotoEgressShadowtls := dig "shadowtls" (dict) $mtprotoEgress }}
+{{- $mtprotoEgressShadowtlsEnabled := and $.Values.mtproto.enabled (eq $mtprotoRouteMode "entry-local-endpoint-egress") (dig "enabled" false $mtprotoEgressShadowtls) }}
+{{- $mtprotoEgressShadowtlsServerName := trim (toString (dig "serverName" "splitter.wb.ru" $mtprotoEgressShadowtls)) }}
+{{- $mtprotoEgressShadowtlsEndpointHost := trim (toString (dig "endpointHost" "" $mtprotoEgressShadowtls)) }}
+{{- $mtprotoEgressShadowtlsEndpointPort := int (dig "endpointPort" 443 $mtprotoEgressShadowtls) }}
+{{- $mtprotoEgressShadowtlsServerListenPort := int (dig "serverListenPort" 14444 $mtprotoEgressShadowtls) }}
+{{- $mtprotoEgressShadowtlsEndpointSocksPort := int (dig "endpointSocksPort" 11085 $mtprotoEgressShadowtls) }}
+{{- $mtprotoEgressShadowtlsPasswordKey := $.Values.privateProfiles.keys.shadowtlsPasswordTransit }}
+{{- $mtprotoEgressShadowtlsPasswordSecretKey := $.Values.privateProfiles.secretKeys.shadowtlsPasswordTransit }}
+{{- $topologyEndpoint := dig "servers" "endpoint" (dict) ($.Values.topology | default dict) }}
+{{- if not $mtprotoEgressShadowtlsEndpointHost }}{{- $mtprotoEgressShadowtlsEndpointHost = trim (toString ($topologyEndpoint.publicIp | default "")) }}{{- end }}
 {{- $mtprotoDomainFrontingHost := trim (toString (dig "domainFrontingHost" $mtprotoTlsDomain $mtprotoEgress)) }}
 {{- $mtprotoDomainFrontingPort := int (dig "domainFrontingPort" 443 $mtprotoEgress) }}
 {{- $mtprotoDomainFrontingLegacyIP := "" }}
@@ -262,6 +273,10 @@ spec:
               - key: {{ $roleShadowtlsPasswordSecretKey }}
                 path: {{ $roleShadowtlsPasswordKey }}
 {{- end }}
+{{- if and $mtprotoEgressShadowtlsEnabled (or (eq $roleName "entry") (not $.Values.shadowsocks2022.enabled)) }}
+              - key: {{ $mtprotoEgressShadowtlsPasswordSecretKey }}
+                path: {{ $mtprotoEgressShadowtlsPasswordKey }}
+{{- end }}
 {{- if and (eq $roleName "transit") $.Values.wireguard.enabled }}
               - key: {{ $.Values.privateProfiles.secretKeys.wireguard }}
                 path: {{ $.Values.privateProfiles.keys.wireguard }}
@@ -324,6 +339,10 @@ spec:
             - {{ $roleShadowtlsKey | quote }}
             - --required-file
             - {{ $roleShadowtlsPasswordKey | quote }}
+{{- end }}
+{{- if and $mtprotoEgressShadowtlsEnabled (or (eq $roleName "entry") (not $.Values.shadowsocks2022.enabled)) }}
+            - --required-file
+            - {{ $mtprotoEgressShadowtlsPasswordKey | quote }}
 {{- end }}
 {{- if and (eq $roleName "transit") $.Values.wireguard.enabled }}
             - --required-file
@@ -1399,6 +1418,40 @@ spec:
               readOnly: true
             - name: gateway-state
               mountPath: /var/lib/tracegate
+              readOnly: true
+{{- end }}
+{{- if $mtprotoEgressShadowtlsEnabled }}
+        - name: mtproto-egress-shadowtls
+          image: {{ include "tracegate.image" $.Values.gateway.images.shadowtls | quote }}
+          imagePullPolicy: {{ $.Values.gateway.images.shadowtls.pullPolicy }}
+          command:
+            - sh
+            - -lc
+            - |
+              set -eu
+              password_file="{{ $.Values.privateProfiles.mountPath }}/{{ $mtprotoEgressShadowtlsPasswordKey }}"
+              until [ -s "${password_file}" ]; do sleep 2; done
+              password="$(tr -d '\r\n' < "${password_file}")"
+{{- if eq $roleName "entry" }}
+              exec shadow-tls --v3 client \
+                --listen "127.0.0.1:{{ $mtprotoEgressSocksPort }}" \
+                --server "{{ required "mtproto.egress.shadowtls.endpointHost or topology.servers.endpoint.publicIp is required" $mtprotoEgressShadowtlsEndpointHost }}:{{ $mtprotoEgressShadowtlsEndpointPort }}" \
+                --sni "{{ $mtprotoEgressShadowtlsServerName }}" \
+                --password "${password}"
+{{- else }}
+              exec shadow-tls --v3 server \
+                --listen "127.0.0.1:{{ $mtprotoEgressShadowtlsServerListenPort }}" \
+                --server "127.0.0.1:{{ $mtprotoEgressShadowtlsEndpointSocksPort }}" \
+                --tls "{{ $mtprotoEgressShadowtlsServerName }}:443" \
+                --password "${password}"
+{{- end }}
+{{- with (index $roleContainerResources "shadowtls") }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+{{- end }}
+          volumeMounts:
+            - name: private-profiles
+              mountPath: {{ $.Values.privateProfiles.mountPath }}
               readOnly: true
 {{- end }}
 {{- if and (eq $roleName "transit") $.Values.wireguard.enabled $.Values.wireguard.wstunnel.enabled }}

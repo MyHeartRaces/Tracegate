@@ -914,6 +914,14 @@ mtproto:
     socksPort: 11084
     domainFrontingHost: ""
     domainFrontingPort: 443
+    shadowtls:
+      enabled: false
+      serverName: splitter.wb.ru
+      endpointHost: ""
+      endpointPort: 443
+      serverListenPort: 14444
+      endpointSocksPort: 11085
+      allowedSources: []
   fallback:
     enabled: false
     mode: failover

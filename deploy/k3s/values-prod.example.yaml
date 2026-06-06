@@ -272,6 +272,15 @@ mtproto:
     socksPort: 11084
     domainFrontingHost: www.example.com
     domainFrontingPort: 443
+    shadowtls:
+      enabled: true
+      serverName: splitter.wb.ru
+      endpointHost: 198.51.100.20
+      endpointPort: 443
+      serverListenPort: 14444
+      endpointSocksPort: 11085
+      allowedSources:
+        - 203.0.113.10
   fallback:
     enabled: false
   route:

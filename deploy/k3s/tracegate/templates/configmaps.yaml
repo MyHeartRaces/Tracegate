@@ -525,6 +525,14 @@ data:
 {{- $mtprotoSniDomains := compact (uniq (list $mtprotoTlsDomain $mtprotoDomain)) }}
 {{- $mtprotoEgress := $.Values.mtproto.egress | default dict }}
 {{- $mtprotoEgressSocksPort := int (dig "socksPort" 11084 $mtprotoEgress) }}
+{{- $mtprotoEgressShadowtls := dig "shadowtls" (dict) $mtprotoEgress }}
+{{- $mtprotoEgressShadowtlsEnabled := and $.Values.mtproto.enabled (eq $mtprotoRouteMode "entry-local-endpoint-egress") (dig "enabled" false $mtprotoEgressShadowtls) }}
+{{- $mtprotoEgressShadowtlsServerName := trim (toString (dig "serverName" "splitter.wb.ru" $mtprotoEgressShadowtls)) }}
+{{- $mtprotoEgressShadowtlsEndpointHost := trim (toString (dig "endpointHost" "" $mtprotoEgressShadowtls)) }}
+{{- $mtprotoEgressShadowtlsEndpointPort := int (dig "endpointPort" 443 $mtprotoEgressShadowtls) }}
+{{- $mtprotoEgressShadowtlsServerListenPort := int (dig "serverListenPort" 14444 $mtprotoEgressShadowtls) }}
+{{- $mtprotoEgressShadowtlsEndpointSocksPort := int (dig "endpointSocksPort" 11085 $mtprotoEgressShadowtls) }}
+{{- $mtprotoEgressShadowtlsAllowedSources := dig "allowedSources" (list) $mtprotoEgressShadowtls }}
 {{- $mtprotoEntryUpstreamHost := trim (toString (dig "entry" "upstreamHost" "" $mtprotoRoute)) }}
 {{- $mtprotoEntryTlsUpstreamHost := trim (toString (dig "entry" "tlsUpstreamHost" $mtprotoEntryUpstreamHost $mtprotoRoute)) }}
 {{- $mtprotoEntryPublicUpstreamHost := trim (toString (dig "entry" "publicUpstreamHost" $mtprotoEntryUpstreamHost $mtprotoRoute)) }}
@@ -554,6 +562,8 @@ data:
 {{- $chainBridgeEndpointListenHost := trim (toString ($chainBridge.endpointListenHost | default "127.0.0.1")) }}
 {{- $topologyEndpoint := dig "servers" "endpoint" (dict) ($.Values.topology | default dict) }}
 {{- $topologyEndpointHost := trim (toString ($topologyEndpoint.publicIp | default "")) }}
+{{- if not $mtprotoEgressShadowtlsEndpointHost }}{{- $mtprotoEgressShadowtlsEndpointHost = $chainBridgeEndpointHost }}{{- end }}
+{{- if not $mtprotoEgressShadowtlsEndpointHost }}{{- $mtprotoEgressShadowtlsEndpointHost = $topologyEndpointHost }}{{- end }}
 {{- $chainBridgeDialHost := $chainBridgeEndpointHost }}
 {{- if not $chainBridgeDialHost }}{{- $chainBridgeDialHost = $topologyEndpointHost }}{{- end }}
 {{- if not $chainBridgeDialHost }}{{- $chainBridgeDialHost = include "tracegate.transitHost" $ }}{{- end }}
@@ -643,6 +653,15 @@ data:
       tcp-request inspect-delay 5s
       tcp-request content accept if { req.ssl_sni -m found }
       tcp-request content accept if WAIT_END
+{{- if and (eq $roleName "transit") $mtprotoEgressShadowtlsEnabled }}
+      acl mtproto_egress_shadowtls_sni req.ssl_sni -i {{ $mtprotoEgressShadowtlsServerName }}
+{{- if $mtprotoEgressShadowtlsAllowedSources }}
+      acl mtproto_egress_shadowtls_src src {{ join " " $mtprotoEgressShadowtlsAllowedSources }}
+      use_backend be_mtproto_egress_shadowtls if mtproto_egress_shadowtls_sni mtproto_egress_shadowtls_src
+{{- else }}
+      use_backend be_mtproto_egress_shadowtls if mtproto_egress_shadowtls_sni
+{{- end }}
+{{- end }}
 {{- if and (eq $roleName "transit") $chainBridge.enabled $chainBridgeSni }}
       acl chain_bridge_sni req.ssl_sni -i {{ $chainBridgeSni }}
 {{- if $chainBridgeAllowedSources }}
@@ -713,6 +732,11 @@ data:
 
     backend be_shadowtls
       server shadowtls_v3 127.0.0.1:{{ int $.Values.shadowsocks2022.shadowtls.listenPort }} check
+{{- end }}
+{{- if and (eq $roleName "transit") $mtprotoEgressShadowtlsEnabled }}
+
+    backend be_mtproto_egress_shadowtls
+      server mtproto_egress_shadowtls 127.0.0.1:{{ $mtprotoEgressShadowtlsServerListenPort }} check
 {{- end }}
 
     backend be_https_adapter
@@ -1111,11 +1135,21 @@ data:
           "sniffing": {"enabled": true, "destOverride": ["http", "tls", "quic"]}
         },
 {{- end }}
-{{- if $mtprotoEntryLocalEnabled }}
+{{- if and $mtprotoEntryLocalEnabled (not $mtprotoEgressShadowtlsEnabled) }}
         {
           "tag": "mtproto-egress-socks-in",
           "listen": "127.0.0.1",
           "port": {{ $mtprotoEgressSocksPort }},
+          "protocol": "socks",
+          "settings": {"auth": "noauth", "udp": false},
+          "sniffing": {"enabled": false}
+        },
+{{- end }}
+{{- if and (eq $roleName "transit") $mtprotoEgressShadowtlsEnabled }}
+        {
+          "tag": "mtproto-egress-endpoint-socks-in",
+          "listen": "127.0.0.1",
+          "port": {{ $mtprotoEgressShadowtlsEndpointSocksPort }},
           "protocol": "socks",
           "settings": {"auth": "noauth", "udp": false},
           "sniffing": {"enabled": false}
@@ -1268,7 +1302,7 @@ data:
         "domainStrategy": "IPIfNonMatch",
         "rules": [
           {"type": "field", "inboundTag": ["api"], "outboundTag": "api"},
-{{- if $mtprotoEntryLocalEnabled }}
+{{- if and $mtprotoEntryLocalEnabled (not $mtprotoEgressShadowtlsEnabled) }}
           {"type": "field", "inboundTag": ["mtproto-egress-socks-in"], "outboundTag": "chain-to-transit"},
 {{- end }}
           {"type": "field", "inboundTag": {{ toJson $userTrafficInbounds }}, "protocol": ["bittorrent"], "outboundTag": "block"},
