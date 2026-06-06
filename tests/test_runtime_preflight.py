@@ -2008,7 +2008,8 @@ def test_validate_runtime_contract_pair_accepts_mtproto_tcp8443_fallback() -> No
     assert findings == []
 
 
-def test_validate_runtime_contract_single_accepts_entry_mtproto_route_tcp8443() -> None:
+@pytest.mark.parametrize("route_mode", ["entry-transit-endpoint", "entry-local-endpoint-egress"])
+def test_validate_runtime_contract_single_accepts_entry_mtproto_route_tcp8443(route_mode: str) -> None:
     entry = _runtime_contract(role="ENTRY", runtime_profile="tracegate-2.2")
     entry["contract"]["expectedPorts"] = [
         {"protocol": "tcp", "port": 8443, "name": "listen tcp/8443 mtproto fallback"},
@@ -2018,7 +2019,7 @@ def test_validate_runtime_contract_single_accepts_entry_mtproto_route_tcp8443() 
     entry["fronting"]["forbiddenPublicPorts"] = []
     entry["fronting"]["mtprotoPublicPort"] = 8443
     entry["fronting"]["mtprotoFallbackPublicPort"] = 8443
-    entry["fronting"]["mtprotoRouteMode"] = "entry-transit-endpoint"
+    entry["fronting"]["mtprotoRouteMode"] = route_mode
 
     findings = validate_runtime_contract_single(entry, expected_role="ENTRY")
 

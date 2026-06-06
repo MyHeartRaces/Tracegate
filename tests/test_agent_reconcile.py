@@ -2364,6 +2364,33 @@ def test_reconcile_allows_entry_mtproto_route_tcp8443(tmp_path: Path, route_mode
     ]
 
 
+def test_reconcile_blocks_transit_tcp8443_for_entry_local_mtproto(tmp_path: Path) -> None:
+    settings = Settings(
+        agent_data_root=str(tmp_path),
+        agent_runtime_mode="systemd",
+        agent_role="TRANSIT",
+        agent_runtime_profile="xray-centric",
+        default_entry_host="entry.tracegate.test",
+        default_transit_host="endpoint.tracegate.test",
+        mtproto_domain="proto.tracegate.test",
+        mtproto_tls_domain="www.apple.com",
+        mtproto_public_port=8443,
+        mtproto_route_mode="entry-local-endpoint-egress",
+    )
+
+    reconcile_all(settings)
+
+    runtime_contract = json.loads((tmp_path / "runtime/runtime-contract.json").read_text(encoding="utf-8"))
+    assert runtime_contract["fronting"]["forbiddenTcp8443"] is True
+    assert runtime_contract["fronting"]["mtprotoFallbackPublicPort"] == 0
+    assert {"protocol": "tcp", "port": 8443, "name": "blocked tcp/8443"} in runtime_contract["contract"][
+        "forbiddenPorts"
+    ]
+    assert {"protocol": "tcp", "port": 8443, "name": "listen tcp/8443 mtproto fallback"} not in runtime_contract[
+        "contract"
+    ]["expectedPorts"]
+
+
 def test_reconcile_xray_centric_live_sync_passes_hysteria_user_specs(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

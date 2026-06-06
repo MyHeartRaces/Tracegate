@@ -5013,7 +5013,10 @@ def _contract_mtproto_uses_tcp8443(contract: dict[str, Any], *, role_upper: str)
     fronting = _row_dict(contract, "fronting")
     route_mode = str(fronting.get("mtprotoRouteMode") or "").strip().lower()
     return (
-        (role_upper == "TRANSIT" or (role_upper == "ENTRY" and route_mode == "entry-transit-endpoint"))
+        (
+            (role_upper == "TRANSIT" and route_mode != "entry-local-endpoint-egress")
+            or (role_upper == "ENTRY" and route_mode in {"entry-transit-endpoint", "entry-local-endpoint-egress"})
+        )
         and _row_int(fronting, "mtprotoPublicPort") == TRACEGATE_FORBIDDEN_PUBLIC_TCP_PORT
         and _row_int(fronting, "mtprotoFallbackPublicPort") == TRACEGATE_FORBIDDEN_PUBLIC_TCP_PORT
         and not bool(fronting.get("forbiddenTcp8443", True))
@@ -6643,10 +6646,14 @@ def _validate_forbidden_public_ports(contract: dict[str, Any], *, role_prefix: s
     }
     mtproto_uses_tcp8443 = (
         (
-            role_prefix == "transit"
+            (
+                role_prefix == "transit"
+                and str(fronting.get("mtprotoRouteMode") or "").strip().lower() != "entry-local-endpoint-egress"
+            )
             or (
                 role_prefix == "entry"
-                and str(fronting.get("mtprotoRouteMode") or "").strip().lower() == "entry-transit-endpoint"
+                and str(fronting.get("mtprotoRouteMode") or "").strip().lower()
+                in {"entry-transit-endpoint", "entry-local-endpoint-egress"}
             )
         )
         and int(fronting.get("mtprotoPublicPort") or 0) == TRACEGATE_FORBIDDEN_PUBLIC_TCP_PORT

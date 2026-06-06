@@ -310,7 +310,8 @@ async def test_gather_health_checks_allows_mtproto_tcp8443_fallback(monkeypatch)
 
 
 @pytest.mark.asyncio
-async def test_gather_health_checks_allows_entry_mtproto_route_tcp8443(monkeypatch):
+@pytest.mark.parametrize("route_mode", ["entry-transit-endpoint", "entry-local-endpoint-egress"])
+async def test_gather_health_checks_allows_entry_mtproto_route_tcp8443(monkeypatch, route_mode):
     def _port_check(protocol: str, port: int) -> tuple[bool, str]:
         return (protocol, port) in {("tcp", 443), ("tcp", 8443), ("udp", TRACEGATE_PUBLIC_UDP_PORT)}, f"{protocol}:{port}"
 
@@ -330,12 +331,39 @@ async def test_gather_health_checks_allows_entry_mtproto_route_tcp8443(monkeypat
         "kubernetes",
         "xray-centric",
         mtproto_public_port=8443,
-        mtproto_route_mode="entry-transit-endpoint",
+        mtproto_route_mode=route_mode,
     )
 
     by_name = {row["name"]: row for row in checks}
     assert "blocked tcp/8443" not in by_name
     assert by_name["listen tcp/8443 mtproto fallback"]["ok"] is True
+
+
+@pytest.mark.asyncio
+async def test_gather_health_checks_blocks_transit_tcp8443_for_entry_local_mtproto(monkeypatch):
+    monkeypatch.setattr(system, "check_port", lambda protocol, port: (False, f"{protocol}:{port}"))
+    monkeypatch.setattr(system, "check_port_blocked", lambda protocol, port: (True, f"{protocol}:{port}"))
+    monkeypatch.setattr(system, "check_process", lambda name: (True, name))
+    monkeypatch.setattr(system, "check_systemd", lambda name: (False, name))
+
+    async def _stats(url, secret):
+        return True, "auth=200"
+
+    monkeypatch.setattr(system, "check_hysteria_stats_secret", _stats)
+
+    checks = await system.gather_health_checks(
+        "http://127.0.0.1:9999/traffic",
+        "secret",
+        "TRANSIT",
+        "kubernetes",
+        "tracegate-2.2",
+        mtproto_public_port=8443,
+        mtproto_route_mode="entry-local-endpoint-egress",
+    )
+
+    by_name = {row["name"]: row for row in checks}
+    assert "listen tcp/8443 mtproto fallback" not in by_name
+    assert by_name["blocked tcp/8443"]["ok"] is True
 
 
 @pytest.mark.asyncio

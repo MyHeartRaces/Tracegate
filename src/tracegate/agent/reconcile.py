@@ -566,7 +566,7 @@ def _build_link_crypto_contract_payload(settings: Settings) -> dict[str, object]
     mtproto_uses_tcp8443 = (
         mtproto_public_port == TRACEGATE_FORBIDDEN_PUBLIC_TCP_PORT
         and (
-            role_upper == "TRANSIT"
+            (role_upper == "TRANSIT" and mtproto_route_mode != "entry-local-endpoint-egress")
             or (
                 role_upper == "ENTRY"
                 and mtproto_route_mode in {"entry-transit-endpoint", "entry-local-endpoint-egress"}
@@ -927,7 +927,7 @@ def _build_runtime_contract_payload(settings: Settings) -> dict[str, object]:
     mtproto_route_mode = str(settings.mtproto_route_mode or "").strip().lower()
     mtproto_uses_tcp8443 = (
         (
-            role_upper == "TRANSIT"
+            (role_upper == "TRANSIT" and mtproto_route_mode != "entry-local-endpoint-egress")
             or (
                 role_upper == "ENTRY"
                 and mtproto_route_mode in {"entry-transit-endpoint", "entry-local-endpoint-egress"}
