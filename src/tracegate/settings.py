@@ -109,7 +109,7 @@ class Settings(BaseSettings):
         "4. Если меняешь телефон, ноутбук или клиент, сначала переключи активное устройство.\n\n"
         "Как это устроено:\n"
         "Устройство - телефон, ноутбук, планшет или отдельный клиент. Подключение - профиль для выбранного "
-        "устройства. Ревизия - версия конфига внутри подключения. Если нужно сменить SNI или обновить параметры, "
+        "устройства. Ревизия - версия конфига внутри подключения. Чтобы получить новую пару Entry/SNI или обновить параметры, "
         "перевыпусти ревизию, а не создавай дубли.\n\n"
         "Какой профиль выбрать:\n"
         "V1-Chain-Reality-VLESS - основной выбор для мобильного интернета.\n"
@@ -149,7 +149,8 @@ class Settings(BaseSettings):
         "Shadowrocket: https://apps.apple.com/us/app/shadowrocket/id932747118\n"
         "Throne: https://throneproj.github.io/get_started/installation/\n\n"
         "Если не работает:\n"
-        "Проверь активное устройство, перевыпусти ревизию и попробуй другой SNI. Для мобильной сети сначала "
+        "Проверь активное устройство и перевыпусти ревизию: новый Entry shard и SNI назначатся автоматически. "
+        "Для мобильной сети сначала "
         "пробуй V1-Chain-Reality-VLESS. Если UDP режется, не начинай с V2/Hysteria.\n\n"
         "GitHub: https://github.com/MyHeartRaces/Tracegate"
     )
@@ -428,6 +429,8 @@ class Settings(BaseSettings):
     endpoint_ingress_hosts: list[str] = Field(default_factory=list)
     entry_ingress_shards: list[dict] = Field(default_factory=list)
     entry_ingress_alias_token_length: int = 20
+    entry_ingress_exclusive_sni_pairs_enabled: bool = False
+    entry_ingress_sni_pool: list[str] = Field(default_factory=list)
     mtproto_ingress_hosts: list[str] = Field(default_factory=list)
 
     # Material required to build working client configs.

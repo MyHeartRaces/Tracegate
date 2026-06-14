@@ -259,6 +259,10 @@ spec:
               value: {{ toJson (.Values.architecture.entryIngress.shards | default (list)) | quote }}
             - name: ENTRY_INGRESS_ALIAS_TOKEN_LENGTH
               value: {{ int .Values.architecture.entryIngress.alias.tokenLength | quote }}
+            - name: ENTRY_INGRESS_EXCLUSIVE_SNI_PAIRS_ENABLED
+              value: {{ dig "exclusiveSniPairs" "enabled" false .Values.architecture.entryIngress | quote }}
+            - name: ENTRY_INGRESS_SNI_POOL
+              value: {{ toJson (dig "exclusiveSniPairs" "pool" (list) .Values.architecture.entryIngress) | quote }}
             - name: MTPROTO_INGRESS_HOSTS
               value: {{ toJson $mtprotoIngressHosts | quote }}
             - name: REALITY_PUBLIC_KEY

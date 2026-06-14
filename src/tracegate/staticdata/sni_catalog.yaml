@@ -1,154 +1,180 @@
 - id: 4
   fqdn: a.wb.ru
-  enabled: true
+  enabled: false
   is_test: false
-  note: работает на МТС.
-  providers:
-  - mts
+  note: Legacy compatibility reference; no longer issued.
+  providers: []
 - id: 8
   fqdn: alfabank.ru
-  enabled: true
+  enabled: false
   is_test: false
-  note: работает на МТС, Мегафон, Т2, Yota.
-  providers:
-  - mts
-  - megafon
-  - t2
-  - yota
+  note: Legacy compatibility reference; no longer issued.
+  providers: []
 - id: 25
   fqdn: dzen.ru
+  enabled: false
+  is_test: false
+  note: Legacy compatibility reference; no longer issued.
+  providers: []
+- id: 32
+  fqdn: goya.rutube.ru
+  enabled: false
+  is_test: false
+  note: Legacy compatibility reference; no longer issued.
+  providers: []
+- id: 42
+  fqdn: login.vk.com
+  enabled: false
+  is_test: false
+  note: Legacy compatibility reference; no longer issued.
+  providers: []
+- id: 50
+  fqdn: ok.ru
+  enabled: false
+  is_test: false
+  note: Legacy compatibility reference; no longer issued.
+  providers: []
+- id: 57
+  fqdn: queuev4.vk.com
+  enabled: false
+  is_test: false
+  note: Legacy compatibility reference; no longer issued.
+  providers: []
+- id: 62
+  fqdn: sba.yandex.net
+  enabled: false
+  is_test: false
+  note: Legacy compatibility reference; no longer issued.
+  providers: []
+- id: 66
+  fqdn: speller.yandex.net
+  enabled: false
+  is_test: false
+  note: Legacy compatibility reference; no longer issued.
+  providers: []
+- id: 67
+  fqdn: splitter.wb.ru
+  enabled: false
+  is_test: false
+  note: Legacy compatibility reference; no longer issued.
+  providers: []
+- id: 69
+  fqdn: st.ozone.ru
+  enabled: false
+  is_test: false
+  note: Legacy compatibility reference; no longer issued.
+  providers: []
+- id: 86
+  fqdn: vk.com
+  enabled: false
+  is_test: false
+  note: Legacy compatibility reference; no longer issued.
+  providers: []
+- id: 92
+  fqdn: www.kinopoisk.ru
+  enabled: false
+  is_test: false
+  note: Legacy compatibility reference; no longer issued.
+  providers: []
+- id: 97
+  fqdn: www.wildberries.ru
+  enabled: false
+  is_test: false
+  note: Legacy compatibility reference; no longer issued.
+  providers: []
+- id: 100
+  fqdn: yandex.ru
+  enabled: false
+  is_test: false
+  note: Legacy compatibility reference; no longer issued.
+  providers: []
+- id: 101
+  fqdn: partners.lemanapro.ru
   enabled: true
   is_test: false
-  note: работает на Мегафон, Т2.
-  providers:
-  - megafon
-  - t2
-- id: 32
+  note: Less-popular whitelist target; TLS 1.3 verified.
+  providers: []
+- id: 102
   fqdn: goya.rutube.ru
   enabled: true
   is_test: false
-  note: работает на МТС, Мегафон, Т2, Тмобайл, РТК.
-  providers:
-  - mts
-  - megafon
-  - t2
-  - tmobile
-  - rtk
-- id: 42
-  fqdn: login.vk.com
+  note: Less-popular whitelist target; TLS 1.3 verified.
+  providers: []
+- id: 103
+  fqdn: ssp.rutube.ru
   enabled: true
   is_test: false
-  note: работает на МТС, Мегафон, Т2, Тмобайл, РТК.
-  providers:
-  - mts
-  - megafon
-  - t2
-  - tmobile
-  - rtk
-- id: 50
-  fqdn: ok.ru
+  note: Less-popular whitelist target; TLS 1.3 verified.
+  providers: []
+- id: 104
+  fqdn: public-api.reviews.2gis.com
   enabled: true
   is_test: false
-  note: работает на МТС, Мегафон.
-  providers:
-  - mts
-  - megafon
-- id: 57
-  fqdn: queuev4.vk.com
+  note: Less-popular whitelist target; TLS 1.3 verified.
+  providers: []
+- id: 105
+  fqdn: api.photo.2gis.com
   enabled: true
   is_test: false
-  note: работает на МТС, Мегафон, Т2, Тмобайл, РТК, Yota.
-  providers:
-  - mts
-  - megafon
-  - t2
-  - tmobile
-  - rtk
-  - yota
-- id: 62
-  fqdn: sba.yandex.net
+  note: Less-popular whitelist target; TLS 1.3 verified.
+  providers: []
+- id: 106
+  fqdn: styles.api.2gis.com
   enabled: true
   is_test: false
-  note: работает на МТС, Мегафон.
-  providers:
-  - mts
-  - megafon
-- id: 66
-  fqdn: speller.yandex.net
+  note: Less-popular whitelist target; TLS 1.3 verified.
+  providers: []
+- id: 107
+  fqdn: api.reviews.2gis.com
   enabled: true
   is_test: false
-  note: работает на МТС, Мегафон, Т2, Тмобайл, РТК, Yota.
-  providers:
-  - mts
-  - megafon
-  - t2
-  - tmobile
-  - rtk
-  - yota
-- id: 67
-  fqdn: splitter.wb.ru
+  note: Less-popular whitelist target; TLS 1.3 verified.
+  providers: []
+- id: 108
+  fqdn: api.evotor.ru
   enabled: true
   is_test: false
-  note: работает на МТС, Мегафон, Т2, Тмобайл, РТК, Yota.
-  providers:
-  - mts
-  - megafon
-  - t2
-  - tmobile
-  - rtk
-  - yota
-- id: 69
-  fqdn: st.ozone.ru
+  note: Less-popular whitelist target; TLS 1.3 verified.
+  providers: []
+- id: 109
+  fqdn: api.max.ru
   enabled: true
   is_test: false
-  note: работает на МТС, Мегафон, Т2, Тмобайл, РТК, Yota.
-  providers:
-  - mts
-  - megafon
-  - t2
-  - tmobile
-  - rtk
-  - yota
-- id: 86
-  fqdn: vk.com
+  note: Less-popular whitelist target; TLS 1.3 verified.
+  providers: []
+- id: 110
+  fqdn: cdn.newyear.mail.ru
   enabled: true
   is_test: false
-  note: работает на МТС, Мегафон, Т2, Тмобайл, РТК.
-  providers:
-  - mts
-  - megafon
-  - t2
-  - tmobile
-  - rtk
-- id: 92
-  fqdn: www.kinopoisk.ru
+  note: Less-popular whitelist target; TLS 1.3 verified.
+  providers: []
+- id: 111
+  fqdn: static.dl.mail.ru
   enabled: true
   is_test: false
-  note: работает на МТС, Мегафон, Т2, Тмобайл, РТК, Yota.
-  providers:
-  - mts
-  - megafon
-  - t2
-  - tmobile
-  - rtk
-  - yota
-- id: 97
-  fqdn: www.wildberries.ru
+  note: Less-popular whitelist target; TLS 1.3 verified.
+  providers: []
+- id: 112
+  fqdn: static.lemanapro.ru
   enabled: true
   is_test: false
-  note: работает на МТС, Мегафон, Т2, Тмобайл, РТК.
-  providers:
-  - mts
-  - megafon
-  - t2
-  - tmobile
-  - rtk
-- id: 100
-  fqdn: yandex.ru
+  note: Less-popular whitelist target; TLS 1.3 verified.
+  providers: []
+- id: 113
+  fqdn: api.dobro.ru
   enabled: true
   is_test: false
-  note: работает на МТС, Мегафон, Т2.
-  providers:
-  - mts
-  - megafon
-  - t2
+  note: Less-popular whitelist target; TLS 1.3 verified.
+  providers: []
+- id: 114
+  fqdn: market.rzd.ru
+  enabled: true
+  is_test: false
+  note: Less-popular whitelist target; TLS 1.3 verified.
+  providers: []
+- id: 115
+  fqdn: api.events.plus.yandex.net
+  enabled: true
+  is_test: false
+  note: Less-popular whitelist target; TLS 1.3 verified.
+  providers: []

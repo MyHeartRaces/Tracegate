@@ -2411,18 +2411,6 @@ async def new_connection(callback: CallbackQuery) -> None:
             await _create_v0_encrypted_vless(callback, device_id=device_id)
             await callback.answer()
             return
-        if protocol == ConnectionProtocol.VLESS_REALITY:
-            await _safe_edit_text(callback.message,
-                "🌐 Выберите провайдера для фильтра SNI:",
-                reply_markup=provider_keyboard_with_cancel(
-                    "new",
-                    f"{spec}:{device_id}",
-                    cancel_callback_data="conn_create",
-                ),
-            )
-            await callback.answer()
-            return
-
         user = await ensure_user(callback.from_user.id)
         protocol, mode, variant = _profile(spec)
         connection, revision = await api.create_connection_and_revision(
@@ -2432,7 +2420,9 @@ async def new_connection(callback: CallbackQuery) -> None:
             mode,
             variant,
             None,
-            custom_overrides_json=None,
+            custom_overrides_json={"vless_encryption": False}
+            if protocol == ConnectionProtocol.VLESS_REALITY
+            else None,
         )
         text, keyboard = await render_connections_page(callback.from_user.id)
         await _safe_edit_text(callback.message, text, reply_markup=keyboard)
@@ -2460,14 +2450,23 @@ async def vless_new(callback: CallbackQuery) -> None:
         await callback.answer()
         return
 
-    await _safe_edit_text(callback.message,
-        "🌐 Выберите провайдера для фильтра SNI:",
-        reply_markup=provider_keyboard_with_cancel(
-            "new",
-            f"{spec}:{device_id}",
-            cancel_callback_data="conn_create",
-        ),
-    )
+    try:
+        user = await ensure_user(callback.from_user.id)
+        protocol, mode, variant = _profile(spec)
+        _connection, revision = await api.create_connection_and_revision(
+            user["telegram_id"],
+            device_id,
+            protocol,
+            mode,
+            variant,
+            None,
+            custom_overrides_json={"vless_encryption": False},
+        )
+        text, keyboard = await render_connections_page(callback.from_user.id)
+        await _safe_edit_text(callback.message, text, reply_markup=keyboard)
+        await _send_client_config(callback, revision, context="created")
+    except Exception as exc:  # noqa: BLE001
+        await callback.message.answer(_msg_error(exc))
     await callback.answer()
 
 
@@ -2519,15 +2518,20 @@ async def vless_transport(callback: CallbackQuery) -> None:
 
     try:
         if transport == "reality":
-            await _safe_edit_text(callback.message,
-                "🌐 Выберите провайдера для фильтра SNI:",
-                reply_markup=provider_keyboard_with_cancel(
-                    "new",
-                    f"{spec}:{device_id}",
-                    cancel_callback_data="conn_create",
-                ),
+            user = await ensure_user(callback.from_user.id)
+            protocol, mode, variant = _profile(spec)
+            _connection, revision = await api.create_connection_and_revision(
+                user["telegram_id"],
+                device_id,
+                protocol,
+                mode,
+                variant,
+                None,
+                custom_overrides_json={"vless_encryption": False},
             )
-            await callback.answer()
+            text, keyboard = await render_connections_page(callback.from_user.id)
+            await _safe_edit_text(callback.message, text, reply_markup=keyboard)
+            await _send_client_config(callback, revision, context="created")
             return
 
         raise ValueError("unknown transport")
@@ -3150,10 +3154,14 @@ async def show_current_revision_config(callback: CallbackQuery) -> None:
 @router.callback_query(F.data.startswith("issuepick:"))
 async def issue_pick_sni(callback: CallbackQuery) -> None:
     _, connection_id = callback.data.split(":", 1)
-    await _safe_edit_text(callback.message,
-        "🌐 Выберите провайдера (для фильтра SNI):",
-        reply_markup=provider_keyboard_with_cancel("issue", connection_id, cancel_callback_data=f"revs:{connection_id}"),
-    )
+    try:
+        revision = await api.issue_revision(connection_id)
+        text, keyboard = await render_revisions_page(revision["connection_id"])
+        await _safe_edit_text(callback.message, text, reply_markup=keyboard)
+        await _cleanup_related_messages(callback, connection_id=revision["connection_id"])
+        await _send_client_config(callback, revision, context="issued")
+    except ApiClientError as exc:
+        await callback.message.answer(_msg_error(exc))
     await callback.answer()
 
 

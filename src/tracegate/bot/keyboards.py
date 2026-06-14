@@ -254,7 +254,7 @@ def vless_transport_keyboard(*, spec: str, device_id: str) -> InlineKeyboardMark
     # Legacy compatibility keyboard for old callback paths.
     rows: list[list[InlineKeyboardButton]] = []
     if spec in {"v1", "v1direct"}:
-        rows.append([InlineKeyboardButton(text="🛡️ Reality (выбор SNI)", callback_data=f"vlesstrans:{spec}:{device_id}:reality")])
+        rows.append([InlineKeyboardButton(text="🛡️ Reality (автовыбор)", callback_data=f"vlesstrans:{spec}:{device_id}:reality")])
     rows.append([InlineKeyboardButton(text="↩️ Отмена", callback_data="connections")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
@@ -304,7 +304,7 @@ def provider_keyboard_with_cancel(context: str, target_id: str, *, cancel_callba
 def revisions_keyboard(connection_id: str, revisions: list[dict], is_vless: bool, device_id: str) -> InlineKeyboardMarkup:
     rows: list[list[InlineKeyboardButton]] = []
     if is_vless:
-        rows.append([InlineKeyboardButton(text="➕ Новая ревизия (SNI)", callback_data=f"issuepick:{connection_id}")])
+        rows.append([InlineKeyboardButton(text="➕ Новая ревизия", callback_data=f"issueplain:{connection_id}")])
     else:
         rows.append([InlineKeyboardButton(text="➕ Новая ревизия", callback_data=f"issueplain:{connection_id}")])
     if revisions:

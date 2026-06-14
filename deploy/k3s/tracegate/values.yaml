@@ -39,6 +39,9 @@ architecture:
     shards: []
     alias:
       tokenLength: 20
+    exclusiveSniPairs:
+      enabled: false
+      pool: []
     firewall:
       required: true
     channel:

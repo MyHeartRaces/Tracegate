@@ -9,6 +9,7 @@ from tracegate.services.sni_catalog import load_catalog
 def test_sni_catalog_integrity() -> None:
     rows = load_catalog()
     assert rows, "static SNI catalog must not be empty"
+    enabled = [row for row in rows if row.enabled]
 
     # IDs are the stable reference used by revisions; keep ordering stable.
     ids = [r.id for r in rows]
@@ -23,6 +24,10 @@ def test_sni_catalog_integrity() -> None:
             assert p == p.lower().strip()
             assert p in allowed_providers
 
+    assert len(enabled) == 15
+    assert all(not row.providers for row in enabled)
+    assert not {"yandex.ru", "vk.com", "ok.ru", "www.wildberries.ru"} & {row.fqdn for row in enabled}
+
 
 def test_private_k3s_values_have_reality_inbound_for_each_bot_sni() -> None:
     private_values = Path("deploy/k3s/values-tracegate.private.yaml")
@@ -33,4 +38,6 @@ def test_private_k3s_values_have_reality_inbound_for_each_bot_sni() -> None:
     grouped_snis = {sni for group in groups for sni in group["snis"]}
     enabled_snis = {row.fqdn for row in load_catalog() if row.enabled}
 
-    assert grouped_snis == enabled_snis
+    # Private production overlays may retain disabled legacy SNI groups while
+    # previously issued revisions drain.
+    assert enabled_snis <= grouped_snis

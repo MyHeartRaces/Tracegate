@@ -36,7 +36,7 @@ def _has_text(texts: list[str], needle: str) -> bool:
 def test_vless_transport_keyboard_v1_shows_reality_only() -> None:
     kb = vless_transport_keyboard(spec="v1", device_id="dev-1")
     texts = _button_texts(kb)
-    assert _has_text(texts, "Reality (выбор SNI)")
+    assert _has_text(texts, "Reality (автовыбор)")
     assert not _has_text(texts, "gRPC (HTTP/2 TLS)")
     assert not _has_text(texts, "WS+TLS (legacy)")
 
@@ -44,7 +44,7 @@ def test_vless_transport_keyboard_v1_shows_reality_only() -> None:
 def test_vless_transport_keyboard_v2_has_no_transport_choices() -> None:
     kb = vless_transport_keyboard(spec="v2", device_id="dev-2")
     texts = _button_texts(kb)
-    assert not _has_text(texts, "Reality (выбор SNI)")
+    assert not _has_text(texts, "Reality (автовыбор)")
     assert not _has_text(texts, "gRPC (HTTP/2 TLS)")
     assert not _has_text(texts, "WS+TLS (legacy)")
     assert _has_text(texts, "Отмена")
@@ -262,5 +262,6 @@ def test_revisions_keyboard_uses_delete_confirmation_callback() -> None:
         True,
         "dev-1",
     )
+    assert kb.inline_keyboard[0][0].callback_data == "issueplain:conn-1"
     delete_button = kb.inline_keyboard[2][1]
     assert delete_button.callback_data == "revokeask:rev-1"

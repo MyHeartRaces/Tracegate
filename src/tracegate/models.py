@@ -137,6 +137,9 @@ class ConnectionRevision(Base):
     )
     # Static SNI catalog lives in the repo (not in Postgres). We store only the selected catalog id.
     camouflage_sni_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Active V1 Chain revisions can exclusively lease one Entry shard/SNI pair.
+    ingress_pair_key: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    ingress_shard_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     effective_config_json: Mapped[dict] = mapped_column(JSON, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
 
@@ -150,6 +153,12 @@ class ConnectionRevision(Base):
             "slot",
             unique=True,
             postgresql_where=text("status = 'ACTIVE'"),
+        ),
+        Index(
+            "uq_connection_revision_active_ingress_pair",
+            "ingress_pair_key",
+            unique=True,
+            postgresql_where=text("status = 'ACTIVE' AND ingress_pair_key IS NOT NULL"),
         ),
     )
 

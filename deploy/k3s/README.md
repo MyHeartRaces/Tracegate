@@ -71,6 +71,13 @@ client shard IPv4 addresses. HAProxy binds only shard addresses. Because UDP
 runtimes may bind wildcard sockets, operators must render and persist the
 required host policy with `deploy/k3s/entry-ingress-firewall.py`.
 
+New four-address deployments should enable
+`architecture.entryIngress.exclusiveSniPairs`. The control plane then leases a
+unique active `(Entry shard, SNI)` pair to each V1 Chain Reality revision.
+Configure 12 to 15 pool domains and exactly one
+`gateway.realityMultiInboundGroups` row per domain. Three active shards and 15
+domains provide 45 active revision slots, including overlap revisions.
+
 Legacy three-node deployments retain the encrypted-runtime guard documented in
 [docs/node-encryption-runbook.md](../../docs/node-encryption-runbook.md).
 Future `entry-endpoint` deployments disable the host-level LUKS/dm-crypt

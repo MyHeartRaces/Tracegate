@@ -2947,6 +2947,50 @@ def test_tracegate22_k3s_renders_reality_sni_demux_groups(tmp_path: Path) -> Non
     assert groups == values["gateway"]["realityMultiInboundGroups"]
 
 
+def test_tracegate22_exclusive_entry_sni_pairs_render_control_plane_contract(tmp_path: Path) -> None:
+    values = _four_ip_entry_overlay_values()
+    pool = [f"camouflage-{idx}.prod.test" for idx in range(12)]
+    values["architecture"]["entryIngress"]["exclusiveSniPairs"] = {"enabled": True, "pool": pool}
+    values["gateway"]["realityMultiInboundGroups"] = [
+        {"id": f"sni-{idx}", "port": 2500 + idx, "dest": sni, "snis": [sni]}
+        for idx, sni in enumerate(pool, start=1)
+    ]
+
+    rendered = _helm_template_with_values(tmp_path, values)
+
+    assert rendered.returncode == 0, rendered.stderr
+    api = _deployment_by_component(rendered.stdout, "api")
+    api_container = _containers_by_name(api["spec"]["template"])["api"]
+    assert _env_value(api_container, "ENTRY_INGRESS_EXCLUSIVE_SNI_PAIRS_ENABLED") == "true"
+    assert yaml.safe_load(_env_value(api_container, "ENTRY_INGRESS_SNI_POOL")) == pool
+
+
+def test_tracegate22_exclusive_entry_sni_pairs_reject_mismatched_inbounds(tmp_path: Path) -> None:
+    values = _four_ip_entry_overlay_values()
+    pool = [f"camouflage-{idx}.prod.test" for idx in range(12)]
+    values["architecture"]["entryIngress"]["exclusiveSniPairs"] = {"enabled": True, "pool": pool}
+    values["gateway"]["realityMultiInboundGroups"] = [
+        {"id": "only-one", "port": 2501, "dest": pool[0], "snis": [pool[0]]}
+    ]
+
+    rendered = _helm_template_with_values(tmp_path, values)
+
+    assert rendered.returncode != 0
+    assert "exactly one realityMultiInboundGroups row per pool domain" in rendered.stderr
+
+
+def test_tracegate22_entry_ingress_rejects_duplicate_client_ip(tmp_path: Path) -> None:
+    values = _four_ip_entry_overlay_values()
+    values["architecture"]["entryIngress"]["shards"][1]["publicIp"] = values["architecture"]["entryIngress"]["shards"][0][
+        "publicIp"
+    ]
+
+    rendered = _helm_template_with_values(tmp_path, values)
+
+    assert rendered.returncode != 0
+    assert "architecture.entryIngress.shards[].publicIp values must be unique" in rendered.stderr
+
+
 def test_tracegate22_k3s_renders_naiveproxy_tcp443_demux(tmp_path: Path) -> None:
     rendered = _helm_template_with_values(tmp_path, {})
 

@@ -45,6 +45,7 @@ def _rev(*, connection_id, slot: int, status: RecordStatus) -> SimpleNamespace:
         connection_id=connection_id,
         slot=slot,
         status=status,
+        ingress_pair_key=None,
         created_at=datetime.now(timezone.utc),
     )
 
@@ -130,6 +131,30 @@ async def test_activate_revision_not_found() -> None:
     session = _FakeSession(None)
     with pytest.raises(RevisionError, match="Revision not found"):
         await revisions_service.activate_revision(session, uuid4())
+
+
+@pytest.mark.asyncio
+async def test_activate_revision_rejects_pair_leased_by_another_active_revision(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    connection_id = uuid4()
+    target = _rev(connection_id=connection_id, slot=1, status=RecordStatus.REVOKED)
+    target.ingress_pair_key = "a" * 64
+    connection = SimpleNamespace(id=connection_id, protocol=ConnectionProtocol.VLESS_REALITY, user_id=1, revisions=[target])
+    session = _FakeSession(target)
+
+    async def _load_connection(_session, _connection_id):
+        return connection
+
+    async def _scalar(_statement):
+        return uuid4()
+
+    session.scalar = _scalar  # type: ignore[attr-defined]
+    monkeypatch.setattr(revisions_service, "_load_connection", _load_connection)
+
+    with pytest.raises(RevisionError, match="already leased"):
+        await revisions_service.activate_revision(session, target.id)
+    assert session.flush_calls == 0
 
 
 @pytest.mark.asyncio
