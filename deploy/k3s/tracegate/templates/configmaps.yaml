@@ -90,14 +90,12 @@ data:
       enabled: {{ .Values.gateway.nodeEncryption.enabled }}
       required: {{ .Values.gateway.nodeEncryption.required }}
       runtimeInitValidation: {{ .Values.gateway.nodeEncryption.runtimeInitValidation }}
-      roles:
-        - entry
-        - transit
+      roles: {{ ternary (list "entry" "transit") (list) .Values.gateway.nodeEncryption.enabled | toJson }}
       dataHostPathPrefix: {{ .Values.gateway.agent.dataHostPathPrefix | quote }}
       markerFile: {{ .Values.gateway.nodeEncryption.markerFile | quote }}
       markerValue: {{ .Values.gateway.nodeEncryption.markerValue | quote }}
       requireDeviceMapperSource: {{ .Values.gateway.nodeEncryption.requireDeviceMapperSource }}
-      futureEndpointRecommended: true
+      futureEndpointRecommended: {{ .Values.gateway.nodeEncryption.enabled }}
       nodeAnnotations:
 {{ toYaml .Values.gateway.nodeEncryption.nodeAnnotations | nindent 8 }}
     interconnect:

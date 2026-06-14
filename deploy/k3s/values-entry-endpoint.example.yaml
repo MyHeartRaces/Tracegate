@@ -72,6 +72,17 @@ topology:
         tracegate.io/role: entry
 
 gateway:
+  nodeEncryption:
+    enabled: false
+    required: false
+    runtimeInitValidation: false
+    markerFile: ""
+    markerValue: ""
+    requireDeviceMapperSource: false
+    nodeAnnotations:
+      enabled: false
+      encryptedRuntime: ""
+      expectedValue: ""
   roles:
     transit:
       enabled: true

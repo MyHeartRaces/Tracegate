@@ -1027,17 +1027,32 @@ def _build_runtime_contract_payload(settings: Settings) -> dict[str, object]:
         "nodeEncryption": {
             "enabled": bool(settings.agent_node_encryption_enabled),
             "required": bool(settings.agent_node_encryption_required),
-            "roles": ["entry", "transit"],
+            "roles": ["entry", "transit"] if settings.agent_node_encryption_enabled else [],
             "dataHostPathPrefix": "/var/lib/tracegate",
-            "markerFile": str(settings.agent_node_encryption_marker_file or "").strip() or ".tracegate-encrypted",
-            "markerValue": str(settings.agent_node_encryption_marker_value or "").strip(),
+            "markerFile": (
+                str(settings.agent_node_encryption_marker_file or "").strip() or ".tracegate-encrypted"
+                if settings.agent_node_encryption_enabled
+                else ""
+            ),
+            "markerValue": (
+                str(settings.agent_node_encryption_marker_value or "").strip()
+                if settings.agent_node_encryption_enabled
+                else ""
+            ),
             "requireDeviceMapperSource": bool(settings.agent_node_encryption_require_device_mapper_source),
-            "futureEndpointRecommended": True,
+            "futureEndpointRecommended": bool(settings.agent_node_encryption_enabled),
             "nodeAnnotations": {
-                "enabled": True,
-                "encryptedRuntime": str(settings.agent_node_encryption_annotation_key or "").strip()
-                or "tracegate.io/encrypted-runtime",
-                "expectedValue": str(settings.agent_node_encryption_annotation_expected_value or "").strip() or "true",
+                "enabled": bool(settings.agent_node_encryption_enabled and settings.agent_node_encryption_required),
+                "encryptedRuntime": (
+                    str(settings.agent_node_encryption_annotation_key or "").strip() or "tracegate.io/encrypted-runtime"
+                    if settings.agent_node_encryption_enabled
+                    else ""
+                ),
+                "expectedValue": (
+                    str(settings.agent_node_encryption_annotation_expected_value or "").strip() or "true"
+                    if settings.agent_node_encryption_enabled
+                    else ""
+                ),
             },
         },
         "linkCrypto": link_crypto,

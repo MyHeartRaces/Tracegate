@@ -403,6 +403,19 @@ def _entry_endpoint_overlay_values(*, rotation: bool = False) -> dict:
     values["network"]["egressIsolation"]["ingressPublicIPs"] = (
         ["8.8.4.4", "9.9.9.9"] if rotation else ["8.8.4.4"]
     )
+    values["gateway"]["nodeEncryption"] = {
+        "enabled": False,
+        "required": False,
+        "runtimeInitValidation": False,
+        "markerFile": "",
+        "markerValue": "",
+        "requireDeviceMapperSource": False,
+        "nodeAnnotations": {
+            "enabled": False,
+            "encryptedRuntime": "",
+            "expectedValue": "",
+        },
+    }
     values["transitRouter"]["enabled"] = False
     values["interconnect"] = {
         "emergencyXrayChain": {"enabled": True},
@@ -553,6 +566,44 @@ def test_k3s_four_ip_entry_overlay_binds_only_shards_and_renders_firewall(tmp_pa
     assert "bind 1.0.0.1:443" in rendered.stdout
     assert "bind 1.0.0.2:443" not in rendered.stdout
     assert "stick-table type ip size 1m expire 30s store conn_cur,conn_rate(10s)" in rendered.stdout
+    templates = _gateway_deployment_templates(rendered.stdout)
+    for component in ("gateway-entry", "gateway-transit"):
+        init_names = {container["name"] for container in templates[component]["spec"].get("initContainers", [])}
+        assert "validate-node-encryption" not in init_names
+    contract = _rendered_runtime_contract(rendered.stdout)
+    assert contract["nodeEncryption"]["enabled"] is False
+    assert contract["nodeEncryption"]["required"] is False
+    assert contract["nodeEncryption"]["roles"] == []
+    assert contract["nodeEncryption"]["markerFile"] == ""
+    assert contract["nodeEncryption"]["futureEndpointRecommended"] is False
+
+
+def test_k3s_entry_endpoint_rejects_host_level_node_encryption(tmp_path: Path) -> None:
+    values = _entry_endpoint_overlay_values()
+    values["gateway"]["nodeEncryption"]["enabled"] = True
+    values_path = tmp_path / "values-entry-endpoint-encrypted.yaml"
+    values_path.write_text(yaml.safe_dump(values, sort_keys=True), encoding="utf-8")
+
+    rendered = _helm_template_with_values(tmp_path, values)
+    validation = subprocess.run(
+        [
+            "python3",
+            "deploy/k3s/prod-overlay-check.py",
+            "--strict",
+            "--chart-values",
+            str(CHART_ROOT / "values.yaml"),
+            "--values",
+            str(values_path),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert rendered.returncode != 0
+    assert "architecture.mode=entry-endpoint forbids gateway.nodeEncryption host-level encryption guards" in rendered.stderr
+    assert validation.returncode != 0
+    assert "entry-endpoint requires gateway.nodeEncryption.enabled=false" in validation.stderr
 
 
 def test_k3s_strict_prod_overlay_check_rejects_transit_in_entry_endpoint(tmp_path: Path) -> None:
@@ -965,6 +1016,7 @@ def test_tracegate21_chart_externalizes_private_profiles() -> None:
     assert "architecture.ingressRotation.rotateEndpointEgress=true is forbidden" in _chart_text()
     assert "architecture.entryIngress.shards must contain exactly three shards" in _chart_text()
     assert "architecture.entryIngress.channel.tcp.bindShardIpsOnly=false is forbidden" in _chart_text()
+    assert "architecture.mode=entry-endpoint forbids gateway.nodeEncryption host-level encryption guards" in _chart_text()
     assert "gateway.trafficShaping.entry.enabled=false is forbidden" in _chart_text()
     assert "gateway.trafficShaping.entry.maxMbit must be in 1..100" in _chart_text()
     assert "gateway.trafficShaping.chainClient.maxMbit must be in 1..10" in _chart_text()

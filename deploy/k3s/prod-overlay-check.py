@@ -467,19 +467,35 @@ def validate_prod_overlay(chart_values: Path, prod_values: Path, *, strict: bool
         not bool(hysteria_traffic_shaping.get("entryChainIgnoreClientBandwidth", True)),
         "gateway.trafficShaping.hysteria.entryChainIgnoreClientBandwidth must stay false",
     )
-    require(bool(node_encryption.get("enabled", False)), "gateway.nodeEncryption.enabled must stay true")
-    require(bool(node_encryption.get("required", False)), "gateway.nodeEncryption.required must stay true")
-    require(_has_value(node_encryption.get("markerFile")), "gateway.nodeEncryption.markerFile must be set")
-    require(_has_value(node_encryption.get("markerValue")), "gateway.nodeEncryption.markerValue must be set")
-    require(bool(node_encryption_annotations.get("enabled", False)), "gateway.nodeEncryption.nodeAnnotations.enabled must stay true")
-    require(
-        _has_value(node_encryption_annotations.get("encryptedRuntime")),
-        "gateway.nodeEncryption.nodeAnnotations.encryptedRuntime must be set",
-    )
-    require(
-        _has_value(node_encryption_annotations.get("expectedValue")),
-        "gateway.nodeEncryption.nodeAnnotations.expectedValue must be set",
-    )
+    if architecture_mode == "legacy-three-node":
+        require(bool(node_encryption.get("enabled", False)), "gateway.nodeEncryption.enabled must stay true")
+        require(bool(node_encryption.get("required", False)), "gateway.nodeEncryption.required must stay true")
+        require(_has_value(node_encryption.get("markerFile")), "gateway.nodeEncryption.markerFile must be set")
+        require(_has_value(node_encryption.get("markerValue")), "gateway.nodeEncryption.markerValue must be set")
+        require(bool(node_encryption_annotations.get("enabled", False)), "gateway.nodeEncryption.nodeAnnotations.enabled must stay true")
+        require(
+            _has_value(node_encryption_annotations.get("encryptedRuntime")),
+            "gateway.nodeEncryption.nodeAnnotations.encryptedRuntime must be set",
+        )
+        require(
+            _has_value(node_encryption_annotations.get("expectedValue")),
+            "gateway.nodeEncryption.nodeAnnotations.expectedValue must be set",
+        )
+    else:
+        require(not bool(node_encryption.get("enabled", False)), "entry-endpoint requires gateway.nodeEncryption.enabled=false")
+        require(not bool(node_encryption.get("required", False)), "entry-endpoint requires gateway.nodeEncryption.required=false")
+        require(
+            not bool(node_encryption.get("runtimeInitValidation", False)),
+            "entry-endpoint requires gateway.nodeEncryption.runtimeInitValidation=false",
+        )
+        require(
+            not bool(node_encryption.get("requireDeviceMapperSource", False)),
+            "entry-endpoint requires gateway.nodeEncryption.requireDeviceMapperSource=false",
+        )
+        require(
+            not bool(node_encryption_annotations.get("enabled", False)),
+            "entry-endpoint requires gateway.nodeEncryption.nodeAnnotations.enabled=false",
+        )
     entry_small = _as_dict(gateway.get("entrySmall"))
     if bool(entry_small.get("enabled", False)):
         entry_small_rollout = _as_dict(entry_small.get("rollout"))

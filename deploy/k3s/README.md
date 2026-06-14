@@ -71,10 +71,11 @@ client shard IPv4 addresses. HAProxy binds only shard addresses. Because UDP
 runtimes may bind wildcard sockets, operators must render and persist the
 required host policy with `deploy/k3s/entry-ingress-firewall.py`.
 
-Entry and Endpoint runtime directories must be provisioned on encrypted storage
-before scheduling those roles. See
-[docs/node-encryption-runbook.md](../../docs/node-encryption-runbook.md) for
-the generic procedure.
+Legacy three-node deployments retain the encrypted-runtime guard documented in
+[docs/node-encryption-runbook.md](../../docs/node-encryption-runbook.md).
+Future `entry-endpoint` deployments disable the host-level LUKS/dm-crypt
+marker and node-annotation contract; transport encryption and external Secret
+handling remain unchanged.
 
 V4 fronting, port ownership and client import details belong in the private
 operator runbook, not in this public chart README.

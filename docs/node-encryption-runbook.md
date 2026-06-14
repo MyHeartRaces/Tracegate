@@ -1,8 +1,12 @@
-# Entry and Transit Node Encryption Runbook
+# Legacy Entry and Transit Node Encryption Runbook
 
-This runbook describes how to prepare encrypted runtime storage for Tracegate
-Entry and Transit nodes. Endpoint nodes can stay unchanged until endpoint
-runtime encryption is explicitly enabled.
+This runbook applies to retained `legacy-three-node` installations. New
+`entry-endpoint` deployments intentionally disable this host-level LUKS/dm-crypt
+contract.
+
+This runbook describes how to maintain encrypted runtime storage for retained
+legacy Entry and Transit nodes. It is not part of the future Entry plus
+Endpoint deployment package.
 
 The Helm chart does not unlock disks and must not receive the disk key. It only
 checks that the selected Entry and Transit nodes expose the expected encrypted
