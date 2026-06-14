@@ -1,5 +1,6 @@
 import asyncio
 from types import SimpleNamespace
+from uuid import UUID
 
 import pytest
 
@@ -12,6 +13,7 @@ from tracegate.services.revisions import (
     _is_placeholder_host,
     _resolve_node_public_host,
     _resolve_sni,
+    _select_revision_sticky_host,
 )
 
 
@@ -41,6 +43,59 @@ def test_resolve_node_public_host_uses_real_fqdn_when_present() -> None:
     )
 
     assert host == "entry.node.tracegate.test"
+
+
+def test_revision_sticky_host_is_stable_and_rotates_by_generation() -> None:
+    connection_id = UUID("00000000-0000-0000-0000-000000000123")
+    hosts = ["edge-a.tracegate.test", "edge-b.tracegate.test", "edge-c.tracegate.test"]
+
+    first = _select_revision_sticky_host(
+        hosts=hosts,
+        fallback="fallback.tracegate.test",
+        connection_id=connection_id,
+        rotation_generation=0,
+        role="entry",
+    )
+    repeated = _select_revision_sticky_host(
+        hosts=hosts,
+        fallback="fallback.tracegate.test",
+        connection_id=connection_id,
+        rotation_generation=0,
+        role="entry",
+    )
+    next_generation = _select_revision_sticky_host(
+        hosts=hosts,
+        fallback="fallback.tracegate.test",
+        connection_id=connection_id,
+        rotation_generation=1,
+        role="entry",
+    )
+    generations = {
+        _select_revision_sticky_host(
+            hosts=hosts,
+            fallback="fallback.tracegate.test",
+            connection_id=connection_id,
+            rotation_generation=generation,
+            role="entry",
+        )
+        for generation in range(12)
+    }
+
+    assert first == repeated
+    assert first != next_generation
+    assert generations == set(hosts)
+
+
+def test_revision_sticky_host_ignores_placeholders_and_duplicates() -> None:
+    selected = _select_revision_sticky_host(
+        hosts=["entry.example.com", "edge.tracegate.test", "edge.tracegate.test"],
+        fallback="fallback.tracegate.test",
+        connection_id=UUID("00000000-0000-0000-0000-000000000456"),
+        rotation_generation=4,
+        role="entry",
+    )
+
+    assert selected == "edge.tracegate.test"
 
 
 def test_resolve_sni_defaults_v1_reality_to_yandex() -> None:

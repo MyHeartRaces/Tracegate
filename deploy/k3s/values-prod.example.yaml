@@ -158,9 +158,9 @@ gateway:
         serverName: entry.example.com
         existingSecretName: tracegate-entry-tls
       reality:
-        dest: www.microsoft.com:443
+        dest: yandex.ru:443
         serverNames:
-          - www.microsoft.com
+          - yandex.ru
         privateKeySecret:
           name: tracegate-entry-reality
           key: private-key
@@ -178,9 +178,9 @@ gateway:
         serverName: endpoint.example.com
         existingSecretName: tracegate-transit-tls
       reality:
-        dest: www.microsoft.com:443
+        dest: splitter.wb.ru:443
         serverNames:
-          - www.microsoft.com
+          - splitter.wb.ru
         privateKeySecret:
           name: tracegate-transit-reality
           key: private-key
@@ -223,7 +223,7 @@ transitRouter:
   sni:
     decoy: transit.example.com
     reality:
-      - www.microsoft.com
+      - yandex.ru
 
 interconnect:
   emergencyXrayChain:

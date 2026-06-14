@@ -358,6 +358,19 @@ def validate_cluster(
     except ClusterPreflightError as exc:
         errors.append(f"missing namespace {namespace}: {exc}")
 
+    architecture_mode = _text(_as_dict(values.get("architecture")).get("mode")) or "legacy-three-node"
+    if architecture_mode == "entry-endpoint":
+        for legacy_role in ("transit", "chain-transit"):
+            selector = f"tracegate.io/role={legacy_role}"
+            try:
+                legacy_nodes = _kubectl_json(kubectl, context, ["get", "nodes", "-l", selector, "-o", "json"])
+            except ClusterPreflightError as exc:
+                errors.append(f"legacy node check failed ({selector}): {exc}")
+                continue
+            items = legacy_nodes.get("items") if isinstance(legacy_nodes.get("items"), list) else []
+            if items:
+                errors.append(f"entry-endpoint forbids nodes labeled {selector}")
+
     control_plane = _as_dict(values.get("controlPlane"))
     if _enabled(control_plane.get("enabled")):
         auth = _as_dict(control_plane.get("auth"))

@@ -62,9 +62,9 @@ Tracegate separates control-plane decisions from gateway execution:
 - validation tools check public chart safety and private overlay shape without
   printing secret values.
 
-Entry and Transit roles are treated as protected runtime surfaces. Endpoint
-support remains part of the model, but endpoint-specific live details stay out
-of public documentation.
+New production deployments use protected Entry and Endpoint runtime surfaces.
+The internal `transit` gateway role remains only as an Endpoint compatibility
+alias while older installations migrate.
 
 ## Layout
 
@@ -78,6 +78,12 @@ of public documentation.
 - [docs](docs): public documentation that avoids live deployment coordinates.
 - [docs/mtproto-entry-endpoint.md](docs/mtproto-entry-endpoint.md): fail-closed
   MTG on Entry with encrypted Endpoint egress.
+- [docs/entry-endpoint-migration.md](docs/entry-endpoint-migration.md):
+  two-node migration contract and promotion gates.
+- [docs/ingress-rotation.md](docs/ingress-rotation.md): revision-sticky
+  hostname pool behavior and limits.
+- [docs/project-history-summary.md](docs/project-history-summary.md):
+  public-safe architectural history.
 
 ## Local Development
 
@@ -97,7 +103,7 @@ production deployment path.
 
 The public chart is intended for rendering, validation and review. It includes
 guards for external Secrets, private profile material, decoy content, gateway
-traffic shaping and encrypted Entry/Transit runtime storage.
+traffic shaping and encrypted Entry/Endpoint runtime storage.
 
 Use placeholder values for public review. Use operator-managed overlays for
 real environments.
@@ -120,7 +126,7 @@ artifact. If it does, keep it out of this repository.
 - [docs/release-checklist.md](docs/release-checklist.md): public release review
   checklist.
 - [docs/node-encryption-runbook.md](docs/node-encryption-runbook.md): generic
-  Entry/Transit encrypted runtime storage procedure.
+  gateway encrypted runtime storage procedure.
 
 ## License
 

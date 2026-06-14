@@ -1,0 +1,60 @@
+# Apply this public-safe delta to a private production overlay for a new
+# two-node installation. Keep real hosts, addresses and credentials private.
+
+architecture:
+  mode: entry-endpoint
+  ingressRotation:
+    enabled: false
+    strategy: revision-sticky
+    entryHosts: []
+    endpointHosts: []
+    minimumPoolSize: 2
+    overlapSeconds: 600
+    requireDistinctPublicIPs: true
+    requireDistinctAsns: true
+    rotateEndpointEgress: false
+
+topology:
+  servers:
+    # The internal gateway.roles.transit compatibility name still maps here.
+    endpoint:
+      displayName: Endpoint
+      publicIp: 198.51.100.20
+      kubernetesNodeName: tracegate-endpoint
+      nodeSelector:
+        tracegate.io/role: endpoint
+    transit:
+      publicIp: ""
+      kubernetesNodeName: ""
+    entry:
+      displayName: Entry
+      publicIp: 203.0.113.10
+      kubernetesNodeName: tracegate-entry
+      nodeSelector:
+        tracegate.io/role: entry
+
+gateway:
+  roles:
+    transit:
+      enabled: true
+      canonicalServer: endpoint
+      nodeSelector:
+        tracegate.io/role: endpoint
+
+transitRouter:
+  enabled: false
+
+interconnect:
+  entryTransit:
+    enabled: false
+    routerEntry:
+      enabled: false
+    routerTransit:
+      enabled: false
+
+mtproto:
+  runtime: mtg
+  fallback:
+    enabled: false
+  route:
+    mode: entry-local-endpoint-egress

@@ -11,6 +11,7 @@ from tracegate.services.runtime_contract import TRACEGATE22_CLIENT_PROFILES
 
 CHART_ROOT = Path("deploy/k3s/tracegate")
 K3S_PROD_EXAMPLE = Path("deploy/k3s/values-prod.example.yaml")
+ENTRY_ENDPOINT_EXAMPLE = Path("deploy/k3s/values-entry-endpoint.example.yaml")
 PRIVATE_PROFILE_BODY_CANARIES = (
     "client-private-secret",
     "server-private-secret",
@@ -41,7 +42,7 @@ def _chart_text() -> str:
 
 def _public_k3s_text() -> str:
     paths = [path for path in CHART_ROOT.rglob("*") if path.is_file()]
-    paths.append(K3S_PROD_EXAMPLE)
+    paths.extend([K3S_PROD_EXAMPLE, ENTRY_ENDPOINT_EXAMPLE])
     return "\n".join(path.read_text(encoding="utf-8") for path in sorted(paths, key=str))
 
 
@@ -133,6 +134,10 @@ def test_tracegate21_chart_uses_entry_transit_roles() -> None:
     values = _values()
 
     assert values["global"]["runtimeProfile"] == "tracegate-2.2"
+    assert values["architecture"]["mode"] == "legacy-three-node"
+    assert values["architecture"]["ingressRotation"]["strategy"] == "revision-sticky"
+    assert values["architecture"]["ingressRotation"]["enabled"] is False
+    assert values["architecture"]["ingressRotation"]["rotateEndpointEgress"] is False
     assert values["controlPlane"]["auth"]["existingSecretName"] == "tracegate-control-plane-auth"
     assert values["controlPlane"]["database"]["embedded"]["enabled"] is False
     assert values["controlPlane"]["database"]["externalUrlSecret"]["name"] == "tracegate-database-url"
@@ -374,6 +379,53 @@ def _prod_overlay_values() -> dict:
     }
 
 
+def _entry_endpoint_overlay_values(*, rotation: bool = False) -> dict:
+    values = _prod_overlay_values()
+    values["architecture"] = {
+        "mode": "entry-endpoint",
+        "ingressRotation": {
+            "enabled": rotation,
+            "strategy": "revision-sticky",
+            "entryHosts": ["edge-a.prod.test", "edge-b.prod.test"] if rotation else [],
+            "endpointHosts": [],
+            "minimumPoolSize": 2,
+            "overlapSeconds": 600,
+            "requireDistinctPublicIPs": True,
+            "requireDistinctAsns": True,
+            "rotateEndpointEgress": False,
+        },
+    }
+    values["topology"]["servers"]["transit"]["publicIp"] = ""
+    values["network"]["egressIsolation"]["ingressPublicIPs"] = (
+        ["8.8.4.4", "9.9.9.9"] if rotation else ["8.8.4.4"]
+    )
+    values["transitRouter"]["enabled"] = False
+    values["interconnect"] = {
+        "emergencyXrayChain": {"enabled": True},
+        "entryTransit": {"enabled": False},
+    }
+    values["mtproto"].update(
+        {
+            "runtime": "mtg",
+            "fallback": {"enabled": False},
+            "egress": {
+                "mode": "socks5-only",
+                "socksPort": 11084,
+                "domainFrontingHost": "yandex.ru",
+                "shadowtls": {
+                    "enabled": True,
+                    "serverName": "splitter.wb.ru",
+                    "endpointHost": "1.1.1.1",
+                    "endpointPort": 443,
+                    "allowedSources": ["8.8.4.4"],
+                },
+            },
+            "route": {"mode": "entry-local-endpoint-egress"},
+        }
+    )
+    return values
+
+
 def test_k3s_strict_prod_overlay_check_accepts_private_overlay(tmp_path: Path) -> None:
     values_path = tmp_path / "values-prod.yaml"
     values_path.write_text(yaml.safe_dump(_prod_overlay_values(), sort_keys=True), encoding="utf-8")
@@ -395,6 +447,55 @@ def test_k3s_strict_prod_overlay_check_accepts_private_overlay(tmp_path: Path) -
 
     assert result.returncode == 0, result.stderr
     assert "prod-overlay-check: OK" in result.stdout
+
+
+@pytest.mark.parametrize("rotation", [False, True])
+def test_k3s_strict_prod_overlay_check_accepts_entry_endpoint_overlay(tmp_path: Path, rotation: bool) -> None:
+    values_path = tmp_path / "values-entry-endpoint.yaml"
+    values_path.write_text(yaml.safe_dump(_entry_endpoint_overlay_values(rotation=rotation), sort_keys=True), encoding="utf-8")
+
+    result = subprocess.run(
+        [
+            "python3",
+            "deploy/k3s/prod-overlay-check.py",
+            "--strict",
+            "--chart-values",
+            str(CHART_ROOT / "values.yaml"),
+            "--values",
+            str(values_path),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "prod-overlay-check: OK" in result.stdout
+
+
+def test_k3s_strict_prod_overlay_check_rejects_transit_in_entry_endpoint(tmp_path: Path) -> None:
+    values = _entry_endpoint_overlay_values()
+    values["transitRouter"]["enabled"] = True
+    values_path = tmp_path / "values-entry-endpoint.yaml"
+    values_path.write_text(yaml.safe_dump(values, sort_keys=True), encoding="utf-8")
+
+    result = subprocess.run(
+        [
+            "python3",
+            "deploy/k3s/prod-overlay-check.py",
+            "--strict",
+            "--chart-values",
+            str(CHART_ROOT / "values.yaml"),
+            "--values",
+            str(values_path),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode != 0
+    assert "entry-endpoint forbids transitRouter.enabled=true" in result.stderr
 
 
 def test_k3s_strict_prod_overlay_check_accepts_derived_entry_hosts(tmp_path: Path) -> None:
@@ -497,7 +598,7 @@ def test_tracegate21_image_helper_supports_digest_pins(tmp_path: Path) -> None:
     assert f"image: \"ghcr.io/acme/xray@{xray_digest}\"" in rendered.stdout
 
 
-def _fake_kubectl(tmp_path: Path, *, omit_private_key: str = "") -> Path:
+def _fake_kubectl(tmp_path: Path, *, omit_private_key: str = "", include_legacy_nodes: bool = True) -> Path:
     script = tmp_path / "kubectl"
     private_keys = {
         "reality-entry-private-key",
@@ -525,6 +626,7 @@ import sys
 args = sys.argv[1:]
 if args[:1] == ["--context"]:
     args = args[2:]
+include_legacy_nodes = {include_legacy_nodes!r}
 
 def emit(obj):
     print(json.dumps(obj))
@@ -540,7 +642,11 @@ if args[:2] == ["get", "nodes"]:
     if selector == "tracegate.io/role=endpoint":
         emit({{"items": [{{"metadata": {{"name": "endpoint-node", "annotations": {{"tracegate.io/ingress-public-ip": "203.0.113.10", "tracegate.io/egress-public-ip": "198.51.100.20", "tracegate.io/encrypted-runtime": "true"}}}}}}]}})
     if selector == "tracegate.io/role=transit":
-        emit({{"items": [{{"metadata": {{"name": "transit-node", "annotations": {{"tracegate.io/ingress-public-ip": "203.0.113.10", "tracegate.io/egress-public-ip": "198.51.100.20", "tracegate.io/encrypted-runtime": "true"}}}}}}]}})
+        if include_legacy_nodes:
+            emit({{"items": [{{"metadata": {{"name": "transit-node", "annotations": {{"tracegate.io/ingress-public-ip": "203.0.113.10", "tracegate.io/egress-public-ip": "198.51.100.20", "tracegate.io/encrypted-runtime": "true"}}}}}}]}})
+        emit({{"items": []}})
+    if selector == "tracegate.io/role=chain-transit":
+        emit({{"items": []}})
     if selector == "tracegate.io/role=naiveproxy":
         emit({{"items": [{{"metadata": {{"name": "naiveproxy-node", "annotations": {{"tracegate.io/ingress-public-ip": "203.0.113.10", "tracegate.io/encrypted-runtime": "true"}}}}}}]}})
     emit({{"items": []}})
@@ -592,6 +698,57 @@ def test_k3s_cluster_preflight_accepts_existing_cluster_prerequisites(tmp_path: 
     assert "secrets=7" in result.stdout
     assert "nodes=3" in result.stdout
     assert "encrypted_nodes=2" in result.stdout
+
+
+def test_k3s_cluster_preflight_accepts_two_node_architecture(tmp_path: Path) -> None:
+    values = _entry_endpoint_overlay_values()
+    values["network"]["egressIsolation"]["ingressPublicIPs"] = ["203.0.113.10"]
+    values["network"]["egressIsolation"]["egressPublicIPs"] = ["198.51.100.20"]
+    values_path = tmp_path / "values-entry-endpoint.yaml"
+    values_path.write_text(yaml.safe_dump(values, sort_keys=True), encoding="utf-8")
+
+    result = subprocess.run(
+        [
+            "python3",
+            "deploy/k3s/cluster-preflight-check.py",
+            "--chart-values",
+            str(CHART_ROOT / "values.yaml"),
+            "--values",
+            str(values_path),
+            "--kubectl",
+            str(_fake_kubectl(tmp_path, include_legacy_nodes=False)),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "nodes=2" in result.stdout
+
+
+def test_k3s_cluster_preflight_rejects_legacy_node_in_two_node_architecture(tmp_path: Path) -> None:
+    values_path = tmp_path / "values-entry-endpoint.yaml"
+    values_path.write_text(yaml.safe_dump(_entry_endpoint_overlay_values(), sort_keys=True), encoding="utf-8")
+
+    result = subprocess.run(
+        [
+            "python3",
+            "deploy/k3s/cluster-preflight-check.py",
+            "--chart-values",
+            str(CHART_ROOT / "values.yaml"),
+            "--values",
+            str(values_path),
+            "--kubectl",
+            str(_fake_kubectl(tmp_path)),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode != 0
+    assert "entry-endpoint forbids nodes labeled tracegate.io/role=transit" in result.stderr
 
 
 def test_k3s_cluster_preflight_rejects_missing_private_secret_key(tmp_path: Path) -> None:
@@ -721,6 +878,9 @@ def test_tracegate21_chart_externalizes_private_profiles() -> None:
     assert "gateway.probes.enabled=false is forbidden" in _chart_text()
     assert "gateway.privatePreflight.enabled=false is forbidden" in _chart_text()
     assert "gateway.privatePreflight.forbidPlaceholders=false is forbidden" in _chart_text()
+    assert "architecture.mode=entry-endpoint forbids transitRouter.enabled=true" in _chart_text()
+    assert "architecture.mode=entry-endpoint forbids the legacy interconnect.entryTransit path" in _chart_text()
+    assert "architecture.ingressRotation.rotateEndpointEgress=true is forbidden" in _chart_text()
     assert "gateway.trafficShaping.entry.enabled=false is forbidden" in _chart_text()
     assert "gateway.trafficShaping.entry.maxMbit must be in 1..100" in _chart_text()
     assert "gateway.trafficShaping.chainClient.maxMbit must be in 1..10" in _chart_text()

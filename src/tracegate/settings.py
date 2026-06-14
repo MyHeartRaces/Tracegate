@@ -422,6 +422,10 @@ class Settings(BaseSettings):
         default="entry.example.com",
         validation_alias=AliasChoices("DEFAULT_ENTRY_HOST", "DEFAULT_VPS_E_HOST"),
     )
+    ingress_rotation_enabled: bool = False
+    ingress_rotation_strategy: str = "revision-sticky"
+    entry_ingress_hosts: list[str] = Field(default_factory=list)
+    endpoint_ingress_hosts: list[str] = Field(default_factory=list)
 
     # Material required to build working client configs.
     # For direct mode this is Transit key.
@@ -510,11 +514,11 @@ class Settings(BaseSettings):
     # Shadowsocks-2022 + ShadowTLS V3 uses static node-side outer credentials,
     # while Shadowsocks user keys remain per connection.
     shadowtls_server_name_entry: str = Field(
-        default="www.microsoft.com",
+        default="splitter.wb.ru",
         validation_alias=AliasChoices("SHADOWTLS_SERVER_NAME_ENTRY", "SHADOWTLS_SERVER_NAME"),
     )
     shadowtls_server_name_transit: str = Field(
-        default="www.microsoft.com",
+        default="splitter.wb.ru",
         validation_alias=AliasChoices("SHADOWTLS_SERVER_NAME_TRANSIT", "SHADOWTLS_SERVER_NAME"),
     )
     shadowtls_password_entry: str = Field(

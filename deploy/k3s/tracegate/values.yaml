@@ -12,6 +12,24 @@ global:
     pullPolicy: IfNotPresent
   imagePullSecrets: []
 
+architecture:
+  # legacy-three-node preserves existing installations. New production
+  # installations should use entry-endpoint and keep the internal
+  # gateway.roles.transit name only as an Endpoint compatibility alias.
+  mode: legacy-three-node
+  ingressRotation:
+    enabled: false
+    strategy: revision-sticky
+    # Hostnames are private operator inputs. Each hostname must resolve
+    # DNS-only to an ingress address accepted by the corresponding gateway.
+    entryHosts: []
+    endpointHosts: []
+    minimumPoolSize: 2
+    overlapSeconds: 600
+    requireDistinctPublicIPs: true
+    requireDistinctAsns: true
+    rotateEndpointEgress: false
+
 topology:
   servers:
     endpoint:
@@ -326,7 +344,7 @@ transitRouter:
     mtproto: []
     decoy: transit.example.com
     reality:
-      - www.microsoft.com
+      - yandex.ru
   decoy:
     hostPath: /srv/tracegate/decoy
     hostPathType: Directory
@@ -693,9 +711,9 @@ gateway:
         serverName: entry.example.com
         existingSecretName: tracegate-entry-tls
       reality:
-        dest: www.microsoft.com:443
+        dest: yandex.ru:443
         serverNames:
-          - www.microsoft.com
+          - yandex.ru
         shortIds:
           - "0123456789abcdef"
         privateKeySecret:
@@ -732,9 +750,9 @@ gateway:
         serverName: transit.example.com
         existingSecretName: tracegate-transit-tls
       reality:
-        dest: www.microsoft.com:443
+        dest: splitter.wb.ru:443
         serverNames:
-          - www.microsoft.com
+          - splitter.wb.ru
         shortIds:
           - "fedcba9876543210"
         privateKeySecret:
@@ -897,8 +915,8 @@ shadowsocks2022:
   shadowtls:
     enabled: true
     version: 3
-    serverNameEntry: www.microsoft.com
-    serverNameTransit: www.microsoft.com
+    serverNameEntry: splitter.wb.ru
+    serverNameTransit: splitter.wb.ru
     listenPort: 14443
 
 mtproto:

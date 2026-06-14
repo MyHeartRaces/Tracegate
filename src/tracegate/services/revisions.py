@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import hashlib
 from uuid import UUID
 
 from sqlalchemy import select
@@ -54,6 +55,28 @@ def _resolve_node_public_host(*, fqdn: str | None, public_ipv4: str | None, defa
         if host:
             return host
     return ""
+
+
+def _select_revision_sticky_host(
+    *,
+    hosts: list[str],
+    fallback: str,
+    connection_id: UUID | None,
+    rotation_generation: int,
+    role: str,
+) -> str:
+    candidates: list[str] = []
+    for value in hosts:
+        host = _normalize_optional_host(value)
+        if host and not _is_placeholder_host(host) and host not in candidates:
+            candidates.append(host)
+    if not candidates or connection_id is None:
+        return fallback
+
+    key = f"{connection_id}:{role}".encode()
+    base_index = int.from_bytes(hashlib.sha256(key).digest()[:8], "big") % len(candidates)
+    index = (base_index + max(0, rotation_generation)) % len(candidates)
+    return candidates[index]
 
 
 def _is_chain_connection(connection: Connection) -> bool:
@@ -131,7 +154,12 @@ async def _resolve_sni(
     return row
 
 
-async def _resolve_endpoints(session: AsyncSession) -> EndpointSet:
+async def _resolve_endpoints(
+    session: AsyncSession,
+    *,
+    connection_id: UUID | None = None,
+    rotation_generation: int = 0,
+) -> EndpointSet:
     settings = get_settings()
     runtime_contract = resolve_runtime_contract(settings.agent_runtime_profile)
     transit = await session.scalar(
@@ -163,6 +191,21 @@ async def _resolve_endpoints(session: AsyncSession) -> EndpointSet:
         if entry
         else settings.default_entry_host
     )
+    if settings.ingress_rotation_enabled and settings.ingress_rotation_strategy == "revision-sticky":
+        transit_host = _select_revision_sticky_host(
+            hosts=settings.endpoint_ingress_hosts,
+            fallback=transit_host,
+            connection_id=connection_id,
+            rotation_generation=rotation_generation,
+            role="endpoint",
+        )
+        entry_host = _select_revision_sticky_host(
+            hosts=settings.entry_ingress_hosts,
+            fallback=entry_host,
+            connection_id=connection_id,
+            rotation_generation=rotation_generation,
+            role="entry",
+        )
     return EndpointSet(
         transit_host=transit_host,
         entry_host=entry_host,
@@ -322,7 +365,11 @@ async def create_revision(
         and not _is_allowed_reality_sni(settings.vless_encryption_reality_sni)
     ):
         raise RevisionError("VLESS encryption REALITY SNI is blocked by REALITY SNI policy.")
-    endpoints = await _resolve_endpoints(session)
+    endpoints = await _resolve_endpoints(
+        session,
+        connection_id=connection.id,
+        rotation_generation=len(connection.revisions),
+    )
     _ensure_chain_endpoint_ready(connection, endpoints)
 
     active_revisions = sorted(

@@ -50,3 +50,5 @@ Production promotion gates run from the operator environment.
 - V4 TLS material and digest-pinned runtime images are present before
   promotion.
 - Any operational notes that reveal live layout stay private.
+- In `entry-endpoint` mode, cluster preflight reports no legacy Transit or
+  chain-Transit nodes.

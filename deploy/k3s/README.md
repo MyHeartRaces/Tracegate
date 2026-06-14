@@ -58,14 +58,14 @@ Real deployments must provide these inputs outside the public repository:
 - TLS material and decoy content for any externally exposed surfaces;
 - node labels, annotations and host policy;
 - production image pins;
-- encrypted Entry and Transit runtime storage. V4 placement and fronting details
+- encrypted Entry and Endpoint runtime storage. V4 placement and fronting details
   are operator-managed and must stay outside public documentation.
 
 Entry traffic shaping and chain-client limits are enabled in public values as
 guardrails. The real Entry network interface must be set in the operator
 overlay.
 
-Entry and Transit runtime directories must be provisioned on encrypted storage
+Entry and Endpoint runtime directories must be provisioned on encrypted storage
 before scheduling those roles. See
 [docs/node-encryption-runbook.md](../../docs/node-encryption-runbook.md) for
 the generic procedure.

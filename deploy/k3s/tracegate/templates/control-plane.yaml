@@ -243,6 +243,14 @@ spec:
               value: {{ include "tracegate.entryHost" . | quote }}
             - name: DEFAULT_TRANSIT_HOST
               value: {{ include "tracegate.transitHost" . | quote }}
+            - name: INGRESS_ROTATION_ENABLED
+              value: {{ .Values.architecture.ingressRotation.enabled | quote }}
+            - name: INGRESS_ROTATION_STRATEGY
+              value: {{ .Values.architecture.ingressRotation.strategy | quote }}
+            - name: ENTRY_INGRESS_HOSTS
+              value: {{ toJson (.Values.architecture.ingressRotation.entryHosts | default (list)) | quote }}
+            - name: ENDPOINT_INGRESS_HOSTS
+              value: {{ toJson (.Values.architecture.ingressRotation.endpointHosts | default (list)) | quote }}
             - name: REALITY_PUBLIC_KEY
               value: {{ .Values.controlPlane.env.realityPublicKey | quote }}
             - name: REALITY_SHORT_ID

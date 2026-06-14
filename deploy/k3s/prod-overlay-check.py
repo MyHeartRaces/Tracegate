@@ -229,6 +229,12 @@ def validate_prod_overlay(chart_values: Path, prod_values: Path, *, strict: bool
 
     gateway = _as_dict(merged.get("gateway"))
     naiveproxy = _as_dict(merged.get("naiveproxy"))
+    architecture = _as_dict(merged.get("architecture"))
+    architecture_mode = _text(architecture.get("mode")) or "legacy-three-node"
+    require(
+        architecture_mode in {"legacy-three-node", "entry-endpoint"},
+        "architecture.mode must be legacy-three-node or entry-endpoint",
+    )
     interconnect_for_images = _as_dict(merged.get("interconnect"))
     entry_transit_for_images = _as_dict(interconnect_for_images.get("entryTransit"))
     mieru_for_images = _as_dict(interconnect_for_images.get("mieru"))
@@ -374,11 +380,9 @@ def validate_prod_overlay(chart_values: Path, prod_values: Path, *, strict: bool
 
     topology = _as_dict(merged.get("topology"))
     topology_servers = _as_dict(topology.get("servers"))
-    canonical_servers = {
-        "endpoint": "Endpoint",
-        "transit": "Transit",
-        "entry": "Entry",
-    }
+    canonical_servers = {"endpoint": "Endpoint", "entry": "Entry"}
+    if architecture_mode == "legacy-three-node":
+        canonical_servers["transit"] = "Transit"
     for server_key, display_name in canonical_servers.items():
         server = _as_dict(topology_servers.get(server_key))
         public_ip = _text(server.get("publicIp"))
@@ -391,7 +395,14 @@ def validate_prod_overlay(chart_values: Path, prod_values: Path, *, strict: bool
     transit_topology = _as_dict(topology_servers.get("transit"))
     entry_topology = _as_dict(topology_servers.get("entry"))
     require(_text(endpoint_topology.get("publicIp")) in egress_public_ips, "Endpoint publicIp must be listed as an egress public IP")
-    require(_text(transit_topology.get("publicIp")) in ingress_public_ips, "Transit publicIp must be listed as an ingress public IP")
+    if architecture_mode == "legacy-three-node":
+        require(_text(transit_topology.get("publicIp")) in ingress_public_ips, "Transit publicIp must be listed as an ingress public IP")
+    else:
+        require(not _has_value(transit_topology.get("publicIp")), "entry-endpoint forbids topology.servers.transit.publicIp")
+        require(
+            not _has_value(transit_topology.get("kubernetesNodeName")),
+            "entry-endpoint forbids topology.servers.transit.kubernetesNodeName",
+        )
     require(_text(entry_topology.get("publicIp")) in ingress_public_ips, "Entry publicIp must be listed as an ingress public IP")
     require(
         _as_dict(entry_topology.get("nodeSelector")) == _as_dict(entry.get("nodeSelector")),
@@ -614,27 +625,28 @@ def validate_prod_overlay(chart_values: Path, prod_values: Path, *, strict: bool
     require(not bool(entry_transit.get("xrayBackhaul", False)), "interconnect.entryTransit.xrayBackhaul must stay false")
     require(_text(entry_transit.get("chainBridgeOwner")) == "link-crypto", "interconnect.entryTransit.chainBridgeOwner must stay link-crypto")
     require(_text(entry_transit.get("fallback")) == "none", "interconnect.entryTransit.fallback must stay none")
-    require(bool(outer_carrier.get("enabled", False)), "interconnect.entryTransit.outerCarrier.enabled must stay true")
-    require(_text(outer_carrier.get("mode")) == "wss", "interconnect.entryTransit.outerCarrier.mode must stay wss")
-    require(_text(outer_carrier.get("protocol") or "websocket-tls") == "websocket-tls", "interconnect.entryTransit.outerCarrier.protocol must stay websocket-tls")
-    require(_has_value(outer_carrier.get("serverName")), "interconnect.entryTransit.outerCarrier.serverName must be set")
-    require(not _is_example_host(outer_carrier.get("serverName")), "interconnect.entryTransit.outerCarrier.serverName must not use example.com")
-    require(_as_int(outer_carrier.get("publicPort")) == 443, "interconnect.entryTransit.outerCarrier.publicPort must stay 443")
-    require(_is_clean_http_path(outer_carrier.get("publicPath")), "interconnect.entryTransit.outerCarrier.publicPath must be a clean absolute HTTP path")
-    require(bool(outer_carrier.get("verifyTls", False)), "interconnect.entryTransit.outerCarrier.verifyTls must stay true")
-    spki_pinning = _as_dict(outer_carrier.get("spkiPinning"))
-    admission = _as_dict(outer_carrier.get("admission"))
-    require(bool(spki_pinning.get("required", False)), "interconnect.entryTransit.outerCarrier.spkiPinning.required must stay true")
-    require(_has_value(spki_pinning.get("profileFile")), "interconnect.entryTransit.outerCarrier.spkiPinning.profileFile must be set")
-    require(bool(admission.get("required", False)), "interconnect.entryTransit.outerCarrier.admission.required must stay true")
-    require(
-        _text(admission.get("mode")) == "hmac-sha256-generation-bound",
-        "interconnect.entryTransit.outerCarrier.admission.mode must stay hmac-sha256-generation-bound",
-    )
-    require(_text(admission.get("header")) == "Sec-WebSocket-Protocol", "interconnect.entryTransit.outerCarrier.admission.header must stay Sec-WebSocket-Protocol")
-    require(_has_value(admission.get("profileFile")), "interconnect.entryTransit.outerCarrier.admission.profileFile must be set")
-    require(_has_value(outer_carrier.get("tcpShapingProfileFile")), "interconnect.entryTransit.outerCarrier.tcpShapingProfileFile must be set")
-    require(_has_value(outer_carrier.get("promotionPreflightProfileFile")), "interconnect.entryTransit.outerCarrier.promotionPreflightProfileFile must be set")
+    if link_crypto_enabled:
+        require(bool(outer_carrier.get("enabled", False)), "interconnect.entryTransit.outerCarrier.enabled must stay true")
+        require(_text(outer_carrier.get("mode")) == "wss", "interconnect.entryTransit.outerCarrier.mode must stay wss")
+        require(_text(outer_carrier.get("protocol") or "websocket-tls") == "websocket-tls", "interconnect.entryTransit.outerCarrier.protocol must stay websocket-tls")
+        require(_has_value(outer_carrier.get("serverName")), "interconnect.entryTransit.outerCarrier.serverName must be set")
+        require(not _is_example_host(outer_carrier.get("serverName")), "interconnect.entryTransit.outerCarrier.serverName must not use example.com")
+        require(_as_int(outer_carrier.get("publicPort")) == 443, "interconnect.entryTransit.outerCarrier.publicPort must stay 443")
+        require(_is_clean_http_path(outer_carrier.get("publicPath")), "interconnect.entryTransit.outerCarrier.publicPath must be a clean absolute HTTP path")
+        require(bool(outer_carrier.get("verifyTls", False)), "interconnect.entryTransit.outerCarrier.verifyTls must stay true")
+        spki_pinning = _as_dict(outer_carrier.get("spkiPinning"))
+        admission = _as_dict(outer_carrier.get("admission"))
+        require(bool(spki_pinning.get("required", False)), "interconnect.entryTransit.outerCarrier.spkiPinning.required must stay true")
+        require(_has_value(spki_pinning.get("profileFile")), "interconnect.entryTransit.outerCarrier.spkiPinning.profileFile must be set")
+        require(bool(admission.get("required", False)), "interconnect.entryTransit.outerCarrier.admission.required must stay true")
+        require(
+            _text(admission.get("mode")) == "hmac-sha256-generation-bound",
+            "interconnect.entryTransit.outerCarrier.admission.mode must stay hmac-sha256-generation-bound",
+        )
+        require(_text(admission.get("header")) == "Sec-WebSocket-Protocol", "interconnect.entryTransit.outerCarrier.admission.header must stay Sec-WebSocket-Protocol")
+        require(_has_value(admission.get("profileFile")), "interconnect.entryTransit.outerCarrier.admission.profileFile must be set")
+        require(_has_value(outer_carrier.get("tcpShapingProfileFile")), "interconnect.entryTransit.outerCarrier.tcpShapingProfileFile must be set")
+        require(_has_value(outer_carrier.get("promotionPreflightProfileFile")), "interconnect.entryTransit.outerCarrier.promotionPreflightProfileFile must be set")
     wireguard = _as_dict(merged.get("wireguard"))
     wireguard_wstunnel = _as_dict(wireguard.get("wstunnel"))
     bridge_path = _text(outer_carrier.get("publicPath"))
@@ -647,6 +659,50 @@ def validate_prod_overlay(chart_values: Path, prod_values: Path, *, strict: bool
     require(not bool(zapret2.get("nfqueue", False)), "interconnect.zapret2.nfqueue must stay false")
     if link_crypto_enabled:
         require(bool(zapret2.get("enabled", False)), "interconnect.zapret2.enabled must stay true for TCP link-crypto DPI resistance")
+
+    ingress_rotation = _as_dict(architecture.get("ingressRotation"))
+    ingress_rotation_enabled = bool(ingress_rotation.get("enabled", False))
+    entry_rotation_hosts = [_text(host) for host in _as_list(ingress_rotation.get("entryHosts")) if _text(host)]
+    endpoint_rotation_hosts = [_text(host) for host in _as_list(ingress_rotation.get("endpointHosts")) if _text(host)]
+    minimum_pool_size = _as_int(ingress_rotation.get("minimumPoolSize"), default=2)
+    require(
+        _text(ingress_rotation.get("strategy")) == "revision-sticky",
+        "architecture.ingressRotation.strategy must stay revision-sticky",
+    )
+    require(
+        not bool(ingress_rotation.get("rotateEndpointEgress", False)),
+        "architecture.ingressRotation.rotateEndpointEgress must stay false",
+    )
+    if ingress_rotation_enabled:
+        require(architecture_mode == "entry-endpoint", "ingress rotation requires architecture.mode=entry-endpoint")
+        require(minimum_pool_size >= 2, "architecture.ingressRotation.minimumPoolSize must be at least 2")
+        require(
+            _as_int(ingress_rotation.get("overlapSeconds")) >= 300,
+            "architecture.ingressRotation.overlapSeconds must be at least 300",
+        )
+        require(
+            bool(ingress_rotation.get("requireDistinctPublicIPs", False)),
+            "architecture.ingressRotation.requireDistinctPublicIPs must stay true",
+        )
+        require(
+            bool(ingress_rotation.get("requireDistinctAsns", False)),
+            "architecture.ingressRotation.requireDistinctAsns must stay true",
+        )
+        require(
+            max(len(set(entry_rotation_hosts)), len(set(endpoint_rotation_hosts))) >= minimum_pool_size,
+            "ingress rotation requires at least one hostname pool meeting minimumPoolSize",
+        )
+        require(
+            len(ingress_public_ips) >= minimum_pool_size,
+            "ingress rotation requires network.egressIsolation.ingressPublicIPs to meet minimumPoolSize",
+        )
+        for host in entry_rotation_hosts + endpoint_rotation_hosts:
+            require(not _is_example_host(host), "architecture.ingressRotation hostnames must not use example.com")
+
+    if architecture_mode == "entry-endpoint":
+        require(not transit_router_enabled, "entry-endpoint forbids transitRouter.enabled=true")
+        require(not link_crypto_enabled, "entry-endpoint forbids the legacy interconnect.entryTransit path")
+        require(mtproto_route_mode == "entry-local-endpoint-egress", "entry-endpoint requires mtproto.route.mode=entry-local-endpoint-egress")
 
     mtproto = _as_dict(merged.get("mtproto"))
     require(bool(mtproto.get("enabled", False)), "mtproto.enabled must stay true in core Tracegate 2.2")
@@ -671,11 +727,12 @@ def validate_prod_overlay(chart_values: Path, prod_values: Path, *, strict: bool
         require(_has_value(mtproto_egress_shadowtls.get("endpointHost")), "mtproto.egress.shadowtls.endpointHost must be set")
         require(_as_int(mtproto_egress_shadowtls.get("endpointPort")) == 443, "mtproto.egress.shadowtls.endpointPort must stay 443")
         require(bool(mtproto_egress_shadowtls.get("allowedSources")), "mtproto.egress.shadowtls.allowedSources must include Entry source addresses")
-    bridge_server_name = _text(outer_carrier.get("serverName")).lower().rstrip(".")
-    transit_tls_server_name = _text(_as_dict(transit.get("tls")).get("serverName")).lower().rstrip(".")
-    mtproto_domain = _text(mtproto.get("domain") or env.get("mtprotoDomain")).lower().rstrip(".")
-    require(bridge_server_name != transit_tls_server_name, "bridge WSS serverName must be separate from gateway.roles.transit.tls.serverName")
-    require(bridge_server_name != mtproto_domain, "bridge WSS serverName must be separate from the MTProto domain")
+    if link_crypto_enabled:
+        bridge_server_name = _text(outer_carrier.get("serverName")).lower().rstrip(".")
+        transit_tls_server_name = _text(_as_dict(transit.get("tls")).get("serverName")).lower().rstrip(".")
+        mtproto_domain = _text(mtproto.get("domain") or env.get("mtprotoDomain")).lower().rstrip(".")
+        require(bridge_server_name != transit_tls_server_name, "bridge WSS serverName must be separate from gateway.roles.transit.tls.serverName")
+        require(bridge_server_name != mtproto_domain, "bridge WSS serverName must be separate from the MTProto domain")
 
     return errors
 
