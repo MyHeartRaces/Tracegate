@@ -165,3 +165,19 @@ def test_issue_mtproto_access_profile_returns_all_public_ports(tmp_path) -> None
     assert [row["port"] for row in profile["links"]] == [8443, 443]
     assert "port=8443" in profile["links"][0]["httpsUrl"]
     assert "port=443" in profile["links"][1]["httpsUrl"]
+
+
+def test_issue_mtproto_access_profile_rotates_across_ingress_hosts(tmp_path) -> None:
+    profile_path = tmp_path / "public-profile.json"
+    access_state_path = tmp_path / "issued.json"
+    _write_profile(profile_path)
+    payload = json.loads(profile_path.read_text(encoding="utf-8"))
+    payload["servers"] = ["mt-a.tracegate.test", "mt-b.tracegate.test", "mt-c.tracegate.test"]
+    payload["secretPolicy"] = "shared"
+    profile_path.write_text(json.dumps(payload), encoding="utf-8")
+    settings = Settings(mtproto_public_profile_file=str(profile_path), mtproto_issued_state_file=str(access_state_path))
+
+    profiles = [issue_mtproto_access_profile(settings, telegram_id=123456, rotate=index > 0)[0] for index in range(3)]
+
+    assert {profile["server"] for profile in profiles} == set(payload["servers"])
+    assert [profile["ingressGeneration"] for profile in profiles] == [0, 1, 2]

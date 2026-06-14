@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import secrets
 from contextlib import contextmanager
 from datetime import UTC, datetime
@@ -38,6 +39,27 @@ def _mtproto_profile_ports(base_profile: dict[str, Any]) -> list[int]:
         if port > 0 and port not in ports:
             ports.append(port)
     return ports
+
+
+def _mtproto_profile_server(
+    base_profile: dict[str, Any],
+    *,
+    telegram_id: int,
+    ingress_generation: int,
+    settings: Settings,
+) -> str:
+    configured = base_profile.get("servers")
+    candidates = configured if isinstance(configured, list) else settings.mtproto_ingress_hosts
+    hosts: list[str] = []
+    for candidate in candidates:
+        host = str(candidate or "").strip()
+        if host and host not in hosts:
+            hosts.append(host)
+    if not hosts:
+        return str(base_profile["server"])
+    digest = hashlib.sha256(f"mtproto:{int(telegram_id)}".encode()).digest()
+    base_index = int.from_bytes(digest[:8], "big") % len(hosts)
+    return hosts[(base_index + max(0, int(ingress_generation))) % len(hosts)]
 
 
 def _raw_secret_from_client_secret(base_profile: dict[str, Any]) -> str:
@@ -112,12 +134,17 @@ def _normalize_entry(raw: Any) -> dict[str, Any] | None:
     updated_at = _parse_iso(str(raw.get("updatedAt") or "")) or issued_at
     if not secret_hex or issued_at is None or updated_at is None:
         return None
+    try:
+        ingress_generation = max(0, int(raw.get("ingressGeneration") or 0))
+    except (TypeError, ValueError):
+        ingress_generation = 0
 
     entry = {
         "telegramId": telegram_id,
         "secretHex": secret_hex,
         "issuedAt": _iso(issued_at),
         "updatedAt": _iso(updated_at),
+        "ingressGeneration": ingress_generation,
     }
     for key in ("label", "issuedBy"):
         value = str(raw.get(key) or "").strip()
@@ -213,11 +240,13 @@ def issue_mtproto_access_profile(
 
         if current is None or rotate or (secret_policy == "shared" and current.get("secretHex") != shared_secret_hex):
             changed = True
+            previous_generation = int(current.get("ingressGeneration") or 0) if current else -1
             current = {
                 "telegramId": int(telegram_id),
                 "secretHex": shared_secret_hex if secret_policy == "shared" else secrets.token_hex(16),
                 "issuedAt": _iso(effective_now),
                 "updatedAt": _iso(effective_now),
+                "ingressGeneration": previous_generation + 1,
             }
             if normalized_label:
                 current["label"] = normalized_label
@@ -231,12 +260,18 @@ def issue_mtproto_access_profile(
     try:
         secret_hex = str(base_profile["clientSecretHex"]) if secret_policy == "shared" else str(current["secretHex"])
         ports = _mtproto_profile_ports(base_profile)
+        selected_server = _mtproto_profile_server(
+            base_profile,
+            telegram_id=telegram_id,
+            ingress_generation=int(current.get("ingressGeneration") or 0),
+            settings=settings,
+        )
         if not ports:
             raise ValueError("base MTProto profile does not expose a usable public port")
         link_rows = []
         for port in ports:
             links = build_mtproto_share_links(
-                server=str(base_profile["server"]),
+                server=selected_server,
                 port=port,
                 secret_hex=secret_hex,
                 transport=None if secret_policy == "shared" else str(base_profile.get("transport") or "tls"),
@@ -259,7 +294,7 @@ def issue_mtproto_access_profile(
     profile = {
         "protocol": "mtproto",
         "profile": str(base_profile.get("profile") or MTPROTO_FAKE_TLS_PROFILE_NAME),
-        "server": str(base_profile["server"]),
+        "server": selected_server,
         "port": int(primary_link["port"]),
         "transport": str(base_profile.get("transport") or "tls"),
         "domain": str(base_profile.get("domain") or base_profile["server"]),
@@ -272,6 +307,7 @@ def issue_mtproto_access_profile(
         "updatedAt": str(current["updatedAt"]),
         "reused": not changed,
         "secretPolicy": secret_policy,
+        "ingressGeneration": int(current.get("ingressGeneration") or 0),
     }
     if len(link_rows) > 1:
         profile["publicPorts"] = ports

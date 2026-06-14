@@ -22,7 +22,7 @@ MUTABLE_IMAGE_TAGS = {
     "nightly",
     "snapshot",
 }
-EXAMPLE_HOST_MARKERS = ("example.com", ".example.com")
+EXAMPLE_HOST_MARKERS = ("example.com", ".example.com", "example.net", ".example.net", "example.org", ".example.org")
 OCI_DIGEST_RE = re.compile(r"^[A-Za-z0-9_+.-]+:[A-Fa-f0-9]{32,}$")
 
 
@@ -661,6 +661,8 @@ def validate_prod_overlay(chart_values: Path, prod_values: Path, *, strict: bool
         require(bool(zapret2.get("enabled", False)), "interconnect.zapret2.enabled must stay true for TCP link-crypto DPI resistance")
 
     ingress_rotation = _as_dict(architecture.get("ingressRotation"))
+    entry_ingress = _as_dict(architecture.get("entryIngress"))
+    entry_ingress_enabled = bool(entry_ingress.get("enabled", False))
     ingress_rotation_enabled = bool(ingress_rotation.get("enabled", False))
     entry_rotation_hosts = [_text(host) for host in _as_list(ingress_rotation.get("entryHosts")) if _text(host)]
     endpoint_rotation_hosts = [_text(host) for host in _as_list(ingress_rotation.get("endpointHosts")) if _text(host)]
@@ -689,8 +691,9 @@ def validate_prod_overlay(chart_values: Path, prod_values: Path, *, strict: bool
             "architecture.ingressRotation.requireDistinctAsns must stay true",
         )
         require(
-            max(len(set(entry_rotation_hosts)), len(set(endpoint_rotation_hosts))) >= minimum_pool_size,
-            "ingress rotation requires at least one hostname pool meeting minimumPoolSize",
+            entry_ingress_enabled
+            or max(len(set(entry_rotation_hosts)), len(set(endpoint_rotation_hosts))) >= minimum_pool_size,
+            "ingress rotation requires entryIngress shards or at least one hostname pool meeting minimumPoolSize",
         )
         require(
             len(ingress_public_ips) >= minimum_pool_size,
@@ -698,6 +701,46 @@ def validate_prod_overlay(chart_values: Path, prod_values: Path, *, strict: bool
         )
         for host in entry_rotation_hosts + endpoint_rotation_hosts:
             require(not _is_example_host(host), "architecture.ingressRotation hostnames must not use example.com")
+
+    if entry_ingress_enabled:
+        service_facing = _as_dict(entry_ingress.get("serviceFacing"))
+        service_ip = _text(service_facing.get("publicIp"))
+        shards = [_as_dict(shard) for shard in _as_list(entry_ingress.get("shards"))]
+        shard_ids = [_text(shard.get("id")) for shard in shards]
+        shard_ips = [_text(shard.get("publicIp")) for shard in shards]
+        hostname_templates = [_text(shard.get("hostnameTemplate")) for shard in shards]
+        mtproto_hosts = [_text(shard.get("mtprotoHost")) for shard in shards]
+        active_shards = [shard for shard in shards if _text(shard.get("state") or "active") == "active"]
+        alias = _as_dict(entry_ingress.get("alias"))
+        firewall = _as_dict(entry_ingress.get("firewall"))
+        channel = _as_dict(entry_ingress.get("channel"))
+        tcp_channel = _as_dict(channel.get("tcp"))
+        udp_channel = _as_dict(channel.get("udp"))
+        four_ip_contract = {service_ip, *shard_ips}
+        normalized_four_ips, invalid_four_ips = _valid_public_ip_set({value for value in four_ip_contract if value})
+
+        require(architecture_mode == "entry-endpoint", "entry ingress sharding requires architecture.mode=entry-endpoint")
+        require(ingress_rotation_enabled, "entry ingress sharding requires architecture.ingressRotation.enabled=true")
+        require(len(shards) == 3, "architecture.entryIngress.shards must contain exactly three shards")
+        require(len(active_shards) >= 2, "entry ingress sharding requires at least two active Entry shards")
+        require(len(set(shard_ids)) == 3 and all(shard_ids), "Entry shard ids must be non-empty and unique")
+        require(len(set(shard_ips)) == 3 and all(shard_ips), "Entry shard public IPs must be non-empty and unique")
+        require(service_ip not in set(shard_ips), "service-facing public IP must be distinct from every Entry shard IP")
+        require(len(normalized_four_ips) == 4 and not invalid_four_ips, "entry ingress sharding requires four distinct public IPs")
+        require(all(ipaddress.ip_address(value).version == 4 for value in normalized_four_ips), "entry ingress sharding currently requires IPv4 addresses")
+        require(four_ip_contract == ingress_public_ips, "network.egressIsolation.ingressPublicIPs must exactly match service-facing IP plus three shard IPs")
+        require(_text(entry_topology.get("publicIp")) in set(shard_ips), "topology.servers.entry.publicIp must be one of the Entry shard IPs")
+        require(all("{token}" in template for template in hostname_templates), "every Entry shard hostnameTemplate must contain {token}")
+        require(len(set(hostname_templates)) == 3, "Entry shard hostnameTemplate values must be unique")
+        require(len(set(mtproto_hosts)) == 3 and all(mtproto_hosts), "Entry shard mtprotoHost values must be non-empty and unique")
+        require(all(not _is_example_host(host) for host in mtproto_hosts), "Entry shard mtprotoHost values must not use example.com")
+        require(8 <= _as_int(alias.get("tokenLength"), default=0) <= 48, "architecture.entryIngress.alias.tokenLength must be in 8..48")
+        require(bool(firewall.get("required", False)), "architecture.entryIngress.firewall.required must stay true")
+        require(bool(tcp_channel.get("bindShardIpsOnly", False)), "Entry TCP listeners must bind shard IPs only")
+        require(_as_int(tcp_channel.get("maxConnections")) >= 100, "Entry TCP maxConnections must be at least 100")
+        require(_as_int(tcp_channel.get("maxConnectionsPerSource")) >= 1, "Entry TCP maxConnectionsPerSource must be at least 1")
+        require(_as_int(tcp_channel.get("newConnectionsPer10Seconds")) >= 1, "Entry TCP newConnectionsPer10Seconds must be at least 1")
+        require(bool(udp_channel.get("serviceIpRejectRequired", False)), "Entry UDP service-facing IP rejection must stay required")
 
     if architecture_mode == "entry-endpoint":
         require(not transit_router_enabled, "entry-endpoint forbids transitRouter.enabled=true")

@@ -138,6 +138,10 @@ def test_tracegate21_chart_uses_entry_transit_roles() -> None:
     assert values["architecture"]["ingressRotation"]["strategy"] == "revision-sticky"
     assert values["architecture"]["ingressRotation"]["enabled"] is False
     assert values["architecture"]["ingressRotation"]["rotateEndpointEgress"] is False
+    assert values["architecture"]["entryIngress"]["enabled"] is False
+    assert values["architecture"]["entryIngress"]["firewall"]["required"] is True
+    assert values["architecture"]["entryIngress"]["channel"]["tcp"]["bindShardIpsOnly"] is True
+    assert values["architecture"]["entryIngress"]["channel"]["udp"]["serviceIpRejectRequired"] is True
     assert values["controlPlane"]["auth"]["existingSecretName"] == "tracegate-control-plane-auth"
     assert values["controlPlane"]["database"]["embedded"]["enabled"] is False
     assert values["controlPlane"]["database"]["externalUrlSecret"]["name"] == "tracegate-database-url"
@@ -426,6 +430,38 @@ def _entry_endpoint_overlay_values(*, rotation: bool = False) -> dict:
     return values
 
 
+def _four_ip_entry_overlay_values() -> dict:
+    values = _entry_endpoint_overlay_values(rotation=True)
+    values["architecture"]["entryIngress"] = {
+        "enabled": True,
+        "serviceFacing": {"publicIp": "1.0.0.2", "hostname": "status.prod.test"},
+        "shards": [
+            {"id": "a", "publicIp": "8.8.4.4", "hostnameTemplate": "{token}.a.prod.test", "mtprotoHost": "mt-a.prod.test", "state": "active"},
+            {"id": "b", "publicIp": "9.9.9.9", "hostnameTemplate": "{token}.b.prod.test", "mtprotoHost": "mt-b.prod.test", "state": "active"},
+            {"id": "c", "publicIp": "1.0.0.1", "hostnameTemplate": "{token}.c.prod.test", "mtprotoHost": "mt-c.prod.test", "state": "active"},
+        ],
+        "alias": {"tokenLength": 20},
+        "firewall": {"required": True},
+        "channel": {
+            "tcp": {
+                "bindShardIpsOnly": True,
+                "maxConnections": 20000,
+                "maxConnectionsPerSource": 8,
+                "newConnectionsPer10Seconds": 12,
+                "inspectDelay": "5s",
+                "connectTimeout": "5s",
+                "clientTimeout": "5m",
+                "serverTimeout": "5m",
+                "tunnelTimeout": "1h",
+            },
+            "udp": {"serviceIpRejectRequired": True},
+        },
+    }
+    values["architecture"]["ingressRotation"]["entryHosts"] = []
+    values["network"]["egressIsolation"]["ingressPublicIPs"] = ["1.0.0.2", "8.8.4.4", "9.9.9.9", "1.0.0.1"]
+    return values
+
+
 def test_k3s_strict_prod_overlay_check_accepts_private_overlay(tmp_path: Path) -> None:
     values_path = tmp_path / "values-prod.yaml"
     values_path.write_text(yaml.safe_dump(_prod_overlay_values(), sort_keys=True), encoding="utf-8")
@@ -471,6 +507,52 @@ def test_k3s_strict_prod_overlay_check_accepts_entry_endpoint_overlay(tmp_path: 
 
     assert result.returncode == 0, result.stderr
     assert "prod-overlay-check: OK" in result.stdout
+
+
+def test_k3s_four_ip_entry_overlay_binds_only_shards_and_renders_firewall(tmp_path: Path) -> None:
+    values = _four_ip_entry_overlay_values()
+    values_path = tmp_path / "values-four-ip.yaml"
+    values_path.write_text(yaml.safe_dump(values, sort_keys=True), encoding="utf-8")
+
+    validation = subprocess.run(
+        [
+            "python3",
+            "deploy/k3s/prod-overlay-check.py",
+            "--strict",
+            "--chart-values",
+            str(CHART_ROOT / "values.yaml"),
+            "--values",
+            str(values_path),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    firewall = subprocess.run(
+        [
+            "python3",
+            "deploy/k3s/entry-ingress-firewall.py",
+            "--chart-values",
+            str(CHART_ROOT / "values.yaml"),
+            "--values",
+            str(values_path),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    rendered = _helm_template_with_values(tmp_path, values)
+
+    assert validation.returncode == 0, validation.stderr
+    assert firewall.returncode == 0, firewall.stderr
+    assert "ip daddr { 1.0.0.2 } tcp dport { 443 } reject with tcp reset" in firewall.stdout
+    assert "ip daddr { 1.0.0.2 } udp dport { 4443 } drop" in firewall.stdout
+    assert rendered.returncode == 0, rendered.stderr
+    assert "bind 8.8.4.4:443" in rendered.stdout
+    assert "bind 9.9.9.9:443" in rendered.stdout
+    assert "bind 1.0.0.1:443" in rendered.stdout
+    assert "bind 1.0.0.2:443" not in rendered.stdout
+    assert "stick-table type ip size 1m expire 30s store conn_cur,conn_rate(10s)" in rendered.stdout
 
 
 def test_k3s_strict_prod_overlay_check_rejects_transit_in_entry_endpoint(tmp_path: Path) -> None:
@@ -881,6 +963,8 @@ def test_tracegate21_chart_externalizes_private_profiles() -> None:
     assert "architecture.mode=entry-endpoint forbids transitRouter.enabled=true" in _chart_text()
     assert "architecture.mode=entry-endpoint forbids the legacy interconnect.entryTransit path" in _chart_text()
     assert "architecture.ingressRotation.rotateEndpointEgress=true is forbidden" in _chart_text()
+    assert "architecture.entryIngress.shards must contain exactly three shards" in _chart_text()
+    assert "architecture.entryIngress.channel.tcp.bindShardIpsOnly=false is forbidden" in _chart_text()
     assert "gateway.trafficShaping.entry.enabled=false is forbidden" in _chart_text()
     assert "gateway.trafficShaping.entry.maxMbit must be in 1..100" in _chart_text()
     assert "gateway.trafficShaping.chainClient.maxMbit must be in 1..10" in _chart_text()

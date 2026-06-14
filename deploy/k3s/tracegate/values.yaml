@@ -29,6 +29,31 @@ architecture:
     requireDistinctPublicIPs: true
     requireDistinctAsns: true
     rotateEndpointEgress: false
+  # Four-address Entry ingress contract: one service-facing address that never
+  # accepts proxy clients and exactly three client-facing shard addresses.
+  entryIngress:
+    enabled: false
+    serviceFacing:
+      publicIp: ""
+      hostname: ""
+    shards: []
+    alias:
+      tokenLength: 20
+    firewall:
+      required: true
+    channel:
+      tcp:
+        bindShardIpsOnly: true
+        maxConnections: 20000
+        maxConnectionsPerSource: 8
+        newConnectionsPer10Seconds: 12
+        inspectDelay: 5s
+        connectTimeout: 5s
+        clientTimeout: 5m
+        serverTimeout: 5m
+        tunnelTimeout: 1h
+      udp:
+        serviceIpRejectRequired: true
 
 topology:
   servers:

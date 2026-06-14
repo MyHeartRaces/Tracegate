@@ -16,6 +16,7 @@ from tracegate.services.connection_profiles import MAX_ACTIVE_REVISIONS_PER_CONN
 from tracegate.services.grace import ensure_can_issue_new_config
 from tracegate.services.outbox import create_outbox_event
 from tracegate.services.overrides import validate_overrides
+from tracegate.services.pseudonym import PseudonymError, pseudo_id
 from tracegate.services.role_targeting import target_roles_for_connection
 from tracegate.services.runtime_contract import resolve_runtime_contract
 from tracegate.services.sni_catalog import SniCatalogEntry, get_by_id, load_catalog
@@ -77,6 +78,40 @@ def _select_revision_sticky_host(
     base_index = int.from_bytes(hashlib.sha256(key).digest()[:8], "big") % len(candidates)
     index = (base_index + max(0, rotation_generation)) % len(candidates)
     return candidates[index]
+
+
+def _select_revision_sticky_shard_host(
+    *,
+    shards: list[dict],
+    fallback: str,
+    connection_id: UUID | None,
+    rotation_generation: int,
+    settings,
+) -> str:
+    candidates: list[tuple[str, str]] = []
+    for shard in shards:
+        if not isinstance(shard, dict) or str(shard.get("state") or "active").strip().lower() != "active":
+            continue
+        shard_id = str(shard.get("id") or "").strip()
+        template = str(shard.get("hostnameTemplate") or "").strip()
+        if shard_id and template and "{token}" in template and (shard_id, template) not in candidates:
+            candidates.append((shard_id, template))
+    if not candidates or connection_id is None:
+        return fallback
+
+    key = f"{connection_id}:entry".encode()
+    base_index = int.from_bytes(hashlib.sha256(key).digest()[:8], "big") % len(candidates)
+    shard_id, template = candidates[(base_index + max(0, rotation_generation)) % len(candidates)]
+    try:
+        token = pseudo_id(
+            settings=settings,
+            kind="entry-ingress",
+            raw=f"{connection_id}:{max(0, rotation_generation)}",
+            length=max(8, int(settings.entry_ingress_alias_token_length)),
+        )
+    except PseudonymError as exc:
+        raise RevisionError("Unable to derive a private Entry ingress alias") from exc
+    return template.replace("{token}", token).replace("{shard}", shard_id)
 
 
 def _is_chain_connection(connection: Connection) -> bool:
@@ -206,6 +241,14 @@ async def _resolve_endpoints(
             rotation_generation=rotation_generation,
             role="entry",
         )
+        if settings.entry_ingress_shards:
+            entry_host = _select_revision_sticky_shard_host(
+                shards=settings.entry_ingress_shards,
+                fallback=entry_host,
+                connection_id=connection_id,
+                rotation_generation=rotation_generation,
+                settings=settings,
+            )
     return EndpointSet(
         transit_host=transit_host,
         entry_host=entry_host,

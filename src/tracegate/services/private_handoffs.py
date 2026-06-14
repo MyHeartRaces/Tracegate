@@ -1553,6 +1553,7 @@ def _write_mtproto_state(
                 "protocol": "mtproto",
                 "profile": MTPROTO_FAKE_TLS_PROFILE_NAME,
                 "server": normalized_domain,
+                "servers": list(settings.mtproto_ingress_hosts),
                 "port": int(payload["publicPort"]),
                 "transport": "tls",
                 "domain": normalized_tls_domain,

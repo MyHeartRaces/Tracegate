@@ -5,6 +5,10 @@
 {{- end }}
 {{- $entryRealityShortId := .Values.controlPlane.env.realityShortIdEntry | default (index .Values.gateway.roles.entry.reality.shortIds 0) -}}
 {{- $transitRealityShortId := .Values.controlPlane.env.realityShortIdTransit | default (index .Values.gateway.roles.transit.reality.shortIds 0) -}}
+{{- $mtprotoIngressHosts := list -}}
+{{- range $shard := (.Values.architecture.entryIngress.shards | default (list)) -}}
+{{- if $shard.mtprotoHost -}}{{- $mtprotoIngressHosts = append $mtprotoIngressHosts $shard.mtprotoHost -}}{{- end -}}
+{{- end -}}
 {{- if .Values.controlPlane.database.embedded.enabled }}
 apiVersion: apps/v1
 kind: StatefulSet
@@ -251,6 +255,12 @@ spec:
               value: {{ toJson (.Values.architecture.ingressRotation.entryHosts | default (list)) | quote }}
             - name: ENDPOINT_INGRESS_HOSTS
               value: {{ toJson (.Values.architecture.ingressRotation.endpointHosts | default (list)) | quote }}
+            - name: ENTRY_INGRESS_SHARDS
+              value: {{ toJson (.Values.architecture.entryIngress.shards | default (list)) | quote }}
+            - name: ENTRY_INGRESS_ALIAS_TOKEN_LENGTH
+              value: {{ int .Values.architecture.entryIngress.alias.tokenLength | quote }}
+            - name: MTPROTO_INGRESS_HOSTS
+              value: {{ toJson $mtprotoIngressHosts | quote }}
             - name: REALITY_PUBLIC_KEY
               value: {{ .Values.controlPlane.env.realityPublicKey | quote }}
             - name: REALITY_SHORT_ID

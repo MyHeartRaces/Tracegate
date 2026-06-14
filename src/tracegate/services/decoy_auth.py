@@ -187,6 +187,9 @@ def load_mtproto_public_profile(settings: Settings) -> dict[str, Any]:
         payload["links"] = links
     if secret_policy:
         payload["secretPolicy"] = secret_policy
+    servers = [str(value or "").strip() for value in raw.get("servers", [])] if isinstance(raw.get("servers"), list) else []
+    if servers:
+        payload["servers"] = list(dict.fromkeys(value for value in servers if value))
     return payload
 
 

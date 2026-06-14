@@ -1,5 +1,9 @@
 {{- range $roleName, $role := .Values.gateway.roles }}
 {{- if and $.Values.gateway.enabled $role.enabled }}
+{{- $mtprotoIngressHosts := list }}
+{{- range $shard := ($.Values.architecture.entryIngress.shards | default (list)) }}
+{{- if $shard.mtprotoHost }}{{- $mtprotoIngressHosts = append $mtprotoIngressHosts $shard.mtprotoHost }}{{- end }}
+{{- end }}
 {{- $roleRealityKey := ternary $.Values.privateProfiles.keys.realityPrivateKeyEntry $.Values.privateProfiles.keys.realityPrivateKeyTransit (eq $roleName "entry") }}
 {{- $roleRealitySecretKey := ternary $.Values.privateProfiles.secretKeys.realityPrivateKeyEntry $.Values.privateProfiles.secretKeys.realityPrivateKeyTransit (eq $roleName "entry") }}
 {{- $roleHysteriaSalamanderKey := ternary $.Values.privateProfiles.keys.hysteriaSalamanderEntry $.Values.privateProfiles.keys.hysteriaSalamanderTransit (eq $roleName "entry") }}
@@ -863,6 +867,8 @@ spec:
               value: {{ $mtprotoTlsDomain | quote }}
             - name: MTPROTO_PUBLIC_PORT
               value: {{ $mtprotoPublicPort | quote }}
+            - name: MTPROTO_INGRESS_HOSTS
+              value: {{ toJson $mtprotoIngressHosts | quote }}
             - name: MTPROTO_ROUTE_MODE
               value: {{ $mtprotoRouteMode | quote }}
             - name: PRIVATE_MTPROTO_RUNTIME

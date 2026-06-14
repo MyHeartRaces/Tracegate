@@ -588,6 +588,18 @@ data:
 {{- $roleCanonicalServer := lower (toString ($role.canonicalServer | default $roleName)) }}
 {{- $roleTopology := index ($.Values.topology.servers | default dict) $roleCanonicalServer | default dict }}
 {{- $roleDisplayName := toString ($roleTopology.displayName | default (title $roleCanonicalServer)) }}
+{{- $entryIngress := $.Values.architecture.entryIngress | default dict }}
+{{- $entryIngressEnabled := and (eq $roleName "entry") ($entryIngress.enabled | default false) }}
+{{- $entryIngressShards := $entryIngress.shards | default (list) }}
+{{- $entryIngressTcp := dig "channel" "tcp" (dict) $entryIngress }}
+{{- $entryIngressMaxConnections := int (dig "maxConnections" 20000 $entryIngressTcp) }}
+{{- $entryIngressMaxConnectionsPerSource := int (dig "maxConnectionsPerSource" 8 $entryIngressTcp) }}
+{{- $entryIngressNewConnectionsPer10Seconds := int (dig "newConnectionsPer10Seconds" 12 $entryIngressTcp) }}
+{{- $entryIngressInspectDelay := toString (dig "inspectDelay" "5s" $entryIngressTcp) }}
+{{- $entryIngressConnectTimeout := toString (dig "connectTimeout" "5s" $entryIngressTcp) }}
+{{- $entryIngressClientTimeout := toString (dig "clientTimeout" "5m" $entryIngressTcp) }}
+{{- $entryIngressServerTimeout := toString (dig "serverTimeout" "5m" $entryIngressTcp) }}
+{{- $entryIngressTunnelTimeout := toString (dig "tunnelTimeout" "1h" $entryIngressTcp) }}
 {{- $userTrafficInbounds := list "entry-in" "entry-chain-socks-in" "ss2022-in" "vless-reality-in" "vless-ws-in" "vless-grpc-in" }}
 {{- if $.Values.vlessEncryption.enabled }}
 {{- $userTrafficInbounds = concat $userTrafficInbounds (list "entry-enc-in" "vless-reality-enc-in" "vless-ws-enc-in" "vless-grpc-enc-in") }}
@@ -616,20 +628,34 @@ data:
   haproxy.cfg: |
     global
       log stdout format raw local0
-      maxconn 20000
+      maxconn {{ ternary $entryIngressMaxConnections 20000 $entryIngressEnabled }}
 
     defaults
       log global
       mode tcp
       option tcplog
-      timeout connect 5s
-      timeout client 5m
-      timeout server 5m
-      timeout tunnel 1h
+      timeout connect {{ ternary $entryIngressConnectTimeout "5s" $entryIngressEnabled }}
+      timeout client {{ ternary $entryIngressClientTimeout "5m" $entryIngressEnabled }}
+      timeout server {{ ternary $entryIngressServerTimeout "5m" $entryIngressEnabled }}
+      timeout tunnel {{ ternary $entryIngressTunnelTimeout "1h" $entryIngressEnabled }}
 
 {{- if $mtprotoFallbackPublicPort }}
     frontend fe_tracegate_{{ $roleName }}_mtproto_{{ $mtprotoPublicPort }}
+{{- if $entryIngressEnabled }}
+{{- range $shard := $entryIngressShards }}
+{{- if or (eq (toString ($shard.state | default "active")) "active") (eq (toString ($shard.state | default "active")) "draining") }}
+      bind {{ required "architecture.entryIngress.shards[].publicIp is required" $shard.publicIp }}:{{ $mtprotoPublicPort }}
+{{- end }}
+{{- end }}
+{{- else }}
       bind :{{ $mtprotoPublicPort }}
+{{- end }}
+{{- if $entryIngressEnabled }}
+      stick-table type ip size 1m expire 30s store conn_cur,conn_rate(10s)
+      tcp-request connection track-sc0 src
+      tcp-request connection reject if { sc_conn_cur(0) gt {{ $entryIngressMaxConnectionsPerSource }} }
+      tcp-request connection reject if { sc_conn_rate(0) gt {{ $entryIngressNewConnectionsPer10Seconds }} }
+{{- end }}
 {{- if $mtprotoEndpointSourceRestricted }}
       acl mtproto_proxy_src src {{ join " " $mtprotoEndpointAllowedSources }}
       tcp-request connection reject unless mtproto_proxy_src
@@ -646,11 +672,25 @@ data:
 
 {{- end }}
     frontend fe_tracegate_{{ $roleName }}_tls
+{{- if $entryIngressEnabled }}
+{{- range $shard := $entryIngressShards }}
+{{- if or (eq (toString ($shard.state | default "active")) "active") (eq (toString ($shard.state | default "active")) "draining") }}
+      bind {{ required "architecture.entryIngress.shards[].publicIp is required" $shard.publicIp }}:{{ int $role.ports.publicTcp }}
+{{- end }}
+{{- end }}
+{{- else }}
       bind :{{ int $role.ports.publicTcp }}
 {{- range $bind := ($role.ports.publicTcpExtraBinds | default (list)) }}
       bind {{ $bind }}
 {{- end }}
-      tcp-request inspect-delay 5s
+{{- end }}
+{{- if $entryIngressEnabled }}
+      stick-table type ip size 1m expire 30s store conn_cur,conn_rate(10s)
+      tcp-request connection track-sc0 src
+      tcp-request connection reject if { sc_conn_cur(0) gt {{ $entryIngressMaxConnectionsPerSource }} }
+      tcp-request connection reject if { sc_conn_rate(0) gt {{ $entryIngressNewConnectionsPer10Seconds }} }
+{{- end }}
+      tcp-request inspect-delay {{ ternary $entryIngressInspectDelay "5s" $entryIngressEnabled }}
       tcp-request content accept if { req.ssl_sni -m found }
       tcp-request content accept if WAIT_END
 {{- if and (eq $roleName "transit") $mtprotoEgressShadowtlsEnabled }}

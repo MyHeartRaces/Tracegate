@@ -65,6 +65,12 @@ Entry traffic shaping and chain-client limits are enabled in public values as
 guardrails. The real Entry network interface must be set in the operator
 overlay.
 
+The optional four-address Entry contract is configured under
+`architecture.entryIngress`: one service-facing IPv4 address and exactly three
+client shard IPv4 addresses. HAProxy binds only shard addresses. Because UDP
+runtimes may bind wildcard sockets, operators must render and persist the
+required host policy with `deploy/k3s/entry-ingress-firewall.py`.
+
 Entry and Endpoint runtime directories must be provisioned on encrypted storage
 before scheduling those roles. See
 [docs/node-encryption-runbook.md](../../docs/node-encryption-runbook.md) for

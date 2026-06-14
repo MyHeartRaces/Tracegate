@@ -4,7 +4,7 @@
 architecture:
   mode: entry-endpoint
   ingressRotation:
-    enabled: false
+    enabled: true
     strategy: revision-sticky
     entryHosts: []
     endpointHosts: []
@@ -13,6 +13,44 @@ architecture:
     requireDistinctPublicIPs: true
     requireDistinctAsns: true
     rotateEndpointEgress: false
+  entryIngress:
+    enabled: true
+    serviceFacing:
+      publicIp: 203.0.113.10
+      hostname: status.example.net
+    shards:
+      - id: shard-a
+        publicIp: 203.0.113.11
+        hostnameTemplate: "{token}.a.example.net"
+        mtprotoHost: mt-a.example.net
+        state: active
+      - id: shard-b
+        publicIp: 203.0.113.12
+        hostnameTemplate: "{token}.b.example.net"
+        mtprotoHost: mt-b.example.net
+        state: active
+      - id: shard-c
+        publicIp: 203.0.113.13
+        hostnameTemplate: "{token}.c.example.net"
+        mtprotoHost: mt-c.example.net
+        state: active
+    alias:
+      tokenLength: 20
+    firewall:
+      required: true
+    channel:
+      tcp:
+        bindShardIpsOnly: true
+        maxConnections: 20000
+        maxConnectionsPerSource: 8
+        newConnectionsPer10Seconds: 12
+        inspectDelay: 5s
+        connectTimeout: 5s
+        clientTimeout: 5m
+        serverTimeout: 5m
+        tunnelTimeout: 1h
+      udp:
+        serviceIpRejectRequired: true
 
 topology:
   servers:
@@ -28,7 +66,7 @@ topology:
       kubernetesNodeName: ""
     entry:
       displayName: Entry
-      publicIp: 203.0.113.10
+      publicIp: 203.0.113.11
       kubernetesNodeName: tracegate-entry
       nodeSelector:
         tracegate.io/role: entry

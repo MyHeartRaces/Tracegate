@@ -426,6 +426,9 @@ class Settings(BaseSettings):
     ingress_rotation_strategy: str = "revision-sticky"
     entry_ingress_hosts: list[str] = Field(default_factory=list)
     endpoint_ingress_hosts: list[str] = Field(default_factory=list)
+    entry_ingress_shards: list[dict] = Field(default_factory=list)
+    entry_ingress_alias_token_length: int = 20
+    mtproto_ingress_hosts: list[str] = Field(default_factory=list)
 
     # Material required to build working client configs.
     # For direct mode this is Transit key.
