@@ -28,6 +28,10 @@ def _documents(path: Path) -> list[dict[str, Any]]:
 
 def validate(path: Path, phase: str) -> list[str]:
     errors: list[str] = []
+    rendered = path.read_text(encoding="utf-8")
+    for removed_surface in ("NAIVEPROXY", "naiveproxy:", "VLESS_ENCRYPTION"):
+        if removed_surface in rendered:
+            errors.append(f"removed production surface rendered: {removed_surface}")
     deployments: dict[str, dict[str, Any]] = {}
     forbidden_components: list[str] = []
     for doc in _documents(path):

@@ -783,12 +783,14 @@ spec:
               value: {{ include "tracegate.entryHost" $ | quote }}
             - name: DEFAULT_TRANSIT_HOST
               value: {{ include "tracegate.transitHost" $ | quote }}
+{{- if ne (toString $.Values.architecture.mode) "entry-endpoint" }}
             - name: NAIVEPROXY_HOST
               value: {{ ($.Values.controlPlane.env.naiveproxyHost | default $.Values.naiveproxy.domain) | quote }}
             - name: NAIVEPROXY_PUBLIC_TCP_PORT
               value: {{ int $.Values.naiveproxy.ports.publicTcp | quote }}
             - name: NAIVEPROXY_PUBLIC_UDP_PORT
               value: {{ int $.Values.naiveproxy.ports.publicUdp | quote }}
+{{- end }}
             - name: AGENT_DATA_ROOT
               value: /var/lib/tracegate
             - name: AGENT_DRY_RUN
@@ -801,6 +803,7 @@ spec:
               value: {{ printf "127.0.0.1:%d" (int $role.ports.xrayApi) | quote }}
             - name: REALITY_MULTI_INBOUND_GROUPS
               value: {{ toJson ($.Values.gateway.realityMultiInboundGroups | default (list)) | quote }}
+{{- if ne (toString $.Values.architecture.mode) "entry-endpoint" }}
             - name: VLESS_ENCRYPTION_ENABLED
               value: {{ $.Values.vlessEncryption.enabled | quote }}
 {{- if $.Values.vlessEncryption.enabled }}
@@ -809,6 +812,7 @@ spec:
                 secretKeyRef:
                   name: {{ include "tracegate.privateProfilesSecretName" $ }}
                   key: {{ $roleVlessEncryptionDecryptionSecretKey }}
+{{- end }}
 {{- end }}
             - name: AGENT_STATS_URL
               value: "http://127.0.0.1:9999/traffic"
@@ -829,8 +833,10 @@ spec:
               value: {{ $.Values.gateway.agent.reloadCommands.fronting | quote }}
             - name: AGENT_RELOAD_MTPROTO_CMD
               value: {{ $.Values.gateway.agent.reloadCommands.mtproto | quote }}
+{{- if ne (toString $.Values.architecture.mode) "entry-endpoint" }}
             - name: AGENT_RELOAD_NAIVEPROXY_CMD
               value: {{ $.Values.gateway.agent.reloadCommands.naiveproxy | quote }}
+{{- end }}
             - name: AGENT_RELOAD_PROFILES_CMD
               value: {{ $.Values.gateway.agent.reloadCommands.profiles | quote }}
             - name: AGENT_RELOAD_LINK_CRYPTO_CMD

@@ -502,6 +502,7 @@ data:
         hostWideInterception: {{ .Values.interconnect.zapret2.hostWideInterception }}
         nfqueue: {{ .Values.interconnect.zapret2.nfqueue }}
         failOpen: true
+{{- if ne (toString .Values.architecture.mode) "entry-endpoint" }}
     naiveproxy:
       enabled: {{ .Values.naiveproxy.enabled }}
       domain: {{ .Values.naiveproxy.domain }}
@@ -525,6 +526,7 @@ data:
         hideVia: {{ .Values.naiveproxy.stealth.hideVia }}
         coverPaths:
 {{ toYaml .Values.naiveproxy.stealth.coverPaths | nindent 10 }}
+{{- end }}
     transports:
 {{ toYaml .Values.transportProfiles.clientNames | nindent 6 }}
     transportProfiles:

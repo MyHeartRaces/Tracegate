@@ -335,6 +335,7 @@ spec:
                   key: {{ .Values.privateProfiles.secretKeys.shadowsocks2022PasswordTransit }}
             - name: VLESS_WS_PATH
               value: {{ .Values.controlPlane.env.vlessWsPath | quote }}
+{{- if ne (toString .Values.architecture.mode) "entry-endpoint" }}
             - name: VLESS_ENCRYPTION_ENABLED
               value: {{ .Values.vlessEncryption.enabled | quote }}
             - name: VLESS_ENCRYPTION
@@ -345,6 +346,7 @@ spec:
               value: {{ .Values.vlessEncryption.wsPath | quote }}
             - name: VLESS_ENCRYPTION_GRPC_SERVICE_NAME
               value: {{ .Values.vlessEncryption.grpcServiceName | quote }}
+{{- end }}
             - name: MTPROTO_DOMAIN
               value: {{ (.Values.mtproto.domain | default .Values.controlPlane.env.mtprotoDomain) | quote }}
             - name: MTPROTO_TLS_DOMAIN
@@ -353,12 +355,14 @@ spec:
               value: {{ int .Values.mtproto.publicPort | quote }}
             - name: MTPROTO_ROUTE_MODE
               value: {{ toString (dig "mode" "endpoint-direct" (.Values.mtproto.route | default dict)) | quote }}
+{{- if ne (toString .Values.architecture.mode) "entry-endpoint" }}
             - name: NAIVEPROXY_HOST
               value: {{ (.Values.controlPlane.env.naiveproxyHost | default .Values.naiveproxy.domain) | quote }}
             - name: NAIVEPROXY_PUBLIC_TCP_PORT
               value: {{ int .Values.naiveproxy.ports.publicTcp | quote }}
             - name: NAIVEPROXY_PUBLIC_UDP_PORT
               value: {{ int .Values.naiveproxy.ports.publicUdp | quote }}
+{{- end }}
             - name: SUPERADMIN_TELEGRAM_IDS
               value: {{ toJson (.Values.controlPlane.env.superadminTelegramIds | default (list)) | quote }}
 {{- if kindIs "slice" .Values.controlPlane.env.enabledClientProfiles }}
@@ -508,6 +512,7 @@ spec:
                   key: {{ $.Values.privateProfiles.secretKeys.shadowsocks2022PasswordTransit }}
             - name: VLESS_WS_PATH
               value: {{ $.Values.controlPlane.env.vlessWsPath | quote }}
+{{- if ne (toString $.Values.architecture.mode) "entry-endpoint" }}
             - name: VLESS_ENCRYPTION_ENABLED
               value: {{ $.Values.vlessEncryption.enabled | quote }}
             - name: VLESS_ENCRYPTION
@@ -518,6 +523,7 @@ spec:
               value: {{ $.Values.vlessEncryption.wsPath | quote }}
             - name: VLESS_ENCRYPTION_GRPC_SERVICE_NAME
               value: {{ $.Values.vlessEncryption.grpcServiceName | quote }}
+{{- end }}
 {{- if eq $name "bot" }}
             - name: BOT_API_BASE_URL
               value: {{ printf "http://%s-api:%d" (include "tracegate.fullname" $) (int $.Values.controlPlane.service.port) | quote }}
