@@ -1324,7 +1324,7 @@ data:
             "network": "tcp",
             "method": {{ $.Values.shadowsocks2022.method | quote }},
             "password": "REPLACE_SHADOWSOCKS2022_PASSWORD",
-            "clients": []
+            "clients": [{"password": "REPLACE_SHADOWSOCKS2022_PASSWORD"}]
           },
           "sniffing": {"enabled": true, "destOverride": ["http", "tls"]}
         },

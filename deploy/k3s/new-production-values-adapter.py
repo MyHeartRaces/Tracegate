@@ -75,6 +75,11 @@ def adapt(values: dict[str, Any]) -> dict[str, Any]:
             env[chart_key] = env.pop(endpoint_key)
     env["naiveproxyHost"] = env.get("defaultTransitHost", "")
 
+    shadowsocks2022 = _mapping(adapted.get("shadowsocks2022"))
+    shadowtls = _mapping(shadowsocks2022.get("shadowtls"))
+    if "serverNameEndpoint" in shadowtls:
+        shadowtls["serverNameTransit"] = shadowtls.pop("serverNameEndpoint")
+
     gateway = _mapping(adapted.setdefault("gateway", {}))
     roles = _mapping(gateway.setdefault("roles", {}))
     endpoint_role = _mapping(roles.pop("endpoint", None))

@@ -144,6 +144,8 @@ wireguard:
 
 shadowsocks2022:
   enabled: true
+  shadowtls:
+    serverNameEndpoint: api.evotor.ru
 
 mtproto:
   enabled: true

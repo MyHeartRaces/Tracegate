@@ -91,6 +91,9 @@ def render(values: dict[str, Any]) -> str:
         )
     if udp_ports:
         lines.append(
+            f"    iifname != \"lo\" ct status dnat ip daddr {service_ip} udp dport {{ {', '.join(map(str, sorted(udp_ports)))} }} accept"
+        )
+        lines.append(
             f"    iifname != \"lo\" ip daddr {{ {', '.join(reject_ips)} }} udp dport {{ {', '.join(map(str, sorted(udp_ports)))} }} drop"
         )
     lines.extend(["  }", "}", ""])

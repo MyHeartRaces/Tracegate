@@ -85,3 +85,26 @@ def test_endpoint_ingress_firewall_script_is_executable() -> None:
         text=True,
     ).stdout
     assert 'iifname != "lo" ip daddr' in rendered
+    assert 'ct status dnat ip daddr' in rendered
+
+
+def test_endpoint_egress_firewall_script_is_executable() -> None:
+    path = Path("deploy/k3s/endpoint-egress-firewall.py")
+
+    assert path.stat().st_mode & 0o111
+    rendered = subprocess.run(
+        [
+            "python3",
+            str(path),
+            "--chart-values",
+            "deploy/k3s/tracegate/values.yaml",
+            "--values",
+            "deploy/k3s/values-endpoint-first.example.yaml",
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout
+    assert "table ip tracegate_endpoint_egress" in rendered
+    assert " dnat to " in rendered
+    assert " snat to " in rendered

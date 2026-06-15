@@ -48,7 +48,7 @@ def test_settings_use_less_popular_default_camouflage_domains() -> None:
     assert settings.reality_dest == "partners.lemanapro.ru:443"
     assert settings.sni_seed == ["partners.lemanapro.ru"]
     assert settings.shadowtls_server_name_entry == "api.photo.2gis.com"
-    assert settings.shadowtls_server_name_transit == "styles.api.2gis.com"
+    assert settings.shadowtls_server_name_transit == "api.evotor.ru"
 
 
 def test_settings_keep_legacy_property_aliases() -> None:

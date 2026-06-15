@@ -528,7 +528,7 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("SHADOWTLS_SERVER_NAME_ENTRY", "SHADOWTLS_SERVER_NAME"),
     )
     shadowtls_server_name_transit: str = Field(
-        default="styles.api.2gis.com",
+        default="api.evotor.ru",
         validation_alias=AliasChoices("SHADOWTLS_SERVER_NAME_TRANSIT", "SHADOWTLS_SERVER_NAME"),
     )
     shadowtls_password_entry: str = Field(
