@@ -203,35 +203,35 @@ def test_mtproto_delivery_keyboard_exposes_repeat_rotate_and_revoke_actions() ->
 def test_connection_create_profiles_keyboard_uses_new_profile_names() -> None:
     kb = connection_create_profiles_keyboard(category="backup", device_id="dev-42")
     texts = _button_texts(kb)
-    assert "VLESS gRPC" in texts
-    assert "VLESS WebSocket" in texts
-    assert "Shadowsocks" in texts
-    assert "WireGuard over WebSocket" in texts
+    assert "Backup-VLESS+gRPC" in texts
+    assert "Backup-VLESS+WebSocket" in texts
+    assert "Backup-Shadowsocks" in texts
+    assert "Backup-WGWS" in texts
 
 
 def test_connection_create_keyboards_hide_disabled_profiles() -> None:
     enabled = {"reality", "hysteria", "backup-ws", "backup-grpc"}
     categories = _button_texts(connection_create_categories_keyboard_for(device_id="dev-42", enabled_specs=enabled))
-    assert "VLESS Reality" in categories
-    assert "Hysteria2" in categories
+    assert "Direct-VLESS" in categories
+    assert "Direct-Hysteria" in categories
     assert "Backup" in categories
     assert "Entry Chain (Mobile)" not in categories
 
     backup = _button_texts(
         connection_create_profiles_keyboard(category="backup", device_id="dev-42", enabled_specs=enabled)
     )
-    assert "VLESS WebSocket" in backup
-    assert "VLESS gRPC" in backup
-    assert "Shadowsocks" not in backup
-    assert "WireGuard over WebSocket" not in backup
+    assert "Backup-VLESS+WebSocket" in backup
+    assert "Backup-VLESS+gRPC" in backup
+    assert "Backup-Shadowsocks" not in backup
+    assert "Backup-WGWS" not in backup
 
 
 def test_connection_create_keyboards_can_expose_only_universal_entry() -> None:
     enabled = {"entry"}
     categories = _button_texts(connection_create_categories_keyboard_for(device_id="dev-42", enabled_specs=enabled))
-    assert "Entry Chain (Mobile)" in categories
-    assert "VLESS Reality" not in categories
-    assert "Hysteria2" not in categories
+    assert "Chain" in categories
+    assert "Direct-VLESS" not in categories
+    assert "Direct-Hysteria" not in categories
     assert "Backup" not in categories
 
 

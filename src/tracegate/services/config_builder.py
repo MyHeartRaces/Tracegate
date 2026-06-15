@@ -42,6 +42,10 @@ _DIRECT_HYSTERIA_DEFAULT_MBIT = 100
 class EndpointSet:
     transit_host: str
     entry_host: str
+    # Canonical TLS names stay stable while transit_host/entry_host may point
+    # at per-revision ingress shard aliases.
+    transit_server_name: str = ""
+    entry_server_name: str = ""
     hysteria_auth_mode: str = "userpass"
     hysteria_udp_port: int = TRACEGATE_PUBLIC_UDP_PORT
     hysteria_salamander_password_entry: str = ""
@@ -561,17 +565,23 @@ def build_effective_config(
                 if override_value and override_value != default_host:
                     raise ValueError(f"V5 Universal Entry forbids {field_name} override outside the Entry proxy hostname")
         elif is_backup_grpc:
-            default_host = str(endpoints.transit_proxy_host or "").strip()
+            default_host = str(endpoints.transit_proxy_host or endpoints.transit_server_name or "").strip()
             if not default_host:
-                raise ValueError("VLESS gRPC Backup requires the Endpoint proxy hostname")
-            for field_name in ("server", "connect_host", "tls_server_name", "grpc_authority"):
-                override_value = str(overrides.get(field_name) or "").strip()
-                if override_value and override_value != default_host:
-                    raise ValueError(f"VLESS gRPC Backup forbids {field_name} override outside the Endpoint proxy hostname")
+                raise ValueError("VLESS gRPC Backup requires the Endpoint TLS hostname")
+            if endpoints.transit_proxy_host:
+                for field_name in ("server", "connect_host", "tls_server_name", "grpc_authority"):
+                    override_value = str(overrides.get(field_name) or "").strip()
+                    if override_value and override_value != default_host:
+                        raise ValueError(
+                            f"VLESS gRPC Backup forbids {field_name} override outside the Endpoint proxy hostname"
+                        )
         else:
-            default_host = endpoints.transit_host
+            default_host = str(endpoints.transit_server_name or endpoints.transit_host).strip()
         public_host = str(overrides.get("server") or default_host).strip()
         connect_host = str(overrides.get("connect_host") or "").strip()
+        direct_shard_fallback = not is_backup_grpc or not endpoints.transit_proxy_host
+        if not is_universal_entry and direct_shard_fallback and not connect_host and endpoints.transit_host != public_host:
+            connect_host = endpoints.transit_host
         tls_termination_host = public_host
         if not tls_server_name:
             tls_server_name = tls_termination_host
@@ -640,8 +650,10 @@ def build_effective_config(
                 "fixed_port_tcp": int((endpoints.vless_grpc_tls_port if is_grpc else endpoints.vless_ws_tls_port) or 443),
                 "preferred_compat_transport": "grpc" if is_grpc else "ws",
                 "http_version": "h2" if is_grpc else "http/1.1",
-                "cloudflare_proxied_ingress_required": is_grpc,
-                "origin_site_tls_certificate_required": not is_grpc,
+                "cloudflare_proxied_ingress_required": is_universal_entry
+                or (is_backup_grpc and bool(endpoints.transit_proxy_host)),
+                "origin_site_tls_certificate_required": not is_universal_entry
+                and (not is_backup_grpc or not endpoints.transit_proxy_host),
                 **(
                     {
                         "http2_single_tls_multiplexing": True,
@@ -671,6 +683,11 @@ def build_effective_config(
 
         is_chain = connection.mode == ConnectionMode.CHAIN
         entry_host = endpoints.entry_host if is_chain else endpoints.transit_host
+        server_name = (
+            endpoints.entry_server_name or endpoints.entry_host
+            if is_chain
+            else endpoints.transit_server_name or endpoints.transit_host
+        )
         profile_name = connection_profile_label(connection.protocol, connection.mode, connection.variant)
         ech_config_list = (
             endpoints.hysteria_ech_config_list_entry if is_chain else endpoints.hysteria_ech_config_list_transit
@@ -686,8 +703,8 @@ def build_effective_config(
             device_id=str(device.id),
         )
         tls_payload: dict[str, Any] = {
-            "server_name": entry_host,
-            "insecure": bool(overrides.get("tls_insecure", False)) or _is_ip_literal(entry_host),
+            "server_name": server_name,
+            "insecure": bool(overrides.get("tls_insecure", False)) or _is_ip_literal(server_name),
             "alpn": ["h3"],
         }
         if ech_config_list:
@@ -721,7 +738,7 @@ def build_effective_config(
             "profile": profile_name,
             "server": entry_host,
             "port": hysteria_port,
-            "sni": entry_host,
+            "sni": server_name,
             "transport": "udp-quic",
             "tls": tls_payload,
             "auth": auth_payload,
@@ -864,7 +881,9 @@ def build_effective_config(
             raise ValueError("WireGuard over WSTunnel supports only V0 direct")
 
         server = str(overrides.get("server") or endpoints.transit_host).strip()
-        tls_server_name = str(overrides.get("tls_server_name") or server).strip()
+        tls_server_name = str(
+            overrides.get("tls_server_name") or endpoints.transit_server_name or server
+        ).strip()
         allowed_ips_raw = overrides.get("allowed_ips", endpoints.wireguard_allowed_ips)
         allowed_ips = (
             [str(item).strip() for item in allowed_ips_raw if str(item).strip()]

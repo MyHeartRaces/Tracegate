@@ -741,6 +741,40 @@ def test_hysteria_chain_uses_entry_ech_hints() -> None:
     }
 
 
+def test_hysteria_direct_connects_to_endpoint_shard_with_canonical_tls_name() -> None:
+    user = _user()
+    device = _device(user.telegram_id)
+    conn = Connection(
+        id=uuid4(),
+        user_id=user.telegram_id,
+        device_id=device.id,
+        protocol=ConnectionProtocol.HYSTERIA2,
+        mode=ConnectionMode.DIRECT,
+        variant=ConnectionVariant.V2,
+        profile_name="v2-direct-quic-hysteria",
+        custom_overrides_json={},
+        status=RecordStatus.ACTIVE,
+    )
+
+    cfg = build_effective_config(
+        user=user,
+        device=device,
+        connection=conn,
+        selected_sni=None,
+        endpoints=EndpointSet(
+            transit_host="token.r1.endpoint.example",
+            transit_server_name="endpoint.example",
+            entry_host="entry.example",
+            hysteria_salamander_password_transit="salamander-secret",
+        ),
+    )
+
+    assert cfg["server"] == "token.r1.endpoint.example"
+    assert cfg["sni"] == "endpoint.example"
+    assert cfg["tls"]["server_name"] == "endpoint.example"
+    assert cfg["tls"]["insecure"] is False
+
+
 def test_ws_tls_chain_is_rejected() -> None:
     user = _user()
     device = _device(user.telegram_id)
@@ -838,6 +872,39 @@ def test_ws_tls_direct_uses_transit_host_without_proxy() -> None:
     assert cfg["ws"]["host"] == "node.tracegate.test"
 
 
+def test_ws_tls_direct_connects_to_endpoint_shard_with_canonical_tls_name() -> None:
+    user = _user()
+    device = _device(user.telegram_id)
+    conn = Connection(
+        id=uuid4(),
+        user_id=user.telegram_id,
+        device_id=device.id,
+        protocol=ConnectionProtocol.VLESS_WS_TLS,
+        mode=ConnectionMode.DIRECT,
+        variant=ConnectionVariant.V0,
+        profile_name="v0-ws-vless",
+        custom_overrides_json={},
+        status=RecordStatus.ACTIVE,
+    )
+
+    cfg = build_effective_config(
+        user=user,
+        device=device,
+        connection=conn,
+        selected_sni=None,
+        endpoints=EndpointSet(
+            transit_host="token.r1.endpoint.example",
+            transit_server_name="endpoint.example",
+            entry_host="entry.example",
+        ),
+    )
+
+    assert cfg["server"] == "endpoint.example"
+    assert cfg["connect_host"] == "token.r1.endpoint.example"
+    assert cfg["sni"] == "endpoint.example"
+    assert cfg["ws"]["host"] == "endpoint.example"
+
+
 def test_grpc_tls_direct_uses_proxied_endpoint_host_and_service_name() -> None:
     user = _user()
     device = _device(user.telegram_id)
@@ -881,6 +948,41 @@ def test_grpc_tls_direct_uses_proxied_endpoint_host_and_service_name() -> None:
     assert cfg["design_constraints"]["http_version"] == "h2"
 
 
+def test_grpc_tls_direct_can_use_canonical_endpoint_proxy_name() -> None:
+    user = _user()
+    device = _device(user.telegram_id)
+    conn = Connection(
+        id=uuid4(),
+        user_id=user.telegram_id,
+        device_id=device.id,
+        protocol=ConnectionProtocol.VLESS_GRPC_TLS,
+        mode=ConnectionMode.DIRECT,
+        variant=ConnectionVariant.V0,
+        profile_name="v0-grpc-vless",
+        custom_overrides_json={},
+        status=RecordStatus.ACTIVE,
+    )
+
+    cfg = build_effective_config(
+        user=user,
+        device=device,
+        connection=conn,
+        selected_sni=None,
+        endpoints=EndpointSet(
+            transit_host="token.r1.endpoint.example",
+            transit_server_name="endpoint.example",
+            entry_host="entry.example",
+        ),
+    )
+
+    assert cfg["server"] == "endpoint.example"
+    assert cfg["connect_host"] == "token.r1.endpoint.example"
+    assert cfg["sni"] == "endpoint.example"
+    assert cfg["grpc"]["authority"] == "endpoint.example"
+    assert cfg["design_constraints"]["cloudflare_proxied_ingress_required"] is False
+    assert cfg["design_constraints"]["origin_site_tls_certificate_required"] is True
+
+
 def test_grpc_tls_direct_rejects_missing_endpoint_proxy_hostname() -> None:
     user = _user()
     device = _device(user.telegram_id)
@@ -896,7 +998,7 @@ def test_grpc_tls_direct_rejects_missing_endpoint_proxy_hostname() -> None:
         status=RecordStatus.ACTIVE,
     )
 
-    with pytest.raises(ValueError, match="requires the Endpoint proxy hostname"):
+    with pytest.raises(ValueError, match="requires the Endpoint TLS hostname"):
         build_effective_config(
             user=user,
             device=device,
@@ -1148,6 +1250,40 @@ def test_wireguard_wstunnel_v7_config_requires_local_socks_auth() -> None:
     assert cfg["wireguard"]["address"] == "10.70.0.2/32"
     assert cfg["local_socks"]["auth"]["required"] is True
     assert cfg["local_socks"]["auth"]["username"].startswith("tg_v0_")
+
+
+def test_wireguard_wstunnel_connects_to_endpoint_shard_with_canonical_tls_name() -> None:
+    user = _user()
+    device = _device(user.telegram_id)
+    conn = Connection(
+        id=uuid4(),
+        user_id=user.telegram_id,
+        device_id=device.id,
+        protocol=ConnectionProtocol.WIREGUARD_WSTUNNEL,
+        mode=ConnectionMode.DIRECT,
+        variant=ConnectionVariant.V0,
+        profile_name="v0-wgws-wireguard",
+        custom_overrides_json={},
+        status=RecordStatus.ACTIVE,
+    )
+
+    cfg = build_effective_config(
+        user=user,
+        device=device,
+        connection=conn,
+        selected_sni=None,
+        endpoints=EndpointSet(
+            transit_host="token.r1.endpoint.example",
+            transit_server_name="endpoint.example",
+            entry_host="entry.example",
+            wireguard_server_public_key="server-public",
+        ),
+    )
+
+    assert cfg["server"] == "token.r1.endpoint.example"
+    assert cfg["sni"] == "endpoint.example"
+    assert cfg["wstunnel"]["url"] == "wss://token.r1.endpoint.example:443/wgws"
+    assert cfg["wstunnel"]["tls_server_name"] == "endpoint.example"
 
 
 def test_naiveproxy_v4_direct_is_rejected_after_tracegate3_removal() -> None:

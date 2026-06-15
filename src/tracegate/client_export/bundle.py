@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
 
-from tracegate.client_export.config import ClientConfigExportError, ExportResult, export_client_config
+from tracegate.client_export.config import ClientConfigExportError, ExportResult, client_profile_name, export_client_config
 
 _SCHEMA = "tracegate.client-config-bundle.v1"
 
@@ -181,7 +181,7 @@ def _singbox_outbounds_for_profile(
 
 def _profile_record(item: ClientConfigBundleItem, *, index: int) -> tuple[dict[str, Any], list[dict[str, Any]], str | None]:
     exported = export_client_config(item.effective_config)
-    profile = str(item.effective_config.get("profile") or item.profile_name or item.label or item.revision_id).strip()
+    profile = client_profile_name(item.effective_config)
     tag_prefix = f"tg-{index}-{_safe_tag(profile, 'profile')}"
     singbox_outbounds, singbox_tag, warnings = _singbox_outbounds_for_profile(
         item.effective_config,

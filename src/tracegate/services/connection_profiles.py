@@ -55,20 +55,20 @@ def connection_profile_display_label(
     proto = ConnectionProtocol(protocol)
     conn_mode = ConnectionMode(mode)
     conn_variant = ConnectionVariant(variant)
+    if conn_mode == ConnectionMode.CHAIN:
+        return "Chain"
     if proto == ConnectionProtocol.VLESS_REALITY:
-        return "VLESS Reality"
+        return "Direct-VLESS"
     if proto == ConnectionProtocol.HYSTERIA2:
-        return "Hysteria2"
+        return "Direct-Hysteria"
     if proto == ConnectionProtocol.SHADOWSOCKS2022_SHADOWTLS:
-        return "Shadowsocks"
+        return "Backup-Shadowsocks"
     if proto == ConnectionProtocol.VLESS_WS_TLS:
-        return "VLESS WebSocket"
+        return "Backup-VLESS+WebSocket"
     if proto == ConnectionProtocol.VLESS_GRPC_TLS:
-        if conn_variant == ConnectionVariant.V5 and conn_mode == ConnectionMode.CHAIN:
-            return "Entry Chain (Mobile)"
-        return "VLESS gRPC"
+        return "Backup-VLESS+gRPC"
     if proto == ConnectionProtocol.WIREGUARD_WSTUNNEL:
-        return "WireGuard over WebSocket"
+        return "Backup-WGWS"
     return f"{conn_variant.value}-{conn_mode.value.capitalize()}-{proto.value}"
 
 

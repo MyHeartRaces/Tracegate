@@ -73,6 +73,30 @@ def _safe_filename_fragment(value: str) -> str:
     return compact or "tracegate"
 
 
+def client_profile_name(effective: dict[str, Any]) -> str:
+    protocol = str(effective.get("protocol") or "").strip().lower()
+    transport = str(effective.get("transport") or "").strip().lower()
+    is_chain = isinstance(effective.get("chain"), dict)
+    if is_chain:
+        return "Chain"
+    if protocol == "vless" and (
+        transport in {"reality", "reality_xhttp", "reality-xhttp", "xhttp_reality"}
+        or isinstance(effective.get("reality"), dict)
+    ):
+        return "Direct-VLESS"
+    if protocol == "hysteria2":
+        return "Direct-Hysteria"
+    if protocol == "vless" and transport in {"ws_tls", "ws+tls", "ws-tls"}:
+        return "Backup-VLESS+WebSocket"
+    if protocol == "vless" and transport in {"grpc_tls", "grpc+tls", "grpc-tls"}:
+        return "Backup-VLESS+gRPC"
+    if protocol in {"shadowsocks2022", "shadowsocks2022_shadowtls"} or transport == "shadowtls_v3":
+        return "Backup-Shadowsocks"
+    if protocol == "wireguard" or transport in {"wireguard_wstunnel", "wstunnel"}:
+        return "Backup-WGWS"
+    return str(effective.get("profile") or "Tracegate").strip() or "Tracegate"
+
+
 def _is_loopback_host(host: str) -> bool:
     normalized = str(host or "").strip().lower()
     if normalized == "localhost":
@@ -298,7 +322,7 @@ def _reject_client_management_api(effective: dict[str, Any]) -> None:
 
 
 def _build_xray_client_attachment(effective: dict[str, Any], outbound: dict[str, Any]) -> tuple[bytes, str]:
-    profile_name = str(effective.get("profile") or "tracegate-client").strip() or "tracegate-client"
+    profile_name = client_profile_name(effective)
     local_host, local_port = _local_socks_endpoint(effective)
     socks_username, socks_password = _local_socks_auth(effective)
     config = {
@@ -328,7 +352,7 @@ def _build_singbox_client_attachment(
     *,
     inbound_type: str = "mixed",
 ) -> tuple[bytes, str]:
-    profile_name = str(effective.get("profile") or "tracegate-client").strip() or "tracegate-client"
+    profile_name = client_profile_name(effective)
     local_host, local_port = _local_socks_endpoint(effective)
     socks_username, socks_password = _local_socks_auth(effective)
     outbounds = outbound if isinstance(outbound, list) else [outbound]
@@ -365,7 +389,7 @@ def _build_wgws_client_attachment(
     preshared_key: str,
     mtu: int,
 ) -> tuple[bytes, str]:
-    profile_name = str(effective.get("profile") or "v0-wgws-wireguard").strip() or "v0-wgws-wireguard"
+    profile_name = client_profile_name(effective)
     parsed = urlparse(wstunnel_url)
     ws_server = str(parsed.hostname or "").strip()
     ws_port = int(parsed.port or 443)
@@ -614,7 +638,7 @@ def _export_vless_reality(effective: dict[str, Any]) -> ExportResult:
     }
     params["path"] = xhttp_path or "/api/v1/update"
 
-    name = effective.get("profile") or "tracegate-vless"
+    name = client_profile_name(effective)
     uri = f"vless://{uuid}@{server}:{port}?{_encode_query(params, safe='/,')}#{_q(str(name))}"
     attachment_content, attachment_filename = _build_xray_client_attachment(
         effective,
@@ -691,7 +715,7 @@ def _export_vless_ws_tls(effective: dict[str, Any]) -> ExportResult:
     if insecure:
         params["allowInsecure"] = "1"
 
-    name = effective.get("profile") or "tracegate-vless-ws"
+    name = client_profile_name(effective)
     uri = f"vless://{uuid}@{server}:{port}?{_encode_query(params, safe='/,')}#{_q(str(name))}"
     tls_settings: dict[str, Any] = {
         "serverName": sni,
@@ -767,7 +791,7 @@ def _export_vless_grpc_tls(effective: dict[str, Any]) -> ExportResult:
     if insecure:
         params["allowInsecure"] = "1"
 
-    name = effective.get("profile") or "v0-grpc-vless"
+    name = client_profile_name(effective)
     uri = f"vless://{uuid}@{server}:{port}?{_encode_query(params, safe='/,')}#{_q(str(name))}"
     tls_settings: dict[str, Any] = {
         "serverName": sni,
@@ -855,7 +879,7 @@ def _export_hysteria2(effective: dict[str, Any]) -> ExportResult:
     if alpn_values and alpn_values != ["h3"]:
         params["alpn"] = ",".join(alpn_values)
 
-    name = effective.get("profile") or "tracegate-hysteria2"
+    name = client_profile_name(effective)
     if auth_type == "userpass":
         if not username or not password:
             raise ClientConfigExportError("Missing userpass fields for Hysteria2 export")
@@ -942,7 +966,7 @@ def _export_shadowsocks2022_shadowtls(effective: dict[str, Any]) -> ExportResult
     shadowtls = effective.get("shadowtls") or {}
     shadowtls_password = str(shadowtls.get("password") or "").strip()
     shadowtls_server_name = str(shadowtls.get("server_name") or effective.get("sni") or server).strip()
-    profile = str(effective.get("profile") or "v3-direct-shadowtls-shadowsocks").strip()
+    profile = client_profile_name(effective)
 
     if not server or not password or not shadowtls_password:
         raise ClientConfigExportError("Missing fields for Shadowsocks-2022 + ShadowTLS export")
@@ -1002,7 +1026,7 @@ def _export_wireguard_wstunnel(effective: dict[str, Any]) -> ExportResult:
     server = str(effective.get("server") or "").strip()
     wstunnel = effective.get("wstunnel") or {}
     wireguard = effective.get("wireguard") or {}
-    profile = str(effective.get("profile") or "v0-wgws-wireguard").strip()
+    profile = client_profile_name(effective)
     private_key = str(wireguard.get("private_key") or "").strip()
     peer_public_key = str(wireguard.get("server_public_key") or "").strip()
     address = wireguard.get("address") or ""

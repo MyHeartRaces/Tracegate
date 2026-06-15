@@ -435,6 +435,8 @@ async def _resolve_endpoints(
         if entry
         else settings.default_entry_host
     )
+    transit_server_name = transit_host
+    entry_server_name = entry_host
     if settings.ingress_rotation_enabled and settings.ingress_rotation_strategy == "revision-sticky":
         transit_host = _select_revision_sticky_host(
             hosts=settings.endpoint_ingress_hosts,
@@ -467,6 +469,18 @@ async def _resolve_endpoints(
                 settings=settings,
                 role="endpoint",
             )
+    elif settings.endpoint_ingress_shards:
+        # Endpoint-first always exposes clients through shard addresses. The
+        # rotation flag controls planned hostname-pool rotation, not whether
+        # clients should bypass the service/egress-only address.
+        transit_host = _select_revision_sticky_shard_host(
+            shards=settings.endpoint_ingress_shards,
+            fallback=transit_host,
+            connection_id=connection_id,
+            rotation_generation=rotation_generation,
+            settings=settings,
+            role="endpoint",
+        )
     if entry_host_override:
         entry_host = entry_host_override
     if transit_host_override:
@@ -474,6 +488,8 @@ async def _resolve_endpoints(
     return EndpointSet(
         transit_host=transit_host,
         entry_host=entry_host,
+        transit_server_name=transit_server_name,
+        entry_server_name=entry_server_name,
         hysteria_auth_mode=runtime_contract.hysteria_auth_mode,
         hysteria_udp_port=settings.hysteria_udp_port,
         hysteria_salamander_password_entry=settings.hysteria_salamander_password_entry,

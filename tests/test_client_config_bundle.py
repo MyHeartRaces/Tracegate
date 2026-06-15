@@ -118,16 +118,16 @@ def test_client_config_bundle_collects_universal_links_artifacts_and_singbox() -
     assert not any(outbound["type"] == "wireguard" for outbound in bundle["singbox"]["outbounds"])
 
     ss_outbound = next(outbound for outbound in bundle["singbox"]["outbounds"] if outbound["type"] == "shadowsocks")
-    assert ss_outbound["detour"].startswith("tg-2-ss2022-shadowtls-")
+    assert ss_outbound["detour"].startswith("tg-2-backup-shadowsocks-")
     assert any(outbound["tag"] == ss_outbound["detour"] for outbound in bundle["singbox"]["outbounds"])
 
     profiles = {profile["profile"]: profile for profile in bundle["profiles"]}
-    assert profiles["VLESS-WS"]["singbox"]["supported"] is True
-    assert profiles["SS2022-ShadowTLS"]["artifacts"][0]["kind"] == "sing-box-config"
-    assert profiles["WGWS"]["singbox"]["supported"] is False
-    assert profiles["WGWS"]["artifacts"][0]["kind"] == "wgws-config"
-    assert profiles["WGWS"]["artifacts"][0]["json"]["type"] == "wgws"
-    assert profiles["WGWS"]["warnings"] == ["wireguard_wstunnel_requires_wgws_transport"]
+    assert profiles["Backup-VLESS+WebSocket"]["singbox"]["supported"] is True
+    assert profiles["Backup-Shadowsocks"]["artifacts"][0]["kind"] == "sing-box-config"
+    assert profiles["Backup-WGWS"]["singbox"]["supported"] is False
+    assert profiles["Backup-WGWS"]["artifacts"][0]["kind"] == "wgws-config"
+    assert profiles["Backup-WGWS"]["artifacts"][0]["json"]["type"] == "wgws"
+    assert profiles["Backup-WGWS"]["warnings"] == ["wireguard_wstunnel_requires_wgws_transport"]
 
 
 def test_client_config_bundle_rejects_removed_vless_encryption() -> None:

@@ -34,7 +34,8 @@ def test_export_vless_reality_uri() -> None:
     assert "sni=google.com" in out.content
     assert "pbk=PUBKEY" in out.content
     assert "sid=abcd" in out.content
-    assert out.attachment_filename == "v1-vless-reality-direct.xray.json"
+    assert "#Direct-VLESS" in out.content
+    assert out.attachment_filename == "direct-vless.xray.json"
     assert out.attachment_mime == "application/json"
     local_socks = _extra_content(out, "Local SOCKS5 credentials")
     assert "Host: 127.0.0.1" in local_socks
@@ -84,12 +85,12 @@ def test_export_hysteria2_uri() -> None:
     assert "alpn=" not in out.content
     assert "sni=t.example.com" in out.content
     assert "peer=t.example.com" not in out.content
-    assert "#V3-Hysteria2-QUIC-Direct" in out.content
+    assert "#Direct-Hysteria" in out.content
     assert out.alternate_title is None
     assert out.alternate_content is None
     assert "Local SOCKS5 credentials" in dict(out.extra_messages)
     attachment = json.loads((out.attachment_content or b"").decode("utf-8"))
-    assert out.attachment_filename == "v3-hysteria2-quic-direct.singbox.json"
+    assert out.attachment_filename == "direct-hysteria.singbox.json"
     assert attachment["inbounds"][0]["users"][0]["username"].startswith("tg_")
     assert attachment["inbounds"][0]["users"][0]["password"]
     assert attachment["outbounds"][0]["type"] == "hysteria2"
@@ -197,7 +198,7 @@ def test_export_hysteria2_token_uri() -> None:
     assert "alpn=" not in out.content
     assert "sni=t.example.com" in out.content
     assert "peer=t.example.com" not in out.content
-    assert "#V3-Hysteria2-QUIC-Direct" in out.content
+    assert "#Direct-Hysteria" in out.content
     assert out.alternate_title is None
     assert out.alternate_content is None
     assert "Local SOCKS5 credentials" in dict(out.extra_messages)
@@ -277,7 +278,8 @@ def test_export_vless_ws_tls_uri() -> None:
     assert "path=/ws" in out.content
     assert "host=t.example.com" in out.content
     assert "allowInsecure=1" in out.content
-    assert out.attachment_filename == "v1-vless-ws-tls-direct.xray.json"
+    assert "#Backup-VLESS%2BWebSocket" in out.content
+    assert out.attachment_filename == "backup-vless-websocket.xray.json"
     attachment = json.loads((out.attachment_content or b"").decode("utf-8"))
     assert attachment["inbounds"][0]["settings"]["auth"] == "password"
     assert attachment["inbounds"][0]["settings"]["accounts"][0]["user"].startswith("tg_")
@@ -330,7 +332,8 @@ def test_export_vless_grpc_tls_uri() -> None:
     assert "serviceName=tracegate.v1.Edge" in out.content
     assert "mode=gun" in out.content
     assert "authority=" not in out.content
-    assert out.attachment_filename == "v1-vless-grpc-tls-direct.xray.json"
+    assert "#Backup-VLESS%2BgRPC" in out.content
+    assert out.attachment_filename == "backup-vless-grpc.xray.json"
     attachment = json.loads((out.attachment_content or b"").decode("utf-8"))
     assert attachment["inbounds"][0]["settings"]["auth"] == "password"
     assert attachment["outbounds"][0]["streamSettings"]["network"] == "grpc"
@@ -467,10 +470,10 @@ def test_export_shadowsocks2022_shadowtls_single_line_uri() -> None:
     assert "\n" not in out.content
     assert "shadow-tls=" not in out.content
     assert "@t.example.com:443" in out.content
-    assert "#V5-Shadowsocks2022-ShadowTLS-Direct" in out.content
+    assert "#Backup-Shadowsocks" in out.content
     assert out.title == "Shadowsocks-2022 + ShadowTLS"
     assert out.alternate_content is None
-    assert out.attachment_filename == "v5-shadowsocks2022-shadowtls-direct.singbox.json"
+    assert out.attachment_filename == "backup-shadowsocks.singbox.json"
     assert out.attachment_mime == "application/json"
     assert out.extra_messages == ()
 
@@ -531,7 +534,7 @@ def test_export_wireguard_wstunnel_attachment_requires_local_auth() -> None:
     attachment = json.loads((out.attachment_content or b"").decode("utf-8"))
 
     assert out.kind == "attachment"
-    assert out.attachment_filename == "v7-wireguard-wstunnel-direct.wgws.json"
+    assert out.attachment_filename == "backup-wgws.wgws.json"
     assert dict(out.extra_messages)["WGWS transport"] == "wss://edge.example.com:443/cdn/ws"
     assert dict(out.extra_messages)["WG local UDP"] == "127.0.0.1:51820"
     assert "Local SOCKS5 credentials" in dict(out.extra_messages)

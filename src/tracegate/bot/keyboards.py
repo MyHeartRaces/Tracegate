@@ -211,17 +211,17 @@ def connection_create_categories_keyboard_for(
     return InlineKeyboardMarkup(
         inline_keyboard=[
             *(
-                [[InlineKeyboardButton(text="VLESS Reality", callback_data=f"new:reality:{device_id}")]]
+                [[InlineKeyboardButton(text="Direct-VLESS", callback_data=f"new:reality:{device_id}")]]
                 if enabled is None or "reality" in enabled
                 else []
             ),
             *(
-                [[InlineKeyboardButton(text="Hysteria2", callback_data=f"new:hysteria:{device_id}")]]
+                [[InlineKeyboardButton(text="Direct-Hysteria", callback_data=f"new:hysteria:{device_id}")]]
                 if enabled is None or "hysteria" in enabled
                 else []
             ),
             *(
-                [[InlineKeyboardButton(text="Entry Chain (Mobile)", callback_data=f"new:entry:{device_id}")]]
+                [[InlineKeyboardButton(text="Chain", callback_data=f"new:entry:{device_id}")]]
                 if enabled is None or "entry" in enabled
                 else []
             ),
@@ -247,10 +247,10 @@ def connection_create_profiles_keyboard(
 
     rows: list[list[InlineKeyboardButton]] = []
     if category == "backup":
-        add_row(rows, "backup-grpc", "VLESS gRPC")
-        add_row(rows, "backup-ws", "VLESS WebSocket")
-        add_row(rows, "backup-shadowtls", "Shadowsocks")
-        add_row(rows, "backup-wgws", "WireGuard over WebSocket")
+        add_row(rows, "backup-grpc", "Backup-VLESS+gRPC")
+        add_row(rows, "backup-ws", "Backup-VLESS+WebSocket")
+        add_row(rows, "backup-shadowtls", "Backup-Shadowsocks")
+        add_row(rows, "backup-wgws", "Backup-WGWS")
     rows.append([InlineKeyboardButton(text="↩️ Назад", callback_data=f"conn_create:{device_id}")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
