@@ -20,7 +20,8 @@ Transit node.
 - every legacy `interconnect.entryTransit` switch is disabled
 - Universal Entry uses `interconnect.endpointBackhaul`: shared XHTTP/REALITY
   connect/SNI shards with a Hysteria2/Salamander fallback
-- MTProto runs on Entry and uses `entry-local-endpoint-egress`
+- MTProto clients enter through shared Entry TCP/443; Telemt runs only on
+  Endpoint and uses `entry-endpoint-tunnel`
 - no Kubernetes node has `tracegate.io/role=transit` or
   `tracegate.io/role=chain-transit`
 

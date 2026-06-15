@@ -39,12 +39,12 @@ interconnect:
       maxParallelDials: 1
     health:
       payloadProbeRequired: true
-      probeUrl: https://yandex.ru/
+      probeUrl: https://api.dobro.ru/
       probeInterval: 30s
     hysteria2:
       enabled: true
       endpointHost: 198.51.100.20
-      endpointPort: 4443
+      endpointPort: 443
       serverName: endpoint.example.net
       entrySocksPort: 11086
       allowedSources:
@@ -65,16 +65,16 @@ interconnect:
     allowedSources:
       - 203.0.113.10
     shards:
-      - id: yandex
-        serverName: yandex.ru
-        dest: yandex.ru:443
+      - id: lemanapro
+        serverName: partners.lemanapro.ru
+        dest: partners.lemanapro.ru:443
         endpointListenPort: 2451
-        path: /api/v1/backhaul/yandex
-      - id: wb
-        serverName: splitter.wb.ru
-        dest: splitter.wb.ru:443
+        path: /api/v1/backhaul/lemanapro
+      - id: 2gis-reviews
+        serverName: public-api.reviews.2gis.com
+        dest: public-api.reviews.2gis.com:443
         endpointListenPort: 2452
-        path: /api/v1/backhaul/wb
+        path: /api/v1/backhaul/2gis-reviews
     xhttp:
       clientMode: stream-one
       serverMode: auto
@@ -94,7 +94,13 @@ interconnect:
 controlPlane:
   env:
     enabledClientProfiles:
-      - universal
+      - reality
+      - hysteria
+      - entry
+      - backup-grpc
+      - backup-ws
+      - backup-shadowtls
+      - backup-wgws
     defaultEntryHost: edge.example.net
 
 network:
@@ -139,18 +145,16 @@ transitRouter:
   enabled: false
 
 mtproto:
-  runtime: mtg
+  runtime: telemt
+  domain: proto.example.net
+  tlsDomain: ctlog2024.mail.ru
   fallback:
     enabled: false
-  egress:
-    mode: socks5-only
-    socksPort: 11084
-    domainFrontingHost: yandex.ru
-    shadowtls:
-      enabled: true
-      serverName: splitter.wb.ru
-      endpointHost: 198.51.100.20
-      allowedSources:
-        - 203.0.113.10
+  stealth:
+    requireWhitelistedTlsDomain: true
+    forbiddenTlsDomains: [yandex.ru, splitter.wb.ru]
+    validatedTlsDomains: [ctlog2024.mail.ru]
   route:
-    mode: entry-local-endpoint-egress
+    mode: entry-endpoint-tunnel
+    entry:
+      tunnelPort: 11087

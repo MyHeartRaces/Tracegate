@@ -88,8 +88,8 @@ def test_main_menu_includes_guide_button() -> None:
     kb = main_menu_keyboard(is_admin=False)
     texts = _button_texts(kb)
     assert _has_text(texts, "Справка")
-    assert kb.inline_keyboard[2][0].text == "📚 Справка"
-    assert kb.inline_keyboard[2][0].callback_data == "guide_open"
+    assert kb.inline_keyboard[1][0].text == "📚 Справка"
+    assert kb.inline_keyboard[1][0].callback_data == "guide_open"
 
 
 def test_help_keyboard_returns_to_menu_without_extra_links() -> None:
@@ -99,11 +99,11 @@ def test_help_keyboard_returns_to_menu_without_extra_links() -> None:
     assert kb.inline_keyboard[0][0].callback_data == "menu"
 
 
-def test_main_menu_uses_unified_devices_section() -> None:
+def test_main_menu_keeps_devices_inside_connections() -> None:
     kb = main_menu_keyboard(is_admin=False)
     texts = _button_texts(kb)
     assert _has_text(texts, "Подключения")
-    assert _has_text(texts, "Устройства")
+    assert not _has_text(texts, "Устройства")
     assert not _has_text(texts, "Добавить устройство")
     assert not _has_text(texts, "Новое устройство")
 
@@ -201,62 +201,56 @@ def test_mtproto_delivery_keyboard_exposes_repeat_rotate_and_revoke_actions() ->
 
 
 def test_connection_create_profiles_keyboard_uses_new_profile_names() -> None:
-    kb = connection_create_profiles_keyboard(category="direct", device_id="dev-42")
+    kb = connection_create_profiles_keyboard(category="backup", device_id="dev-42")
     texts = _button_texts(kb)
-    assert "V1-Direct-Reality-VLESS" in texts
-    assert "V2-Direct-QUIC-Hysteria" in texts
-    assert "V3-Direct-ShadowTLS-Shadowsocks" in texts
-
-    kb = connection_create_profiles_keyboard(category="chain", device_id="dev-42")
-    texts = _button_texts(kb)
-    assert "V5-Universal-Entry" in texts
-    assert "V1-Chain-Reality-VLESS" in texts
-    assert "V2-Chain-QUIC-Hysteria" in texts
-    assert "V3-Chain-ShadowTLS-Shadowsocks" in texts
-
-    kb = connection_create_profiles_keyboard(category="other", device_id="dev-42")
-    texts = _button_texts(kb)
-    assert "V0-Encrypted-Reality-VLESS" in texts
-    assert "V0-WS-VLESS" in texts
-    assert "V0-gRPC-VLESS" in texts
-    assert "V0-WGWS-WireGuard" in texts
+    assert "VLESS gRPC" in texts
+    assert "VLESS WebSocket" in texts
+    assert "Shadowsocks" in texts
+    assert "WireGuard over WebSocket" in texts
 
 
 def test_connection_create_keyboards_hide_disabled_profiles() -> None:
-    enabled = {"v1direct", "v2direct", "v0realityenc", "v0ws", "v0grpc"}
-    categories = _button_texts(connection_create_categories_keyboard_for(enabled_specs=enabled))
-    assert "⚡ Direct" in categories
-    assert "🧰 Other" in categories
-    assert "⛓️ Chain" not in categories
+    enabled = {"reality", "hysteria", "backup-ws", "backup-grpc"}
+    categories = _button_texts(connection_create_categories_keyboard_for(device_id="dev-42", enabled_specs=enabled))
+    assert "VLESS Reality" in categories
+    assert "Hysteria2" in categories
+    assert "Backup" in categories
+    assert "Entry Chain (Mobile)" not in categories
 
-    direct = _button_texts(connection_create_profiles_keyboard(category="direct", device_id="dev-42", enabled_specs=enabled))
-    assert "V1-Direct-Reality-VLESS" in direct
-    assert "V2-Direct-QUIC-Hysteria" in direct
-    assert "V3-Direct-ShadowTLS-Shadowsocks" not in direct
-
-    other = _button_texts(connection_create_profiles_keyboard(category="other", device_id="dev-42", enabled_specs=enabled))
-    assert "V0-Encrypted-Reality-VLESS" in other
-    assert "V0-WS-VLESS" in other
-    assert "V0-gRPC-VLESS" in other
-    assert "V0-WGWS-WireGuard" not in other
+    backup = _button_texts(
+        connection_create_profiles_keyboard(category="backup", device_id="dev-42", enabled_specs=enabled)
+    )
+    assert "VLESS WebSocket" in backup
+    assert "VLESS gRPC" in backup
+    assert "Shadowsocks" not in backup
+    assert "WireGuard over WebSocket" not in backup
 
 
 def test_connection_create_keyboards_can_expose_only_universal_entry() -> None:
-    enabled = {"universal"}
-    categories = _button_texts(connection_create_categories_keyboard_for(enabled_specs=enabled))
-    assert "⛓️ Chain" in categories
-    assert "⚡ Direct" not in categories
-    assert "🧰 Other" not in categories
-
-    chain = _button_texts(connection_create_profiles_keyboard(category="chain", device_id="dev-42", enabled_specs=enabled))
-    assert "V5-Universal-Entry" in chain
-    assert "V1-Chain-Reality-VLESS" not in chain
+    enabled = {"entry"}
+    categories = _button_texts(connection_create_categories_keyboard_for(device_id="dev-42", enabled_specs=enabled))
+    assert "Entry Chain (Mobile)" in categories
+    assert "VLESS Reality" not in categories
+    assert "Hysteria2" not in categories
+    assert "Backup" not in categories
 
 
 def test_devices_keyboard_uses_delete_confirmation_callback() -> None:
     kb = devices_keyboard([{"id": "dev-1", "name": "Laptop"}])
     delete_button = kb.inline_keyboard[0][1]
     assert delete_button.callback_data == "deldevask:dev-1"
+
+
+def test_devices_keyboard_hides_add_action_at_device_limit() -> None:
+    kb = devices_keyboard(
+        [
+            {"id": "dev-1", "name": "Laptop"},
+            {"id": "dev-2", "name": "Phone"},
+            {"id": "dev-3", "name": "Router"},
+        ]
+    )
+
+    assert not _has_text(_button_texts(kb), "Добавить устройство")
 
 
 def test_device_actions_keyboard_uses_delete_confirmation_callback() -> None:

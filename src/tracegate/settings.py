@@ -5,6 +5,7 @@ from pydantic import AliasChoices, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from tracegate.constants import (
+    TRACEGATE_INTERCONNECT_UDP_PORT,
     TRACEGATE_NAIVEPROXY_DEMUX_TCP_PORT,
     TRACEGATE_NAIVEPROXY_HOST,
     TRACEGATE_NAIVEPROXY_PUBLIC_TCP_PORT,
@@ -101,23 +102,21 @@ class Settings(BaseSettings):
     # come from private runtime storage or a Kubernetes Secret, not from Git.
     bot_guide_path: str = ""
     bot_guide_message: str = (
-        "Tracegate 2: гайдлайн\n\n"
+        "Tracegate 3: гайдлайн\n\n"
         "Базовый порядок:\n"
-        "1. Открой «Устройства» и выбери активное устройство.\n"
-        "2. Открой «Подключения» и создай профиль для этого устройства.\n"
+        "1. Открой «Подключения» и добавь либо выбери устройство.\n"
+        "2. Внутри устройства нажми «Добавить» и создай профиль.\n"
         "3. Импортируй ссылку, QR или JSON-файл в клиент на этом же устройстве.\n"
-        "4. Если меняешь телефон, ноутбук или клиент, сначала переключи активное устройство.\n\n"
+        "4. Если меняешь телефон, ноутбук или клиент, добавь для него отдельное устройство.\n\n"
         "Как это устроено:\n"
         "Устройство - телефон, ноутбук, планшет или отдельный клиент. Подключение - профиль для выбранного "
         "устройства. Ревизия - версия конфига внутри подключения. Чтобы получить новую пару Entry/SNI или обновить параметры, "
         "перевыпусти ревизию, а не создавай дубли.\n\n"
         "Какой профиль выбрать:\n"
-        "V1-Chain-Reality-VLESS - основной выбор для мобильного интернета.\n"
-        "V1-Direct-Reality-VLESS - прямой Reality/VLESS до Transit для стабильных сетей.\n"
-        "V2-Direct-QUIC-Hysteria - быстрый UDP-профиль; зависит от качества UDP у оператора.\n"
-        "V2-Chain-QUIC-Hysteria - Hysteria через Entry и Transit, если прямой UDP работает хуже.\n"
-        "V3-Direct/Chain-ShadowTLS-Shadowsocks - запасной TCP-вариант.\n"
-        "V0-WS/gRPC-VLESS - совместимость со старыми схемами и клиентами.\n"
+        "VLESS Reality - основной прямой профиль.\n"
+        "Hysteria2 - быстрый UDP-профиль; зависит от качества UDP у оператора.\n"
+        "Entry Chain (Mobile) - универсальный мобильный профиль через Entry.\n"
+        "Backup - VLESS gRPC, VLESS WebSocket, Shadowsocks и WireGuard over WebSocket.\n"
         "Telegram Proxy - отдельный MTProto-доступ для Telegram, не замена VPN-профилю.\n\n"
         "Клиенты:\n"
         "Рекомендуемые клиенты: Karing, INCY, Shadowrocket.\n"
@@ -149,23 +148,22 @@ class Settings(BaseSettings):
         "Shadowrocket: https://apps.apple.com/us/app/shadowrocket/id932747118\n"
         "Throne: https://throneproj.github.io/get_started/installation/\n\n"
         "Если не работает:\n"
-        "Проверь активное устройство и перевыпусти ревизию: новый Entry shard и SNI назначатся автоматически. "
-        "Для мобильной сети сначала "
-        "пробуй V1-Chain-Reality-VLESS. Если UDP режется, не начинай с V2/Hysteria.\n\n"
+        "Открой нужное устройство и перевыпусти ревизию: новый Endpoint shard и SNI назначатся автоматически. "
+        "Для мобильной сети сначала пробуй Entry Chain (Mobile). Если UDP режется, не начинай с Hysteria2.\n\n"
         "GitHub: https://github.com/MyHeartRaces/Tracegate"
     )
     # Welcome text shown before the normal /start flow. Deployments can still
     # override it from private env/Secrets.
     bot_welcome_required: bool = True
-    bot_welcome_version: str = "tracegate-2.2.7-ui-v1"
+    bot_welcome_version: str = "tracegate-3.0.0-ui-v1"
     bot_welcome_message: str = (
-        "Добро пожаловать в Tracegate 2.\n\n"
+        "Добро пожаловать в Tracegate 3.\n\n"
         "Этот бот выпускает подключения для твоих устройств, показывает актуальные конфиги и помогает "
         "перевыпускать ревизии без ручной настройки сервера.\n\n"
-        "Базовый порядок простой: сначала добавь или выбери активное устройство, затем создай подключение "
+        "Базовый порядок простой: открой «Подключения», добавь или выбери устройство, затем создай подключение "
         "для него и импортируй профиль в клиент на этом же устройстве.\n\n"
         "Важное правило: один профиль - одно устройство и один клиент. Если меняешь телефон, ноутбук "
-        "или приложение, сначала переключи активное устройство или добавь новое.\n\n"
+        "или приложение, добавь для него отдельное устройство.\n\n"
         "Подробный гайд по клиентам, ограничениям и профилям доступен в меню через кнопку «Справка»."
     )
     bot_welcome_message_file: str = ""
@@ -209,9 +207,9 @@ class Settings(BaseSettings):
     # Tracegate 2 defaults to systemd on plain Linux hosts.
     # The "kubernetes" mode is retained only as a compatibility bridge for legacy container deployments.
     agent_runtime_mode: str = "systemd"
-    # Canonical runtime profile boundary. Tracegate 2.2 keeps Xray as a TCP adapter,
+    # Canonical runtime profile boundary. Tracegate 3 keeps Xray as a TCP adapter,
     # but Hysteria2 is no longer modeled as an Xray-owned public UDP surface.
-    agent_runtime_profile: str = "tracegate-2.2"
+    agent_runtime_profile: str = "tracegate-3"
     # Kubernetes rollout invariants exposed through runtime-contract.json so preflight can
     # verify that Tracegate upgrades cannot drop the only Entry/Transit gateway pod.
     agent_gateway_strategy: str = "RollingUpdate"
@@ -236,7 +234,7 @@ class Settings(BaseSettings):
     agent_egress_enforcement_ingress_public_ip_outbound: str = "forbidden"
     agent_entry_traffic_shaping_enabled: bool = True
     agent_entry_traffic_shaping_interface: str = "eth0"
-    agent_entry_traffic_shaping_max_mbit: int = 70
+    agent_entry_traffic_shaping_max_mbit: int = 65
     agent_entry_traffic_shaping_burst_kbit: int = 2048
     agent_entry_traffic_shaping_apply_egress: bool = True
     agent_entry_traffic_shaping_apply_ingress_policing: bool = True
@@ -275,7 +273,7 @@ class Settings(BaseSettings):
     # Optional managed fronting layer for server-side TCP mux / TLS termination.
     agent_reload_haproxy_cmd: str = ""
     agent_reload_nginx_cmd: str = ""
-    # Optional standalone Hysteria2 reload hook. Tracegate 2.2 treats public UDP as
+    # Optional standalone Hysteria2 reload hook. Tracegate 3 treats public UDP as
     # a Hysteria-owned surface, not as an Xray inbound.
     agent_reload_hysteria_cmd: str = ""
     # Optional host-local obfuscation helper reload, for example a private systemd wrapper
@@ -334,7 +332,7 @@ class Settings(BaseSettings):
     private_udp_link_transit_port: int = 14482
     private_udp_link_router_entry_port: int = 14483
     private_udp_link_router_transit_port: int = 14484
-    private_udp_link_remote_port: int = TRACEGATE_PUBLIC_UDP_PORT
+    private_udp_link_remote_port: int = TRACEGATE_INTERCONNECT_UDP_PORT
     private_udp_link_profile_dir: str = "/etc/tracegate/private/udp-link"
     private_udp_link_client_profile: str = "client.yaml"
     private_udp_link_server_profile: str = "server.yaml"
@@ -396,7 +394,7 @@ class Settings(BaseSettings):
     mtproto_fronting_mode: str = "dedicated-dns-only"
     mtproto_public_profile_file: str = _DEFAULT_MTPROTO_PUBLIC_PROFILE_FILE
     mtproto_issued_state_file: str = _DEFAULT_MTPROTO_ISSUED_STATE_FILE
-    naiveproxy_enabled: bool = True
+    naiveproxy_enabled: bool = False
     naiveproxy_host: str = TRACEGATE_NAIVEPROXY_HOST
     naiveproxy_public_tcp_port: int = TRACEGATE_NAIVEPROXY_PUBLIC_TCP_PORT
     naiveproxy_public_udp_port: int = TRACEGATE_NAIVEPROXY_PUBLIC_UDP_PORT
@@ -458,13 +456,13 @@ class Settings(BaseSettings):
     )
     # REALITY "dest" is a single upstream used for the mimic handshake.
     # Default to a commonly reachable whitelist-friendly dest (operator can override).
-    reality_dest: str = "splitter.wb.ru:443"
+    reality_dest: str = "partners.lemanapro.ru:443"
     # Optional SNI compatibility filter (used by the API/bot).
     # If empty, all enabled SNIs from DB are allowed.
     reality_sni_allow_suffixes: list[str] = Field(default_factory=list)
     # Pre-seeded SNI allow-list for REALITY inbounds. Keep it minimal to avoid
     # advertising unrelated camouflage targets by default.
-    sni_seed: list[str] = Field(default_factory=lambda: ["splitter.wb.ru"])
+    sni_seed: list[str] = Field(default_factory=lambda: ["partners.lemanapro.ru"])
     # Optional REALITY multi-inbound mapping.
     # Each row is an object with:
     # - id: stable slug (used in generated inbound tag)
@@ -473,7 +471,7 @@ class Settings(BaseSettings):
     # - snis: list of client SNI values routed to this inbound
     # Example:
     # [
-    #   {"id": "shared-a", "port": 2501, "dest": "splitter.wb.ru", "snis": ["splitter.wb.ru"]}
+    #   {"id": "shared-a", "port": 2501, "dest": "partners.lemanapro.ru", "snis": ["partners.lemanapro.ru"]}
     # ]
     reality_multi_inbound_groups: list[dict] = Field(default_factory=list)
 
@@ -488,8 +486,7 @@ class Settings(BaseSettings):
     vless_encryption_reality_sni: str = ""
     vless_encryption_ws_path: str = "/ws-enc"
     vless_encryption_grpc_service_name: str = "tracegate.v1.EdgeEnc"
-    # Hysteria2 public UDP surface. TCP/443 stays reserved for fronting/demux;
-    # UDP/443 is reserved for NaiveProxy V4 HTTP/3 on auth.example.com.
+    # Hysteria2 owns UDP/443. TCP/443 remains the shared L4 fronting surface.
     hysteria_udp_port: int = TRACEGATE_PUBLIC_UDP_PORT
     # Salamander is mandatory for Tracegate Hysteria2. Keep real values in private env/Secrets.
     hysteria_salamander_password_entry: str = Field(
@@ -523,11 +520,11 @@ class Settings(BaseSettings):
     # Shadowsocks-2022 + ShadowTLS V3 uses static node-side outer credentials,
     # while Shadowsocks user keys remain per connection.
     shadowtls_server_name_entry: str = Field(
-        default="splitter.wb.ru",
+        default="api.photo.2gis.com",
         validation_alias=AliasChoices("SHADOWTLS_SERVER_NAME_ENTRY", "SHADOWTLS_SERVER_NAME"),
     )
     shadowtls_server_name_transit: str = Field(
-        default="splitter.wb.ru",
+        default="styles.api.2gis.com",
         validation_alias=AliasChoices("SHADOWTLS_SERVER_NAME_TRANSIT", "SHADOWTLS_SERVER_NAME"),
     )
     shadowtls_password_entry: str = Field(

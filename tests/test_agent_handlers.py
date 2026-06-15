@@ -63,7 +63,7 @@ def test_reload_commands_keep_hysteria_empty_outside_legacy_container_mode() -> 
 def test_reload_commands_include_standalone_hysteria_for_tracegate22() -> None:
     settings = Settings(
         agent_runtime_mode="systemd",
-        agent_runtime_profile="tracegate-2.2",
+        agent_runtime_profile="tracegate-3",
         agent_reload_hysteria_cmd="reload-hysteria",
     )
 
@@ -611,7 +611,7 @@ def test_handle_apply_bundle_tracegate22_syncs_standalone_hysteria_base(
         agent_data_root=str(tmp_path),
         agent_dry_run=False,
         agent_role="TRANSIT",
-        agent_runtime_profile="tracegate-2.2",
+        agent_runtime_profile="tracegate-3",
         agent_reload_hysteria_cmd="reload-hysteria",
     )
 

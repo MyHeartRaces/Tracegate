@@ -9,7 +9,7 @@ from pathlib import Path
 import shlex
 from typing import Any
 
-from tracegate.constants import TRACEGATE_FORBIDDEN_PUBLIC_TCP_PORT, TRACEGATE_PUBLIC_UDP_PORT
+from tracegate.constants import TRACEGATE_FORBIDDEN_PUBLIC_TCP_PORT, TRACEGATE_INTERCONNECT_UDP_PORT
 
 
 class PairedUdpObfsRunnerError(RuntimeError):
@@ -211,11 +211,13 @@ def load_paired_udp_obfs_profile(
     if not no_nfqueue:
         raise PairedUdpObfsRunnerError("TRACEGATE_UDP_OBFS_NO_NFQUEUE must stay true")
 
-    public_udp_port = _env_int(payload, "TRACEGATE_UDP_OBFS_PUBLIC_UDP_PORT", default=TRACEGATE_PUBLIC_UDP_PORT)
-    if public_udp_port != TRACEGATE_PUBLIC_UDP_PORT:
-        raise PairedUdpObfsRunnerError(f"TRACEGATE_UDP_OBFS_PUBLIC_UDP_PORT must stay {TRACEGATE_PUBLIC_UDP_PORT}")
+    public_udp_port = _env_int(payload, "TRACEGATE_UDP_OBFS_PUBLIC_UDP_PORT", default=TRACEGATE_INTERCONNECT_UDP_PORT)
+    if public_udp_port != TRACEGATE_INTERCONNECT_UDP_PORT:
+        raise PairedUdpObfsRunnerError(
+            f"TRACEGATE_UDP_OBFS_PUBLIC_UDP_PORT must stay {TRACEGATE_INTERCONNECT_UDP_PORT}"
+        )
 
-    forbid_udp_443_expected = False
+    forbid_udp_443_expected = True
     forbid_udp_443 = _env_bool(payload, "TRACEGATE_UDP_OBFS_FORBID_UDP_443", default=forbid_udp_443_expected)
     if forbid_udp_443 != forbid_udp_443_expected:
         raise PairedUdpObfsRunnerError(

@@ -42,6 +42,15 @@ def test_settings_accept_new_entry_transit_field_names() -> None:
     assert settings.fronting_touch_udp_443 is False
 
 
+def test_settings_use_less_popular_default_camouflage_domains() -> None:
+    settings = Settings()
+
+    assert settings.reality_dest == "partners.lemanapro.ru:443"
+    assert settings.sni_seed == ["partners.lemanapro.ru"]
+    assert settings.shadowtls_server_name_entry == "api.photo.2gis.com"
+    assert settings.shadowtls_server_name_transit == "styles.api.2gis.com"
+
+
 def test_settings_keep_legacy_property_aliases() -> None:
     settings = Settings(
         default_entry_host="entry.tracegate.test",
@@ -90,7 +99,7 @@ def test_settings_keep_tracegate21_profile_distinct_from_xray_centric() -> None:
     alias_settings = Settings(agent_runtime_profile="k3s")
 
     assert settings.agent_runtime_profile == "tracegate-2.1"
-    assert alias_settings.agent_runtime_profile == "tracegate-2.2"
+    assert alias_settings.agent_runtime_profile == "tracegate-3"
 
 
 def test_effective_private_paths_follow_agent_data_root_outside_systemd_layout() -> None:

@@ -62,16 +62,18 @@
 {{- $mtprotoRuntime := lower (toString ($.Values.mtproto.runtime | default "mtg")) }}
 {{- $mtprotoRoute := $.Values.mtproto.route | default dict }}
 {{- $mtprotoRouteMode := toString ($mtprotoRoute.mode | default "endpoint-direct") }}
-{{- $mtprotoEntryRouteEnabled := and $.Values.mtproto.enabled (eq $roleName "entry") (eq $mtprotoRouteMode "entry-transit-endpoint") }}
+{{- $mtprotoEntryTunnelEnabled := and $.Values.mtproto.enabled (eq $mtprotoRouteMode "entry-endpoint-tunnel") }}
+{{- $mtprotoEntryRouteEnabled := and $.Values.mtproto.enabled (eq $roleName "entry") (or (eq $mtprotoRouteMode "entry-transit-endpoint") $mtprotoEntryTunnelEnabled) }}
 {{- $mtprotoEntryLocalEnabled := and $.Values.mtproto.enabled (eq $roleName "entry") (eq $mtprotoRouteMode "entry-local-endpoint-egress") }}
 {{- $mtprotoRuntimeRoleEnabled := and $.Values.mtproto.enabled (or $mtprotoEntryLocalEnabled (and (eq $roleName "transit") (ne $mtprotoRouteMode "entry-local-endpoint-egress"))) }}
-{{- $mtprotoRoleHandlesPublic := or $mtprotoRuntimeRoleEnabled $mtprotoEntryRouteEnabled }}
+{{- $mtprotoRuntimeHandlesPublic := and $mtprotoRuntimeRoleEnabled (not $mtprotoEntryTunnelEnabled) }}
+{{- $mtprotoRoleHandlesPublic := or $mtprotoRuntimeHandlesPublic $mtprotoEntryRouteEnabled }}
 {{- $mtprotoFallbackPublicPort := and $mtprotoRoleHandlesPublic (ne $mtprotoPublicPort (int $role.ports.publicTcp)) }}
 {{- $mtprotoEgress := $.Values.mtproto.egress | default dict }}
 {{- $mtprotoEgressSocksPort := int (dig "socksPort" 11084 $mtprotoEgress) }}
 {{- $mtprotoEgressShadowtls := dig "shadowtls" (dict) $mtprotoEgress }}
 {{- $mtprotoEgressShadowtlsEnabled := and $.Values.mtproto.enabled (eq $mtprotoRouteMode "entry-local-endpoint-egress") (dig "enabled" false $mtprotoEgressShadowtls) }}
-{{- $mtprotoEgressShadowtlsServerName := trim (toString (dig "serverName" "splitter.wb.ru" $mtprotoEgressShadowtls)) }}
+{{- $mtprotoEgressShadowtlsServerName := trim (toString (dig "serverName" "styles.api.2gis.com" $mtprotoEgressShadowtls)) }}
 {{- $mtprotoEgressShadowtlsEndpointHost := trim (toString (dig "endpointHost" "" $mtprotoEgressShadowtls)) }}
 {{- $mtprotoEgressShadowtlsEndpointPort := int (dig "endpointPort" 443 $mtprotoEgressShadowtls) }}
 {{- $mtprotoEgressShadowtlsServerListenPort := int (dig "serverListenPort" 14444 $mtprotoEgressShadowtls) }}
@@ -530,7 +532,7 @@ spec:
                   printf '%s\n' ''
                   printf '%s\n' '[server]'
                   printf '%s\n' 'port = {{ int $.Values.mtproto.backendPort }}'
-                  printf '%s\n' 'proxy_protocol = true'
+                  printf '%s\n' 'proxy_protocol = {{ $mtprotoEntryTunnelEnabled | ternary "false" "true" }}'
                   printf '%s\n' 'metrics_listen = "127.0.0.1:9090"'
                   printf '%s\n' ''
                   printf '%s\n' '[server.api]'

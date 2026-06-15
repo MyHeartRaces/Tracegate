@@ -10,7 +10,6 @@ from typing import Any
 from tracegate.constants import (
     TRACEGATE_FORBIDDEN_PUBLIC_TCP_PORT,
     TRACEGATE_FORBIDDEN_PUBLIC_UDP_PORT,
-    TRACEGATE_NAIVEPROXY_DEMUX_TCP_PORT,
     TRACEGATE_NAIVEPROXY_HOST,
     TRACEGATE_NAIVEPROXY_PUBLIC_TCP_PORT,
     TRACEGATE_NAIVEPROXY_PUBLIC_UDP_PORT,
@@ -270,31 +269,6 @@ def _derive_urlsafe_secret(*, user: User, device: Device, connection: Connection
     return base64.urlsafe_b64encode(digest).decode("ascii").rstrip("=")[:length]
 
 
-def _naiveproxy_basic_auth(*, user: User, device: Device, connection: Connection) -> dict[str, str]:
-    seed = "|".join(
-        [
-            str(user.telegram_id),
-            str(device.id),
-            str(connection.id),
-            str(connection.protocol.value),
-            str(connection.variant.value),
-            "naiveproxy-basic-auth",
-        ]
-    ).encode("utf-8")
-    digest = hashlib.sha256(seed).hexdigest()
-    return {
-        "type": "basic",
-        "username": f"tg_v4_{digest[:12]}",
-        "password": _derive_urlsafe_secret(
-            user=user,
-            device=device,
-            connection=connection,
-            purpose="naiveproxy-basic-auth-password",
-            length=40,
-        ),
-    }
-
-
 def _shadowsocks2022_password(
     *,
     user: User,
@@ -431,7 +405,7 @@ def _entry_transit_private_relay(
             "enabled": True,
             "max_mbit": _CHAIN_CLIENT_RATE_LIMIT_MBIT,
             "scope": "per-chain-client",
-            "entry_total_max_mbit": 70,
+            "entry_total_max_mbit": 65,
             "hysteria_server_bandwidth": is_udp,
             "hysteria_declared_tx_required": is_udp,
             "tcp_enforcement": "entry-host-total-tc-cap",
@@ -591,6 +565,7 @@ def build_effective_config(
         is_universal_entry = (
             is_grpc and connection.variant == ConnectionVariant.V5 and connection.mode == ConnectionMode.CHAIN
         )
+        is_backup_grpc = is_grpc and connection.variant == ConnectionVariant.V0 and connection.mode == ConnectionMode.DIRECT
         if not is_universal_entry and (
             connection.variant != ConnectionVariant.V0 or connection.mode != ConnectionMode.DIRECT
         ):
@@ -612,6 +587,14 @@ def build_effective_config(
                 override_value = str(overrides.get(field_name) or "").strip()
                 if override_value and override_value != default_host:
                     raise ValueError(f"V5 Universal Entry forbids {field_name} override outside the Entry proxy hostname")
+        elif is_backup_grpc:
+            default_host = str(endpoints.transit_proxy_host or "").strip()
+            if not default_host:
+                raise ValueError("VLESS gRPC Backup requires the Endpoint proxy hostname")
+            for field_name in ("server", "connect_host", "tls_server_name", "grpc_authority"):
+                override_value = str(overrides.get(field_name) or "").strip()
+                if override_value and override_value != default_host:
+                    raise ValueError(f"VLESS gRPC Backup forbids {field_name} override outside the Endpoint proxy hostname")
         else:
             default_host = endpoints.transit_host
         public_host = str(overrides.get("server") or default_host).strip()
@@ -695,9 +678,11 @@ def build_effective_config(
             "design_constraints": {
                 "fixed_port_tcp": int((endpoints.vless_grpc_tls_port if is_grpc else endpoints.vless_ws_tls_port) or 443),
                 "preferred_compat_transport": "grpc" if is_grpc else "ws",
+                "http_version": "h2" if is_grpc else "http/1.1",
+                "cloudflare_proxied_ingress_required": is_grpc,
+                "origin_site_tls_certificate_required": not is_grpc,
                 **(
                     {
-                        "cloudflare_proxied_ingress_required": True,
                         "http2_single_tls_multiplexing": True,
                         "entry_role_required": True,
                         "transit_role_required": True,
@@ -829,88 +814,7 @@ def build_effective_config(
         }
 
     if connection.protocol == ConnectionProtocol.NAIVEPROXY:
-        if (connection.mode, connection.variant) != (ConnectionMode.DIRECT, ConnectionVariant.V4):
-            raise ValueError("NaiveProxy supports only V4 direct")
-
-        server = str(endpoints.naiveproxy_host or TRACEGATE_NAIVEPROXY_HOST).strip() or TRACEGATE_NAIVEPROXY_HOST
-        connect_host = str(overrides.get("connect_host") or server).strip()
-        tcp_port = _normalize_int_range(
-            endpoints.naiveproxy_public_tcp_port or TRACEGATE_NAIVEPROXY_PUBLIC_TCP_PORT,
-            field_name="naiveproxy_public_tcp_port",
-            min_value=1,
-            max_value=65535,
-        )
-        udp_port = _normalize_int_range(
-            endpoints.naiveproxy_public_udp_port or TRACEGATE_NAIVEPROXY_PUBLIC_UDP_PORT,
-            field_name="naiveproxy_public_udp_port",
-            min_value=1,
-            max_value=65535,
-        )
-
-        auth_payload = _naiveproxy_basic_auth(user=user, device=device, connection=connection)
-        return {
-            "protocol": "naiveproxy",
-            "transport": "http3-quic",
-            "profile": connection_profile_label(connection.protocol, connection.mode, connection.variant),
-            "server": server,
-            "connect_host": connect_host,
-            "port": tcp_port,
-            "udp_port": udp_port,
-            "sni": server,
-            "auth": auth_payload,
-            "tls": {
-                "server_name": server,
-                "insecure": bool(overrides.get("tls_insecure", False)) or _is_ip_literal(connect_host),
-                "alpn": ["h3", "h2", "http/1.1"],
-            },
-            "http3": {
-                "enabled": True,
-                "public_udp_port": udp_port,
-                "preferred_client_proxy_scheme": "quic",
-            },
-            "http2": {
-                "enabled": True,
-                "fallback": True,
-                "public_tcp_port": tcp_port,
-            },
-            "stealth": {
-                "domain": server,
-                "decoy_mode": "auth-portal",
-                "probe_resistance": True,
-                "hide_ip": True,
-                "hide_via": True,
-                "chrome_network_stack": True,
-                "padding": "naive-forwardproxy",
-                "cover_paths": [
-                    "/auth/login",
-                    "/auth/session",
-                    "/auth/token",
-                    "/oauth2/authorize",
-                    "/oauth2/token",
-                    "/.well-known/openid-configuration",
-                ],
-            },
-            "local_socks": _local_socks_payload(
-                listen=_local_socks_listen(overrides=overrides, user=user, device=device, connection=connection),
-                user=user,
-                device=device,
-                connection=connection,
-                overrides=overrides,
-            ),
-            "design_constraints": {
-                "fixed_port_tcp": tcp_port,
-                "fixed_port_udp": udp_port,
-                "dedicated_dns_name": server,
-                "dedicated_k3s_role": "NAIVEPROXY",
-                "public_tcp_443_owner": "transit-haproxy-demux",
-                "naiveproxy_tcp_backend": f"127.0.0.1:{TRACEGATE_NAIVEPROXY_DEMUX_TCP_PORT}",
-                "hysteria_udp_port": TRACEGATE_PUBLIC_UDP_PORT,
-                "udp_443_owner": "naiveproxy",
-                "probe_resistance_required": True,
-                "auth_credentials_scope": "connection",
-            },
-            "chain": None,
-        }
+        raise ValueError("NaiveProxy was removed in Tracegate 3")
 
     if connection.protocol == ConnectionProtocol.SHADOWSOCKS2022_SHADOWTLS:
         if (connection.mode, connection.variant) not in {

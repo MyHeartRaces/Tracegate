@@ -169,14 +169,13 @@ def test_format_mtproto_delivery_message_humanizes_rotation() -> None:
     assert "Секрет ротирован и готов к повторному запуску Telegram." in text
 
 
-def test_main_menu_text_uses_tracegate2_copy(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_main_menu_text_uses_tracegate3_copy(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(main, "_app_version", lambda: "2.0")
 
     text = main._main_menu_text()
 
-    assert "Tracegate 2" in text
-    assert "выбери активное устройство" in text
-    assert "активного устройства" in text
+    assert "Tracegate 3" in text
+    assert "выбери устройство" in text
     assert "Подключения" in text
 
 
@@ -187,20 +186,19 @@ def test_provider_label_uses_public_provider_caption() -> None:
 
 
 def test_connection_profile_label_uses_variant_and_family() -> None:
-    assert main._connection_profile_label({"protocol": "vless_reality", "mode": "direct", "variant": "V1"}) == "V1-Direct-Reality-VLESS"
-    assert main._connection_profile_label({"protocol": "vless_reality", "mode": "direct", "variant": "V0"}) == "V0-Encrypted-Reality-VLESS"
-    assert main._connection_profile_label({"protocol": "hysteria2", "mode": "chain", "variant": "V2"}) == "V2-Chain-QUIC-Hysteria"
-    assert main._connection_profile_label({"protocol": "vless_grpc_tls", "mode": "direct", "variant": "V0"}) == "V0-gRPC-VLESS"
-    assert main._connection_profile_label({"protocol": "vless_ws_tls", "mode": "direct", "variant": "V0"}) == "V0-WS-VLESS"
+    assert main._connection_profile_label({"protocol": "vless_reality", "mode": "direct", "variant": "V1"}) == "VLESS Reality"
+    assert main._connection_profile_label({"protocol": "hysteria2", "mode": "direct", "variant": "V2"}) == "Hysteria2"
+    assert main._connection_profile_label({"protocol": "vless_grpc_tls", "mode": "direct", "variant": "V0"}) == "VLESS gRPC"
+    assert main._connection_profile_label({"protocol": "vless_ws_tls", "mode": "direct", "variant": "V0"}) == "VLESS WebSocket"
     assert (
         main._connection_profile_label(
             {"protocol": "shadowsocks2022_shadowtls", "mode": "direct", "variant": "V3"}
         )
-        == "V3-Direct-ShadowTLS-Shadowsocks"
+        == "Shadowsocks"
     )
     assert (
         main._connection_profile_label({"protocol": "wireguard_wstunnel", "mode": "direct", "variant": "V0"})
-        == "V0-WGWS-WireGuard"
+        == "WireGuard over WebSocket"
     )
 
 
@@ -242,9 +240,9 @@ async def test_render_device_page_uses_device_context_and_connection_cards(monke
     assert "🔌 Устройство" in text
     assert "Имя: Laptop" in text
     assert "Подключений: 3" in text
-    assert "• V1-Direct-Reality-VLESS" in text
-    assert "• V2-Chain-QUIC-Hysteria" in text
-    assert "• V3-Direct-ShadowTLS-Shadowsocks" in text
+    assert "• VLESS Reality" in text
+    assert "• Hysteria2" in text
+    assert "• Shadowsocks" in text
     assert "ID: conn-1" in text
 
 
@@ -278,7 +276,7 @@ async def test_render_revisions_page_humanizes_revision_rows(monkeypatch: pytest
     text, _keyboard = await main.render_revisions_page("conn-1")
 
     assert "🧩 Ревизии" in text
-    assert "Профиль: V1-Direct-Reality-VLESS" in text
+    assert "Профиль: VLESS Reality" in text
     assert "Устройство: Laptop" in text
     assert "Текущая ревизия: слот 0 · rev-1" in text
     assert "Слот 0 · активна" in text
@@ -363,7 +361,7 @@ def test_guide_text_defaults_to_external_placeholder(monkeypatch: pytest.MonkeyP
 def test_default_guide_copy_includes_client_settings_and_desktop_throne() -> None:
     guide = str(Settings.model_fields["bot_guide_message"].default)
 
-    assert "Tracegate 2: гайдлайн" in guide
+    assert "Tracegate 3: гайдлайн" in guide
     assert "Рекомендуемые клиенты: Karing, INCY, Shadowrocket." in guide
     assert "Нормальные варианты для десктопа: Karing, INCY, Throne." in guide
     assert "в первую очередь для мобильного телефона" in guide
@@ -669,9 +667,9 @@ async def test_welcome_continue_flow_persists_acceptance_and_opens_menu(monkeypa
     second = _DummyCallback("welcome_continue_2")
     await main.welcome_continue_2(second, _DummyState())
     args, kwargs = second.message.edit_text_calls[0]
-    assert "Tracegate 2" in str(args[0])
-    assert kwargs["reply_markup"].inline_keyboard[2][0].text == "📚 Справка"
-    assert kwargs["reply_markup"].inline_keyboard[2][0].callback_data == "guide_open"
+    assert "Tracegate 3" in str(args[0])
+    assert kwargs["reply_markup"].inline_keyboard[1][0].text == "📚 Справка"
+    assert kwargs["reply_markup"].inline_keyboard[1][0].callback_data == "guide_open"
     assert accepted["bot_welcome_version"] == "v-test"
 
 
@@ -844,4 +842,4 @@ async def test_add_device_prompt_includes_inline_cancel() -> None:
     assert "Введите имя устройства" in str(args[0])
     button = kwargs["reply_markup"].inline_keyboard[0][0]
     assert button.text == "↩️ Отмена"
-    assert button.callback_data == "menu"
+    assert button.callback_data == "connections"

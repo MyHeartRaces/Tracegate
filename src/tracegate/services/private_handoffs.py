@@ -6,6 +6,7 @@ from typing import Any
 
 from tracegate.constants import (
     TRACEGATE_FORBIDDEN_PUBLIC_TCP_PORT,
+    TRACEGATE_INTERCONNECT_UDP_PORT,
     TRACEGATE_PUBLIC_TCP_PORT,
     TRACEGATE_PUBLIC_UDP_PORT,
 )
@@ -227,7 +228,7 @@ def _obfuscation_state_payload(
     return {
         "role": role_upper,
         "interface": _obfuscation_interface(settings, role_upper=role_upper),
-        "runtimeProfile": str(runtime_contract_payload.get("runtimeProfile") or "").strip() or "tracegate-2.2",
+        "runtimeProfile": str(runtime_contract_payload.get("runtimeProfile") or "").strip() or "tracegate-3",
         "runtimeContractPath": str(runtime_contract_path),
         "contractPresent": runtime_contract_path.exists(),
         "backend": str(settings.private_obfuscation_backend or "").strip().lower() or "zapret2",
@@ -380,8 +381,8 @@ def _udp_link_dpi_resistance(settings: Settings, *, role_upper: str) -> dict[str
         "enabled": True,
         "mode": "salamander-plus-scoped-paired-obfs",
         "portSplit": {
-            "publicUdpPort": TRACEGATE_PUBLIC_UDP_PORT,
-            "forbidUdp443": False,
+            "publicUdpPort": TRACEGATE_INTERCONNECT_UDP_PORT,
+            "forbidUdp443": True,
             "forbidTcp8443": not _mtproto_uses_tcp8443(settings, role_upper=role_upper),
         },
         "requiredLayers": [
@@ -724,7 +725,7 @@ def _link_crypto_payload(
     links: list[dict[str, Any]] = []
     remote_port = int(settings.private_link_crypto_remote_port or 443)
     udp_links: list[dict[str, Any]] = []
-    udp_remote_port = int(settings.private_udp_link_remote_port or TRACEGATE_PUBLIC_UDP_PORT)
+    udp_remote_port = int(settings.private_udp_link_remote_port or TRACEGATE_INTERCONNECT_UDP_PORT)
     entry_transit_udp_enabled = bool(settings.private_link_crypto_enabled and settings.private_udp_link_enabled)
 
     if role_upper == "ENTRY":
@@ -876,7 +877,7 @@ def _link_crypto_payload(
         "schema": "tracegate.link-crypto.v1",
         "version": 1,
         "role": role_upper,
-        "runtimeProfile": str(runtime_contract_payload.get("runtimeProfile") or "").strip() or "tracegate-2.2",
+        "runtimeProfile": str(runtime_contract_payload.get("runtimeProfile") or "").strip() or "tracegate-3",
         "runtimeContractPath": str(runtime_contract_path),
         "transportProfiles": runtime_contract_payload.get("transportProfiles") or {},
         "secretMaterial": False,
@@ -931,7 +932,7 @@ def _write_link_crypto_state(
         f"TRACEGATE_LINK_CRYPTO_UDP_COUNT={_shell_quote(payload.get('udpCounts', {}).get('total', 0))}",
         f"TRACEGATE_LINK_CRYPTO_UDP_CLASSES={_shell_quote(':'.join(udp_link_classes))}",
         f"TRACEGATE_LINK_CRYPTO_UDP_CARRIER={_shell_quote('hysteria2')}",
-        f"TRACEGATE_LINK_CRYPTO_UDP_REMOTE_PORT={_shell_quote(int(settings.private_udp_link_remote_port or TRACEGATE_PUBLIC_UDP_PORT))}",
+        f"TRACEGATE_LINK_CRYPTO_UDP_REMOTE_PORT={_shell_quote(int(settings.private_udp_link_remote_port or TRACEGATE_INTERCONNECT_UDP_PORT))}",
         f"TRACEGATE_LINK_CRYPTO_UDP_SALAMANDER_REQUIRED={_shell_quote(_bool_text(True))}",
         f"TRACEGATE_LINK_CRYPTO_UDP_PAIRED_OBFS_ENABLED={_shell_quote(_bool_text(bool(settings.private_udp_link_paired_obfs_enabled)))}",
         f"TRACEGATE_LINK_CRYPTO_UDP_PAIRED_OBFS_MODE={_shell_quote(str(settings.private_udp_link_paired_obfs_mode or '').strip() or 'udp2raw-faketcp')}",
@@ -1107,7 +1108,7 @@ def _router_handoff_payload(
         "schema": "tracegate.router-handoff.v1",
         "version": 1,
         "role": role_upper,
-        "runtimeProfile": str(runtime_contract_payload.get("runtimeProfile") or "").strip() or "tracegate-2.2",
+        "runtimeProfile": str(runtime_contract_payload.get("runtimeProfile") or "").strip() or "tracegate-3",
         "runtimeContractPath": str(runtime_contract_path),
         "secretMaterial": False,
         "enabled": bool(tcp_routes or udp_routes),
@@ -1213,7 +1214,7 @@ def _router_client_bundle_payload(
         "schema": "tracegate.router-client-bundle.v1",
         "version": 1,
         "role": str(router_state_payload.get("role") or "").strip().upper(),
-        "runtimeProfile": str(router_state_payload.get("runtimeProfile") or "").strip() or "tracegate-2.2",
+        "runtimeProfile": str(router_state_payload.get("runtimeProfile") or "").strip() or "tracegate-3",
         "handoffStateJson": str(router_state_json_path),
         "secretMaterial": False,
         "enabled": bool(router_state_payload.get("enabled", False)),
@@ -1531,6 +1532,7 @@ def _write_mtproto_state(
                     tls_domain=normalized_tls_domain,
                     primary_secret_hex=server_secret_hex,
                     issued_secret_entries=load_mtproto_issued_secret_entries(issued_state_file),
+                    proxy_protocol=mtproto_route_mode != "entry-endpoint-tunnel",
                 )
             elif mtproto_runtime == "mtg":
                 mtg_config = build_mtproto_mtg_config(
@@ -1875,7 +1877,7 @@ def _write_profile_state(
         "schema": "tracegate.private-profiles.v1",
         "version": 1,
         "role": role_upper,
-        "runtimeProfile": str(runtime_contract_payload.get("runtimeProfile") or "").strip() or "tracegate-2.2",
+        "runtimeProfile": str(runtime_contract_payload.get("runtimeProfile") or "").strip() or "tracegate-3",
         "runtimeContractPath": str(runtime_contract_path),
         "secretMaterial": True,
         "transportProfiles": runtime_contract_payload.get("transportProfiles") or {},

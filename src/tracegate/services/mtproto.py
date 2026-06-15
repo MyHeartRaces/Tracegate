@@ -239,6 +239,7 @@ def build_mtproto_telemt_config(
     use_middle_proxy: bool = True,
     log_level: str = "normal",
     tls_emulation: bool = True,
+    proxy_protocol: bool = True,
 ) -> MTProtoTelemtConfig:
     if int(listen_port or 0) <= 0:
         raise MTProtoConfigError("Telemt listen port must be a positive integer")
@@ -292,7 +293,7 @@ def build_mtproto_telemt_config(
         "",
         "[server]",
         f"port = {int(listen_port)}",
-        "proxy_protocol = true",
+        f"proxy_protocol = {bool_value(proxy_protocol)}",
         f"metrics_listen = {_toml_string(metrics_listen)}",
         "",
         "[server.api]",

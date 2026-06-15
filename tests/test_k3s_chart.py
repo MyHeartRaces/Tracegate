@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from tracegate.services.runtime_contract import TRACEGATE22_CLIENT_PROFILES
+from tracegate.services.runtime_contract import TRACEGATE3_CLIENT_PROFILES
 
 
 CHART_ROOT = Path("deploy/k3s/tracegate")
@@ -94,7 +94,7 @@ def _rendered_runtime_contract(rendered: str) -> dict:
         data = doc.get("data")
         if not isinstance(data, dict):
             continue
-        raw = data.get("tracegate-2.2-runtime.yaml")
+        raw = data.get("tracegate-3-runtime.yaml")
         if isinstance(raw, str):
             return yaml.safe_load(raw)
     raise AssertionError("rendered runtime contract ConfigMap was not found")
@@ -134,7 +134,7 @@ def _helm_template_with_values(tmp_path: Path, values: dict) -> subprocess.Compl
 def test_tracegate21_chart_uses_entry_transit_roles() -> None:
     values = _values()
 
-    assert values["global"]["runtimeProfile"] == "tracegate-2.2"
+    assert values["global"]["runtimeProfile"] == "tracegate-3"
     assert values["architecture"]["mode"] == "legacy-three-node"
     assert values["architecture"]["ingressRotation"]["strategy"] == "revision-sticky"
     assert values["architecture"]["ingressRotation"]["enabled"] is False
@@ -181,7 +181,7 @@ def test_tracegate21_chart_uses_entry_transit_roles() -> None:
         "enabled": True,
         "runtimeSidecar": True,
         "interface": "eth0",
-        "maxMbit": 70,
+        "maxMbit": 65,
         "burstKbit": 2048,
         "applyEgress": True,
         "applyIngressPolicing": True,
@@ -419,26 +419,36 @@ def _entry_endpoint_overlay_values(*, rotation: bool = False) -> dict:
     }
     values["transitRouter"]["enabled"] = False
     values["interconnect"] = {
-        "emergencyXrayChain": {"enabled": True},
+        "emergencyXrayChain": {
+            "enabled": True,
+            "endpointHost": "198.51.100.20",
+            "allowedSources": ["8.8.4.4"],
+            "shards": [
+                {
+                    "id": "mail",
+                    "serverName": "ctlog2024.mail.ru",
+                    "dest": "ctlog2024.mail.ru:443",
+                    "endpointListenPort": 2451,
+                    "path": "/api/v1/backhaul/mail",
+                }
+            ],
+        },
+        "endpointBackhaul": _values()["interconnect"]["endpointBackhaul"],
         "entryTransit": {"enabled": False},
     }
+    values["interconnect"]["endpointBackhaul"]["enabled"] = True
     values["mtproto"].update(
         {
-            "runtime": "mtg",
+            "runtime": "telemt",
+            "domain": "proto.prod.test",
+            "tlsDomain": "ctlog2024.mail.ru",
             "fallback": {"enabled": False},
-            "egress": {
-                "mode": "socks5-only",
-                "socksPort": 11084,
-                "domainFrontingHost": "yandex.ru",
-                "shadowtls": {
-                    "enabled": True,
-                    "serverName": "splitter.wb.ru",
-                    "endpointHost": "1.1.1.1",
-                    "endpointPort": 443,
-                    "allowedSources": ["8.8.4.4"],
-                },
+            "stealth": {
+                "requireWhitelistedTlsDomain": True,
+                "forbiddenTlsDomains": ["yandex.ru", "splitter.wb.ru"],
+                "validatedTlsDomains": ["ctlog2024.mail.ru"],
             },
-            "route": {"mode": "entry-local-endpoint-egress"},
+            "route": {"mode": "entry-endpoint-tunnel", "entry": {"tunnelPort": 11087}},
         }
     )
     return values
@@ -502,22 +512,30 @@ def _universal_entry_overlay_values() -> dict:
             "endpointEgressOnly": True,
         },
     }
-    values["controlPlane"]["env"]["enabledClientProfiles"] = ["universal"]
+    values["controlPlane"]["env"]["enabledClientProfiles"] = [
+        "reality",
+        "hysteria",
+        "entry",
+        "backup-grpc",
+        "backup-ws",
+        "backup-shadowtls",
+        "backup-wgws",
+    ]
     values["interconnect"]["emergencyXrayChain"]["allowedSources"] = ["8.8.4.4"]
     values["interconnect"]["emergencyXrayChain"]["shards"] = [
         {
-            "id": "yandex",
-            "serverName": "yandex.ru",
-            "dest": "yandex.ru:443",
+            "id": "lemanapro",
+            "serverName": "partners.lemanapro.ru",
+            "dest": "partners.lemanapro.ru:443",
             "endpointListenPort": 2451,
-            "path": "/api/v1/backhaul/yandex",
+            "path": "/api/v1/backhaul/lemanapro",
         },
         {
-            "id": "wb",
-            "serverName": "splitter.wb.ru",
-            "dest": "splitter.wb.ru:443",
+            "id": "2gis-reviews",
+            "serverName": "public-api.reviews.2gis.com",
+            "dest": "public-api.reviews.2gis.com:443",
             "endpointListenPort": 2452,
-            "path": "/api/v1/backhaul/wb",
+            "path": "/api/v1/backhaul/2gis-reviews",
         },
     ]
     values["interconnect"]["endpointBackhaul"] = _values()["interconnect"]["endpointBackhaul"]
@@ -677,7 +695,7 @@ def test_k3s_four_ip_entry_overlay_binds_only_shards_and_renders_firewall(tmp_pa
     assert validation.returncode == 0, validation.stderr
     assert firewall.returncode == 0, firewall.stderr
     assert "ip daddr { 1.0.0.2 } tcp dport { 443 } reject with tcp reset" in firewall.stdout
-    assert "ip daddr { 1.0.0.2 } udp dport { 4443 } drop" in firewall.stdout
+    assert "ip daddr { 1.0.0.2 } udp dport { 443 } drop" in firewall.stdout
     assert rendered.returncode == 0, rendered.stderr
     assert "bind 8.8.4.4:443" in rendered.stdout
     assert "bind 9.9.9.9:443" in rendered.stdout
@@ -802,12 +820,9 @@ def test_k3s_strict_prod_overlay_check_rejects_noop_private_reload(tmp_path: Pat
     assert "gateway.agent.reloadCommands.linkCrypto must run tracegate-k3s-private-reload --component link-crypto" in output
 
 
-def test_k3s_strict_prod_overlay_check_rejects_unpinned_naiveproxy_image(tmp_path: Path) -> None:
+def test_k3s_strict_prod_overlay_check_rejects_removed_naiveproxy_surface(tmp_path: Path) -> None:
     values = _prod_overlay_values()
-    values["gateway"]["images"]["naiveproxy"] = {
-        "repository": "ghcr.io/your-org/tracegate-naiveproxy-caddy",
-        "tag": "latest",
-    }
+    values["naiveproxy"]["enabled"] = True
     values_path = tmp_path / "values-prod.yaml"
     values_path.write_text(yaml.safe_dump(values, sort_keys=True), encoding="utf-8")
 
@@ -828,9 +843,7 @@ def test_k3s_strict_prod_overlay_check_rejects_unpinned_naiveproxy_image(tmp_pat
 
     output = f"{result.stdout}\n{result.stderr}"
     assert result.returncode != 0
-    assert "gateway.images.naiveproxy" in output
-    assert "must not use the example repository" in output
-    assert "must use a pinned tag or digest" in output
+    assert "naiveproxy.enabled must stay false in Tracegate 3" in output
 
 
 def test_tracegate21_image_helper_supports_digest_pins(tmp_path: Path) -> None:
@@ -946,7 +959,7 @@ def test_k3s_cluster_preflight_accepts_existing_cluster_prerequisites(tmp_path: 
 
     assert result.returncode == 0, result.stderr
     assert "cluster-preflight: OK namespace=tracegate" in result.stdout
-    assert "secrets=7" in result.stdout
+    assert "secrets=6" in result.stdout
     assert "nodes=3" in result.stdout
     assert "encrypted_nodes=2" in result.stdout
 
@@ -1137,12 +1150,12 @@ def test_tracegate21_chart_externalizes_private_profiles() -> None:
     assert "architecture.entryIngress.channel.tcp.bindShardIpsOnly=false is forbidden" in _chart_text()
     assert "architecture.mode=entry-endpoint forbids gateway.nodeEncryption host-level encryption guards" in _chart_text()
     assert "gateway.trafficShaping.entry.enabled=false is forbidden" in _chart_text()
-    assert "gateway.trafficShaping.entry.maxMbit must be in 1..100" in _chart_text()
+    assert "gateway.trafficShaping.entry.maxMbit must stay at the Tracegate 3 global Entry cap of 65 Mbit/s" in _chart_text()
     assert "gateway.trafficShaping.chainClient.maxMbit must be in 1..10" in _chart_text()
     assert "gateway.trafficShaping.hysteria.entryChainIgnoreClientBandwidth=true is forbidden" in _chart_text()
     assert "gateway.nodeEncryption.enabled=false is forbidden" in _chart_text()
     assert "gateway.nodeEncryption.nodeAnnotations.encryptedRuntime must be set" in _chart_text()
-    assert "at least one gateway role must be enabled in Tracegate 2.2" in _chart_text()
+    assert "at least one gateway role must be enabled in Tracegate 3" in _chart_text()
     assert "interconnect.entryTransit.enabled=true requires both Entry and Transit gateway roles" in _chart_text()
     assert "wireguard.enabled=true requires the Transit gateway role" in _chart_text()
     assert "mtproto.enabled=true requires the Transit gateway role" in _chart_text()
@@ -1151,7 +1164,7 @@ def test_tracegate21_chart_externalizes_private_profiles() -> None:
     assert "interconnect.entryTransit.routerTransit.enabled=true requires the Transit gateway role" in _chart_text()
     assert "router link-crypto profiles require interconnect.mieru.enabled=true" in _chart_text()
     assert values["controlPlane"]["env"]["botWelcomeRequired"] is True
-    assert values["controlPlane"]["env"]["botWelcomeVersion"] == "tracegate-2.2.7-ui-v1"
+    assert values["controlPlane"]["env"]["botWelcomeVersion"] == "tracegate-3.0.0-ui-v1"
     assert values["controlPlane"]["env"]["botWelcomeMessageSecret"] == {
         "name": "tracegate-bot-welcome",
         "key": "message",
@@ -1198,7 +1211,7 @@ def test_tracegate21_bot_welcome_message_is_secret_backed(tmp_path: Path) -> Non
     container = bot["spec"]["template"]["spec"]["containers"][0]
     env_by_name = {row["name"]: row for row in container["env"]}
     assert env_by_name["BOT_WELCOME_REQUIRED"]["value"] == "true"
-    assert env_by_name["BOT_WELCOME_VERSION"]["value"] == "tracegate-2.2.7-ui-v1"
+    assert env_by_name["BOT_WELCOME_VERSION"]["value"] == "tracegate-3.0.0-ui-v1"
     assert env_by_name["BOT_WELCOME_MESSAGE"]["valueFrom"]["secretKeyRef"] == {
         "name": "tracegate-bot-welcome",
         "key": "message",
@@ -1319,7 +1332,7 @@ def test_tracegate21_chart_disables_hostwide_interception_by_default() -> None:
     assert "shadowsocks2022.enabled=false is forbidden when gateway.entrySmall.enabled=true" in _chart_text()
     assert "gateway.roles.%s.ports.publicTcp must stay 443; use mtproto.publicPort=8443" in _chart_text()
     assert "mtproto.publicPort must be 443 or the dedicated MTProto fallback port 8443" in _chart_text()
-    assert "gateway.roles.%s.ports.publicUdp must stay 4443; UDP/443 is reserved for NaiveProxy V4" in _chart_text()
+    assert "gateway.roles.%s.ports.publicUdp must stay 443 for Tracegate 3 Hysteria2" in _chart_text()
     assert "Keep rollout and preflight guards enabled" in Path("deploy/k3s/README.md").read_text(encoding="utf-8")
     assert "fallback: none" in Path("deploy/k3s/values-prod.example.yaml").read_text(encoding="utf-8")
     assert "chainBridgeOwner: link-crypto" in Path("deploy/k3s/values-prod.example.yaml").read_text(encoding="utf-8")
@@ -1512,7 +1525,7 @@ def test_entry_traffic_shaping_and_encrypted_runtime_guards_render(tmp_path: Pat
     syntax = subprocess.run(["sh", "-n"], input=shaper_script, check=False, capture_output=True, text=True)
     assert syntax.returncode == 0, syntax.stderr
     assert shaper["securityContext"]["capabilities"]["add"] == ["NET_ADMIN"]
-    assert 'max_mbit="70"' in shaper_script
+    assert 'max_mbit="65"' in shaper_script
     assert 'rate="${max_mbit}mbit"' in shaper_script
     assert 'tc qdisc del dev "${iface}" root' in shaper_script
     assert "tc qdisc add" in shaper_script
@@ -1531,7 +1544,7 @@ def test_entry_traffic_shaping_and_encrypted_runtime_guards_render(tmp_path: Pat
         assert init["volumeMounts"] == [{"name": "gateway-state", "mountPath": "/state"}]
 
     entry_agent = entry_containers["agent"]
-    assert _env_value(entry_agent, "AGENT_ENTRY_TRAFFIC_SHAPING_MAX_MBIT") == "70"
+    assert _env_value(entry_agent, "AGENT_ENTRY_TRAFFIC_SHAPING_MAX_MBIT") == "65"
     assert _env_value(entry_agent, "HYSTERIA_CHAIN_CLIENT_MAX_MBIT") == "10"
     assert _env_value(entry_agent, "HYSTERIA_CHAIN_CLIENT_REQUIRE_DECLARED_TX") == "true"
     assert _env_value(entry_agent, "AGENT_NODE_ENCRYPTION_MARKER_FILE") == ".tracegate-encrypted"
@@ -1573,7 +1586,7 @@ def test_tracegate21_runtime_contract_renders_role_link_crypto_metadata(tmp_path
         "runtimeSidecar": True,
         "strategy": "tc-htb-egress-plus-ingress-police",
         "interface": "eth0",
-        "maxMbit": 70,
+        "maxMbit": 65,
         "burstKbit": 2048,
         "applyEgress": True,
         "applyIngressPolicing": True,
@@ -1726,7 +1739,7 @@ def test_tracegate21_runtime_contract_renders_role_link_crypto_metadata(tmp_path
     assert link_crypto["udp"]["dpiResistance"]["enabled"] is True
     assert link_crypto["udp"]["dpiResistance"]["mode"] == "salamander-plus-scoped-paired-obfs"
     assert link_crypto["udp"]["dpiResistance"]["portSplit"] == {
-        "publicUdpPort": 4443,
+            "publicUdpPort": 443,
         "forbidUdp443": False,
         "forbidTcp8443": True,
     }
@@ -1845,13 +1858,13 @@ def test_tracegate21_chart_declares_required_client_profiles_and_socks_auth() ->
 
     assert values["transportProfiles"]["socks5"]["required"] is True
     assert values["transportProfiles"]["socks5"]["allowAnonymousLocalhost"] is False
-    assert tuple(values["transportProfiles"]["clientNames"]) == TRACEGATE22_CLIENT_PROFILES
+    assert tuple(values["transportProfiles"]["clientNames"]) == TRACEGATE3_CLIENT_PROFILES
     assert "v1-direct-reality-vless" in profiles
     assert "v0-grpc-vless" in profiles
     assert "v3-direct-shadowtls-shadowsocks" in profiles
-    assert "v3-chain-shadowtls-shadowsocks" in profiles
-    assert "v4-direct-naiveproxy" in profiles
-    assert "v0-encrypted-reality-vless" in profiles
+    assert "v3-chain-shadowtls-shadowsocks" not in profiles
+    assert "v4-direct-naiveproxy" not in profiles
+    assert "v0-encrypted-reality-vless" not in profiles
     assert "v0-wgws-wireguard" in profiles
     assert "MTProto-FakeTLS-Direct" in profiles
     assert "MTProto-TCP443-Direct" not in profiles
@@ -2003,7 +2016,7 @@ def test_tracegate21_wireguard_sidecar_uses_portable_lifecycle_script(tmp_path: 
         ),
         (
             {"gateway": {"trafficShaping": {"entry": {"maxMbit": 101}}}},
-            "gateway.trafficShaping.entry.maxMbit must be in 1..100",
+            "gateway.trafficShaping.entry.maxMbit must stay at the Tracegate 3 global Entry cap of 65 Mbit/s",
         ),
         (
             {"gateway": {"trafficShaping": {"chainClient": {"maxMbit": 11}}}},
@@ -2086,7 +2099,7 @@ def test_tracegate21_wireguard_sidecar_uses_portable_lifecycle_script(tmp_path: 
                 "interconnect": {"entryTransit": {"enabled": False}},
                 "mtproto": {"enabled": False},
             },
-            "at least one gateway role must be enabled in Tracegate 2.2",
+            "at least one gateway role must be enabled in Tracegate 3",
         ),
         (
             {
@@ -2159,24 +2172,13 @@ def test_tracegate21_wireguard_sidecar_uses_portable_lifecycle_script(tmp_path: 
         ),
         (
             {"transportProfiles": {"clientNames": ["v5-universal-entry", "v1-direct-reality-vless", "MTProto-TCP443-Direct"]}},
-            "transportProfiles.clientNames must include v1-chain-reality-vless",
+            "transportProfiles.clientNames must include v2-direct-quic-hysteria",
         ),
         (
             {
                 "transportProfiles": {
                     "clientNames": [
-                        "v5-universal-entry",
-                        "v1-direct-reality-vless",
-                        "v1-chain-reality-vless",
-                        "v2-direct-quic-hysteria",
-                        "v2-chain-quic-hysteria",
-                        "v3-direct-shadowtls-shadowsocks",
-                        "v3-chain-shadowtls-shadowsocks",
-                        "v4-direct-naiveproxy",
-                        "v0-encrypted-reality-vless",
-                        "v0-ws-vless",
-                        "v0-grpc-vless",
-                        "v0-wgws-wireguard",
+                        profile for profile in TRACEGATE3_CLIENT_PROFILES if profile != "MTProto-FakeTLS-Direct"
                     ]
                 }
             },
@@ -2186,7 +2188,7 @@ def test_tracegate21_wireguard_sidecar_uses_portable_lifecycle_script(tmp_path: 
             {
                 "transportProfiles": {
                     "clientNames": [
-                        *TRACEGATE22_CLIENT_PROFILES,
+                        *TRACEGATE3_CLIENT_PROFILES,
                         "V8-Mieru-TCP-Direct",
                     ]
                 }
@@ -2359,8 +2361,9 @@ def test_tracegate21_templates_include_grpc_mtproto_and_mieru_surfaces() -> None
     assert "grpc_pass grpc://127.0.0.1" in text
     assert "client_max_body_size 0;" in text
     assert "be_mtproto" in text
-    assert "proxy_protocol = true" in text
+    assert 'proxy_protocol = {{ $mtprotoEntryTunnelEnabled | ternary "false" "true" }}' in text
     assert "send-proxy-v2" in text
+    assert "mtproto-entry-tunnel-in" in text
     assert "/app/telemt" in text
     assert "/var/lib/tracegate/private/mtproto/runtime/config.toml" in text
     assert 'mtproto_config="/state/private/mtproto/runtime/config.toml"' in text
@@ -2428,6 +2431,7 @@ def test_vless_encryption_rejects_tls_demux_sni_collision(tmp_path: Path) -> Non
     values["vlessEncryption"]["realitySni"] = "www.apple.com"
     values["mtproto"]["enabled"] = True
     values["mtproto"]["tlsDomain"] = "www.apple.com"
+    values["mtproto"]["stealth"]["validatedTlsDomains"] = ["www.apple.com"]
 
     result = _helm_template_with_values(tmp_path, values)
     assert result.returncode != 0
@@ -2451,9 +2455,9 @@ def test_mtproto_public_port_8443_renders_dedicated_fallback_frontend(tmp_path: 
     assert "name: mtproto-fb" in rendered.stdout
     assert "containerPort: 8443" in rendered.stdout
     assert "forbidTcp8443: false" in rendered.stdout
-    naiveproxy = _deployment_by_component(rendered.stdout, "naiveproxy")
-    naiveproxy_agent = _containers_by_name(naiveproxy["spec"]["template"])["agent"]
-    assert _env_value(naiveproxy_agent, "MTPROTO_PUBLIC_PORT") == "8443"
+    transit = _deployment_by_component(rendered.stdout, "gateway-transit")
+    transit_agent = _containers_by_name(transit["spec"]["template"])["agent"]
+    assert _env_value(transit_agent, "MTPROTO_PUBLIC_PORT") == "8443"
 
 
 def test_mtproto_official_fallback_can_run_before_telemt(tmp_path: Path) -> None:
@@ -2463,6 +2467,7 @@ def test_mtproto_official_fallback_can_run_before_telemt(tmp_path: Path) -> None
             "mtproto": {
                 "domain": "proto.tracegate.test",
                 "tlsDomain": "www.apple.com",
+                "stealth": {"validatedTlsDomains": ["www.apple.com"]},
                 "fallback": {"enabled": True, "prefer": "official"},
             }
         },
@@ -2512,6 +2517,7 @@ def test_mtproto_official_fallback_can_split_tls_and_dedicated_ports(tmp_path: P
             "mtproto": {
                 "domain": "proto.tracegate.test",
                 "tlsDomain": "www.apple.com",
+                "stealth": {"validatedTlsDomains": ["www.apple.com"]},
                 "publicPort": 8443,
                 "fallback": {"enabled": True, "mode": "split-ports", "prefer": "official"},
                 "route": {
@@ -2607,6 +2613,7 @@ def test_mtproto_entry_transit_endpoint_route_renders_entry_proxy_and_endpoint_a
             "mtproto": {
                 "domain": "proto.tracegate.test",
                 "tlsDomain": "www.apple.com",
+                "stealth": {"validatedTlsDomains": ["www.apple.com"]},
                 "publicPort": 8443,
                 "route": {
                     "mode": "entry-transit-endpoint",
@@ -2640,6 +2647,39 @@ def test_mtproto_entry_transit_endpoint_route_renders_entry_proxy_and_endpoint_a
     assert "entry-transit-endpoint" in rendered.stdout
 
 
+def test_mtproto_entry_endpoint_tunnel_keeps_telemt_private_on_endpoint(tmp_path: Path) -> None:
+    values = _universal_entry_overlay_values()
+    values["mtproto"] = {
+        "enabled": True,
+        "runtime": "telemt",
+        "domain": "proto.tracegate.test",
+        "tlsDomain": "ctlog2024.mail.ru",
+        "publicPort": 443,
+        "backendPort": 9443,
+        "fallback": {"enabled": False},
+        "stealth": {
+            "requireWhitelistedTlsDomain": True,
+            "forbiddenTlsDomains": ["yandex.ru", "splitter.wb.ru"],
+            "validatedTlsDomains": ["ctlog2024.mail.ru"],
+        },
+        "route": {"mode": "entry-endpoint-tunnel", "entry": {"tunnelPort": 11087}},
+    }
+
+    rendered = _helm_template_with_values(tmp_path, values)
+
+    assert rendered.returncode == 0, rendered.stderr
+    entry = _deployment_by_component(rendered.stdout, "gateway-entry")
+    endpoint = _deployment_by_component(rendered.stdout, "gateway-transit")
+    assert "mtproto" not in _containers_by_name(entry["spec"]["template"])
+    assert "mtproto" in _containers_by_name(endpoint["spec"]["template"])
+    assert "acl mtproto_sni req.ssl_sni -i ctlog2024.mail.ru" in rendered.stdout
+    assert "server mtproto_endpoint_tunnel 127.0.0.1:11087 check" in rendered.stdout
+    assert '"tag": "mtproto-entry-tunnel-in"' in rendered.stdout
+    assert '"inboundTag": ["mtproto-entry-tunnel-in"], "balancerTag": "endpoint-backhaul"' in rendered.stdout
+    assert "proxy_protocol = false" in rendered.stdout
+    assert "frontend fe_tracegate_transit_mtproto" not in rendered.stdout
+
+
 def test_mtproto_mtg_runs_on_entry_with_fail_closed_endpoint_egress(tmp_path: Path) -> None:
     rendered = _helm_template_with_values(
         tmp_path,
@@ -2649,6 +2689,7 @@ def test_mtproto_mtg_runs_on_entry_with_fail_closed_endpoint_egress(tmp_path: Pa
                 "runtime": "mtg",
                 "domain": "proto.tracegate.test",
                 "tlsDomain": "tracegate.test",
+                "stealth": {"validatedTlsDomains": ["tracegate.test"]},
                 "publicPort": 8443,
                 "fallback": {"enabled": False},
                 "egress": {
@@ -2679,7 +2720,8 @@ def test_mtproto_mtg_runs_on_entry_with_fail_closed_endpoint_egress(tmp_path: Pa
     assert "default_backend be_mtproto" in entry_fallback
     assert "server mtproto 127.0.0.1:9443 send-proxy-v2" in rendered.stdout
     assert "server mtproto 127.0.0.1:9443 check send-proxy-v2" not in rendered.stdout
-    assert "acl mtproto_sni req.ssl_sni -i tracegate.test proto.tracegate.test" in rendered.stdout
+    assert "acl mtproto_sni req.ssl_sni -i tracegate.test" in rendered.stdout
+    assert "acl mtproto_sni req.ssl_sni -i tracegate.test proto.tracegate.test" not in rendered.stdout
     assert '"tag": "mtproto-egress-socks-in"' in rendered.stdout
     assert '"port": 11084' in rendered.stdout
     assert '"inboundTag": ["mtproto-egress-socks-in"], "outboundTag": "chain-to-transit"' in rendered.stdout
@@ -2697,7 +2739,8 @@ def test_mtproto_mtg_can_use_source_restricted_shadowtls_endpoint_egress(tmp_pat
             "mtproto": {
                 "runtime": "mtg",
                 "domain": "proto.tracegate.test",
-                "tlsDomain": "yandex.ru",
+                "tlsDomain": "ctlog2024.mail.ru",
+                "stealth": {"validatedTlsDomains": ["ctlog2024.mail.ru"]},
                 "publicPort": 8443,
                 "fallback": {"enabled": False},
                 "egress": {
@@ -2707,7 +2750,7 @@ def test_mtproto_mtg_can_use_source_restricted_shadowtls_endpoint_egress(tmp_pat
                     "domainFrontingPort": 443,
                     "shadowtls": {
                         "enabled": True,
-                        "serverName": "splitter.wb.ru",
+                        "serverName": "styles.api.2gis.com",
                         "endpointHost": "endpoint.tracegate.test",
                         "endpointPort": 443,
                         "serverListenPort": 14444,
@@ -2741,7 +2784,7 @@ def test_mtproto_mtg_can_use_source_restricted_shadowtls_endpoint_egress(tmp_pat
     assert "shadow-tls --v3 server" in transit_containers["mtproto-egress-shadowtls"]["command"][2]
     assert not any(row.get("tag") == "mtproto-egress-socks-in" for row in entry_xray["inbounds"])
     assert any(row.get("tag") == "mtproto-egress-endpoint-socks-in" for row in transit_xray["inbounds"])
-    assert "acl mtproto_egress_shadowtls_sni req.ssl_sni -i splitter.wb.ru" in transit_haproxy
+    assert "acl mtproto_egress_shadowtls_sni req.ssl_sni -i styles.api.2gis.com" in transit_haproxy
     assert "acl mtproto_egress_shadowtls_src src 203.0.113.10" in transit_haproxy
     assert (
         "use_backend be_mtproto_egress_shadowtls if mtproto_egress_shadowtls_sni mtproto_egress_shadowtls_src"
@@ -2758,7 +2801,8 @@ def test_mtproto_mtg_seed_runtime_pins_legacy_fronting_ip(tmp_path: Path) -> Non
             "mtproto": {
                 "runtime": "mtg",
                 "domain": "proto.tracegate.test",
-                "tlsDomain": "yandex.ru",
+                "tlsDomain": "ctlog2024.mail.ru",
+                "stealth": {"validatedTlsDomains": ["ctlog2024.mail.ru"]},
                 "publicPort": 8443,
                 "fallback": {"enabled": False},
                 "egress": {
@@ -2794,7 +2838,11 @@ def test_transit_router_renders_gitops_managed_transit_hop(tmp_path: Path) -> No
                     "reality": ["www.microsoft.com"],
                 },
             },
-            "mtproto": {"domain": "proto.tracegate.test", "tlsDomain": "www.apple.com"},
+            "mtproto": {
+                "domain": "proto.tracegate.test",
+                "tlsDomain": "www.apple.com",
+                "stealth": {"validatedTlsDomains": ["www.apple.com"]},
+            },
         },
     )
 
@@ -2875,7 +2923,6 @@ def test_endpoint_gateway_is_canonically_labeled_when_transit_role_runs_on_endpo
                     }
                 }
             },
-            "naiveproxy": {"nodeSelector": {"tracegate.io/role": "endpoint"}},
         },
     )
 
@@ -2886,9 +2933,6 @@ def test_endpoint_gateway_is_canonically_labeled_when_transit_role_runs_on_endpo
     assert gateway_doc["metadata"]["labels"]["tracegate.io/display-name"] == "Endpoint"
     assert gateway["metadata"]["labels"]["tracegate.io/canonical-server"] == "endpoint"
     assert gateway["metadata"]["labels"]["tracegate.io/display-name"] == "Endpoint"
-    naiveproxy = _deployment_by_component(rendered.stdout, "naiveproxy")
-    assert naiveproxy["metadata"]["labels"]["tracegate.io/canonical-server"] == "endpoint"
-    assert naiveproxy["metadata"]["labels"]["tracegate.io/display-name"] == "Endpoint"
 
 
 def test_tracegate22_transit_nginx_proxies_public_client_config_url(tmp_path: Path) -> None:
@@ -3144,8 +3188,8 @@ def test_tracegate22_universal_entry_routes_all_entry_traffic_through_dual_trans
     xhttp_outbounds = [row for row in entry_xray["outbounds"] if str(row.get("tag", "")).startswith("chain-xhttp-")]
     assert len(xhttp_outbounds) == 2
     assert {row["streamSettings"]["realitySettings"]["serverName"] for row in xhttp_outbounds} == {
-        "yandex.ru",
-        "splitter.wb.ru",
+        "partners.lemanapro.ru",
+        "public-api.reviews.2gis.com",
     }
     assert all(row["streamSettings"]["xhttpSettings"]["mode"] == "stream-one" for row in xhttp_outbounds)
     assert all(row["streamSettings"]["xhttpSettings"]["extra"]["xmux"]["maxConnections"] == 1 for row in xhttp_outbounds)
@@ -3159,24 +3203,49 @@ def test_tracegate22_universal_entry_routes_all_entry_traffic_through_dual_trans
         }
     ]
     assert entry_xray["observatory"]["subjectSelector"] == ["chain-xhttp-"]
-    assert entry_xray["observatory"]["probeURL"] == "https://yandex.ru/"
+    assert entry_xray["observatory"]["probeURL"] == "https://api.dobro.ru/"
     assert "backhaul-client.yaml" in entry_hysteria
     assert "REPLACE_HYSTERIA_ENDPOINT_BACKHAUL_AUTH" in entry_hysteria["backhaul-client.yaml"]
     backhaul_client = yaml.safe_load(entry_hysteria["backhaul-client.yaml"])
-    assert backhaul_client["server"] == "198.51.100.20:4443"
+    assert backhaul_client["server"] == "198.51.100.20:443"
     assert backhaul_client["obfs"]["type"] == "salamander"
     assert backhaul_client["quic"]["keepAlivePeriod"] == "10s"
     assert backhaul_client["congestion"] == {"type": "bbr", "bbrProfile": "conservative"}
     assert backhaul_client["socks5"] == {"listen": "127.0.0.1:11086", "disableUDP": False}
     assert "hysteria-backhaul-client" in entry_containers
     assert {row["tag"] for row in endpoint_xray["inbounds"] if str(row.get("tag", "")).startswith("chain-bridge-")} == {
-        "chain-bridge-yandex-in",
-        "chain-bridge-wb-in",
+        "chain-bridge-lemanapro-in",
+        "chain-bridge-2gis_reviews-in",
     }
-    assert "use_backend be_chain_bridge_yandex if chain_bridge_yandex_sni chain_bridge_yandex_src" in endpoint_haproxy
-    assert "use_backend be_chain_bridge_wb if chain_bridge_wb_sni chain_bridge_wb_src" in endpoint_haproxy
+    assert "use_backend be_chain_bridge_lemanapro if chain_bridge_lemanapro_sni chain_bridge_lemanapro_src" in endpoint_haproxy
+    assert (
+        "use_backend be_chain_bridge_2gis_reviews if chain_bridge_2gis_reviews_sni chain_bridge_2gis_reviews_src"
+        in endpoint_haproxy
+    )
     assert "grpc_read_timeout 1h;" in entry_nginx
     assert "grpc_send_timeout 1h;" in entry_nginx
+
+
+def test_tracegate3_entry_endpoint_routes_all_entry_user_traffic_to_endpoint(tmp_path: Path) -> None:
+    values = _entry_endpoint_overlay_values()
+
+    rendered = _helm_template_with_values(tmp_path, values)
+
+    assert rendered.returncode == 0, rendered.stderr
+    configmaps = {
+        doc["metadata"]["name"]: doc
+        for doc in _helm_docs(rendered.stdout)
+        if doc.get("kind") == "ConfigMap" and isinstance(doc.get("data"), dict)
+    }
+    entry_xray = json.loads(configmaps["tracegate-tracegate-gateway-entry-xray"]["data"]["config.json"])
+    user_rules = [
+        rule
+        for rule in entry_xray["routing"]["rules"]
+        if "vless-grpc-in" in rule.get("inboundTag", [])
+    ]
+
+    assert any(rule.get("balancerTag") == "endpoint-backhaul" for rule in user_rules)
+    assert not any(rule.get("outboundTag") == "direct" for rule in user_rules)
 
 
 def test_tracegate22_universal_entry_rejects_direct_origin_exposure(tmp_path: Path) -> None:
@@ -3222,7 +3291,7 @@ def test_tracegate22_universal_entry_rejects_conflicting_xhttp_xmux_limits(tmp_p
 
 def test_tracegate22_universal_entry_rejects_duplicate_xhttp_shard_sni(tmp_path: Path) -> None:
     values = _universal_entry_overlay_values()
-    values["interconnect"]["emergencyXrayChain"]["shards"][1]["serverName"] = "yandex.ru"
+    values["interconnect"]["emergencyXrayChain"]["shards"][1]["serverName"] = "partners.lemanapro.ru"
 
     rendered = _helm_template_with_values(tmp_path, values)
 
@@ -3240,7 +3309,7 @@ def test_tracegate22_universal_entry_rejects_disabled_hysteria_fallback(tmp_path
     assert "requires interconnect.endpointBackhaul.hysteria2.enabled=true" in rendered.stderr
 
 
-def test_tracegate22_k3s_renders_naiveproxy_tcp443_demux(tmp_path: Path) -> None:
+def test_tracegate3_k3s_does_not_render_removed_naiveproxy_runtime(tmp_path: Path) -> None:
     rendered = _helm_template_with_values(tmp_path, {})
 
     assert rendered.returncode == 0, rendered.stderr
@@ -3251,34 +3320,18 @@ def test_tracegate22_k3s_renders_naiveproxy_tcp443_demux(tmp_path: Path) -> None
         if doc.get("kind") == "ConfigMap"
         and doc.get("metadata", {}).get("name") == "tracegate-tracegate-gateway-transit-haproxy"
     )
-    naiveproxy = _deployment_by_component(rendered.stdout, "naiveproxy")
-    naiveproxy_pod = naiveproxy["spec"]["template"]
-    caddy = _containers_by_name(naiveproxy_pod)["caddy"]
-    agent = _containers_by_name(naiveproxy_pod)["agent"]
-
-    assert "acl naiveproxy_sni req.ssl_sni -i auth.example.com" in transit_haproxy
-    assert "use_backend be_naiveproxy if naiveproxy_sni" in transit_haproxy
-    assert "backend be_naiveproxy" in transit_haproxy
-    assert "server naiveproxy 127.0.0.1:11443 check" in transit_haproxy
-    assert naiveproxy["spec"]["strategy"]["type"] == "Recreate"
-    assert naiveproxy_pod["metadata"]["annotations"]["tracegate.io/public-surface"] == "tcp/443-demux,udp/443"
-    assert naiveproxy_pod["spec"]["shareProcessNamespace"] is True
-    assert naiveproxy_pod["spec"]["nodeSelector"] == {"tracegate.io/role": "transit"}
-    assert next(port for port in caddy["ports"] if port["name"] == "naive-https")["containerPort"] == 11443
-    assert next(port for port in agent["ports"] if port["name"] == "agent")["containerPort"] == 8074
-    assert _env_value(agent, "AGENT_PORT") == "8074"
-    assert _env_value(agent, "NAIVEPROXY_TCP_EXPOSURE") == "demux"
-    assert _env_value(agent, "NAIVEPROXY_DEMUX_TCP_PORT") == "11443"
-    assert _env_value(agent, "MTPROTO_PUBLIC_PORT") == "443"
-    assert _env_value(agent, "MTPROTO_ROUTE_MODE") == "endpoint-direct"
-    env_by_name = {row["name"]: row for row in agent["env"]}
-    assert env_by_name["AGENT_AUTH_TOKEN"]["valueFrom"]["secretKeyRef"] == {
-        "name": "tracegate-control-plane-auth",
-        "key": "agent-auth-token",
+    components = {
+        doc.get("metadata", {}).get("labels", {}).get("app.kubernetes.io/component")
+        for doc in docs
+        if doc.get("kind") == "Deployment"
     }
 
+    assert "naiveproxy" not in components
+    assert "naiveproxy_sni" not in transit_haproxy
+    assert "be_naiveproxy" not in transit_haproxy
 
-def test_prometheus_scrapes_naiveproxy_agent_when_observability_enabled(tmp_path: Path) -> None:
+
+def test_prometheus_scrapes_gateway_agents_when_observability_enabled(tmp_path: Path) -> None:
     values = {"observability": {"prometheus": {"enabled": True}}}
     rendered = _helm_template_with_values(tmp_path, values)
 
@@ -3292,7 +3345,8 @@ def test_prometheus_scrapes_naiveproxy_agent_when_observability_enabled(tmp_path
     )
 
     assert "job_name: tracegate-agent" in prometheus_config
-    assert "regex: gateway-.+|naiveproxy" in prometheus_config
+    assert "regex: gateway-.+" in prometheus_config
+    assert "gateway-.+|naiveproxy" not in prometheus_config
 
 
 def test_grafana_renders_as_helm_managed_observability_resource(tmp_path: Path) -> None:

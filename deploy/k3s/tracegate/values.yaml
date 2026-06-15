@@ -3,12 +3,12 @@ namespace:
   name: tracegate
 
 global:
-  runtimeProfile: tracegate-2.2
-  architectureRevision: "2.2"
+  runtimeProfile: tracegate-3
+  architectureRevision: "3"
   publicBaseUrl: ""
   image:
     repository: ghcr.io/your-org/tracegate
-    tag: "2.2.7"
+    tag: "3.0.0"
     pullPolicy: IfNotPresent
   imagePullSecrets: []
 
@@ -157,7 +157,7 @@ controlPlane:
     naiveproxyHost: auth.example.com
     localSocksAuth: required
     botWelcomeRequired: true
-    botWelcomeVersion: tracegate-2.2.7-ui-v1
+    botWelcomeVersion: tracegate-3.0.0-ui-v1
     botWelcomeMessageSecret:
       name: tracegate-bot-welcome
       key: message
@@ -321,11 +321,11 @@ decoy:
   files: {}
 
 naiveproxy:
-  enabled: true
+  enabled: false
   canonicalServer: ""
   domain: auth.example.com
   role: NAIVEPROXY
-  runtimeProfile: tracegate-naiveproxy-v4
+  runtimeProfile: disabled
   # demux keeps public TCP/443 on the Transit HAProxy and forwards only
   # auth.example.com to the host-local NaiveProxy TCP backend.
   # dedicated keeps the older model where the NaiveProxy pod owns tcp/443.
@@ -400,7 +400,7 @@ transitRouter:
     mtproto: []
     decoy: transit.example.com
     reality:
-      - yandex.ru
+      - market.rzd.ru
   decoy:
     hostPath: /srv/tracegate/decoy
     hostPathType: Directory
@@ -416,17 +416,12 @@ transitRouter:
 
 transportProfiles:
   clientNames:
-    - v5-universal-entry
     - v1-direct-reality-vless
-    - v1-chain-reality-vless
     - v2-direct-quic-hysteria
-    - v2-chain-quic-hysteria
-    - v3-direct-shadowtls-shadowsocks
-    - v3-chain-shadowtls-shadowsocks
-    - v4-direct-naiveproxy
-    - v0-encrypted-reality-vless
-    - v0-ws-vless
+    - v5-universal-entry
     - v0-grpc-vless
+    - v0-ws-vless
+    - v3-direct-shadowtls-shadowsocks
     - v0-wgws-wireguard
     - MTProto-FakeTLS-Direct
   v1:
@@ -502,7 +497,7 @@ gateway:
       enabled: true
       runtimeSidecar: true
       interface: eth0
-      maxMbit: 70
+      maxMbit: 65
       burstKbit: 2048
       applyEgress: true
       applyIngressPolicing: true
@@ -741,7 +736,7 @@ gateway:
       pullPolicy: IfNotPresent
     naiveproxy:
       repository: ghcr.io/your-org/tracegate-naiveproxy-caddy
-      tag: "2.2.7"
+      tag: "disabled"
       pullPolicy: IfNotPresent
   roles:
     entry:
@@ -755,7 +750,7 @@ gateway:
       ports:
         publicTcp: 443
         publicTcpExtraBinds: []
-        publicUdp: 4443
+        publicUdp: 443
         reality: 2443
         realityEncrypted: 2444
         httpsAdapter: 10443
@@ -768,9 +763,9 @@ gateway:
         serverName: entry.example.com
         existingSecretName: tracegate-entry-tls
       reality:
-        dest: yandex.ru:443
+        dest: partners.lemanapro.ru:443
         serverNames:
-          - yandex.ru
+          - partners.lemanapro.ru
         shortIds:
           - "0123456789abcdef"
         privateKeySecret:
@@ -793,7 +788,7 @@ gateway:
         publicHttp: 80
         publicTcp: 443
         publicTcpExtraBinds: []
-        publicUdp: 4443
+        publicUdp: 443
         reality: 2443
         realityEncrypted: 2444
         httpsAdapter: 10443
@@ -807,9 +802,9 @@ gateway:
         serverName: transit.example.com
         existingSecretName: tracegate-transit-tls
       reality:
-        dest: splitter.wb.ru:443
+        dest: public-api.reviews.2gis.com:443
         serverNames:
-          - splitter.wb.ru
+          - public-api.reviews.2gis.com
         shortIds:
           - "fedcba9876543210"
         privateKeySecret:
@@ -834,12 +829,12 @@ interconnect:
       maxParallelDials: 1
     health:
       payloadProbeRequired: true
-      probeUrl: https://yandex.ru/
+      probeUrl: https://api.dobro.ru/
       probeInterval: 30s
     hysteria2:
       enabled: false
       endpointHost: ""
-      endpointPort: 4443
+      endpointPort: 443
       serverName: ""
       entrySocksPort: 11086
       allowedSources: []
@@ -1015,15 +1010,17 @@ shadowsocks2022:
   shadowtls:
     enabled: true
     version: 3
-    serverNameEntry: splitter.wb.ru
-    serverNameTransit: splitter.wb.ru
+    serverNameEntry: api.photo.2gis.com
+    serverNameTransit: styles.api.2gis.com
     listenPort: 14443
 
 mtproto:
   enabled: true
   runtime: telemt
   domain: ""
-  tlsDomain: ""
+  # FakeTLS SNI from the bundled Russian mobile whitelist. Keep it distinct
+  # from the public address hostname and validate it from target networks.
+  tlsDomain: ctlog2024.mail.ru
   publicPort: 443
   backendPort: 9443
   tolerateTimeSkewness: 5m
@@ -1034,7 +1031,7 @@ mtproto:
     domainFrontingPort: 443
     shadowtls:
       enabled: false
-      serverName: splitter.wb.ru
+      serverName: styles.api.2gis.com
       endpointHost: ""
       endpointPort: 443
       serverListenPort: 14444
@@ -1053,10 +1050,18 @@ mtproto:
     mode: endpoint-direct
     entry:
       upstreamHost: ""
+      tunnelPort: 11087
       # Optional overrides for entry-transit-endpoint:
       # tlsUpstreamHost/publicUpstreamHost split tcp/443 and mtproto.publicPort.
       # tlsFallbackHost/publicFallbackHost split or disable per-port backups.
     endpoint:
       allowedProxySources: []
+  stealth:
+    requireWhitelistedTlsDomain: true
+    forbiddenTlsDomains:
+      - yandex.ru
+      - splitter.wb.ru
+    validatedTlsDomains:
+      - ctlog2024.mail.ru
   obfuscationProfile: mtproto-extra
   stabilityClass: aggressive-obfuscation

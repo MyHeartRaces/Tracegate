@@ -10,7 +10,7 @@ namespace:
 global:
   image:
     repository: ghcr.io/your-org/tracegate
-    tag: "2.2.7"
+    tag: "3.0.0"
   publicBaseUrl: "https://tracegate.example.com"
 
 topology:
@@ -94,9 +94,9 @@ gateway:
   trafficShaping:
     entry:
       enabled: true
-      # Public network interface on the Entry node. Keep maxMbit <= 70.
+      # Public network interface on the Entry node. Tracegate 3 requires 65 Mbit/s.
       interface: eth0
-      maxMbit: 70
+      maxMbit: 65
       applyEgress: true
       applyIngressPolicing: true
       failClosed: true
@@ -159,9 +159,9 @@ gateway:
         serverName: entry.example.com
         existingSecretName: tracegate-entry-tls
       reality:
-        dest: yandex.ru:443
+        dest: partners.lemanapro.ru:443
         serverNames:
-          - yandex.ru
+          - partners.lemanapro.ru
         privateKeySecret:
           name: tracegate-entry-reality
           key: private-key
@@ -179,9 +179,9 @@ gateway:
         serverName: endpoint.example.com
         existingSecretName: tracegate-transit-tls
       reality:
-        dest: splitter.wb.ru:443
+        dest: public-api.reviews.2gis.com:443
         serverNames:
-          - splitter.wb.ru
+          - public-api.reviews.2gis.com
         privateKeySecret:
           name: tracegate-transit-reality
           key: private-key
@@ -192,19 +192,7 @@ gateway:
         listenHost: ""
 
 naiveproxy:
-  enabled: true
-  canonicalServer: endpoint
-  domain: auth.example.com
-  runtimeProfile: tracegate-naiveproxy-v4
-  tcpExposure: demux
-  demux:
-    role: transit
-    backendHost: 127.0.0.1
-    backendPort: 11443
-  nodeSelector:
-    tracegate.io/role: endpoint
-  tls:
-    existingSecretName: tracegate-naiveproxy-tls
+  enabled: false
 
 transitRouter:
   enabled: true
@@ -224,7 +212,7 @@ transitRouter:
   sni:
     decoy: transit.example.com
     reality:
-      - yandex.ru
+      - market.rzd.ru
 
 interconnect:
   emergencyXrayChain:
@@ -264,25 +252,15 @@ wireguard:
 
 mtproto:
   enabled: true
-  runtime: mtg
+  runtime: telemt
   domain: mtproto.example.com
-  tlsDomain: www.example.com
-  publicPort: 8443
-  egress:
-    mode: socks5-only
-    socksPort: 11084
-    domainFrontingHost: www.example.com
-    domainFrontingPort: 443
-    shadowtls:
-      enabled: true
-      serverName: splitter.wb.ru
-      endpointHost: 198.51.100.20
-      endpointPort: 443
-      serverListenPort: 14444
-      endpointSocksPort: 11085
-      allowedSources:
-        - 203.0.113.10
+  tlsDomain: ctlog2024.mail.ru
+  publicPort: 443
+  stealth:
+    requireWhitelistedTlsDomain: true
+    forbiddenTlsDomains: [yandex.ru, splitter.wb.ru]
+    validatedTlsDomains: [ctlog2024.mail.ru]
   fallback:
     enabled: false
   route:
-    mode: entry-local-endpoint-egress
+    mode: endpoint-direct

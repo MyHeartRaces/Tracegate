@@ -40,18 +40,21 @@ Production promotion gates run from the operator environment.
   bursts.
 - Verify Hysteria2/Salamander fallback transfers TCP and UDP after all XHTTP
   shards are unavailable.
-- Confirm Endpoint UDP/4443 accepts only configured Entry source addresses.
+- Confirm Endpoint backhaul UDP/443 accepts only configured Entry source
+  addresses.
+- Confirm private legacy link-crypto remains isolated on UDP/4443.
 - Confirm Entry has no direct user-traffic egress during every failure test.
 
-## NaiveProxy V4
+## MTProto
 
-- Build and push `deploy/images/naiveproxy-caddy/Dockerfile`.
-- Verify `caddy list-modules` contains `http.handlers.forward_proxy`.
-- Pin `gateway.images.naiveproxy.digest` in the private production overlay.
-- Confirm V4 fronting, TLS material, node placement and port ownership against
-  the private operator runbook.
-- Keep client endpoint details and import instructions out of public release
-  notes.
+- Confirm Telemt runs only on Endpoint and is loopback-bound.
+- Confirm Entry TCP/443 routes only the validated FakeTLS SNI to the local
+  MTProto tunnel inbound.
+- Confirm Endpoint has no public MTProto frontend in tunnel mode.
+- Confirm Telemt renders `proxy_protocol = false` in tunnel mode.
+- Confirm the public address hostname differs from the FakeTLS SNI.
+- Confirm `yandex.ru` and `splitter.wb.ru` are absent from active SNI fields.
+- Test sustained Telegram traffic through the Endpoint egress path.
 
 ## Private Repository
 
@@ -59,8 +62,7 @@ Production promotion gates run from the operator environment.
 - Encrypted Secrets are current.
 - Decoy assets are stored only in the private repository or on the production
   host storage expected by the private overlay.
-- V4 TLS material and digest-pinned runtime images are present before
-  promotion.
+- Telemt and backhaul image pins are present before promotion.
 - Any operational notes that reveal live layout stay private.
 - In `entry-endpoint` mode, cluster preflight reports no legacy Transit or
   chain-Transit nodes.

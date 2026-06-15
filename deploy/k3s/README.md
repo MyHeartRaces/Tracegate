@@ -53,13 +53,11 @@ Real deployments must provide these inputs outside the public repository:
 
 - control-plane secrets and database credentials;
 - private profile material for gateway roles;
-- a registry-pushed NaiveProxy Caddy image built from
-  `deploy/images/naiveproxy-caddy/Dockerfile` and pinned by digest;
+- pinned gateway, Telemt and control-plane images;
 - TLS material and decoy content for any externally exposed surfaces;
 - node labels, annotations and host policy;
 - production image pins;
-- encrypted Entry and Endpoint runtime storage. V4 placement and fronting details
-  are operator-managed and must stay outside public documentation.
+- operator-managed Entry and Endpoint firewall state.
 
 Entry traffic shaping and chain-client limits are enabled in public values as
 guardrails. The real Entry network interface must be set in the operator
@@ -94,8 +92,9 @@ Future `entry-endpoint` deployments disable the host-level LUKS/dm-crypt
 marker and node-annotation contract; transport encryption and external Secret
 handling remain unchanged.
 
-V4 fronting, port ownership and client import details belong in the private
-operator runbook, not in this public chart README.
+Tracegate 3 MTProto uses the shared Entry TCP/443 surface and an authenticated
+Entry-to-Endpoint tunnel. Telemt runs only on Endpoint. See
+[docs/tracegate-3-architecture.md](../../docs/tracegate-3-architecture.md).
 
 ## Operational Notes
 

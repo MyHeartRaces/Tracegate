@@ -52,10 +52,10 @@
         "security": "reality",
         "realitySettings": {
           "show": false,
-          "dest": "splitter.wb.ru:443",
+          "dest": "partners.lemanapro.ru:443",
           "xver": 0,
           "serverNames": [
-            "splitter.wb.ru"
+            "partners.lemanapro.ru"
           ],
           "privateKey": "REPLACE_PRIVATE_KEY",
           "shortIds": [
@@ -208,7 +208,7 @@
         "security": "reality",
         "realitySettings": {
           "fingerprint": "chrome",
-          "serverName": "splitter.wb.ru",
+          "serverName": "public-api.reviews.2gis.com",
           "publicKey": "REPLACE_TRANSIT_PUBLIC_KEY",
           "shortId": "0123456789abcdef"
         },

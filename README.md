@@ -76,8 +76,10 @@ alias while older installations migrate.
 - [alembic](alembic): database migrations.
 - [tests](tests): automated coverage for behavior and generated artifacts.
 - [docs](docs): public documentation that avoids live deployment coordinates.
-- [docs/mtproto-entry-endpoint.md](docs/mtproto-entry-endpoint.md): fail-closed
-  MTG on Entry with encrypted Endpoint egress.
+- [docs/mtproto-entry-endpoint.md](docs/mtproto-entry-endpoint.md): shared Entry
+  MTProto ingress with Endpoint-local Telemt.
+- [docs/tracegate-3-architecture.md](docs/tracegate-3-architecture.md):
+  Tracegate 3 profiles, ports, backhaul and MTProto contract.
 - [docs/entry-endpoint-migration.md](docs/entry-endpoint-migration.md):
   two-node migration contract and promotion gates.
 - [docs/ingress-rotation.md](docs/ingress-rotation.md): revision-sticky
@@ -103,7 +105,7 @@ production deployment path.
 
 The public chart is intended for rendering, validation and review. It includes
 guards for external Secrets, private profile material, decoy content, gateway
-traffic shaping and encrypted Entry/Endpoint runtime storage.
+traffic shaping, backhaul and Entry/Endpoint topology.
 
 Use placeholder values for public review. Use operator-managed overlays for
 real environments.

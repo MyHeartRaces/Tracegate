@@ -206,7 +206,7 @@ async def gather_health_checks(
     stats_secret: str,
     role: str,
     runtime_mode: str,  # kept for backward compatibility with legacy container deployments
-    runtime_profile: str = "tracegate-2.2",
+    runtime_profile: str = "tracegate-3",
     *,
     mtproto_public_port: int = 443,
     mtproto_route_mode: str = "endpoint-direct",

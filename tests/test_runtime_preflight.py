@@ -7,6 +7,7 @@ from tracegate.cli import validate_runtime_contracts
 from tracegate.constants import (
     TRACEGATE_FORBIDDEN_PUBLIC_TCP_PORT,
     TRACEGATE_FORBIDDEN_PUBLIC_UDP_PORT,
+    TRACEGATE_INTERCONNECT_UDP_PORT,
     TRACEGATE_PUBLIC_UDP_PORT,
 )
 from tracegate.services.runtime_preflight import (
@@ -74,7 +75,7 @@ def _runtime_contract(
 ) -> dict:
     role_suffix = role.strip().lower()
     if transport_profiles is None:
-        if runtime_profile == "tracegate-2.2":
+        if runtime_profile == "tracegate-3":
             client_names = TRACEGATE22_CLIENT_PROFILES
         elif runtime_profile == "tracegate-2.1":
             client_names = TRACEGATE21_CLIENT_PROFILES
@@ -93,20 +94,20 @@ def _runtime_contract(
     local_socks = transport_profiles.get("localSocks") if isinstance(transport_profiles, dict) else {}
     local_socks_auth = str(local_socks.get("auth") or "").strip().lower() if isinstance(local_socks, dict) else ""
     default_managed_components = ["xray", "haproxy", "nginx"]
-    if runtime_profile == "tracegate-2.2":
+    if runtime_profile == "tracegate-3":
         default_managed_components.append("hysteria")
-    default_split_hysteria_dirs = ["/srv/decoy"] if runtime_profile == "tracegate-2.2" else []
-    default_xray_hysteria_dirs = [] if runtime_profile == "tracegate-2.2" else ["/srv/decoy"]
-    default_hysteria_tags = [] if runtime_profile == "tracegate-2.2" else ["hy2-in"]
+    default_split_hysteria_dirs = ["/srv/decoy"] if runtime_profile == "tracegate-3" else []
+    default_xray_hysteria_dirs = [] if runtime_profile == "tracegate-3" else ["/srv/decoy"]
+    default_hysteria_tags = [] if runtime_profile == "tracegate-3" else ["hy2-in"]
     public_udp_owner = "xray" if runtime_profile == "xray-centric" else "hysteria"
-    udp443_owner = "naiveproxy" if runtime_profile == "tracegate-2.2" else public_udp_owner
+    udp443_owner = "naiveproxy" if runtime_profile == "tracegate-3" else public_udp_owner
     return {
         "role": role,
         "runtimeProfile": runtime_profile,
         "localSocksAuth": local_socks_auth or "disabled",
         "contract": {
             "managedComponents": managed_components if managed_components is not None else default_managed_components,
-            "xrayBackhaulAllowed": runtime_profile not in {"tracegate-2.1", "tracegate-2.2"},
+            "xrayBackhaulAllowed": runtime_profile not in {"tracegate-2.1", "tracegate-3"},
             "forbiddenPorts": [
                 {"protocol": "tcp", "port": TRACEGATE_FORBIDDEN_PUBLIC_TCP_PORT, "name": "blocked tcp/8443"},
             ],
@@ -179,7 +180,7 @@ def _runtime_contract(
         },
         "hysteria": {
             "configPath": f"/var/lib/tracegate/agent-{role_suffix}/runtime/hysteria/server.yaml",
-            "configPresent": runtime_profile == "tracegate-2.2",
+            "configPresent": runtime_profile == "tracegate-3",
             "listen": f":{TRACEGATE_PUBLIC_UDP_PORT}",
             "listenPort": TRACEGATE_PUBLIC_UDP_PORT,
             "auth": {
@@ -1113,8 +1114,8 @@ def _link_crypto_udp_dpi_resistance() -> dict:
         "enabled": True,
         "mode": "salamander-plus-scoped-paired-obfs",
         "portSplit": {
-            "publicUdpPort": TRACEGATE_PUBLIC_UDP_PORT,
-            "forbidUdp443": False,
+            "publicUdpPort": TRACEGATE_INTERCONNECT_UDP_PORT,
+            "forbidUdp443": True,
             "forbidTcp8443": True,
         },
         "requiredLayers": [
@@ -1186,9 +1187,9 @@ def _link_crypto_udp_row(
         "remote": {
             "role": remote_role,
             "endpoint": (
-                f"transit.tracegate.test:{TRACEGATE_PUBLIC_UDP_PORT}"
+                f"transit.tracegate.test:{TRACEGATE_INTERCONNECT_UDP_PORT}"
                 if role_upper == "ENTRY"
-                else f"entry.tracegate.test:{TRACEGATE_PUBLIC_UDP_PORT}"
+                else f"entry.tracegate.test:{TRACEGATE_INTERCONNECT_UDP_PORT}"
             ),
             "protocol": "udp-quic",
         },
@@ -1320,7 +1321,7 @@ def _entry_transit_link_crypto_contract(*, role: str, forbid_tcp8443: bool = Tru
             "profileSource": "private-file-reference",
             "secretMaterial": False,
             "xrayBackhaul": False,
-            "remotePort": TRACEGATE_PUBLIC_UDP_PORT,
+            "remotePort": TRACEGATE_INTERCONNECT_UDP_PORT,
             "obfs": {"type": "salamander", "required": True},
             "pairedObfs": {
                 "enabled": True,
@@ -1384,7 +1385,7 @@ def _router_link_crypto_contract(*, role: str) -> dict:
             "profileSource": "private-file-reference",
             "secretMaterial": False,
             "xrayBackhaul": False,
-            "remotePort": TRACEGATE_PUBLIC_UDP_PORT,
+            "remotePort": TRACEGATE_INTERCONNECT_UDP_PORT,
             "obfs": {"type": "salamander", "required": True},
             "pairedObfs": {
                 "enabled": True,
@@ -1983,16 +1984,16 @@ def test_validate_runtime_contract_pair_rejects_unsafe_xray_api_surface() -> Non
 
 def test_validate_runtime_contract_pair_accepts_tracegate22_standalone_hysteria() -> None:
     findings = validate_runtime_contract_pair(
-        _runtime_contract(role="ENTRY", runtime_profile="tracegate-2.2"),
-        _runtime_contract(role="TRANSIT", runtime_profile="tracegate-2.2"),
+        _runtime_contract(role="ENTRY", runtime_profile="tracegate-3"),
+        _runtime_contract(role="TRANSIT", runtime_profile="tracegate-3"),
     )
 
     assert findings == []
 
 
 def test_validate_runtime_contract_pair_accepts_mtproto_tcp8443_fallback() -> None:
-    entry = _runtime_contract(role="ENTRY", runtime_profile="tracegate-2.2")
-    transit = _runtime_contract(role="TRANSIT", runtime_profile="tracegate-2.2")
+    entry = _runtime_contract(role="ENTRY", runtime_profile="tracegate-3")
+    transit = _runtime_contract(role="TRANSIT", runtime_profile="tracegate-3")
     transit["contract"]["expectedPorts"] = [
         {"protocol": "tcp", "port": 8443, "name": "listen tcp/8443 mtproto fallback"},
     ]
@@ -2010,7 +2011,7 @@ def test_validate_runtime_contract_pair_accepts_mtproto_tcp8443_fallback() -> No
 
 @pytest.mark.parametrize("route_mode", ["entry-transit-endpoint", "entry-local-endpoint-egress"])
 def test_validate_runtime_contract_single_accepts_entry_mtproto_route_tcp8443(route_mode: str) -> None:
-    entry = _runtime_contract(role="ENTRY", runtime_profile="tracegate-2.2")
+    entry = _runtime_contract(role="ENTRY", runtime_profile="tracegate-3")
     entry["contract"]["expectedPorts"] = [
         {"protocol": "tcp", "port": 8443, "name": "listen tcp/8443 mtproto fallback"},
     ]
@@ -2027,8 +2028,8 @@ def test_validate_runtime_contract_single_accepts_entry_mtproto_route_tcp8443(ro
 
 
 def test_validate_runtime_contract_pair_rejects_missing_forbidden_public_ports() -> None:
-    entry = _runtime_contract(role="ENTRY", runtime_profile="tracegate-2.2")
-    transit = _runtime_contract(role="TRANSIT", runtime_profile="tracegate-2.2")
+    entry = _runtime_contract(role="ENTRY", runtime_profile="tracegate-3")
+    transit = _runtime_contract(role="TRANSIT", runtime_profile="tracegate-3")
     entry["contract"]["forbiddenPorts"] = [{"protocol": "udp", "port": 8443, "name": "listen udp/8443"}]
     entry["fronting"]["forbiddenPublicPorts"] = [{"protocol": "tcp", "port": 443, "action": "accept"}]
 
@@ -2040,8 +2041,8 @@ def test_validate_runtime_contract_pair_rejects_missing_forbidden_public_ports()
 
 
 def test_validate_runtime_contract_pair_rejects_forbidden_udp443_flag() -> None:
-    entry = _runtime_contract(role="ENTRY", runtime_profile="tracegate-2.2")
-    transit = _runtime_contract(role="TRANSIT", runtime_profile="tracegate-2.2")
+    entry = _runtime_contract(role="ENTRY", runtime_profile="tracegate-3")
+    transit = _runtime_contract(role="TRANSIT", runtime_profile="tracegate-3")
     entry["fronting"]["forbiddenUdp443"] = True
 
     findings = validate_runtime_contract_pair(entry, transit)
@@ -2051,12 +2052,12 @@ def test_validate_runtime_contract_pair_rejects_forbidden_udp443_flag() -> None:
 
 
 def test_validate_runtime_contract_pair_rejects_tracegate22_unsafe_hysteria_config() -> None:
-    entry = _runtime_contract(role="ENTRY", runtime_profile="tracegate-2.2")
-    transit = _runtime_contract(role="TRANSIT", runtime_profile="tracegate-2.2")
+    entry = _runtime_contract(role="ENTRY", runtime_profile="tracegate-3")
+    transit = _runtime_contract(role="TRANSIT", runtime_profile="tracegate-3")
     entry["fronting"]["publicUdpOwner"] = "xray"
     entry["fronting"]["udp443Owner"] = "xray"
     entry["decoy"]["xrayHysteriaMasqueradeDirs"] = ["/srv/legacy-hy2"]
-    entry["hysteria"]["listenPort"] = 443
+    entry["hysteria"]["listenPort"] = TRACEGATE_INTERCONNECT_UDP_PORT
     entry["hysteria"]["auth"]["httpUrl"] = "http://198.51.100.10/v1/hysteria/auth"
     entry["hysteria"]["obfs"] = {"type": "none", "salamanderPasswordConfigured": False}
     entry["hysteria"]["trafficStats"] = {"listen": "0.0.0.0:9999", "secretConfigured": False}
@@ -2085,7 +2086,7 @@ def test_validate_runtime_contract_pair_rejects_tracegate22_unsafe_hysteria_conf
 
 
 def test_validate_runtime_contract_single_rejects_tracegate22_missing_hysteria_config() -> None:
-    contract = _runtime_contract(role="TRANSIT", runtime_profile="tracegate-2.2")
+    contract = _runtime_contract(role="TRANSIT", runtime_profile="tracegate-3")
     contract["hysteria"]["configPresent"] = False
 
     findings = validate_runtime_contract_single(contract, expected_role="TRANSIT")
@@ -2861,7 +2862,7 @@ def test_validate_link_crypto_state_accepts_udp_hysteria2_handoff(tmp_path: Path
             "profileSource": "private-file-reference",
             "secretMaterial": False,
             "xrayBackhaul": False,
-            "remotePort": TRACEGATE_PUBLIC_UDP_PORT,
+            "remotePort": TRACEGATE_INTERCONNECT_UDP_PORT,
             "obfs": {"type": "salamander", "required": True},
             "pairedObfs": {
                 "enabled": True,
@@ -3043,7 +3044,7 @@ def test_validate_link_crypto_state_rejects_unsafe_udp_handoff(tmp_path: Path) -
                 "dpiResistance": {
                     "enabled": False,
                     "mode": "off",
-                    "portSplit": {"publicUdpPort": 443, "forbidUdp443": True, "forbidTcp8443": False},
+                    "portSplit": {"publicUdpPort": 443, "forbidUdp443": False, "forbidTcp8443": False},
                 "requiredLayers": ["hysteria2-quic"],
                 "pairedObfs": {
                     "supported": False,
@@ -3106,7 +3107,7 @@ def test_validate_link_crypto_state_rejects_unsafe_udp_handoff(tmp_path: Path) -
                 "dpiResistance": {
                     "enabled": False,
                     "mode": "off",
-                    "portSplit": {"publicUdpPort": 443, "forbidUdp443": True, "forbidTcp8443": False},
+                    "portSplit": {"publicUdpPort": 443, "forbidUdp443": False, "forbidTcp8443": False},
                 "requiredLayers": ["hysteria2-quic"],
                 "pairedObfs": {
                     "supported": False,
@@ -3204,7 +3205,7 @@ def test_validate_link_crypto_state_accepts_router_only_handoff(
     local_listen: str,
     remote_endpoint: str,
 ) -> None:
-    contract = _runtime_contract(role=role, runtime_profile="tracegate-2.2")
+    contract = _runtime_contract(role=role, runtime_profile="tracegate-3")
     contract["linkCrypto"] = {
         "enabled": True,
         "carrier": "mieru",
@@ -3348,7 +3349,7 @@ def test_validate_link_crypto_state_detects_runtime_contract_alignment_drift(tmp
 
 
 def test_validate_link_crypto_state_accepts_role_scoped_runtime_contract(tmp_path: Path) -> None:
-    contract = _runtime_contract(role="TRANSIT", runtime_profile="tracegate-2.2")
+    contract = _runtime_contract(role="TRANSIT", runtime_profile="tracegate-3")
     contract["linkCrypto"] = {
         "enabled": True,
         "carrier": "mieru",
@@ -3410,7 +3411,7 @@ def test_validate_link_crypto_state_accepts_role_scoped_runtime_contract(tmp_pat
 
 
 def test_validate_link_crypto_state_uses_top_level_role_metadata_fallback(tmp_path: Path) -> None:
-    contract = _runtime_contract(role="TRANSIT", runtime_profile="tracegate-2.2")
+    contract = _runtime_contract(role="TRANSIT", runtime_profile="tracegate-3")
     contract["linkCrypto"] = {
         "enabled": True,
         "carrier": "mieru",

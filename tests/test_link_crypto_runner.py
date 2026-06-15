@@ -45,7 +45,7 @@ def _udp_dpi_resistance() -> dict:
     return {
         "enabled": True,
         "mode": "salamander-plus-scoped-paired-obfs",
-        "portSplit": {"publicUdpPort": 4443, "forbidUdp443": False, "forbidTcp8443": True},
+        "portSplit": {"publicUdpPort": 4443, "forbidUdp443": True, "forbidTcp8443": True},
         "requiredLayers": [
             "hysteria2-quic",
             "salamander",
@@ -146,7 +146,7 @@ def _tcp_dpi_resistance(*, require_outer_carrier: bool = True) -> dict:
 def _contract(path: Path) -> dict:
     payload = {
         "role": "ENTRY",
-        "runtimeProfile": "tracegate-2.2",
+        "runtimeProfile": "tracegate-3",
         "contract": {"managedComponents": ["xray"], "xrayBackhaulAllowed": False},
         "transportProfiles": {
             "clientNames": list(TRACEGATE22_CLIENT_PROFILES),
@@ -378,7 +378,7 @@ def test_link_crypto_runner_builds_mieru_and_hysteria_plan(tmp_path: Path) -> No
     }
     assert by_kind["hysteria2"]["dpiResistance"]["portSplit"] == {
         "publicUdpPort": 4443,
-        "forbidUdp443": False,
+        "forbidUdp443": True,
         "forbidTcp8443": True,
     }
 

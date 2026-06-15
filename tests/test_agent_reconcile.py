@@ -503,7 +503,7 @@ def test_reconcile_tracegate22_passthroughs_standalone_hysteria_and_strips_xray_
         agent_data_root=str(tmp_path),
         agent_runtime_mode="systemd",
         agent_role="TRANSIT",
-        agent_runtime_profile="tracegate-2.2",
+        agent_runtime_profile="tracegate-3",
     )
 
     _write(
@@ -713,7 +713,7 @@ def test_reconcile_xray_populates_xray_native_shadowsocks2022_clients(tmp_path: 
     settings = Settings(
         agent_data_root=str(tmp_path),
         agent_role="TRANSIT",
-        agent_runtime_profile="tracegate-2.2",
+        agent_runtime_profile="tracegate-3",
     )
 
     changed = reconcile_all(settings)
@@ -870,7 +870,7 @@ def test_reconcile_runtime_contract_exposes_private_wrapper_state(tmp_path: Path
     assert runtime_contract["contract"]["hysteriaMetricsSource"] == "xray_stats"
     assert runtime_contract["contract"]["expectedPorts"] == [
         {"protocol": "tcp", "port": 443, "name": "listen tcp/443"},
-        {"protocol": "udp", "port": 4443, "name": "listen udp/4443"},
+        {"protocol": "udp", "port": 443, "name": "listen udp/443"},
     ]
     assert runtime_contract["contract"]["forbiddenPorts"] == [
         {"protocol": "tcp", "port": 8443, "name": "blocked tcp/8443"},
@@ -889,11 +889,11 @@ def test_reconcile_runtime_contract_exposes_private_wrapper_state(tmp_path: Path
     }
     assert runtime_contract["fronting"] == {
         "tcp443Owner": "haproxy",
-        "publicUdpPort": 4443,
+        "publicUdpPort": 443,
         "publicUdpOwner": "xray",
         "udp443Port": 443,
-        "udp443Owner": "naiveproxy",
-        "udpPublicPort": 4443,
+        "udp443Owner": "xray",
+        "udpPublicPort": 443,
         "forbiddenUdp443": False,
         "forbiddenTcp8443": True,
         "forbiddenPublicPorts": [
@@ -1004,6 +1004,7 @@ def test_reconcile_naiveproxy_v4_writes_caddyfile_from_user_artifacts(tmp_path: 
         agent_data_root=str(tmp_path),
         agent_role="NAIVEPROXY",
         agent_runtime_profile="tracegate-naiveproxy-v4",
+        naiveproxy_enabled=True,
         naiveproxy_host="auth.example.com",
     )
     _write(

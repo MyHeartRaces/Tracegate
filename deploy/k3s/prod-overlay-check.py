@@ -24,6 +24,15 @@ MUTABLE_IMAGE_TAGS = {
 }
 EXAMPLE_HOST_MARKERS = ("example.com", ".example.com", "example.net", ".example.net", "example.org", ".example.org")
 OCI_DIGEST_RE = re.compile(r"^[A-Za-z0-9_+.-]+:[A-Fa-f0-9]{32,}$")
+TRACEGATE3_CLIENT_PROFILE_KEYS = {
+    "reality",
+    "hysteria",
+    "entry",
+    "backup-grpc",
+    "backup-ws",
+    "backup-shadowtls",
+    "backup-wgws",
+}
 
 
 def _read_yaml(path: Path) -> dict[str, Any]:
@@ -462,8 +471,8 @@ def validate_prod_overlay(chart_values: Path, prod_values: Path, *, strict: bool
     require(bool(entry_traffic_shaping.get("enabled", False)), "gateway.trafficShaping.entry.enabled must stay true")
     require(_has_value(entry_traffic_shaping.get("interface")), "gateway.trafficShaping.entry.interface must be set")
     require(
-        1 <= _as_int(entry_traffic_shaping.get("maxMbit")) <= 100,
-        "gateway.trafficShaping.entry.maxMbit must be in 1..100",
+        _as_int(entry_traffic_shaping.get("maxMbit")) == 65,
+        "gateway.trafficShaping.entry.maxMbit must stay at 65",
     )
     require(bool(entry_traffic_shaping.get("applyEgress", False)), "gateway.trafficShaping.entry.applyEgress must stay true")
     require(
@@ -557,8 +566,8 @@ def validate_prod_overlay(chart_values: Path, prod_values: Path, *, strict: bool
         ports = _as_dict(role.get("ports"))
         require(_as_int(ports.get("publicTcp")) == 443, f"gateway.roles.{role_name}.ports.publicTcp must stay 443")
         require(
-            _as_int(ports.get("publicUdp")) == 4443,
-            f"gateway.roles.{role_name}.ports.publicUdp must stay 4443; udp/443 is reserved for NaiveProxy V4",
+            _as_int(ports.get("publicUdp")) == 443,
+            f"gateway.roles.{role_name}.ports.publicUdp must stay 443 for Tracegate 3 Hysteria2",
         )
     profiles_reload = _text(reload_commands.get("profiles"))
     link_crypto_reload = _text(reload_commands.get("linkCrypto"))
@@ -575,53 +584,7 @@ def validate_prod_overlay(chart_values: Path, prod_values: Path, *, strict: bool
     has_decoy_source = any(_has_value(decoy.get(key)) for key in ("hostPath", "existingClaim", "existingConfigMap"))
     require(has_decoy_source, "production decoy must use hostPath, existingClaim, or existingConfigMap, not built-in lab files")
 
-    naive_tls = _as_dict(naiveproxy.get("tls"))
-    naive_ports = _as_dict(naiveproxy.get("ports"))
-    naive_demux = _as_dict(naiveproxy.get("demux"))
-    naive_stealth = _as_dict(naiveproxy.get("stealth"))
-    naive_cover_paths = {_text(path) for path in _as_list(naive_stealth.get("coverPaths"))}
-    naive_selector = _as_dict(naiveproxy.get("nodeSelector"))
-    naive_domain = _text(naiveproxy.get("domain")).lower().rstrip(".")
-    naive_env_host = _text(env.get("naiveproxyHost")).lower().rstrip(".")
-    naive_tcp_exposure = _text(naiveproxy.get("tcpExposure")) or "demux"
-    naive_demux_role_name = _text(naive_demux.get("role")) or "transit"
-    naive_demux_role = _as_dict(_as_dict(gateway.get("roles")).get(naive_demux_role_name))
-    naive_demux_backend_port = _as_int(naive_demux.get("backendPort"))
-    require(bool(naiveproxy.get("enabled", False)), "naiveproxy.enabled must stay true for the V4 production surface")
-    require(_text(naiveproxy.get("role")) == "NAIVEPROXY", "naiveproxy.role must stay NAIVEPROXY")
-    require(_text(naiveproxy.get("runtimeProfile")) == "tracegate-naiveproxy-v4", "naiveproxy.runtimeProfile must stay tracegate-naiveproxy-v4")
-    require(_text(naiveproxy.get("canonicalServer")) == "endpoint", "naiveproxy.canonicalServer must be endpoint")
-    require(naive_tcp_exposure == "demux", "naiveproxy.tcpExposure must stay demux for shared endpoint TCP/443")
-    require(_has_value(naiveproxy.get("domain")), "naiveproxy.domain must be set")
-    require(not _is_example_host(naiveproxy.get("domain")), "naiveproxy.domain must not use example.com")
-    require(naive_domain == naive_env_host, "naiveproxy.domain must match controlPlane.env.naiveproxyHost")
-    require(_as_int(naive_ports.get("publicTcp")) == 443, "naiveproxy.ports.publicTcp must stay 443")
-    require(_as_int(naive_ports.get("publicUdp")) == 443, "naiveproxy.ports.publicUdp must stay 443")
-    require(bool(naiveproxy.get("hostNetwork", False)), "naiveproxy.hostNetwork must stay true")
-    require(bool(naive_selector), "naiveproxy.nodeSelector must be non-empty")
-    require(naive_demux_role_name == "transit", "naiveproxy.demux.role must stay transit")
-    require(bool(naive_demux_role), "naiveproxy.demux.role must reference an existing gateway role")
-    require(
-        bool(naive_demux_role.get("enabled", False)),
-        "naiveproxy.demux.role must reference an enabled gateway role",
-    )
-    require(
-        naive_selector == _as_dict(naive_demux_role.get("nodeSelector")),
-        "naiveproxy.nodeSelector must match the Transit selector in demux mode",
-    )
-    require(_text(naive_demux.get("backendHost")) == "127.0.0.1", "naiveproxy.demux.backendHost must stay 127.0.0.1")
-    require(
-        1024 <= naive_demux_backend_port <= 65535
-        and naive_demux_backend_port not in {443, 4443, 8443},
-        "naiveproxy.demux.backendPort must be an unreserved high TCP port",
-    )
-    require(_has_value(naive_tls.get("existingSecretName")), "naiveproxy.tls.existingSecretName must reference a TLS Secret")
-    require(_text(naive_stealth.get("decoyMode")) == "auth-portal", "naiveproxy.stealth.decoyMode must stay auth-portal")
-    require(bool(naive_stealth.get("probeResistance", False)), "naiveproxy.stealth.probeResistance must stay true")
-    require(bool(naive_stealth.get("hideIp", False)), "naiveproxy.stealth.hideIp must stay true")
-    require(bool(naive_stealth.get("hideVia", False)), "naiveproxy.stealth.hideVia must stay true")
-    for required_path in ("/auth/session", "/oauth2/token", "/.well-known/openid-configuration"):
-        require(required_path in naive_cover_paths, f"naiveproxy.stealth.coverPaths must include {required_path}")
+    require(not bool(naiveproxy.get("enabled", False)), "naiveproxy.enabled must stay false in Tracegate 3")
 
     transit_router = _as_dict(merged.get("transitRouter"))
     transit_router_enabled = bool(transit_router.get("enabled", False))
@@ -824,7 +787,10 @@ def validate_prod_overlay(chart_values: Path, prod_values: Path, *, strict: bool
         require(bool(backhaul.get("requireMultiTransportPool", False)), "Universal Entry requires a multi-transport backhaul pool")
         require(bool(backhaul.get("failClosed", False)), "Universal Entry backhaul must fail closed")
         require(bool(backhaul.get("endpointEgressOnly", False)), "Universal Entry traffic must egress through Endpoint")
-        require(enabled_client_profiles == {"universal"}, "Universal Entry deployment must expose only the universal client profile")
+        require(
+            enabled_client_profiles == TRACEGATE3_CLIENT_PROFILE_KEYS,
+            "Universal Entry deployment must expose the complete Tracegate 3 client profile set",
+        )
         require(bool(chain_bridge.get("enabled", False)), "Universal Entry requires interconnect.emergencyXrayChain.enabled=true")
         require(entry_public_ip in chain_allowed_sources, "Universal Entry chain bridge allowedSources must include Entry publicIp")
         require(bool(endpoint_backhaul.get("enabled", False)), "Universal Entry requires interconnect.endpointBackhaul.enabled=true")
@@ -856,12 +822,23 @@ def validate_prod_overlay(chart_values: Path, prod_values: Path, *, strict: bool
     if architecture_mode == "entry-endpoint":
         require(not transit_router_enabled, "entry-endpoint forbids transitRouter.enabled=true")
         require(not link_crypto_enabled, "entry-endpoint forbids the legacy interconnect.entryTransit path")
-        require(mtproto_route_mode == "entry-local-endpoint-egress", "entry-endpoint requires mtproto.route.mode=entry-local-endpoint-egress")
+        require(mtproto_route_mode == "entry-endpoint-tunnel", "entry-endpoint requires mtproto.route.mode=entry-endpoint-tunnel")
 
     mtproto = _as_dict(merged.get("mtproto"))
-    require(bool(mtproto.get("enabled", False)), "mtproto.enabled must stay true in core Tracegate 2.2")
+    require(bool(mtproto.get("enabled", False)), "mtproto.enabled must stay true in core Tracegate 3")
     require(not _is_example_host(mtproto.get("domain")), "mtproto.domain must not use example.com")
     mtproto_egress = _as_dict(mtproto.get("egress"))
+    if mtproto_route_mode == "entry-endpoint-tunnel":
+        mtproto_stealth = _as_dict(mtproto.get("stealth"))
+        tls_domain = _text(mtproto.get("tlsDomain")).lower().rstrip(".")
+        require(_text(mtproto.get("runtime")) == "telemt", "entry-endpoint-tunnel requires mtproto.runtime=telemt")
+        require(_as_int(mtproto.get("publicPort")) == 443, "entry-endpoint-tunnel requires mtproto.publicPort=443")
+        require(tls_domain not in {"yandex.ru", "splitter.wb.ru"}, "entry-endpoint-tunnel forbids common MTProto TLS domains")
+        require(
+            tls_domain in {_text(value).lower().rstrip(".") for value in _as_list(mtproto_stealth.get("validatedTlsDomains"))},
+            "entry-endpoint-tunnel tlsDomain must be prevalidated",
+        )
+        require(not bool(_as_dict(mtproto.get("fallback")).get("enabled", False)), "entry-endpoint-tunnel forbids fallback runtimes")
     if mtproto_route_mode == "entry-local-endpoint-egress":
         mtproto_egress_shadowtls = _as_dict(mtproto_egress.get("shadowtls"))
         require(_text(mtproto.get("runtime")) == "mtg", "entry-local-endpoint-egress requires mtproto.runtime=mtg")
@@ -875,8 +852,9 @@ def validate_prod_overlay(chart_values: Path, prod_values: Path, *, strict: bool
         require(not bool(_as_dict(mtproto.get("fallback")).get("enabled", False)), "entry-local-endpoint-egress forbids MTProto fallback runtimes")
         require(bool(mtproto_egress_shadowtls.get("enabled", False)), "entry-local-endpoint-egress requires mtproto.egress.shadowtls.enabled=true")
         require(
-            _text(mtproto_egress_shadowtls.get("serverName")).lower().rstrip(".") in {"yandex.ru", "splitter.wb.ru"},
-            "mtproto.egress.shadowtls.serverName must be yandex.ru or splitter.wb.ru",
+            _has_value(mtproto_egress_shadowtls.get("serverName"))
+            and _text(mtproto_egress_shadowtls.get("serverName")).lower().rstrip(".") not in {"yandex.ru", "splitter.wb.ru"},
+            "mtproto.egress.shadowtls.serverName must use a non-empty, non-common camouflage domain",
         )
         require(_has_value(mtproto_egress_shadowtls.get("endpointHost")), "mtproto.egress.shadowtls.endpointHost must be set")
         require(_as_int(mtproto_egress_shadowtls.get("endpointPort")) == 443, "mtproto.egress.shadowtls.endpointPort must stay 443")

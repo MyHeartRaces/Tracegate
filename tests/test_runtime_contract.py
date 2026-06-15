@@ -42,11 +42,11 @@ def test_resolve_current_runtime_contract_and_aliases() -> None:
 
 
 def test_tracegate22_runtime_contract_is_default_profile() -> None:
-    contract = resolve_runtime_contract("tracegate-2.2")
+    contract = resolve_runtime_contract("tracegate-3")
     alias_contract = resolve_runtime_contract("default")
 
-    assert normalize_runtime_profile_name("") == "tracegate-2.2"
-    assert normalize_runtime_profile_name("k3s") == "tracegate-2.2"
+    assert normalize_runtime_profile_name("") == "tracegate-3"
+    assert normalize_runtime_profile_name("k3s") == "tracegate-3"
     assert alias_contract == contract
     assert contract.manages_component("xray") is True
     assert contract.manages_component("hysteria") is True

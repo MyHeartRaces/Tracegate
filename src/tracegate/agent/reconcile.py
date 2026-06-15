@@ -12,6 +12,7 @@ import yaml
 
 from tracegate.constants import (
     TRACEGATE_FORBIDDEN_PUBLIC_TCP_PORT,
+    TRACEGATE_INTERCONNECT_UDP_PORT,
     TRACEGATE_FORBIDDEN_PUBLIC_UDP_PORT,
     TRACEGATE_NAIVEPROXY_DEMUX_TCP_PORT,
     TRACEGATE_NAIVEPROXY_HOST,
@@ -841,7 +842,7 @@ def _build_link_crypto_contract_payload(settings: Settings) -> dict[str, object]
             "profileSource": "private-file-reference",
             "secretMaterial": False,
             "xrayBackhaul": False,
-            "remotePort": int(settings.private_udp_link_remote_port or TRACEGATE_PUBLIC_UDP_PORT),
+            "remotePort": int(settings.private_udp_link_remote_port or TRACEGATE_INTERCONNECT_UDP_PORT),
             "obfs": {
                 "type": "salamander",
                 "required": True,
@@ -917,7 +918,7 @@ def _build_runtime_contract_payload(settings: Settings) -> dict[str, object]:
     naiveproxy_demux_enabled = (
         bool(settings.naiveproxy_enabled)
         and naiveproxy_tcp_exposure == "demux"
-        and (contract.name == "tracegate-2.2" or contract.manages_component("naiveproxy"))
+        and (contract.name == "tracegate-3" or contract.manages_component("naiveproxy"))
     )
     if contract.manages_component("naiveproxy") and naiveproxy_demux_enabled:
         tcp443_owner = "haproxy-demux"
@@ -1005,7 +1006,7 @@ def _build_runtime_contract_payload(settings: Settings) -> dict[str, object]:
                 "enabled": bool(settings.agent_entry_traffic_shaping_enabled),
                 "strategy": "tc-htb-egress-plus-ingress-police",
                 "interface": str(settings.agent_entry_traffic_shaping_interface or "").strip() or "eth0",
-                "maxMbit": int(settings.agent_entry_traffic_shaping_max_mbit or 70),
+                "maxMbit": int(settings.agent_entry_traffic_shaping_max_mbit or 65),
                 "burstKbit": int(settings.agent_entry_traffic_shaping_burst_kbit or 2048),
                 "applyEgress": bool(settings.agent_entry_traffic_shaping_apply_egress),
                 "applyIngressPolicing": bool(settings.agent_entry_traffic_shaping_apply_ingress_policing),

@@ -11,6 +11,7 @@ from urllib.parse import parse_qs, urlparse
 from tracegate.constants import (
     TRACEGATE_FORBIDDEN_PUBLIC_TCP_PORT,
     TRACEGATE_FORBIDDEN_PUBLIC_UDP_PORT,
+    TRACEGATE_INTERCONNECT_UDP_PORT,
     TRACEGATE_PUBLIC_UDP_PORT,
 )
 from tracegate.services.mtproto import MTPROTO_FAKE_TLS_PROFILE_NAME
@@ -2151,7 +2152,7 @@ def _validate_hysteria_runtime(contract: dict[str, Any], *, role_prefix: str) ->
             _finding(
                 "error",
                 f"{role_prefix}-hysteria-config",
-                f"{role_prefix} tracegate-2.2 Hysteria server config is missing from runtime-contract",
+                f"{role_prefix} tracegate-3 Hysteria server config is missing from runtime-contract",
             )
         )
         return findings
@@ -2173,7 +2174,7 @@ def _validate_hysteria_runtime(contract: dict[str, Any], *, role_prefix: str) ->
             _finding(
                 "error",
                 f"{role_prefix}-tracegate22-udp-owner",
-                f"{role_prefix} tracegate-2.2 public udp/{TRACEGATE_PUBLIC_UDP_PORT} owner must be hysteria",
+                f"{role_prefix} tracegate-3 public udp/{TRACEGATE_PUBLIC_UDP_PORT} owner must be hysteria",
             )
         )
     udp443_owner = str(fronting.get("udp443Owner") or "").strip().lower()
@@ -2182,7 +2183,7 @@ def _validate_hysteria_runtime(contract: dict[str, Any], *, role_prefix: str) ->
             _finding(
                 "error",
                 f"{role_prefix}-tracegate22-udp443-owner",
-                f"{role_prefix} tracegate-2.2 udp/443 owner must be naiveproxy",
+                f"{role_prefix} tracegate-3 udp/443 owner must be naiveproxy",
             )
         )
 
@@ -2195,7 +2196,7 @@ def _validate_hysteria_runtime(contract: dict[str, Any], *, role_prefix: str) ->
             _finding(
                 "error",
                 f"{role_prefix}-tracegate22-xray-hysteria-dirs",
-                f"{role_prefix} tracegate-2.2 must not publish Xray-native Hysteria masquerade dirs: {', '.join(xray_dirs)}",
+                f"{role_prefix} tracegate-3 must not publish Xray-native Hysteria masquerade dirs: {', '.join(xray_dirs)}",
             )
         )
     if not split_dirs:
@@ -2203,7 +2204,7 @@ def _validate_hysteria_runtime(contract: dict[str, Any], *, role_prefix: str) ->
             _finding(
                 "warning",
                 f"{role_prefix}-tracegate22-split-hysteria-dirs",
-                f"{role_prefix} tracegate-2.2 has no standalone Hysteria masquerade dir in runtime-contract",
+                f"{role_prefix} tracegate-3 has no standalone Hysteria masquerade dir in runtime-contract",
             )
         )
 
@@ -4580,12 +4581,12 @@ def _validate_link_crypto_contract_alignment(
             findings.append(_finding("error", f"{prefix}-udp-contract-secret-material", f"{prefix.replace('-', ' ')} UDP runtime-contract must not embed secret material"))
         if bool(udp_contract.get("xrayBackhaul", False)):
             findings.append(_finding("error", f"{prefix}-udp-contract-xray-backhaul", f"{prefix.replace('-', ' ')} UDP runtime-contract must stay outside Xray backhaul"))
-        if _row_int(udp_contract, "remotePort") not in {0, TRACEGATE_PUBLIC_UDP_PORT}:
+        if _row_int(udp_contract, "remotePort") not in {0, TRACEGATE_INTERCONNECT_UDP_PORT}:
             findings.append(
                 _finding(
                     "error",
                     f"{prefix}-udp-contract-remote-port",
-                    f"{prefix.replace('-', ' ')} UDP remotePort must stay {TRACEGATE_PUBLIC_UDP_PORT}",
+                    f"{prefix.replace('-', ' ')} UDP remotePort must stay {TRACEGATE_INTERCONNECT_UDP_PORT}",
                 )
             )
         udp_obfs = _row_dict(udp_contract, "obfs")
@@ -5046,17 +5047,17 @@ def _validate_link_crypto_udp_dpi_resistance(
         )
 
     port_split = _row_dict(dpi, "portSplit")
-    if _row_int(port_split, "publicUdpPort") != TRACEGATE_PUBLIC_UDP_PORT:
+    if _row_int(port_split, "publicUdpPort") != TRACEGATE_INTERCONNECT_UDP_PORT:
         findings.append(
             _finding(
                 "error",
                 f"{code_prefix}-dpi-resistance-public-udp",
-                f"{label} DPI resistance public UDP port must stay {TRACEGATE_PUBLIC_UDP_PORT}",
+                f"{label} DPI resistance public UDP port must stay {TRACEGATE_INTERCONNECT_UDP_PORT}",
             )
         )
-    forbid_udp_443_expected = False
+    forbid_udp_443_expected = True
     if bool(port_split.get("forbidUdp443", False)) != forbid_udp_443_expected:
-        findings.append(_finding("error", f"{code_prefix}-dpi-resistance-udp443", f"{label} must keep UDP/443 unclaimed by V2"))
+        findings.append(_finding("error", f"{code_prefix}-dpi-resistance-udp443", f"{label} must keep UDP/443 reserved for public Hysteria2"))
     forbid_tcp8443 = bool(port_split.get("forbidTcp8443", False))
     if allow_tcp8443_for_mtproto:
         if forbid_tcp8443:
@@ -6836,14 +6837,14 @@ def validate_runtime_contract_single(
                 )
             )
 
-    if profile == "tracegate-2.2":
+    if profile == "tracegate-3":
         findings.extend(_validate_hysteria_runtime(contract, role_prefix=role_prefix))
         if "hysteria" not in components:
             findings.append(
                 _finding(
                     "error",
                     f"{role_prefix}-tracegate22-hysteria-component",
-                    "tracegate-2.2 contracts must declare hysteria as the public UDP runtime component",
+                    "tracegate-3 contracts must declare hysteria as the public UDP runtime component",
                 )
             )
         if _xray_backhaul_allowed(contract):
@@ -6851,7 +6852,7 @@ def validate_runtime_contract_single(
                 _finding(
                     "error",
                     f"{role_prefix}-tracegate22-xray-backhaul",
-                    "tracegate-2.2 contracts must keep xrayBackhaulAllowed=false",
+                    "tracegate-3 contracts must keep xrayBackhaulAllowed=false",
                 )
             )
         xray_tags = _string_list(_xray_block(contract).get("hysteriaInboundTags"))
@@ -6860,7 +6861,7 @@ def validate_runtime_contract_single(
                 _finding(
                     "error",
                     f"{role_prefix}-tracegate22-xray-hysteria",
-                    f"{role_prefix} tracegate-2.2 Xray config must not expose Hysteria inbound tags: {', '.join(xray_tags)}",
+                    f"{role_prefix} tracegate-3 Xray config must not expose Hysteria inbound tags: {', '.join(xray_tags)}",
                 )
             )
 
@@ -6968,7 +6969,7 @@ def validate_runtime_contract_pair(
                         f"{role_name} is {profile} but has no Xray-native Hysteria inbound tags",
                     )
                 )
-    if profile == "tracegate-2.2":
+    if profile == "tracegate-3":
         for role_name, contract in (("entry", entry_contract), ("transit", transit_contract)):
             findings.extend(_validate_hysteria_runtime(contract, role_prefix=role_name))
             components = _managed_components(contract)
@@ -6977,7 +6978,7 @@ def validate_runtime_contract_pair(
                     _finding(
                         "error",
                         f"{role_name}-tracegate22-hysteria-component",
-                        f"{role_name} tracegate-2.2 contract must declare hysteria as the public UDP runtime component",
+                        f"{role_name} tracegate-3 contract must declare hysteria as the public UDP runtime component",
                     )
                 )
             if _xray_backhaul_allowed(contract):
@@ -6985,7 +6986,7 @@ def validate_runtime_contract_pair(
                     _finding(
                         "error",
                         f"{role_name}-tracegate22-xray-backhaul",
-                        f"{role_name} tracegate-2.2 contract must keep xrayBackhaulAllowed=false",
+                        f"{role_name} tracegate-3 contract must keep xrayBackhaulAllowed=false",
                     )
                 )
             xray_tags = _string_list(_xray_block(contract).get("hysteriaInboundTags"))
@@ -6994,7 +6995,7 @@ def validate_runtime_contract_pair(
                     _finding(
                         "error",
                         f"{role_name}-tracegate22-xray-hysteria",
-                        f"{role_name} tracegate-2.2 Xray config must not expose Hysteria inbound tags: {', '.join(xray_tags)}",
+                        f"{role_name} tracegate-3 Xray config must not expose Hysteria inbound tags: {', '.join(xray_tags)}",
                     )
                 )
     entry_finalmask = bool(entry_xray.get("finalMaskEnabled"))

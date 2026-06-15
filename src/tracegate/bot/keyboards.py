@@ -1,6 +1,10 @@
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
-from tracegate.services.connection_profiles import connection_profile_display_label
+from tracegate.services.connection_profiles import (
+    MAX_CONNECTIONS_PER_DEVICE,
+    MAX_DEVICES_PER_USER,
+    connection_profile_display_label,
+)
 
 PROVIDER_CHOICES: list[tuple[str, str]] = [
     ("Все", "all"),
@@ -18,7 +22,6 @@ SNI_PAGE_SIZE = 20
 def main_menu_keyboard(*, is_admin: bool = False) -> InlineKeyboardMarkup:
     rows = [
         [InlineKeyboardButton(text="🔌 Подключения", callback_data="connections")],
-        [InlineKeyboardButton(text="📱 Устройства", callback_data="devices")],
         [InlineKeyboardButton(text="📚 Справка", callback_data="guide_open")],
         [InlineKeyboardButton(text="🔐 Telegram Proxy", callback_data="mtproto_open")],
         [InlineKeyboardButton(text="📊 Grafana", callback_data="grafana_otp")],
@@ -141,14 +144,15 @@ def devices_keyboard(devices: list[dict], *, active_device_id: str | None = None
     rows = [
         [
             InlineKeyboardButton(
-                text=f"✓ {device['name']}" if str(device.get("id")) == str(active_device_id) else str(device.get("name") or "Без имени"),
+                text=str(device.get("name") or "Без имени"),
                 callback_data=f"device:{device['id']}",
             ),
             InlineKeyboardButton(text="🗑️ Удалить", callback_data=f"deldevask:{device['id']}"),
         ]
         for device in devices
     ]
-    rows.append([InlineKeyboardButton(text="➕ Добавить устройство", callback_data="add_device")])
+    if len(devices) < MAX_DEVICES_PER_USER:
+        rows.append([InlineKeyboardButton(text="➕ Добавить устройство", callback_data="add_device")])
     rows.append([InlineKeyboardButton(text="🏠 Меню", callback_data="menu")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
@@ -166,10 +170,15 @@ def _connection_button_label(connection: dict) -> str:
     return label
 
 
-def connections_keyboard(connections: list[dict] | None = None, *, can_create: bool = True) -> InlineKeyboardMarkup:
+def connections_keyboard(
+    connections: list[dict] | None = None,
+    *,
+    device_id: str,
+    can_create: bool = True,
+) -> InlineKeyboardMarkup:
     rows: list[list[InlineKeyboardButton]] = []
     if can_create:
-        rows.append([InlineKeyboardButton(text="➕ Создать подключение", callback_data="conn_create")])
+        rows.append([InlineKeyboardButton(text="➕ Добавить", callback_data=f"conn_create:{device_id}")])
     for connection in connections or []:
         rows.append(
             [
@@ -184,35 +193,44 @@ def connections_keyboard(connections: list[dict] | None = None, *, can_create: b
                 ),
             ]
         )
-    rows.append([InlineKeyboardButton(text="📱 Устройства", callback_data="devices")])
+    rows.append([InlineKeyboardButton(text="↩️ Подключения", callback_data="connections")])
     rows.append([InlineKeyboardButton(text="🏠 Меню", callback_data="menu")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-def connection_create_categories_keyboard() -> InlineKeyboardMarkup:
-    return connection_create_categories_keyboard_for(enabled_specs=None)
+def connection_create_categories_keyboard(*, device_id: str = "active") -> InlineKeyboardMarkup:
+    return connection_create_categories_keyboard_for(device_id=device_id, enabled_specs=None)
 
 
-def connection_create_categories_keyboard_for(*, enabled_specs: set[str] | None = None) -> InlineKeyboardMarkup:
+def connection_create_categories_keyboard_for(
+    *,
+    device_id: str = "active",
+    enabled_specs: set[str] | None = None,
+) -> InlineKeyboardMarkup:
     enabled = enabled_specs
     return InlineKeyboardMarkup(
         inline_keyboard=[
             *(
-                [[InlineKeyboardButton(text="⚡ Direct", callback_data="conncat:direct")]]
-                if enabled is None or enabled & {"v1direct", "v2direct", "v3direct", "v4direct"}
+                [[InlineKeyboardButton(text="VLESS Reality", callback_data=f"new:reality:{device_id}")]]
+                if enabled is None or "reality" in enabled
                 else []
             ),
             *(
-                [[InlineKeyboardButton(text="⛓️ Chain", callback_data="conncat:chain")]]
-                if enabled is None or enabled & {"universal", "v1chain", "v2chain", "v3chain"}
+                [[InlineKeyboardButton(text="Hysteria2", callback_data=f"new:hysteria:{device_id}")]]
+                if enabled is None or "hysteria" in enabled
                 else []
             ),
             *(
-                [[InlineKeyboardButton(text="🧰 Other", callback_data="conncat:other")]]
-                if enabled is None or enabled & {"v0realityenc", "v0ws", "v0grpc", "v0wgws"}
+                [[InlineKeyboardButton(text="Entry Chain (Mobile)", callback_data=f"new:entry:{device_id}")]]
+                if enabled is None or "entry" in enabled
                 else []
             ),
-            [InlineKeyboardButton(text="↩️ Назад", callback_data="connections")],
+            *(
+                [[InlineKeyboardButton(text="Backup", callback_data=f"conncat:backup:{device_id}")]]
+                if enabled is None or enabled & {"backup-grpc", "backup-ws", "backup-shadowtls", "backup-wgws"}
+                else []
+            ),
+            [InlineKeyboardButton(text="↩️ Назад", callback_data=f"device:{device_id}")],
         ]
     )
 
@@ -228,27 +246,21 @@ def connection_create_profiles_keyboard(
             rows.append([InlineKeyboardButton(text=text, callback_data=f"new:{spec}:{device_id}")])
 
     rows: list[list[InlineKeyboardButton]] = []
-    if category == "direct":
-        add_row(rows, "v1direct", "V1-Direct-Reality-VLESS")
-        add_row(rows, "v2direct", "V2-Direct-QUIC-Hysteria")
-        add_row(rows, "v3direct", "V3-Direct-ShadowTLS-Shadowsocks")
-        add_row(rows, "v4direct", "V4-Direct-NaiveProxy")
-    elif category == "chain":
-        add_row(rows, "universal", "V5-Universal-Entry")
-        add_row(rows, "v1chain", "V1-Chain-Reality-VLESS")
-        add_row(rows, "v2chain", "V2-Chain-QUIC-Hysteria")
-        add_row(rows, "v3chain", "V3-Chain-ShadowTLS-Shadowsocks")
-    else:
-        add_row(rows, "v0realityenc", "V0-Encrypted-Reality-VLESS")
-        add_row(rows, "v0ws", "V0-WS-VLESS")
-        add_row(rows, "v0grpc", "V0-gRPC-VLESS")
-        add_row(rows, "v0wgws", "V0-WGWS-WireGuard")
-    rows.append([InlineKeyboardButton(text="↩️ Назад", callback_data="conn_create")])
+    if category == "backup":
+        add_row(rows, "backup-grpc", "VLESS gRPC")
+        add_row(rows, "backup-ws", "VLESS WebSocket")
+        add_row(rows, "backup-shadowtls", "Shadowsocks")
+        add_row(rows, "backup-wgws", "WireGuard over WebSocket")
+    rows.append([InlineKeyboardButton(text="↩️ Назад", callback_data=f"conn_create:{device_id}")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def device_actions_keyboard(device_id: str, connections: list[dict] | None = None) -> InlineKeyboardMarkup:
-    return connections_keyboard(connections, can_create=True)
+    return connections_keyboard(
+        connections,
+        device_id=device_id,
+        can_create=len(connections or []) < MAX_CONNECTIONS_PER_DEVICE,
+    )
 
 
 def vless_transport_keyboard(*, spec: str, device_id: str) -> InlineKeyboardMarkup:

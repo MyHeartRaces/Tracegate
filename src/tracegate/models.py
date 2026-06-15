@@ -42,7 +42,7 @@ class User(Base):
         nullable=False,
         index=True,
     )
-    devices_max: Mapped[int] = mapped_column(Integer, default=5, nullable=False)
+    devices_max: Mapped[int] = mapped_column(Integer, default=3, nullable=False)
     entitlement_status: Mapped[EntitlementStatus] = mapped_column(
         Enum(EntitlementStatus, name="entitlement_status"), default=EntitlementStatus.ACTIVE, nullable=False
     )

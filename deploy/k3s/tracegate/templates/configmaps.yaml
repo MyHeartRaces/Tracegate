@@ -8,8 +8,8 @@ metadata:
   labels:
     {{- include "tracegate.labels" . | nindent 4 }}
 data:
-  tracegate-2.2-runtime.yaml: |
-    architecture: Tracegate 2.2
+  tracegate-3-runtime.yaml: |
+    architecture: Tracegate 3
     runtimeProfile: {{ .Values.global.runtimeProfile }}
     zeroRestartRule: "user and connection mutations must use live APIs or read-through state only; reload hooks are base/topology only"
     localSocksAuth: {{ .Values.transportProfiles.socks5.required | ternary "required" "disabled" }}
@@ -535,15 +535,17 @@ data:
 {{- $mtprotoRuntime := lower (toString ($.Values.mtproto.runtime | default "mtg")) }}
 {{- $mtprotoRoute := $.Values.mtproto.route | default dict }}
 {{- $mtprotoRouteMode := toString ($mtprotoRoute.mode | default "endpoint-direct") }}
-{{- $mtprotoEntryRouteEnabled := and $.Values.mtproto.enabled (eq $roleName "entry") (eq $mtprotoRouteMode "entry-transit-endpoint") }}
+{{- $mtprotoEntryTunnelEnabled := and $.Values.mtproto.enabled (eq $mtprotoRouteMode "entry-endpoint-tunnel") }}
+{{- $mtprotoEntryRouteEnabled := and $.Values.mtproto.enabled (eq $roleName "entry") (or (eq $mtprotoRouteMode "entry-transit-endpoint") $mtprotoEntryTunnelEnabled) }}
 {{- $mtprotoEntryLocalEnabled := and $.Values.mtproto.enabled (eq $roleName "entry") (eq $mtprotoRouteMode "entry-local-endpoint-egress") }}
 {{- $mtprotoRuntimeRoleEnabled := and $.Values.mtproto.enabled (or $mtprotoEntryLocalEnabled (and (eq $roleName "transit") (ne $mtprotoRouteMode "entry-local-endpoint-egress"))) }}
-{{- $mtprotoSniDomains := compact (uniq (list $mtprotoTlsDomain $mtprotoDomain)) }}
+{{- $mtprotoRuntimeHandlesPublic := and $mtprotoRuntimeRoleEnabled (not $mtprotoEntryTunnelEnabled) }}
+{{- $mtprotoSniDomains := compact (uniq (list $mtprotoTlsDomain)) }}
 {{- $mtprotoEgress := $.Values.mtproto.egress | default dict }}
 {{- $mtprotoEgressSocksPort := int (dig "socksPort" 11084 $mtprotoEgress) }}
 {{- $mtprotoEgressShadowtls := dig "shadowtls" (dict) $mtprotoEgress }}
 {{- $mtprotoEgressShadowtlsEnabled := and $.Values.mtproto.enabled (eq $mtprotoRouteMode "entry-local-endpoint-egress") (dig "enabled" false $mtprotoEgressShadowtls) }}
-{{- $mtprotoEgressShadowtlsServerName := trim (toString (dig "serverName" "splitter.wb.ru" $mtprotoEgressShadowtls)) }}
+{{- $mtprotoEgressShadowtlsServerName := trim (toString (dig "serverName" "styles.api.2gis.com" $mtprotoEgressShadowtls)) }}
 {{- $mtprotoEgressShadowtlsEndpointHost := trim (toString (dig "endpointHost" "" $mtprotoEgressShadowtls)) }}
 {{- $mtprotoEgressShadowtlsEndpointPort := int (dig "endpointPort" 443 $mtprotoEgressShadowtls) }}
 {{- $mtprotoEgressShadowtlsServerListenPort := int (dig "serverListenPort" 14444 $mtprotoEgressShadowtls) }}
@@ -557,9 +559,10 @@ data:
 {{- $mtprotoEntryPublicFallbackHost := trim (toString (dig "entry" "publicFallbackHost" $mtprotoEntryFallbackHost $mtprotoRoute)) }}
 {{- $mtprotoEntryFallbackTlsPort := int (dig "entry" "fallbackTlsPort" (int $role.ports.publicTcp) $mtprotoRoute) }}
 {{- $mtprotoEntryFallbackPublicPort := int (dig "entry" "fallbackPublicPort" $mtprotoPublicPort $mtprotoRoute) }}
+{{- $mtprotoEntryTunnelPort := int (dig "entry" "tunnelPort" 11087 $mtprotoRoute) }}
 {{- $mtprotoEndpointAllowedSources := dig "endpoint" "allowedProxySources" (list) $mtprotoRoute }}
 {{- $mtprotoEndpointSourceRestricted := and (eq $roleName "transit") $.Values.mtproto.enabled (gt (len $mtprotoEndpointAllowedSources) 0) }}
-{{- $mtprotoRoleHandlesPublic := or $mtprotoRuntimeRoleEnabled $mtprotoEntryRouteEnabled }}
+{{- $mtprotoRoleHandlesPublic := or $mtprotoRuntimeHandlesPublic $mtprotoEntryRouteEnabled }}
 {{- $mtprotoFallbackPublicPort := and $mtprotoRoleHandlesPublic (ne $mtprotoPublicPort (int $role.ports.publicTcp)) }}
 {{- $mtprotoFallback := $.Values.mtproto.fallback | default dict }}
 {{- $mtprotoOfficialFallbackEnabled := and $mtprotoRuntimeRoleEnabled (eq $mtprotoRuntime "telemt") (eq $roleName "transit") (dig "enabled" false $mtprotoFallback) }}
@@ -605,7 +608,7 @@ data:
 {{- if not $endpointBackhaulHysteriaHost }}{{- $endpointBackhaulHysteriaHost = $chainBridgeEndpointHost }}{{- end }}
 {{- if not $endpointBackhaulHysteriaHost }}{{- $endpointBackhaulHysteriaHost = $topologyEndpointHost }}{{- end }}
 {{- if not $endpointBackhaulHysteriaHost }}{{- $endpointBackhaulHysteriaHost = include "tracegate.transitHost" $ }}{{- end }}
-{{- $endpointBackhaulHysteriaPort := int (dig "endpointPort" 4443 $endpointBackhaulHysteria) }}
+{{- $endpointBackhaulHysteriaPort := int (dig "endpointPort" 443 $endpointBackhaulHysteria) }}
 {{- $endpointBackhaulHysteriaServerName := trim (toString (dig "serverName" "" $endpointBackhaulHysteria)) }}
 {{- if not $endpointBackhaulHysteriaServerName }}{{- $endpointBackhaulHysteriaServerName = toString $.Values.gateway.roles.transit.tls.serverName }}{{- end }}
 {{- $endpointBackhaulHysteriaSocksPort := int (dig "entrySocksPort" 11086 $endpointBackhaulHysteria) }}
@@ -623,6 +626,7 @@ data:
 {{- $roleDisplayName := toString ($roleTopology.displayName | default (title $roleCanonicalServer)) }}
 {{- $entryIngress := $.Values.architecture.entryIngress | default dict }}
 {{- $universalEntry := $.Values.architecture.universalEntry | default dict }}
+{{- $entryEndpointMode := eq (toString $.Values.architecture.mode) "entry-endpoint" }}
 {{- $universalEntryEnabled := and (eq $roleName "entry") ($universalEntry.enabled | default false) }}
 {{- $universalGrpcReadTimeout := toString (dig "serverPolicy" "grpcReadTimeout" "1h" $universalEntry) }}
 {{- $universalGrpcSendTimeout := toString (dig "serverPolicy" "grpcSendTimeout" "1h" $universalEntry) }}
@@ -846,9 +850,13 @@ data:
 {{- if $mtprotoEntryRouteEnabled }}
 
     backend be_mtproto_tls
+{{- if $mtprotoEntryTunnelEnabled }}
+      server mtproto_endpoint_tunnel 127.0.0.1:{{ $mtprotoEntryTunnelPort }} check
+{{- else }}
       server mtproto_transit_tls {{ required "mtproto.route.entry.tlsUpstreamHost or mtproto.route.entry.upstreamHost is required when mtproto.route.mode=entry-transit-endpoint" $mtprotoEntryTlsUpstreamHost }}:{{ int $role.ports.publicTcp }} check
 {{- if $mtprotoEntryTlsFallbackHost }}
       server mtproto_endpoint_tls {{ $mtprotoEntryTlsFallbackHost }}:{{ $mtprotoEntryFallbackTlsPort }} check backup
+{{- end }}
 {{- end }}
 {{- end }}
 {{- if $mtprotoSplitPortsEnabled }}
@@ -856,7 +864,7 @@ data:
     backend be_mtproto_sni
       server mtproto_official 127.0.0.1:{{ $mtprotoOfficialBackendPort }} check
 {{- end }}
-{{- if or $mtprotoRuntimeRoleEnabled (and $mtprotoEntryRouteEnabled $mtprotoFallbackPublicPort) }}
+{{- if or $mtprotoRuntimeHandlesPublic (and $mtprotoEntryRouteEnabled $mtprotoFallbackPublicPort) }}
 
     backend be_mtproto
 {{- if $mtprotoEntryRouteEnabled }}
@@ -1259,6 +1267,20 @@ data:
           "sniffing": {"enabled": true, "destOverride": ["http", "tls", "quic"]}
         },
 {{- end }}
+{{- if and (eq $roleName "entry") $mtprotoEntryTunnelEnabled }}
+        {
+          "tag": "mtproto-entry-tunnel-in",
+          "listen": "127.0.0.1",
+          "port": {{ $mtprotoEntryTunnelPort }},
+          "protocol": "dokodemo-door",
+          "settings": {
+            "address": "127.0.0.1",
+            "port": {{ int $.Values.mtproto.backendPort }},
+            "network": "tcp"
+          },
+          "sniffing": {"enabled": false}
+        },
+{{- end }}
 {{- if and $mtprotoEntryLocalEnabled (not $mtprotoEgressShadowtlsEnabled) }}
         {
           "tag": "mtproto-egress-socks-in",
@@ -1526,6 +1548,16 @@ data:
 {{- end }}
         "rules": [
           {"type": "field", "inboundTag": ["api"], "outboundTag": "api"},
+{{- if and (eq $roleName "entry") $mtprotoEntryTunnelEnabled }}
+{{- if and $endpointBackhaulEnabled (gt (len $chainBridgeShards) 0) }}
+          {"type": "field", "inboundTag": ["mtproto-entry-tunnel-in"], "balancerTag": "endpoint-backhaul"},
+{{- else }}
+          {"type": "field", "inboundTag": ["mtproto-entry-tunnel-in"], "outboundTag": "chain-to-transit"},
+{{- end }}
+{{- end }}
+{{- if and (eq $roleName "transit") $mtprotoEntryTunnelEnabled (gt (len $chainBridgeShards) 0) }}
+          {"type": "field", "inboundTag": [{{- range $index, $shard := $chainBridgeShards }}{{ if $index }}, {{ end }}{{ printf "chain-bridge-%s-in" (regexReplaceAll "[^a-z0-9_]+" (lower (toString $shard.id)) "_" | trimAll "_") | quote }}{{- end }}], "port": {{ int $.Values.mtproto.backendPort | quote }}, "outboundTag": "direct"},
+{{- end }}
 {{- if and $mtprotoEntryLocalEnabled (not $mtprotoEgressShadowtlsEnabled) }}
 {{- if and $endpointBackhaulEnabled (gt (len $chainBridgeShards) 0) }}
           {"type": "field", "inboundTag": ["mtproto-egress-socks-in"], "balancerTag": "endpoint-backhaul"},
@@ -1534,7 +1566,7 @@ data:
 {{- end }}
 {{- end }}
           {"type": "field", "inboundTag": {{ toJson $userTrafficInbounds }}, "protocol": ["bittorrent"], "outboundTag": "block"},
-{{- if and (eq $roleName "entry") (not $universalEntryEnabled) }}
+{{- if and (eq $roleName "entry") (not $entryEndpointMode) }}
           {"type": "field", "inboundTag": {{ toJson $userTrafficInbounds }}, "domain": {{ toJson $ruBypassDomains }}, "outboundTag": "direct"},
           {"type": "field", "inboundTag": {{ toJson $userTrafficInbounds }}, "ip": ["geoip:ru"], "outboundTag": "direct"},
 {{- end }}
@@ -1550,7 +1582,7 @@ data:
       }{{- if and (eq $roleName "entry") $endpointBackhaulEnabled (gt (len $chainBridgeShards) 0) }},
       "observatory": {
         "subjectSelector": ["chain-xhttp-"],
-        "probeURL": {{ dig "probeUrl" "https://yandex.ru/" $endpointBackhaulHealth | quote }},
+        "probeURL": {{ dig "probeUrl" "https://api.dobro.ru/" $endpointBackhaulHealth | quote }},
         "probeInterval": {{ dig "probeInterval" "30s" $endpointBackhaulHealth | quote }}
       }
 {{- end }}

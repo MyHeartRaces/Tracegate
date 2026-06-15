@@ -123,7 +123,7 @@ async def test_create_connection_accepts_required_local_socks_credential_pair() 
 async def test_create_connection_rejects_device_connection_limit() -> None:
     user = _user()
     device = _device(user)
-    session = _FakeSession(user=user, device=device, active_connection_count=4)
+    session = _FakeSession(user=user, device=device, active_connection_count=7)
 
     with pytest.raises(HTTPException) as exc_info:
         await create_connection(
@@ -140,7 +140,7 @@ async def test_create_connection_rejects_device_connection_limit() -> None:
         )
 
     assert exc_info.value.status_code == 400
-    assert "Connection limit reached for device (4)" in str(exc_info.value.detail)
+    assert "Connection limit reached for device (7)" in str(exc_info.value.detail)
     assert session.commits == 0
 
 

@@ -57,10 +57,10 @@
         "security": "reality",
         "realitySettings": {
           "show": false,
-          "dest": "splitter.wb.ru:443",
+          "dest": "public-api.reviews.2gis.com:443",
           "xver": 0,
           "serverNames": [
-            "splitter.wb.ru"
+            "public-api.reviews.2gis.com"
           ],
           "privateKey": "REPLACE_PRIVATE_KEY",
           "shortIds": [

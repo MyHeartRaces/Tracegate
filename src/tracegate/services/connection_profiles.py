@@ -4,24 +4,19 @@ from collections.abc import Iterable
 
 from tracegate.enums import ConnectionMode, ConnectionProtocol, ConnectionVariant
 
-MAX_DEVICES_PER_USER = 5
-MAX_CONNECTIONS_PER_DEVICE = 4
+MAX_DEVICES_PER_USER = 3
+MAX_CONNECTIONS_PER_DEVICE = 7
 MAX_ACTIVE_REVISIONS_PER_CONNECTION = 2
 RESERVE_REVISION_SLOT = MAX_ACTIVE_REVISIONS_PER_CONNECTION - 1
 
 _PROFILE_LIST_ORDER = {
-    "universal": 5,
-    "v1direct": 10,
-    "v2direct": 20,
-    "v3direct": 30,
-    "v4direct": 40,
-    "v1chain": 110,
-    "v2chain": 120,
-    "v3chain": 130,
-    "v0realityenc": 205,
-    "v0ws": 210,
-    "v0grpc": 220,
-    "v0wgws": 230,
+    "reality": 10,
+    "hysteria": 20,
+    "entry": 30,
+    "backup-grpc": 110,
+    "backup-ws": 120,
+    "backup-shadowtls": 130,
+    "backup-wgws": 140,
 }
 
 
@@ -36,8 +31,6 @@ def connection_profile_label(
     version = conn_variant.value.lower()
 
     if proto == ConnectionProtocol.VLESS_REALITY:
-        if conn_variant == ConnectionVariant.V0 and conn_mode == ConnectionMode.DIRECT:
-            return "v0-encrypted-reality-vless"
         return f"{version}-{conn_mode.value}-reality-vless"
     if proto == ConnectionProtocol.HYSTERIA2:
         return f"{version}-{conn_mode.value}-quic-hysteria"
@@ -51,8 +44,6 @@ def connection_profile_label(
         return "v0-grpc-vless"
     if proto == ConnectionProtocol.WIREGUARD_WSTUNNEL:
         return "v0-wgws-wireguard"
-    if proto == ConnectionProtocol.NAIVEPROXY:
-        return "v4-direct-naiveproxy"
     return f"{version}-{conn_mode.value}-{proto.value}"
 
 
@@ -64,44 +55,36 @@ def connection_profile_display_label(
     proto = ConnectionProtocol(protocol)
     conn_mode = ConnectionMode(mode)
     conn_variant = ConnectionVariant(variant)
-    version = conn_variant.value
-    mode_label = conn_mode.value.capitalize()
-
     if proto == ConnectionProtocol.VLESS_REALITY:
-        if conn_variant == ConnectionVariant.V0 and conn_mode == ConnectionMode.DIRECT:
-            return "V0-Encrypted-Reality-VLESS"
-        return f"{version}-{mode_label}-Reality-VLESS"
+        return "VLESS Reality"
     if proto == ConnectionProtocol.HYSTERIA2:
-        return f"{version}-{mode_label}-QUIC-Hysteria"
+        return "Hysteria2"
     if proto == ConnectionProtocol.SHADOWSOCKS2022_SHADOWTLS:
-        return f"{version}-{mode_label}-ShadowTLS-Shadowsocks"
+        return "Shadowsocks"
     if proto == ConnectionProtocol.VLESS_WS_TLS:
-        return "V0-WS-VLESS"
+        return "VLESS WebSocket"
     if proto == ConnectionProtocol.VLESS_GRPC_TLS:
         if conn_variant == ConnectionVariant.V5 and conn_mode == ConnectionMode.CHAIN:
-            return "V5-Universal-Entry"
-        return "V0-gRPC-VLESS"
+            return "Entry Chain (Mobile)"
+        return "VLESS gRPC"
     if proto == ConnectionProtocol.WIREGUARD_WSTUNNEL:
-        return "V0-WGWS-WireGuard"
-    if proto == ConnectionProtocol.NAIVEPROXY:
-        return "V4-Direct-NaiveProxy"
-    return f"{version}-{mode_label}-{proto.value}"
+        return "WireGuard over WebSocket"
+    return f"{conn_variant.value}-{conn_mode.value.capitalize()}-{proto.value}"
 
 
 def supported_profile_specs() -> dict[str, tuple[ConnectionProtocol, ConnectionMode, ConnectionVariant]]:
     return {
-        "universal": (ConnectionProtocol.VLESS_GRPC_TLS, ConnectionMode.CHAIN, ConnectionVariant.V5),
-        "v1direct": (ConnectionProtocol.VLESS_REALITY, ConnectionMode.DIRECT, ConnectionVariant.V1),
-        "v1chain": (ConnectionProtocol.VLESS_REALITY, ConnectionMode.CHAIN, ConnectionVariant.V1),
-        "v2direct": (ConnectionProtocol.HYSTERIA2, ConnectionMode.DIRECT, ConnectionVariant.V2),
-        "v2chain": (ConnectionProtocol.HYSTERIA2, ConnectionMode.CHAIN, ConnectionVariant.V2),
-        "v3direct": (ConnectionProtocol.SHADOWSOCKS2022_SHADOWTLS, ConnectionMode.DIRECT, ConnectionVariant.V3),
-        "v3chain": (ConnectionProtocol.SHADOWSOCKS2022_SHADOWTLS, ConnectionMode.CHAIN, ConnectionVariant.V3),
-        "v4direct": (ConnectionProtocol.NAIVEPROXY, ConnectionMode.DIRECT, ConnectionVariant.V4),
-        "v0realityenc": (ConnectionProtocol.VLESS_REALITY, ConnectionMode.DIRECT, ConnectionVariant.V0),
-        "v0ws": (ConnectionProtocol.VLESS_WS_TLS, ConnectionMode.DIRECT, ConnectionVariant.V0),
-        "v0grpc": (ConnectionProtocol.VLESS_GRPC_TLS, ConnectionMode.DIRECT, ConnectionVariant.V0),
-        "v0wgws": (ConnectionProtocol.WIREGUARD_WSTUNNEL, ConnectionMode.DIRECT, ConnectionVariant.V0),
+        "reality": (ConnectionProtocol.VLESS_REALITY, ConnectionMode.DIRECT, ConnectionVariant.V1),
+        "hysteria": (ConnectionProtocol.HYSTERIA2, ConnectionMode.DIRECT, ConnectionVariant.V2),
+        "entry": (ConnectionProtocol.VLESS_GRPC_TLS, ConnectionMode.CHAIN, ConnectionVariant.V5),
+        "backup-grpc": (ConnectionProtocol.VLESS_GRPC_TLS, ConnectionMode.DIRECT, ConnectionVariant.V0),
+        "backup-ws": (ConnectionProtocol.VLESS_WS_TLS, ConnectionMode.DIRECT, ConnectionVariant.V0),
+        "backup-shadowtls": (
+            ConnectionProtocol.SHADOWSOCKS2022_SHADOWTLS,
+            ConnectionMode.DIRECT,
+            ConnectionVariant.V3,
+        ),
+        "backup-wgws": (ConnectionProtocol.WIREGUARD_WSTUNNEL, ConnectionMode.DIRECT, ConnectionVariant.V0),
     }
 
 
@@ -144,6 +127,16 @@ def enabled_profile_keys(enabled_profile_names: Iterable[str] | None) -> set[str
             connection_profile_label(protocol, mode, variant).lower(),
             connection_profile_display_label(protocol, mode, variant).lower(),
         }
+        aliases = {
+            "reality": {"v1direct", "v1-direct-reality-vless"},
+            "hysteria": {"v2direct", "v2-direct-quic-hysteria"},
+            "entry": {"universal", "v5-universal-entry"},
+            "backup-grpc": {"v0grpc", "v0-grpc-vless"},
+            "backup-ws": {"v0ws", "v0-ws-vless"},
+            "backup-shadowtls": {"v3direct", "v3-direct-shadowtls-shadowsocks"},
+            "backup-wgws": {"v0wgws", "v0-wgws-wireguard"},
+        }
+        names.update(aliases.get(key, set()))
         if names & normalized:
             enabled.add(key)
     return enabled

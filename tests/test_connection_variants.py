@@ -20,21 +20,11 @@ finally:
         sys.modules["prometheus_client"] = _orig_prometheus_client
 
 
-def test_tracegate22_connection_variants_are_validated() -> None:
+def test_tracegate3_connection_variants_are_validated() -> None:
     validate_variant(
         ConnectionProtocol.VLESS_REALITY,
         ConnectionMode.DIRECT,
         ConnectionVariant.V1,
-    )
-    validate_variant(
-        ConnectionProtocol.VLESS_REALITY,
-        ConnectionMode.CHAIN,
-        ConnectionVariant.V1,
-    )
-    validate_variant(
-        ConnectionProtocol.VLESS_REALITY,
-        ConnectionMode.DIRECT,
-        ConnectionVariant.V0,
     )
     validate_variant(
         ConnectionProtocol.VLESS_GRPC_TLS,
@@ -47,18 +37,8 @@ def test_tracegate22_connection_variants_are_validated() -> None:
         ConnectionVariant.V5,
     )
     validate_variant(
-        ConnectionProtocol.HYSTERIA2,
-        ConnectionMode.CHAIN,
-        ConnectionVariant.V2,
-    )
-    validate_variant(
         ConnectionProtocol.SHADOWSOCKS2022_SHADOWTLS,
         ConnectionMode.DIRECT,
-        ConnectionVariant.V3,
-    )
-    validate_variant(
-        ConnectionProtocol.SHADOWSOCKS2022_SHADOWTLS,
-        ConnectionMode.CHAIN,
         ConnectionVariant.V3,
     )
     validate_variant(
@@ -66,11 +46,21 @@ def test_tracegate22_connection_variants_are_validated() -> None:
         ConnectionMode.DIRECT,
         ConnectionVariant.V0,
     )
-    validate_variant(
-        ConnectionProtocol.NAIVEPROXY,
-        ConnectionMode.DIRECT,
-        ConnectionVariant.V4,
-    )
+
+
+@pytest.mark.parametrize(
+    ("protocol", "mode", "variant"),
+    [
+        (ConnectionProtocol.VLESS_REALITY, ConnectionMode.CHAIN, ConnectionVariant.V1),
+        (ConnectionProtocol.VLESS_REALITY, ConnectionMode.DIRECT, ConnectionVariant.V0),
+        (ConnectionProtocol.HYSTERIA2, ConnectionMode.CHAIN, ConnectionVariant.V2),
+        (ConnectionProtocol.SHADOWSOCKS2022_SHADOWTLS, ConnectionMode.CHAIN, ConnectionVariant.V3),
+        (ConnectionProtocol.NAIVEPROXY, ConnectionMode.DIRECT, ConnectionVariant.V4),
+    ],
+)
+def test_removed_tracegate3_variants_are_rejected(protocol, mode, variant) -> None:
+    with pytest.raises(ConnectionValidationError, match="Unsupported"):
+        validate_variant(protocol, mode, variant)
 
 
 def test_wireguard_wstunnel_chain_is_rejected() -> None:
@@ -92,9 +82,9 @@ def test_disabled_connection_profile_is_rejected() -> None:
 
     with pytest.raises(ConnectionValidationError, match="disabled"):
         validate_variant(
-            ConnectionProtocol.VLESS_REALITY,
-            ConnectionMode.CHAIN,
-            ConnectionVariant.V1,
+            ConnectionProtocol.HYSTERIA2,
+            ConnectionMode.DIRECT,
+            ConnectionVariant.V2,
             enabled_client_profiles=["v1-direct-reality-vless"],
         )
 
@@ -102,30 +92,22 @@ def test_disabled_connection_profile_is_rejected() -> None:
 def test_connection_profile_sort_key_groups_created_connections_by_product_order() -> None:
     shuffled = [
         (ConnectionProtocol.VLESS_GRPC_TLS, ConnectionMode.CHAIN, ConnectionVariant.V5),
-        (ConnectionProtocol.HYSTERIA2, ConnectionMode.CHAIN, ConnectionVariant.V2),
         (ConnectionProtocol.VLESS_GRPC_TLS, ConnectionMode.DIRECT, ConnectionVariant.V0),
         (ConnectionProtocol.SHADOWSOCKS2022_SHADOWTLS, ConnectionMode.DIRECT, ConnectionVariant.V3),
-        (ConnectionProtocol.NAIVEPROXY, ConnectionMode.DIRECT, ConnectionVariant.V4),
-        (ConnectionProtocol.VLESS_REALITY, ConnectionMode.DIRECT, ConnectionVariant.V0),
         (ConnectionProtocol.VLESS_REALITY, ConnectionMode.DIRECT, ConnectionVariant.V1),
         (ConnectionProtocol.HYSTERIA2, ConnectionMode.DIRECT, ConnectionVariant.V2),
         (ConnectionProtocol.VLESS_WS_TLS, ConnectionMode.DIRECT, ConnectionVariant.V0),
-        (ConnectionProtocol.SHADOWSOCKS2022_SHADOWTLS, ConnectionMode.CHAIN, ConnectionVariant.V3),
-        (ConnectionProtocol.VLESS_REALITY, ConnectionMode.CHAIN, ConnectionVariant.V1),
+        (ConnectionProtocol.WIREGUARD_WSTUNNEL, ConnectionMode.DIRECT, ConnectionVariant.V0),
     ]
 
     ordered = sorted(shuffled, key=lambda item: connection_profile_sort_key(*item))
 
     assert ordered == [
-        (ConnectionProtocol.VLESS_GRPC_TLS, ConnectionMode.CHAIN, ConnectionVariant.V5),
         (ConnectionProtocol.VLESS_REALITY, ConnectionMode.DIRECT, ConnectionVariant.V1),
         (ConnectionProtocol.HYSTERIA2, ConnectionMode.DIRECT, ConnectionVariant.V2),
-        (ConnectionProtocol.SHADOWSOCKS2022_SHADOWTLS, ConnectionMode.DIRECT, ConnectionVariant.V3),
-        (ConnectionProtocol.NAIVEPROXY, ConnectionMode.DIRECT, ConnectionVariant.V4),
-        (ConnectionProtocol.VLESS_REALITY, ConnectionMode.CHAIN, ConnectionVariant.V1),
-        (ConnectionProtocol.HYSTERIA2, ConnectionMode.CHAIN, ConnectionVariant.V2),
-        (ConnectionProtocol.SHADOWSOCKS2022_SHADOWTLS, ConnectionMode.CHAIN, ConnectionVariant.V3),
-        (ConnectionProtocol.VLESS_REALITY, ConnectionMode.DIRECT, ConnectionVariant.V0),
-        (ConnectionProtocol.VLESS_WS_TLS, ConnectionMode.DIRECT, ConnectionVariant.V0),
+        (ConnectionProtocol.VLESS_GRPC_TLS, ConnectionMode.CHAIN, ConnectionVariant.V5),
         (ConnectionProtocol.VLESS_GRPC_TLS, ConnectionMode.DIRECT, ConnectionVariant.V0),
+        (ConnectionProtocol.VLESS_WS_TLS, ConnectionMode.DIRECT, ConnectionVariant.V0),
+        (ConnectionProtocol.SHADOWSOCKS2022_SHADOWTLS, ConnectionMode.DIRECT, ConnectionVariant.V3),
+        (ConnectionProtocol.WIREGUARD_WSTUNNEL, ConnectionMode.DIRECT, ConnectionVariant.V0),
     ]

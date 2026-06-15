@@ -356,7 +356,7 @@ async def test_gather_health_checks_blocks_transit_tcp8443_for_entry_local_mtpro
         "secret",
         "TRANSIT",
         "kubernetes",
-        "tracegate-2.2",
+        "tracegate-3",
         mtproto_public_port=8443,
         mtproto_route_mode="entry-local-endpoint-egress",
     )

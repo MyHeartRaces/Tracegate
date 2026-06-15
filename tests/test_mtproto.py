@@ -167,6 +167,20 @@ def test_build_mtproto_telemt_config_preserves_primary_and_issued_secrets() -> N
     assert '"tg_101" = "fedcba98765432100123456789abcdef"' in config.config_text
 
 
+def test_build_mtproto_telemt_config_disables_proxy_protocol_for_xray_tunnel() -> None:
+    config = build_mtproto_telemt_config(
+        listen_port=9443,
+        public_host="proto.tracegate.test",
+        public_port=443,
+        tls_domain="ctlog2024.mail.ru",
+        primary_secret_hex="95f0d81f7539ecbe1bd880f48b6a739a",  # gitleaks:allow - synthetic test fixture
+        proxy_protocol=False,
+    )
+
+    assert "proxy_protocol = false" in config.config_text
+    assert 'tls_domain = "ctlog2024.mail.ru"' in config.config_text
+
+
 def test_build_mtproto_mtg_config_is_fail_closed_through_socks5() -> None:
     config = build_mtproto_mtg_config(
         listen_port=9443,

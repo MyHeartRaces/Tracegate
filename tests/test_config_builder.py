@@ -124,7 +124,7 @@ def test_direct_reality_uses_transit_reality_keys() -> None:
     assert cfg["local_socks"]["auth"]["username"].startswith("tg_v1_")
 
 
-def test_vless_encryption_marks_new_reality_profile_and_uses_reserved_sni() -> None:
+def test_vless_encryption_maps_legacy_profile_to_direct_reality_and_uses_reserved_sni() -> None:
     user = _user()
     device = _device(user.telegram_id)
     conn = Connection(
@@ -157,7 +157,7 @@ def test_vless_encryption_marks_new_reality_profile_and_uses_reserved_sni() -> N
     )
 
     assert cfg["sni"] == "passport.yandex.ru"
-    assert cfg["profile"] == "v0-encrypted-reality-vless"
+    assert cfg["profile"] == "v0-direct-reality-vless"
     assert cfg["vless_encryption"] == {
         "enabled": True,
         "encryption": "mlkem768x25519plus.native.0rtt.CLIENT",
@@ -322,14 +322,22 @@ def test_default_local_socks_port_is_stable_high_port() -> None:
         device=device,
         connection=conn,
         selected_sni=None,
-        endpoints=EndpointSet(transit_host="transit.example.com", entry_host="entry.example.com"),
+        endpoints=EndpointSet(
+            transit_host="transit.example.com",
+            entry_host="entry.example.com",
+            transit_proxy_host="grpc-proxy.example.com",
+        ),
     )
     cfg2 = build_effective_config(
         user=user,
         device=device,
         connection=conn,
         selected_sni=None,
-        endpoints=EndpointSet(transit_host="transit.example.com", entry_host="entry.example.com"),
+        endpoints=EndpointSet(
+            transit_host="transit.example.com",
+            entry_host="entry.example.com",
+            transit_proxy_host="grpc-proxy.example.com",
+        ),
     )
 
     assert cfg1["local_socks"]["listen"] == cfg2["local_socks"]["listen"]
@@ -600,7 +608,7 @@ def test_hysteria_chain_v4_enters_via_entry_and_marks_backhaul() -> None:
         "enabled": True,
         "max_mbit": 10,
         "scope": "per-chain-client",
-        "entry_total_max_mbit": 70,
+            "entry_total_max_mbit": 65,
         "hysteria_server_bandwidth": True,
         "hysteria_declared_tx_required": True,
         "tcp_enforcement": "entry-host-total-tc-cap",
@@ -805,6 +813,9 @@ def test_ws_tls_direct_ignores_proxy_host_and_uses_transit_host() -> None:
     assert cfg["sni"] == "transit.example.com"
     assert cfg["ws"]["host"] == "transit.example.com"
     assert cfg["tls"]["alpn"] == ["http/1.1"]
+    assert cfg["design_constraints"]["cloudflare_proxied_ingress_required"] is False
+    assert cfg["design_constraints"]["origin_site_tls_certificate_required"] is True
+    assert cfg["design_constraints"]["http_version"] == "http/1.1"
 
 
 def test_ws_tls_direct_uses_transit_host_without_proxy() -> None:
@@ -839,7 +850,7 @@ def test_ws_tls_direct_uses_transit_host_without_proxy() -> None:
     assert cfg["ws"]["host"] == "node.tracegate.test"
 
 
-def test_grpc_tls_direct_uses_transit_host_and_service_name() -> None:
+def test_grpc_tls_direct_uses_proxied_endpoint_host_and_service_name() -> None:
     user = _user()
     device = _device(user.telegram_id)
     conn = Connection(
@@ -862,6 +873,7 @@ def test_grpc_tls_direct_uses_transit_host_and_service_name() -> None:
         endpoints=EndpointSet(
             transit_host="transit.example.com",
             entry_host="entry.example.com",
+            transit_proxy_host="grpc-proxy.example.com",
             vless_grpc_service_name="tracegate.v1.Edge",
         ),
     )
@@ -869,17 +881,19 @@ def test_grpc_tls_direct_uses_transit_host_and_service_name() -> None:
     assert cfg["protocol"] == "vless"
     assert cfg["transport"] == "grpc_tls"
     assert cfg["profile"] == "v0-grpc-vless"
-    assert cfg["server"] == "transit.example.com"
-    assert cfg["sni"] == "transit.example.com"
+    assert cfg["server"] == "grpc-proxy.example.com"
+    assert cfg["sni"] == "grpc-proxy.example.com"
     assert cfg["grpc"] == {
         "service_name": "tracegate.custom.Edge",
-        "authority": "transit.example.com",
+        "authority": "grpc-proxy.example.com",
     }
     assert cfg["tls"]["alpn"] == ["h2"]
     assert cfg["local_socks"]["auth"]["required"] is True
+    assert cfg["design_constraints"]["cloudflare_proxied_ingress_required"] is True
+    assert cfg["design_constraints"]["http_version"] == "h2"
 
 
-def test_grpc_tls_direct_keeps_direct_transit_when_proxy_host_is_available() -> None:
+def test_grpc_tls_direct_rejects_missing_endpoint_proxy_hostname() -> None:
     user = _user()
     device = _device(user.telegram_id)
     conn = Connection(
@@ -894,22 +908,17 @@ def test_grpc_tls_direct_keeps_direct_transit_when_proxy_host_is_available() -> 
         status=RecordStatus.ACTIVE,
     )
 
-    cfg = build_effective_config(
-        user=user,
-        device=device,
-        connection=conn,
-        selected_sni=None,
-        endpoints=EndpointSet(
-            transit_host="transit.example.com",
-            entry_host="entry.example.com",
-            transit_proxy_host="proxy-transit.example.com",
-        ),
-    )
-
-    assert cfg["server"] == "transit.example.com"
-    assert cfg["sni"] == "transit.example.com"
-    assert cfg["grpc"]["authority"] == "transit.example.com"
-    assert cfg["tls"]["alpn"] == ["h2"]
+    with pytest.raises(ValueError, match="requires the Endpoint proxy hostname"):
+        build_effective_config(
+            user=user,
+            device=device,
+            connection=conn,
+            selected_sni=None,
+            endpoints=EndpointSet(
+                transit_host="transit.example.com",
+                entry_host="entry.example.com",
+            ),
+        )
 
 
 def test_grpc_tls_universal_entry_uses_proxied_entry_and_encrypted_endpoint_chain() -> None:
@@ -1153,7 +1162,7 @@ def test_wireguard_wstunnel_v7_config_requires_local_socks_auth() -> None:
     assert cfg["local_socks"]["auth"]["username"].startswith("tg_v0_")
 
 
-def test_naiveproxy_v4_direct_builds_auth_domain_stealth_config() -> None:
+def test_naiveproxy_v4_direct_is_rejected_after_tracegate3_removal() -> None:
     user = _user()
     device = _device(user.telegram_id)
     conn = Connection(
@@ -1168,33 +1177,14 @@ def test_naiveproxy_v4_direct_builds_auth_domain_stealth_config() -> None:
         status=RecordStatus.ACTIVE,
     )
 
-    cfg = build_effective_config(
-        user=user,
-        device=device,
-        connection=conn,
-        selected_sni=None,
-        endpoints=EndpointSet(transit_host="transit.example.com", entry_host="entry.example.com"),
-    )
-
-    assert cfg["protocol"] == "naiveproxy"
-    assert cfg["profile"] == "v4-direct-naiveproxy"
-    assert cfg["server"] == "auth.example.com"
-    assert cfg["port"] == 443
-    assert cfg["udp_port"] == 443
-    assert cfg["http3"]["enabled"] is True
-    assert cfg["http2"]["fallback"] is True
-    assert cfg["auth"]["type"] == "basic"
-    assert cfg["auth"]["username"].startswith("tg_v4_")
-    assert cfg["auth"]["password"]
-    assert cfg["stealth"]["probe_resistance"] is True
-    assert cfg["stealth"]["hide_ip"] is True
-    assert cfg["stealth"]["hide_via"] is True
-    assert "/auth/login" in cfg["stealth"]["cover_paths"]
-    assert cfg["design_constraints"]["dedicated_k3s_role"] == "NAIVEPROXY"
-    assert cfg["design_constraints"]["public_tcp_443_owner"] == "transit-haproxy-demux"
-    assert cfg["design_constraints"]["naiveproxy_tcp_backend"] == "127.0.0.1:11443"
-    assert cfg["design_constraints"]["hysteria_udp_port"] == 4443
-    assert cfg["local_socks"]["auth"]["required"] is True
+    with pytest.raises(ValueError, match="NaiveProxy was removed in Tracegate 3"):
+        build_effective_config(
+            user=user,
+            device=device,
+            connection=conn,
+            selected_sni=None,
+            endpoints=EndpointSet(transit_host="transit.example.com", entry_host="entry.example.com"),
+        )
 
 
 def test_wireguard_wstunnel_generates_client_material_without_overrides() -> None:

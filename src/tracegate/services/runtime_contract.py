@@ -86,21 +86,18 @@ TRACEGATE21_CLIENT_PROFILES = (
     MTPROTO_FAKE_TLS_PROFILE_NAME,
 )
 
-TRACEGATE22_CLIENT_PROFILES = (
-    "v5-universal-entry",
+TRACEGATE3_CLIENT_PROFILES = (
     "v1-direct-reality-vless",
-    "v1-chain-reality-vless",
     "v2-direct-quic-hysteria",
-    "v2-chain-quic-hysteria",
-    "v3-direct-shadowtls-shadowsocks",
-    "v3-chain-shadowtls-shadowsocks",
-    "v4-direct-naiveproxy",
-    "v0-encrypted-reality-vless",
-    "v0-ws-vless",
+    "v5-universal-entry",
     "v0-grpc-vless",
+    "v0-ws-vless",
+    "v3-direct-shadowtls-shadowsocks",
     "v0-wgws-wireguard",
     MTPROTO_FAKE_TLS_PROFILE_NAME,
 )
+# Compatibility import for older agents and private overlays during migration.
+TRACEGATE22_CLIENT_PROFILES = TRACEGATE3_CLIENT_PROFILES
 
 _TRACEGATE_FORBIDDEN_PUBLIC_PORTS = (
     ("tcp", TRACEGATE_FORBIDDEN_PUBLIC_TCP_PORT, f"blocked tcp/{TRACEGATE_FORBIDDEN_PUBLIC_TCP_PORT}"),
@@ -177,9 +174,9 @@ _TRACEGATE21_CONTRACT = AgentRuntimeContract(
     client_profiles=TRACEGATE21_CLIENT_PROFILES,
 )
 
-_TRACEGATE22_CONTRACT = AgentRuntimeContract(
-    name="tracegate-2.2",
-    aliases=("default", "tracegate2.2", "k3s", "helm"),
+_TRACEGATE3_CONTRACT = AgentRuntimeContract(
+    name="tracegate-3",
+    aliases=("default", "tracegate-2.2", "tracegate2.2", "tracegate3", "k3s", "helm"),
     managed_components=("xray", "hysteria", "haproxy", "nginx"),
     runtime_dirs=("xray", "hysteria", "haproxy", "nginx", "xray-v2", "profiles", "link-crypto"),
     hysteria_auth_mode="userpass",
@@ -206,7 +203,7 @@ _TRACEGATE22_CONTRACT = AgentRuntimeContract(
     ),
     transit_stats_provider="hysteria",
     xray_backhaul_allowed=False,
-    client_profiles=TRACEGATE22_CLIENT_PROFILES,
+    client_profiles=TRACEGATE3_CLIENT_PROFILES,
 )
 
 _NAIVEPROXY_V4_CONTRACT = AgentRuntimeContract(
@@ -233,7 +230,7 @@ _NAIVEPROXY_V4_CONTRACT = AgentRuntimeContract(
 _CONTRACTS: dict[str, AgentRuntimeContract] = {
     _XRAY_CENTRIC_CONTRACT.name: _XRAY_CENTRIC_CONTRACT,
     _TRACEGATE21_CONTRACT.name: _TRACEGATE21_CONTRACT,
-    _TRACEGATE22_CONTRACT.name: _TRACEGATE22_CONTRACT,
+    _TRACEGATE3_CONTRACT.name: _TRACEGATE3_CONTRACT,
     _NAIVEPROXY_V4_CONTRACT.name: _NAIVEPROXY_V4_CONTRACT,
 }
 _PROFILE_ALIASES: dict[str, str] = {}
@@ -246,7 +243,7 @@ for _contract in _CONTRACTS.values():
 def normalize_runtime_profile_name(value: str | None) -> str:
     raw = str(value or "").strip().lower()
     if not raw:
-        return _TRACEGATE22_CONTRACT.name
+        return _TRACEGATE3_CONTRACT.name
     if raw in _PROFILE_ALIASES:
         return _PROFILE_ALIASES[raw]
     raise RuntimeContractError(f"unsupported runtime profile: {raw}")

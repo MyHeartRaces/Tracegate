@@ -40,7 +40,7 @@ def _write_env(path: Path, payload: dict[str, object]) -> None:
 def _contract(path: Path) -> dict:
     payload = {
         "role": "ENTRY",
-        "runtimeProfile": "tracegate-2.2",
+        "runtimeProfile": "tracegate-3",
         "contract": {"managedComponents": ["xray", "hysteria"], "xrayBackhaulAllowed": False},
         "transportProfiles": {
             "clientNames": list(TRACEGATE22_CLIENT_PROFILES),

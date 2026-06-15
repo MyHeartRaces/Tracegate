@@ -388,7 +388,7 @@ class MaterializedBundleRenderContext:
         entry_host = _require(env, "DEFAULT_ENTRY_HOST")
         transit_host = _require(env, "DEFAULT_TRANSIT_HOST")
         ws_path = _first(env, "VLESS_WS_PATH", default="/ws") or "/ws"
-        if runtime_profile == "tracegate-2.2":
+        if runtime_profile == "tracegate-3":
             bootstrap_password = _first(env, "HYSTERIA_BOOTSTRAP_PASSWORD", default="unused-tracegate22-bootstrap")
         else:
             bootstrap_password = _require(env, "HYSTERIA_BOOTSTRAP_PASSWORD")
@@ -407,7 +407,7 @@ class MaterializedBundleRenderContext:
         except ValueError:
             agent_port = 8070
         default_hysteria_auth_url = f"http://127.0.0.1:{agent_port}/v1/hysteria/auth"
-        if runtime_profile == "tracegate-2.2":
+        if runtime_profile == "tracegate-3":
             entry_hysteria_salamander_password = _require_first(
                 env,
                 "HYSTERIA_SALAMANDER_PASSWORD_ENTRY",
@@ -490,7 +490,7 @@ class MaterializedBundleRenderContext:
         reality_private_key_entry = _require(env, "REALITY_PRIVATE_KEY_ENTRY")
         reality_private_key_transit = _require(env, "REALITY_PRIVATE_KEY_TRANSIT")
 
-        reality_dest_default = _first(env, "REALITY_DEST", default="splitter.wb.ru:443")
+        reality_dest_default = _first(env, "REALITY_DEST", default="partners.lemanapro.ru:443")
         reality_dest_entry = _first(env, "REALITY_DEST_ENTRY", default=reality_dest_default)
         reality_dest_transit = _first(env, "REALITY_DEST_TRANSIT", default=reality_dest_default)
         reality_server_name_entry = _first(env, "REALITY_SERVER_NAME_ENTRY", default=host_from_dest(reality_dest_entry))
@@ -625,7 +625,7 @@ def _role_public_units(role_lower: str) -> list[str]:
 
 
 def _role_public_units_for_profile(role_lower: str, runtime_profile: str) -> list[str]:
-    if runtime_profile == "tracegate-2.2":
+    if runtime_profile == "tracegate-3":
         return _role_public_units(role_lower)
     return [
         f"tracegate-xray@{role_lower}",
@@ -676,8 +676,8 @@ def _materialized_manifest_payload(ctx: "MaterializedBundleRenderContext") -> di
                 "privateCompanions": _role_private_companions(ctx, role_lower),
                 "features": {
                     "runtimeProfile": ctx.runtime_profile,
-                    "standaloneHysteriaEnabled": ctx.runtime_profile == "tracegate-2.2",
-                    "hysteriaSalamanderEnabled": ctx.runtime_profile == "tracegate-2.2",
+                    "standaloneHysteriaEnabled": ctx.runtime_profile == "tracegate-3",
+                    "hysteriaSalamanderEnabled": ctx.runtime_profile == "tracegate-3",
                     "finalMaskEnabled": finalmask_enabled,
                     "echEnabled": ech_enabled,
                     "mtprotoFrontingEnabled": role_upper == "TRANSIT" and bool(str(ctx.mtproto_domain or "").strip()),
@@ -768,7 +768,7 @@ def _apply_private_overlays(ctx: MaterializedBundleRenderContext) -> None:
         _apply_json_overlay(bundle_dir / "xray.json", overlay_dir)
         for file_name in ("haproxy.cfg", "nginx.conf", "nftables.conf"):
             _apply_text_overlay(bundle_dir / file_name, overlay_dir)
-        if ctx.runtime_profile == "tracegate-2.2":
+        if ctx.runtime_profile == "tracegate-3":
             _apply_text_overlay(bundle_dir / "hysteria" / "server.yaml", overlay_dir / "hysteria")
         decoy_overlay_dir = overlay_dir / "decoy"
         if decoy_overlay_dir.exists():
@@ -910,7 +910,7 @@ def _render_hysteria_server_yaml(
 
 
 def _write_hysteria_server_configs(ctx: MaterializedBundleRenderContext) -> None:
-    if ctx.runtime_profile != "tracegate-2.2":
+    if ctx.runtime_profile != "tracegate-3":
         return
     for bundle_name, auth_url, salamander_password, stats_secret, chain_client_rate_limit_enabled in (
         (
@@ -986,7 +986,7 @@ def render_materialized_bundles(ctx: MaterializedBundleRenderContext) -> None:
         source_tag="entry-in",
         groups=ctx.reality_multi_inbound_groups,
     )
-    if ctx.runtime_profile == "tracegate-2.2":
+    if ctx.runtime_profile == "tracegate-3":
         _strip_xray_hysteria_runtime(entry_xray)
     _write_json(entry_xray_path, entry_xray)
 
@@ -1039,7 +1039,7 @@ def render_materialized_bundles(ctx: MaterializedBundleRenderContext) -> None:
         source_tag="vless-reality-in",
         groups=ctx.reality_multi_inbound_groups,
     )
-    if ctx.runtime_profile == "tracegate-2.2":
+    if ctx.runtime_profile == "tracegate-3":
         _strip_xray_hysteria_runtime(transit_xray)
     _write_json(transit_xray_path, transit_xray)
 

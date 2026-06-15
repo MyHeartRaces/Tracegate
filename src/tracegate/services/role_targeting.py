@@ -11,7 +11,7 @@ def target_roles_for_connection(
     """
     Return node roles that must receive control-plane events for this connection.
 
-    Tracegate 2.2 uses the explicit connection mode to distinguish Direct from
+    Tracegate 3 uses the explicit connection mode to distinguish Direct from
     Chain because the same version number can now exist in both modes.
     """
     if mode == ConnectionMode.CHAIN:

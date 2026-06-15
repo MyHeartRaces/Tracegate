@@ -26,7 +26,9 @@ def test_sni_catalog_integrity() -> None:
 
     assert len(enabled) == 15
     assert all(not row.providers for row in enabled)
-    assert not {"yandex.ru", "vk.com", "ok.ru", "www.wildberries.ru"} & {row.fqdn for row in enabled}
+    assert not {"yandex.ru", "splitter.wb.ru", "vk.com", "ok.ru", "www.wildberries.ru"} & {
+        row.fqdn for row in enabled
+    }
 
 
 def test_private_k3s_values_have_reality_inbound_for_each_bot_sni() -> None:
