@@ -10,6 +10,7 @@ MAX_ACTIVE_REVISIONS_PER_CONNECTION = 2
 RESERVE_REVISION_SLOT = MAX_ACTIVE_REVISIONS_PER_CONNECTION - 1
 
 _PROFILE_LIST_ORDER = {
+    "universal": 5,
     "v1direct": 10,
     "v2direct": 20,
     "v3direct": 30,
@@ -45,6 +46,8 @@ def connection_profile_label(
     if proto == ConnectionProtocol.VLESS_WS_TLS:
         return "v0-ws-vless"
     if proto == ConnectionProtocol.VLESS_GRPC_TLS:
+        if conn_variant == ConnectionVariant.V5 and conn_mode == ConnectionMode.CHAIN:
+            return "v5-universal-entry"
         return "v0-grpc-vless"
     if proto == ConnectionProtocol.WIREGUARD_WSTUNNEL:
         return "v0-wgws-wireguard"
@@ -75,6 +78,8 @@ def connection_profile_display_label(
     if proto == ConnectionProtocol.VLESS_WS_TLS:
         return "V0-WS-VLESS"
     if proto == ConnectionProtocol.VLESS_GRPC_TLS:
+        if conn_variant == ConnectionVariant.V5 and conn_mode == ConnectionMode.CHAIN:
+            return "V5-Universal-Entry"
         return "V0-gRPC-VLESS"
     if proto == ConnectionProtocol.WIREGUARD_WSTUNNEL:
         return "V0-WGWS-WireGuard"
@@ -85,6 +90,7 @@ def connection_profile_display_label(
 
 def supported_profile_specs() -> dict[str, tuple[ConnectionProtocol, ConnectionMode, ConnectionVariant]]:
     return {
+        "universal": (ConnectionProtocol.VLESS_GRPC_TLS, ConnectionMode.CHAIN, ConnectionVariant.V5),
         "v1direct": (ConnectionProtocol.VLESS_REALITY, ConnectionMode.DIRECT, ConnectionVariant.V1),
         "v1chain": (ConnectionProtocol.VLESS_REALITY, ConnectionMode.CHAIN, ConnectionVariant.V1),
         "v2direct": (ConnectionProtocol.HYSTERIA2, ConnectionMode.DIRECT, ConnectionVariant.V2),

@@ -209,6 +209,7 @@ def test_connection_create_profiles_keyboard_uses_new_profile_names() -> None:
 
     kb = connection_create_profiles_keyboard(category="chain", device_id="dev-42")
     texts = _button_texts(kb)
+    assert "V5-Universal-Entry" in texts
     assert "V1-Chain-Reality-VLESS" in texts
     assert "V2-Chain-QUIC-Hysteria" in texts
     assert "V3-Chain-ShadowTLS-Shadowsocks" in texts
@@ -238,6 +239,18 @@ def test_connection_create_keyboards_hide_disabled_profiles() -> None:
     assert "V0-WS-VLESS" in other
     assert "V0-gRPC-VLESS" in other
     assert "V0-WGWS-WireGuard" not in other
+
+
+def test_connection_create_keyboards_can_expose_only_universal_entry() -> None:
+    enabled = {"universal"}
+    categories = _button_texts(connection_create_categories_keyboard_for(enabled_specs=enabled))
+    assert "⛓️ Chain" in categories
+    assert "⚡ Direct" not in categories
+    assert "🧰 Other" not in categories
+
+    chain = _button_texts(connection_create_profiles_keyboard(category="chain", device_id="dev-42", enabled_specs=enabled))
+    assert "V5-Universal-Entry" in chain
+    assert "V1-Chain-Reality-VLESS" not in chain
 
 
 def test_devices_keyboard_uses_delete_confirmation_callback() -> None:

@@ -87,6 +87,7 @@ TRACEGATE21_CLIENT_PROFILES = (
 )
 
 TRACEGATE22_CLIENT_PROFILES = (
+    "v5-universal-entry",
     "v1-direct-reality-vless",
     "v1-chain-reality-vless",
     "v2-direct-quic-hysteria",

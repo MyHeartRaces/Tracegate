@@ -587,6 +587,10 @@ data:
 {{- $roleTopology := index ($.Values.topology.servers | default dict) $roleCanonicalServer | default dict }}
 {{- $roleDisplayName := toString ($roleTopology.displayName | default (title $roleCanonicalServer)) }}
 {{- $entryIngress := $.Values.architecture.entryIngress | default dict }}
+{{- $universalEntry := $.Values.architecture.universalEntry | default dict }}
+{{- $universalEntryEnabled := and (eq $roleName "entry") ($universalEntry.enabled | default false) }}
+{{- $universalGrpcReadTimeout := toString (dig "serverPolicy" "grpcReadTimeout" "1h" $universalEntry) }}
+{{- $universalGrpcSendTimeout := toString (dig "serverPolicy" "grpcSendTimeout" "1h" $universalEntry) }}
 {{- $entryIngressEnabled := and (eq $roleName "entry") ($entryIngress.enabled | default false) }}
 {{- $entryIngressShards := $entryIngress.shards | default (list) }}
 {{- $entryIngressTcp := dig "channel" "tcp" (dict) $entryIngress }}
@@ -964,8 +968,8 @@ data:
 
 {{- end }}
         location {{ $.Values.controlPlane.env.vlessGrpcPath }} {
-          grpc_read_timeout 5m;
-          grpc_send_timeout 5m;
+          grpc_read_timeout {{ ternary $universalGrpcReadTimeout "5m" $universalEntryEnabled }};
+          grpc_send_timeout {{ ternary $universalGrpcSendTimeout "5m" $universalEntryEnabled }};
           grpc_set_header Host $host;
           grpc_pass grpc://127.0.0.1:{{ int $role.ports.vlessGrpc }};
         }
@@ -1344,7 +1348,7 @@ data:
           {"type": "field", "inboundTag": ["mtproto-egress-socks-in"], "outboundTag": "chain-to-transit"},
 {{- end }}
           {"type": "field", "inboundTag": {{ toJson $userTrafficInbounds }}, "protocol": ["bittorrent"], "outboundTag": "block"},
-{{- if eq $roleName "entry" }}
+{{- if and (eq $roleName "entry") (not $universalEntryEnabled) }}
           {"type": "field", "inboundTag": {{ toJson $userTrafficInbounds }}, "domain": {{ toJson $ruBypassDomains }}, "outboundTag": "direct"},
           {"type": "field", "inboundTag": {{ toJson $userTrafficInbounds }}, "ip": ["geoip:ru"], "outboundTag": "direct"},
 {{- end }}

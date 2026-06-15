@@ -559,20 +559,35 @@ def build_effective_config(
 
     if connection.protocol in {ConnectionProtocol.VLESS_WS_TLS, ConnectionProtocol.VLESS_GRPC_TLS}:
         is_grpc = connection.protocol == ConnectionProtocol.VLESS_GRPC_TLS
-        if connection.variant != ConnectionVariant.V0 or connection.mode != ConnectionMode.DIRECT:
-            raise ValueError("VLESS TLS compatibility profiles support only V0 direct")
+        is_universal_entry = (
+            is_grpc and connection.variant == ConnectionVariant.V5 and connection.mode == ConnectionMode.CHAIN
+        )
+        if not is_universal_entry and (
+            connection.variant != ConnectionVariant.V0 or connection.mode != ConnectionMode.DIRECT
+        ):
+            raise ValueError("VLESS TLS compatibility profiles support only V0 direct, except V5 Universal Entry gRPC Chain")
 
-        # TLS compatibility surfaces in Tracegate architecture are always terminated on Transit.
-        # Operators can override SNI/Host via custom_overrides_json.
+        # Direct TLS compatibility surfaces terminate on Transit. Universal Entry
+        # terminates on Entry and forbids overrides that could reveal the origin.
         tls_server_name = str(overrides.get("tls_server_name") or "").strip()
         if not tls_server_name and selected_sni is not None:
             tls_server_name = selected_sni.fqdn
 
-        # Client configs must use the direct Transit connection hostname, not the
-        # public/proxied site hostname. Operators can still override per connection.
-        transit_host = str(overrides.get("server") or endpoints.transit_host).strip()
+        # Direct compatibility profiles use Transit. Universal Entry deliberately
+        # uses the proxied Entry hostname so the origin is never published.
+        if is_universal_entry:
+            default_host = str(endpoints.entry_proxy_host or "").strip()
+            if not default_host:
+                raise ValueError("V5 Universal Entry requires the Entry proxy hostname")
+            for field_name in ("server", "connect_host", "tls_server_name", "grpc_authority"):
+                override_value = str(overrides.get(field_name) or "").strip()
+                if override_value and override_value != default_host:
+                    raise ValueError(f"V5 Universal Entry forbids {field_name} override outside the Entry proxy hostname")
+        else:
+            default_host = endpoints.transit_host
+        public_host = str(overrides.get("server") or default_host).strip()
         connect_host = str(overrides.get("connect_host") or "").strip()
-        tls_termination_host = transit_host
+        tls_termination_host = public_host
         if not tls_server_name:
             tls_server_name = tls_termination_host
 
@@ -642,11 +657,27 @@ def build_effective_config(
         return {
             **common,
             "profile": connection_profile_label(connection.protocol, connection.mode, connection.variant),
-            "server": transit_host,
-            "chain": None,
+            "server": public_host,
+            "chain": (
+                _entry_transit_private_relay(endpoints=endpoints, inner_transport="vless-reality-xhttp")
+                if is_universal_entry
+                else None
+            ),
             "design_constraints": {
                 "fixed_port_tcp": int((endpoints.vless_grpc_tls_port if is_grpc else endpoints.vless_ws_tls_port) or 443),
                 "preferred_compat_transport": "grpc" if is_grpc else "ws",
+                **(
+                    {
+                        "cloudflare_proxied_ingress_required": True,
+                        "http2_single_tls_multiplexing": True,
+                        "entry_role_required": True,
+                        "transit_role_required": True,
+                        "private_interconnect": "xray-vless-reality",
+                        "endpoint_egress_required": True,
+                    }
+                    if is_universal_entry
+                    else {}
+                ),
             },
         }
 

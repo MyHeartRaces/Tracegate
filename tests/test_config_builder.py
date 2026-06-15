@@ -912,6 +912,72 @@ def test_grpc_tls_direct_keeps_direct_transit_when_proxy_host_is_available() -> 
     assert cfg["tls"]["alpn"] == ["h2"]
 
 
+def test_grpc_tls_universal_entry_uses_proxied_entry_and_encrypted_endpoint_chain() -> None:
+    user = _user()
+    device = _device(user.telegram_id)
+    conn = Connection(
+        id=uuid4(),
+        user_id=user.telegram_id,
+        device_id=device.id,
+        protocol=ConnectionProtocol.VLESS_GRPC_TLS,
+        mode=ConnectionMode.CHAIN,
+        variant=ConnectionVariant.V5,
+        profile_name="v5-universal-entry",
+        custom_overrides_json={},
+        status=RecordStatus.ACTIVE,
+    )
+
+    cfg = build_effective_config(
+        user=user,
+        device=device,
+        connection=conn,
+        selected_sni=None,
+        endpoints=EndpointSet(
+            transit_host="endpoint.tracegate.test",
+            entry_host="entry-origin.tracegate.test",
+            entry_proxy_host="entry-proxy.tracegate.test",
+        ),
+    )
+
+    assert cfg["profile"] == "v5-universal-entry"
+    assert cfg["server"] == "entry-proxy.tracegate.test"
+    assert cfg["sni"] == "entry-proxy.tracegate.test"
+    assert cfg["tls"]["alpn"] == ["h2"]
+    assert cfg["grpc"]["authority"] == "entry-proxy.tracegate.test"
+    assert cfg["chain"]["entry"] == "entry-origin.tracegate.test"
+    assert cfg["chain"]["transit"] == "endpoint.tracegate.test"
+    assert cfg["design_constraints"]["cloudflare_proxied_ingress_required"] is True
+    assert cfg["design_constraints"]["endpoint_egress_required"] is True
+
+
+def test_grpc_tls_universal_entry_rejects_missing_proxy_hostname() -> None:
+    user = _user()
+    device = _device(user.telegram_id)
+    conn = Connection(
+        id=uuid4(),
+        user_id=user.telegram_id,
+        device_id=device.id,
+        protocol=ConnectionProtocol.VLESS_GRPC_TLS,
+        mode=ConnectionMode.CHAIN,
+        variant=ConnectionVariant.V5,
+        profile_name="v5-universal-entry",
+        custom_overrides_json={},
+        status=RecordStatus.ACTIVE,
+    )
+
+    with pytest.raises(ValueError, match="requires the Entry proxy hostname"):
+        build_effective_config(
+            user=user,
+            device=device,
+            connection=conn,
+            selected_sni=None,
+            endpoints=EndpointSet(
+                transit_host="endpoint.tracegate.test",
+                entry_host="entry-origin.tracegate.test",
+            ),
+        )
+
+
 def test_vless_tls_direct_preserves_optional_connect_host() -> None:
     user = _user()
     device = _device(user.telegram_id)

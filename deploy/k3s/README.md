@@ -78,6 +78,14 @@ Configure 12 to 15 pool domains and exactly one
 `gateway.realityMultiInboundGroups` row per domain. Three active shards and 15
 domains provide 45 active revision slots, including overlap revisions.
 
+The alternative one-address contract is configured under
+`architecture.universalEntry`. It exposes one `V5-Universal-Entry` profile via
+a Cloudflare-proxied gRPC/TLS/H2 hostname, requires the single encrypted
+Entry-to-Endpoint bridge, disables direct Entry user egress and forbids
+four-address sharding in the same deployment. Render and persist its mandatory
+Cloudflare-only origin policy with
+`deploy/k3s/universal-entry-origin-firewall.py`.
+
 Legacy three-node deployments retain the encrypted-runtime guard documented in
 [docs/node-encryption-runbook.md](../../docs/node-encryption-runbook.md).
 Future `entry-endpoint` deployments disable the host-level LUKS/dm-crypt

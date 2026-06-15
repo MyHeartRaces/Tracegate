@@ -208,6 +208,23 @@ def _valid_public_ip_set(values: set[str]) -> tuple[set[str], list[str]]:
     return normalized, invalid
 
 
+def _valid_public_ipv4_networks(values: Any) -> tuple[set[str], list[str]]:
+    normalized: set[str] = set()
+    invalid: list[str] = []
+    for value in _as_list(values):
+        raw = _text(value)
+        try:
+            network = ipaddress.ip_network(raw, strict=False)
+        except ValueError:
+            invalid.append(raw)
+            continue
+        if network.version != 4 or not network.is_global:
+            invalid.append(raw)
+            continue
+        normalized.add(str(network))
+    return normalized, invalid
+
+
 def validate_prod_overlay(chart_values: Path, prod_values: Path, *, strict: bool) -> list[str]:
     merged = _merge_values(_read_yaml(chart_values), _read_yaml(prod_values))
     errors: list[str] = []
@@ -678,7 +695,9 @@ def validate_prod_overlay(chart_values: Path, prod_values: Path, *, strict: bool
 
     ingress_rotation = _as_dict(architecture.get("ingressRotation"))
     entry_ingress = _as_dict(architecture.get("entryIngress"))
+    universal_entry = _as_dict(architecture.get("universalEntry"))
     entry_ingress_enabled = bool(entry_ingress.get("enabled", False))
+    universal_entry_enabled = bool(universal_entry.get("enabled", False))
     ingress_rotation_enabled = bool(ingress_rotation.get("enabled", False))
     entry_rotation_hosts = [_text(host) for host in _as_list(ingress_rotation.get("entryHosts")) if _text(host)]
     endpoint_rotation_hosts = [_text(host) for host in _as_list(ingress_rotation.get("endpointHosts")) if _text(host)]
@@ -757,6 +776,44 @@ def validate_prod_overlay(chart_values: Path, prod_values: Path, *, strict: bool
         require(_as_int(tcp_channel.get("maxConnectionsPerSource")) >= 1, "Entry TCP maxConnectionsPerSource must be at least 1")
         require(_as_int(tcp_channel.get("newConnectionsPer10Seconds")) >= 1, "Entry TCP newConnectionsPer10Seconds must be at least 1")
         require(bool(udp_channel.get("serviceIpRejectRequired", False)), "Entry UDP service-facing IP rejection must stay required")
+
+    if universal_entry_enabled:
+        universal_host = _text(universal_entry.get("publicHost"))
+        origin_firewall = _as_dict(universal_entry.get("originFirewall"))
+        client_policy = _as_dict(universal_entry.get("clientPolicy"))
+        backhaul = _as_dict(universal_entry.get("backhaul"))
+        allowed_source_cidrs, invalid_source_cidrs = _valid_public_ipv4_networks(origin_firewall.get("allowedSourceCidrs"))
+        enabled_client_profiles = {_text(value).lower() for value in _as_list(env.get("enabledClientProfiles")) if _text(value)}
+        chain_bridge = _as_dict(interconnect.get("emergencyXrayChain"))
+        chain_allowed_sources = {_text(value) for value in _as_list(chain_bridge.get("allowedSources")) if _text(value)}
+        entry_public_ip = _text(entry_topology.get("publicIp"))
+
+        require(architecture_mode == "entry-endpoint", "Universal Entry requires architecture.mode=entry-endpoint")
+        require(not entry_ingress_enabled, "Universal Entry forbids architecture.entryIngress.enabled=true")
+        require(not ingress_rotation_enabled, "Universal Entry forbids architecture.ingressRotation.enabled=true")
+        require(_text(universal_entry.get("provider")) == "cloudflare", "Universal Entry provider must stay cloudflare")
+        require(_text(universal_entry.get("transport")) == "grpc-tls-h2", "Universal Entry transport must stay grpc-tls-h2")
+        require(_has_value(universal_host), "architecture.universalEntry.publicHost must be set")
+        require(not _is_example_host(universal_host), "architecture.universalEntry.publicHost must not use example.com")
+        require(universal_host == entry_default_host, "Universal Entry publicHost must match the effective Entry host")
+        require(
+            universal_host == _text(_as_dict(entry.get("tls")).get("serverName")),
+            "Universal Entry publicHost must match gateway.roles.entry.tls.serverName",
+        )
+        require(bool(origin_firewall.get("required", False)), "Universal Entry origin firewall must stay required")
+        require(bool(origin_firewall.get("denyDirectAccess", False)), "Universal Entry origin direct access must stay denied")
+        require(bool(allowed_source_cidrs), "Universal Entry origin firewall must allow current Cloudflare IPv4 source CIDRs")
+        require(not invalid_source_cidrs, f"Universal Entry origin firewall contains invalid/non-public IPv4 CIDRs: {', '.join(invalid_source_cidrs)}")
+        require(bool(client_policy.get("multiplexSingleTls", False)), "Universal Entry must multiplex over one TLS connection")
+        require(_as_int(client_policy.get("maxParallelHandshakes")) == 1, "Universal Entry maxParallelHandshakes must stay 1")
+        require(bool(client_policy.get("jitter", False)), "Universal Entry reconnect jitter must stay enabled")
+        require(bool(backhaul.get("requireSingleEncryptedBridge", False)), "Universal Entry requires one encrypted bridge")
+        require(bool(backhaul.get("failClosed", False)), "Universal Entry backhaul must fail closed")
+        require(bool(backhaul.get("endpointEgressOnly", False)), "Universal Entry traffic must egress through Endpoint")
+        require(enabled_client_profiles == {"universal"}, "Universal Entry deployment must expose only the universal client profile")
+        require(bool(chain_bridge.get("enabled", False)), "Universal Entry requires interconnect.emergencyXrayChain.enabled=true")
+        require(entry_public_ip in chain_allowed_sources, "Universal Entry chain bridge allowedSources must include Entry publicIp")
+        require(ingress_public_ips == {entry_public_ip}, "Universal Entry ingressPublicIPs must contain only the Entry publicIp")
 
     if architecture_mode == "entry-endpoint":
         require(not transit_router_enabled, "entry-endpoint forbids transitRouter.enabled=true")

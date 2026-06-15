@@ -29,6 +29,32 @@ architecture:
     requireDistinctPublicIPs: true
     requireDistinctAsns: true
     rotateEndpointEgress: false
+  # One-address Entry contract. Clients use one Cloudflare-proxied gRPC/TLS/H2
+  # hostname and Entry forwards all user traffic through one encrypted,
+  # fail-closed bridge to Endpoint.
+  universalEntry:
+    enabled: false
+    publicHost: ""
+    provider: cloudflare
+    transport: grpc-tls-h2
+    originFirewall:
+      required: true
+      denyDirectAccess: true
+      # Operator-managed current Cloudflare IPv4 origin source ranges.
+      allowedSourceCidrs: []
+    clientPolicy:
+      multiplexSingleTls: true
+      maxParallelHandshakes: 1
+      reconnectBaseSeconds: 5
+      reconnectMaxSeconds: 120
+      jitter: true
+    serverPolicy:
+      grpcReadTimeout: 1h
+      grpcSendTimeout: 1h
+    backhaul:
+      requireSingleEncryptedBridge: true
+      failClosed: true
+      endpointEgressOnly: true
   # Four-address Entry ingress contract: one service-facing address that never
   # accepts proxy clients and exactly three client-facing shard addresses.
   entryIngress:
@@ -388,6 +414,7 @@ transitRouter:
 
 transportProfiles:
   clientNames:
+    - v5-universal-entry
     - v1-direct-reality-vless
     - v1-chain-reality-vless
     - v2-direct-quic-hysteria

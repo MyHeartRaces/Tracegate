@@ -475,6 +475,37 @@ def _four_ip_entry_overlay_values() -> dict:
     return values
 
 
+def _universal_entry_overlay_values() -> dict:
+    values = _entry_endpoint_overlay_values(rotation=False)
+    values["architecture"]["universalEntry"] = {
+        "enabled": True,
+        "publicHost": "entry.prod.test",
+        "provider": "cloudflare",
+        "transport": "grpc-tls-h2",
+        "originFirewall": {
+            "required": True,
+            "denyDirectAccess": True,
+            "allowedSourceCidrs": ["173.245.48.0/20", "103.21.244.0/22"],
+        },
+        "clientPolicy": {
+            "multiplexSingleTls": True,
+            "maxParallelHandshakes": 1,
+            "reconnectBaseSeconds": 5,
+            "reconnectMaxSeconds": 120,
+            "jitter": True,
+        },
+        "serverPolicy": {"grpcReadTimeout": "1h", "grpcSendTimeout": "1h"},
+        "backhaul": {
+            "requireSingleEncryptedBridge": True,
+            "failClosed": True,
+            "endpointEgressOnly": True,
+        },
+    }
+    values["controlPlane"]["env"]["enabledClientProfiles"] = ["universal"]
+    values["interconnect"]["emergencyXrayChain"]["allowedSources"] = ["8.8.4.4"]
+    return values
+
+
 def test_k3s_strict_prod_overlay_check_accepts_private_overlay(tmp_path: Path) -> None:
     values_path = tmp_path / "values-prod.yaml"
     values_path.write_text(yaml.safe_dump(_prod_overlay_values(), sort_keys=True), encoding="utf-8")
@@ -520,6 +551,45 @@ def test_k3s_strict_prod_overlay_check_accepts_entry_endpoint_overlay(tmp_path: 
 
     assert result.returncode == 0, result.stderr
     assert "prod-overlay-check: OK" in result.stdout
+
+
+def test_k3s_strict_prod_overlay_check_accepts_universal_entry_overlay(tmp_path: Path) -> None:
+    values_path = tmp_path / "values-universal-entry.yaml"
+    values_path.write_text(yaml.safe_dump(_universal_entry_overlay_values(), sort_keys=True), encoding="utf-8")
+
+    validation = subprocess.run(
+        [
+            "python3",
+            "deploy/k3s/prod-overlay-check.py",
+            "--strict",
+            "--chart-values",
+            str(CHART_ROOT / "values.yaml"),
+            "--values",
+            str(values_path),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    firewall = subprocess.run(
+        [
+            "python3",
+            "deploy/k3s/universal-entry-origin-firewall.py",
+            "--chart-values",
+            str(CHART_ROOT / "values.yaml"),
+            "--values",
+            str(values_path),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert validation.returncode == 0, validation.stderr
+    assert "prod-overlay-check: OK" in validation.stdout
+    assert firewall.returncode == 0, firewall.stderr
+    assert "ip daddr 8.8.4.4 tcp dport 443" in firewall.stdout
+    assert "reject with tcp reset" in firewall.stdout
 
 
 def test_k3s_four_ip_entry_overlay_binds_only_shards_and_renders_firewall(tmp_path: Path) -> None:
@@ -2039,13 +2109,14 @@ def test_tracegate21_wireguard_sidecar_uses_portable_lifecycle_script(tmp_path: 
             "experimentalProfiles.tuicV5.enabled=true requires directEnabled or chainEnabled",
         ),
         (
-            {"transportProfiles": {"clientNames": ["v1-direct-reality-vless", "MTProto-TCP443-Direct"]}},
+            {"transportProfiles": {"clientNames": ["v5-universal-entry", "v1-direct-reality-vless", "MTProto-TCP443-Direct"]}},
             "transportProfiles.clientNames must include v1-chain-reality-vless",
         ),
         (
             {
                 "transportProfiles": {
                     "clientNames": [
+                        "v5-universal-entry",
                         "v1-direct-reality-vless",
                         "v1-chain-reality-vless",
                         "v2-direct-quic-hysteria",
@@ -2989,6 +3060,54 @@ def test_tracegate22_entry_ingress_rejects_duplicate_client_ip(tmp_path: Path) -
 
     assert rendered.returncode != 0
     assert "architecture.entryIngress.shards[].publicIp values must be unique" in rendered.stderr
+
+
+def test_tracegate22_universal_entry_routes_all_entry_traffic_through_one_bridge(tmp_path: Path) -> None:
+    values = _universal_entry_overlay_values()
+
+    rendered = _helm_template_with_values(tmp_path, values)
+
+    assert rendered.returncode == 0, rendered.stderr
+    configmaps = {
+        doc["metadata"]["name"]: doc
+        for doc in _helm_docs(rendered.stdout)
+        if doc.get("kind") == "ConfigMap" and isinstance(doc.get("data"), dict)
+    }
+    entry_xray = json.loads(configmaps["tracegate-tracegate-gateway-entry-xray"]["data"]["config.json"])
+    entry_nginx = configmaps["tracegate-tracegate-gateway-entry-nginx"]["data"]["nginx.conf"]
+    user_rules = [
+        rule
+        for rule in entry_xray["routing"]["rules"]
+        if "vless-grpc-in" in rule.get("inboundTag", [])
+    ]
+
+    assert any(rule.get("outboundTag") == "chain-to-transit" for rule in user_rules)
+    assert not any(rule.get("outboundTag") == "direct" for rule in user_rules)
+    assert entry_xray["outbounds"][0]["tag"] == "chain-to-transit"
+    assert entry_xray["outbounds"][0]["streamSettings"]["security"] == "reality"
+    assert "grpc_read_timeout 1h;" in entry_nginx
+    assert "grpc_send_timeout 1h;" in entry_nginx
+
+
+def test_tracegate22_universal_entry_rejects_direct_origin_exposure(tmp_path: Path) -> None:
+    values = _universal_entry_overlay_values()
+    values["architecture"]["universalEntry"]["originFirewall"]["denyDirectAccess"] = False
+
+    rendered = _helm_template_with_values(tmp_path, values)
+
+    assert rendered.returncode != 0
+    assert "architecture.universalEntry.originFirewall.denyDirectAccess=false is forbidden" in rendered.stderr
+
+
+def test_tracegate22_universal_entry_rejects_parallel_ingress_rotation(tmp_path: Path) -> None:
+    values = _universal_entry_overlay_values()
+    values["architecture"]["ingressRotation"]["enabled"] = True
+    values["architecture"]["ingressRotation"]["entryHosts"] = ["edge-a.prod.test", "edge-b.prod.test"]
+
+    rendered = _helm_template_with_values(tmp_path, values)
+
+    assert rendered.returncode != 0
+    assert "architecture.universalEntry.enabled=true forbids architecture.ingressRotation.enabled=true" in rendered.stderr
 
 
 def test_tracegate22_k3s_renders_naiveproxy_tcp443_demux(tmp_path: Path) -> None:

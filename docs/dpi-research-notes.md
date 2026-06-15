@@ -12,6 +12,12 @@ permanently effective.
   connections and add jittered backoff after failures.
 - Keep several independent ingress IP/provider options. Domain aliases on one
   IP do not address IP- or ASN-based filtering.
+- When only one Entry IP is available, prefer one proxied TLS/H2 ingress and
+  multiplex application streams over one connection instead of opening a
+  burst of similar ClientHello sessions to the origin.
+- Restrict a proxied origin to the provider's current source ranges. A proxied
+  DNS record without an origin firewall still leaves a directly reachable
+  blocking and probing target.
 - Keep real TLS-compatible decoys and TLS 1.2 compatibility as optional
   fallbacks, not as proof of indistinguishability.
 - Use DNS-tunnel concepts such as health scoring, MTU discovery and generation
@@ -28,6 +34,7 @@ permanently effective.
   evidence.
 - rotation on every connection attempt.
 - claims that one configuration will always work.
+- WARP or Cloudflare Tunnel as the mandatory Universal Entry client path.
 
 ## Sources
 
@@ -35,4 +42,7 @@ permanently effective.
 - [net4people issue 490](https://github.com/net4people/bbs/issues/490)
 - [Habr: TLS/DPI observations](https://habr.com/ru/articles/1045684/)
 - [Habr: ClientHello and connection concurrency observations](https://habr.com/ru/articles/1044396/)
+- [Habr: Siberian blocking observations](https://habr.com/ru/articles/1010336/)
+- [Cloudflare gRPC connections](https://developers.cloudflare.com/network/grpc-connections/)
+- [Cloudflare IPv4 ranges](https://www.cloudflare.com/ips-v4)
 - [Operator-provided Pastebin notes](https://pastebin.com/raw/9gLsyeLp)

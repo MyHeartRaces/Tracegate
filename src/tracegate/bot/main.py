@@ -1631,7 +1631,7 @@ async def connection_create_category(callback: CallbackQuery) -> None:
     enabled_specs = _enabled_profile_specs()
     category_specs = {
         "direct": {"v1direct", "v2direct", "v3direct", "v4direct"},
-        "chain": {"v1chain", "v2chain", "v3chain"},
+        "chain": {"universal", "v1chain", "v2chain", "v3chain"},
         "other": {"v0realityenc", "v0ws", "v0grpc", "v0wgws"},
     }[category]
     if not (enabled_specs & category_specs):

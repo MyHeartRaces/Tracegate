@@ -17,6 +17,7 @@ def target_roles_for_connection(
     if mode == ConnectionMode.CHAIN:
         if protocol in {
             ConnectionProtocol.VLESS_REALITY,
+            ConnectionProtocol.VLESS_GRPC_TLS,
             ConnectionProtocol.HYSTERIA2,
             ConnectionProtocol.SHADOWSOCKS2022_SHADOWTLS,
         }:
