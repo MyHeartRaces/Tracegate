@@ -124,7 +124,7 @@ def test_direct_reality_uses_transit_reality_keys() -> None:
     assert cfg["local_socks"]["auth"]["username"].startswith("tg_v1_")
 
 
-def test_vless_encryption_maps_legacy_profile_to_direct_reality_and_uses_reserved_sni() -> None:
+def test_vless_encryption_profile_is_rejected() -> None:
     user = _user()
     device = _device(user.telegram_id)
     conn = Connection(
@@ -140,31 +140,19 @@ def test_vless_encryption_maps_legacy_profile_to_direct_reality_and_uses_reserve
     )
     sni = SniCatalogEntry(id=1, fqdn="yandex.ru", enabled=True, is_test=False, providers=[], note=None)
 
-    cfg = build_effective_config(
-        user=user,
-        device=device,
-        connection=conn,
-        selected_sni=sni,
-        endpoints=EndpointSet(
-            transit_host="transit.example.com",
-            entry_host="entry.example.com",
-            reality_public_key_transit="pub-t",
-            reality_short_id_transit="sid-t",
-            vless_encryption_enabled=True,
-            vless_encryption="mlkem768x25519plus.native.0rtt.CLIENT",
-            vless_encryption_reality_sni="passport.yandex.ru",
-        ),
-    )
-
-    assert cfg["sni"] == "passport.yandex.ru"
-    assert cfg["profile"] == "v0-direct-reality-vless"
-    assert cfg["vless_encryption"] == {
-        "enabled": True,
-        "encryption": "mlkem768x25519plus.native.0rtt.CLIENT",
-        "handshake": "mlkem768x25519plus",
-        "packet_mode": "native",
-        "session_resumption": "0rtt",
-    }
+    with pytest.raises(ValueError, match="Encrypted VLESS was removed"):
+        build_effective_config(
+            user=user,
+            device=device,
+            connection=conn,
+            selected_sni=sni,
+            endpoints=EndpointSet(
+                transit_host="transit.example.com",
+                entry_host="entry.example.com",
+                reality_public_key_transit="pub-t",
+                reality_short_id_transit="sid-t",
+            ),
+        )
 
 
 def test_vless_encryption_is_opt_in_for_reality_profiles() -> None:
@@ -219,7 +207,7 @@ def test_v0_reality_requires_vless_encryption_override() -> None:
     )
     sni = SniCatalogEntry(id=1, fqdn="yandex.ru", enabled=True, is_test=False, providers=[], note=None)
 
-    with pytest.raises(ValueError, match="VLESS/REALITY V0 requires VLESS encryption"):
+    with pytest.raises(ValueError, match="Encrypted VLESS was removed"):
         build_effective_config(
             user=user,
             device=device,

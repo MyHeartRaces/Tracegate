@@ -47,7 +47,7 @@ def test_export_vless_reality_uri() -> None:
     assert attachment["outbounds"][0]["streamSettings"]["realitySettings"]["serverName"] == "google.com"
 
 
-def test_export_vless_reality_uri_uses_vless_encryption() -> None:
+def test_export_vless_reality_rejects_removed_vless_encryption() -> None:
     encryption = "mlkem768x25519plus.native.0rtt.CLIENT"
     effective = {
         "protocol": "vless",
@@ -62,12 +62,8 @@ def test_export_vless_reality_uri_uses_vless_encryption() -> None:
         "vless_encryption": {"enabled": True, "encryption": encryption},
     }
 
-    out = export_client_config(effective)
-    query = parse_qs(urlparse(out.content).query)
-    assert query["encryption"] == [encryption]
-
-    attachment = json.loads((out.attachment_content or b"").decode("utf-8"))
-    assert attachment["outbounds"][0]["settings"]["vnext"][0]["users"][0]["encryption"] == encryption
+    with pytest.raises(ClientConfigExportError, match="Encrypted VLESS was removed"):
+        export_client_config(effective)
 
 
 def test_export_hysteria2_uri() -> None:
@@ -81,7 +77,7 @@ def test_export_hysteria2_uri() -> None:
     }
     out = export_client_config(effective)
     assert out.kind == "uri"
-    assert out.content.startswith("hysteria2://u:p@t.example.com:4443/")
+    assert out.content.startswith("hysteria2://u%3Ap@t.example.com:4443/")
     assert "insecure=0" not in out.content
     assert "obfs=salamander" in out.content
     assert "obfs-password=obfs-secret" in out.content
@@ -89,10 +85,8 @@ def test_export_hysteria2_uri() -> None:
     assert "sni=t.example.com" in out.content
     assert "peer=t.example.com" not in out.content
     assert "#V3-Hysteria2-QUIC-Direct" in out.content
-    assert out.alternate_title == "Hysteria2 Shadowrocket fallback URI"
-    assert out.alternate_content is not None
-    assert out.alternate_content.startswith("hy2://p@t.example.com:4443/")
-    assert "#V3-Hysteria2-QUIC-Direct%20Shadowrocket" in out.alternate_content
+    assert out.alternate_title is None
+    assert out.alternate_content is None
     assert "Local SOCKS5 credentials" in dict(out.extra_messages)
     attachment = json.loads((out.attachment_content or b"").decode("utf-8"))
     assert out.attachment_filename == "v3-hysteria2-quic-direct.singbox.json"
@@ -148,7 +142,7 @@ def test_export_hysteria2_direct_keeps_explicit_bandwidth_override() -> None:
     assert attachment["outbounds"][0]["down_mbps"] == 200
 
 
-def test_export_naiveproxy_shadowrocket_uri_and_http3_attachment() -> None:
+def test_export_rejects_removed_naiveproxy() -> None:
     effective = {
         "protocol": "naiveproxy",
         "server": "auth.example.com",
@@ -166,44 +160,8 @@ def test_export_naiveproxy_shadowrocket_uri_and_http3_attachment() -> None:
             },
         },
     }
-    out = export_client_config(effective)
-
-    assert out.kind == "uri"
-    assert out.title == "NaiveProxy link · Shadowrocket / Exclave"
-    assert out.content == "naive+https://tg_v4_user:secret-pass@auth.example.com?padding=true#v4-direct-naiveproxy"
-    assert out.alternate_title == "NaiveProxy HTTP/3 URI"
-    assert out.alternate_content == "naive+quic://tg_v4_user:secret-pass@auth.example.com?padding=true#v4-direct-naiveproxy"
-    assert out.extra_messages == (
-        (
-            "Shadowrocket / Exclave import",
-            "Use the QR code below with Shadowrocket's built-in scanner, or import the single-line "
-            "`naive+https://...` URI from the previous message. Exclave can also import the "
-            "`naive+https://...` and `naive+quic://...` URIs. The attached `.naive.json` file is "
-            "for native NaiveProxy clients, not for Shadowrocket or Exclave.",
-        ),
-        (
-            "Anywhere import",
-            "Deep link HTTP/2 (Android, iOS, macOS, Apple TV):\n"
-            "anywhere://add-proxy?link=https%3A%2F%2Ftg_v4_user%3Asecret-pass%40auth.example.com%3A443%23v4-direct-naiveproxy\n"
-            "\n"
-            "Raw HTTP/2:\n"
-            "https://tg_v4_user:secret-pass@auth.example.com:443#v4-direct-naiveproxy\n"
-            "\n"
-            "Deep link HTTP/3 (iOS, macOS, Apple TV):\n"
-            "anywhere://add-proxy?link=quic%3A%2F%2Ftg_v4_user%3Asecret-pass%40auth.example.com%3A443%23v4-direct-naiveproxy\n"
-            "\n"
-            "Raw HTTP/3:\n"
-            "quic://tg_v4_user:secret-pass@auth.example.com:443#v4-direct-naiveproxy",
-        ),
-    )
-    assert out.attachment_filename == "v4-direct-naiveproxy.naive.json"
-    assert out.attachment_mime == "application/json"
-    attachment = json.loads((out.attachment_content or b"").decode("utf-8"))
-    assert attachment == {
-        "listen": "socks://local-user:local-pass@127.0.0.1:28080",
-        "proxy": "quic://tg_v4_user:secret-pass@auth.example.com",
-        "log": "",
-    }
+    with pytest.raises(ClientConfigExportError, match="NaiveProxy was removed"):
+        export_client_config(effective)
 
 
 def test_export_hysteria2_rejects_missing_salamander() -> None:

@@ -114,6 +114,16 @@
 {{- $roleCanonicalServer := lower (toString ($role.canonicalServer | default $roleName)) }}
 {{- $roleTopology := index ($.Values.topology.servers | default dict) $roleCanonicalServer | default dict }}
 {{- $roleDisplayName := toString ($roleTopology.displayName | default (title $roleCanonicalServer)) }}
+{{- $roleIngress := ternary ($.Values.architecture.entryIngress | default dict) ($.Values.architecture.endpointIngress | default dict) (eq $roleName "entry") }}
+{{- $roleHaproxyReadinessHost := "" }}
+{{- if ($roleIngress.enabled | default false) }}
+{{- range $shard := ($roleIngress.shards | default (list)) }}
+{{- $state := lower (toString ($shard.state | default "active")) }}
+{{- if and (not $roleHaproxyReadinessHost) (or (eq $state "active") (eq $state "draining")) }}
+{{- $roleHaproxyReadinessHost = toString $shard.publicIp }}
+{{- end }}
+{{- end }}
+{{- end }}
 {{- if $entrySmallRole }}
 {{- $roleContainerResources = mergeOverwrite (deepCopy $.Values.gateway.containerResources) $.Values.gateway.entrySmall.containerResources }}
 {{- end }}
@@ -960,6 +970,9 @@ spec:
             timeoutSeconds: {{ int $.Values.gateway.probes.startup.timeoutSeconds }}
           readinessProbe:
             tcpSocket:
+{{- if $roleHaproxyReadinessHost }}
+              host: {{ $roleHaproxyReadinessHost | quote }}
+{{- end }}
               port: https
             periodSeconds: {{ int $.Values.gateway.probes.readiness.periodSeconds }}
             failureThreshold: {{ int $.Values.gateway.probes.readiness.failureThreshold }}

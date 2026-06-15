@@ -364,21 +364,6 @@ def _hysteria_hygiene_payload(*, is_chain: bool, public_udp_port: int) -> dict[s
     }
 
 
-def _vless_encryption_payload(endpoints: EndpointSet) -> dict[str, Any] | None:
-    if not endpoints.vless_encryption_enabled:
-        return None
-    encryption = str(endpoints.vless_encryption or "").strip()
-    if not encryption:
-        raise ValueError("VLESS encryption is enabled but client encryption material is empty")
-    return {
-        "enabled": True,
-        "encryption": encryption,
-        "handshake": "mlkem768x25519plus",
-        "packet_mode": "native",
-        "session_resumption": "0rtt",
-    }
-
-
 def _entry_transit_private_relay(
     *,
     endpoints: EndpointSet,
@@ -472,12 +457,10 @@ def build_effective_config(
 
     if connection.protocol == ConnectionProtocol.VLESS_REALITY:
         vless_encryption_requested = bool(overrides.get("vless_encryption", False))
-        if connection.variant == ConnectionVariant.V0 and not vless_encryption_requested:
-            raise ValueError("VLESS/REALITY V0 requires VLESS encryption")
-        if connection.variant == ConnectionVariant.V0 and connection.mode != ConnectionMode.DIRECT:
-            raise ValueError("VLESS/REALITY V0 supports only direct mode")
-        if connection.variant not in {ConnectionVariant.V0, ConnectionVariant.V1}:
-            raise ValueError("VLESS/REALITY supports only V1 legacy or V0 encrypted direct")
+        if vless_encryption_requested or connection.variant == ConnectionVariant.V0:
+            raise ValueError("Encrypted VLESS was removed from Tracegate 3")
+        if connection.variant != ConnectionVariant.V1:
+            raise ValueError("VLESS/REALITY supports only V1")
         if selected_sni is None:
             raise ValueError("camouflage SNI is required for VLESS/REALITY")
 
@@ -490,14 +473,7 @@ def build_effective_config(
         else:
             pbk = endpoints.reality_public_key_entry or endpoints.reality_public_key
             sid = endpoints.reality_short_id_entry or endpoints.reality_short_id
-        vless_encryption = _vless_encryption_payload(endpoints) if vless_encryption_requested else None
-        if vless_encryption_requested and vless_encryption is None:
-            raise ValueError("VLESS/REALITY encryption was requested but VLESS encryption is not configured")
         sni = selected_sni.fqdn
-        if vless_encryption is not None:
-            sni = str(endpoints.vless_encryption_reality_sni or "").strip()
-            if not sni:
-                raise ValueError("VLESS/REALITY encryption requires vless_encryption_reality_sni")
 
         common = {
             "protocol": "vless",
@@ -528,10 +504,7 @@ def build_effective_config(
                 "tcp_fast_open": bool(overrides.get("tcp_fast_open", True)),
             },
         }
-        if vless_encryption is not None:
-            common["vless_encryption"] = vless_encryption
-
-        if connection.mode == ConnectionMode.DIRECT and connection.variant in {ConnectionVariant.V0, ConnectionVariant.V1}:
+        if connection.mode == ConnectionMode.DIRECT and connection.variant == ConnectionVariant.V1:
             return {
                 **common,
                 "profile": connection_profile_label(connection.protocol, connection.mode, connection.variant),
@@ -618,15 +591,6 @@ def build_effective_config(
             str(overrides.get("grpc_service_name") or endpoints.vless_grpc_service_name or "tracegate.v1.Edge").strip()
             or "tracegate.v1.Edge"
         )
-        vless_encryption = _vless_encryption_payload(endpoints)
-        if vless_encryption is not None:
-            if is_grpc:
-                grpc_service_name = (
-                    str(endpoints.vless_encryption_grpc_service_name or "tracegate.v1.EdgeEnc").strip()
-                    or "tracegate.v1.EdgeEnc"
-                )
-            else:
-                ws_path = str(endpoints.vless_encryption_ws_path or "/ws-enc").strip() or "/ws-enc"
         grpc_authority = str(overrides.get("grpc_authority") or tls_server_name or "").strip()
 
         common = {
@@ -663,9 +627,6 @@ def build_effective_config(
                 "tcp_fast_open": bool(overrides.get("tcp_fast_open", True)),
             },
         }
-        if vless_encryption is not None:
-            common["vless_encryption"] = vless_encryption
-
         return {
             **common,
             "profile": connection_profile_label(connection.protocol, connection.mode, connection.variant),

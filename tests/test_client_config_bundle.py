@@ -52,16 +52,6 @@ def test_client_config_bundle_collects_universal_links_artifacts_and_singbox() -
             _item(
                 3,
                 {
-                    "protocol": "naiveproxy",
-                    "server": "auth.example.com",
-                    "port": 443,
-                    "auth": {"type": "basic", "username": "naive-user", "password": "naive-pass"},
-                    "profile": "NaiveProxy",
-                },
-            ),
-            _item(
-                4,
-                {
                     "protocol": "shadowsocks2022",
                     "transport": "shadowtls_v3",
                     "server": "ss.example.com",
@@ -77,7 +67,7 @@ def test_client_config_bundle_collects_universal_links_artifacts_and_singbox() -
                 },
             ),
             _item(
-                5,
+                4,
                 {
                     "protocol": "wireguard",
                     "transport": "wstunnel",
@@ -105,9 +95,9 @@ def test_client_config_bundle_collects_universal_links_artifacts_and_singbox() -
     assert bundle["generatedAt"] == "2026-05-19T12:00:00Z"
     assert bundle["subject"] == {"type": "device", "id": "dev-1"}
     assert bundle["counts"] == {
-        "profiles": 5,
-        "links": 6,
-        "singboxOutbounds": 4,
+        "profiles": 4,
+        "links": 3,
+        "singboxOutbounds": 3,
         "errors": 0,
     }
     assert render_subscription_text(bundle) == "\n".join(bundle["subscription"]["links"])
@@ -116,8 +106,7 @@ def test_client_config_bundle_collects_universal_links_artifacts_and_singbox() -
 
     links = bundle["subscription"]["links"]
     assert any(link.startswith("vless://11111111-2222-3333-4444-555555555555@") for link in links)
-    assert any(link.startswith("hysteria2://u:p@hy.example.com:4443/") for link in links)
-    assert "naive+https://naive-user:naive-pass@auth.example.com?padding=true#NaiveProxy" in links
+    assert any(link.startswith("hysteria2://u%3Ap@hy.example.com:4443/") for link in links)
     assert any(link.startswith("ss://") for link in links)
 
     selector = bundle["singbox"]["outbounds"][0]
@@ -126,11 +115,10 @@ def test_client_config_bundle_collects_universal_links_artifacts_and_singbox() -
     assert selector["default"] in selector["outbounds"]
     assert all("protocol" not in outbound for outbound in bundle["singbox"]["outbounds"])
     assert any(outbound["type"] == "vless" and outbound["transport"]["type"] == "ws" for outbound in bundle["singbox"]["outbounds"])
-    assert any(outbound["type"] == "naive" and outbound["quic"] is True for outbound in bundle["singbox"]["outbounds"])
     assert not any(outbound["type"] == "wireguard" for outbound in bundle["singbox"]["outbounds"])
 
     ss_outbound = next(outbound for outbound in bundle["singbox"]["outbounds"] if outbound["type"] == "shadowsocks")
-    assert ss_outbound["detour"].startswith("tg-3-ss2022-shadowtls-")
+    assert ss_outbound["detour"].startswith("tg-2-ss2022-shadowtls-")
     assert any(outbound["tag"] == ss_outbound["detour"] for outbound in bundle["singbox"]["outbounds"])
 
     profiles = {profile["profile"]: profile for profile in bundle["profiles"]}
@@ -142,7 +130,7 @@ def test_client_config_bundle_collects_universal_links_artifacts_and_singbox() -
     assert profiles["WGWS"]["warnings"] == ["wireguard_wstunnel_requires_wgws_transport"]
 
 
-def test_client_config_bundle_does_not_emit_singbox_outbound_for_vless_encryption() -> None:
+def test_client_config_bundle_rejects_removed_vless_encryption() -> None:
     bundle = build_client_config_bundle(
         [
             _item(
@@ -169,7 +157,9 @@ def test_client_config_bundle_does_not_emit_singbox_outbound_for_vless_encryptio
     )
 
     assert bundle["counts"]["singboxOutbounds"] == 0
-    assert bundle["profiles"][0]["warnings"] == ["vless_encryption_requires_xray_client"]
+    assert bundle["counts"]["profiles"] == 0
+    assert bundle["counts"]["errors"] == 1
+    assert "Encrypted VLESS was removed" in bundle["errors"][0]["error"]
 
 
 def test_client_config_bundle_records_profile_export_errors() -> None:

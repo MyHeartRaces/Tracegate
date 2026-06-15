@@ -63,9 +63,6 @@ topology:
       publicIp: 198.51.100.21
       kubernetesNodeName: tracegate-endpoint
       nodeSelector: {tracegate.io/role: endpoint}
-    transit:
-      publicIp: ""
-      kubernetesNodeName: ""
     entry:
       publicIp: ""
       kubernetesNodeName: ""
@@ -110,7 +107,7 @@ gateway:
     mode: pvc
     existingClaims:
       entry: ""
-      transit: tracegate-endpoint-state
+      endpoint: tracegate-endpoint-state
   nodeEncryption:
     enabled: false
     required: false
@@ -125,16 +122,10 @@ gateway:
   roles:
     entry:
       enabled: false
-    transit:
+    endpoint:
       enabled: true
       canonicalServer: endpoint
       nodeSelector: {tracegate.io/role: endpoint}
-
-naiveproxy:
-  enabled: false
-
-transitRouter:
-  enabled: false
 
 experimentalProfiles:
   enabled: false
@@ -143,14 +134,6 @@ interconnect:
   endpointBackhaul:
     enabled: false
   emergencyXrayChain:
-    enabled: false
-  entryTransit:
-    enabled: false
-    routerEntry: {enabled: false}
-    routerTransit: {enabled: false}
-  mieru:
-    enabled: false
-  zapret2:
     enabled: false
 
 wireguard:

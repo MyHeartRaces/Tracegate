@@ -3742,9 +3742,24 @@ def test_new_production_examples_render_as_pod_only_runtime(tmp_path: Path, valu
     helm = shutil.which("helm")
     if helm is None:
         pytest.skip("helm is not installed")
+    adapted_values = tmp_path / f"{phase}-chart-values.yaml"
+    adapted = subprocess.run(
+        [
+            "python3",
+            "deploy/k3s/new-production-values-adapter.py",
+            "--values",
+            str(values_path),
+            "--output",
+            str(adapted_values),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert adapted.returncode == 0, adapted.stderr
     manifest = tmp_path / f"{phase}.yaml"
     rendered = subprocess.run(
-        [helm, "template", "tracegate", str(CHART_ROOT), "-f", str(values_path)],
+        [helm, "template", "tracegate", str(CHART_ROOT), "-f", str(adapted_values)],
         check=False,
         capture_output=True,
         text=True,
@@ -3759,3 +3774,31 @@ def test_new_production_examples_render_as_pod_only_runtime(tmp_path: Path, valu
         text=True,
     )
     assert readiness.returncode == 0, readiness.stdout + readiness.stderr
+    if phase == "endpoint-first":
+        endpoint = _gateway_deployment_templates(rendered.stdout)["gateway-transit"]
+        haproxy = _containers_by_name(endpoint)["haproxy"]
+        assert haproxy["readinessProbe"]["tcpSocket"]["host"] == "198.51.100.21"
+
+
+def test_new_production_values_adapter_rejects_removed_surfaces(tmp_path: Path) -> None:
+    values = yaml.safe_load(ENDPOINT_FIRST_EXAMPLE.read_text(encoding="utf-8"))
+    values["gateway"]["roles"]["transit"] = values["gateway"]["roles"].pop("endpoint")
+    source = tmp_path / "values.yaml"
+    source.write_text(yaml.safe_dump(values, sort_keys=False), encoding="utf-8")
+
+    adapted = subprocess.run(
+        [
+            "python3",
+            "deploy/k3s/new-production-values-adapter.py",
+            "--values",
+            str(source),
+            "--output",
+            str(tmp_path / "chart-values.yaml"),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert adapted.returncode != 0
+    assert "removed surfaces" in adapted.stderr

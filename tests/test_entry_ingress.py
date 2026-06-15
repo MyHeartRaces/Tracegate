@@ -1,4 +1,5 @@
 from pathlib import Path
+import subprocess
 from types import SimpleNamespace
 from uuid import UUID
 
@@ -69,3 +70,18 @@ def test_endpoint_ingress_firewall_script_is_executable() -> None:
     assert "tracegate_endpoint_ingress" in path.read_text(encoding="utf-8")
     values = yaml.safe_load(Path("deploy/k3s/tracegate/values.yaml").read_text(encoding="utf-8"))
     assert values["architecture"]["endpointIngress"]["firewall"]["required"] is True
+
+    rendered = subprocess.run(
+        [
+            "python3",
+            str(path),
+            "--chart-values",
+            "deploy/k3s/tracegate/values.yaml",
+            "--values",
+            "deploy/k3s/values-endpoint-first.example.yaml",
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout
+    assert 'iifname != "lo" ip daddr' in rendered

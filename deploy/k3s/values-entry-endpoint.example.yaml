@@ -79,9 +79,6 @@ topology:
       publicIp: 198.51.100.21
       kubernetesNodeName: tracegate-endpoint
       nodeSelector: {tracegate.io/role: endpoint}
-    transit:
-      publicIp: ""
-      kubernetesNodeName: ""
     entry:
       publicIp: 203.0.113.10
       kubernetesNodeName: tracegate-entry
@@ -129,7 +126,7 @@ gateway:
     mode: pvc
     existingClaims:
       entry: tracegate-entry-state
-      transit: tracegate-endpoint-state
+      endpoint: tracegate-endpoint-state
   nodeEncryption:
     enabled: false
     required: false
@@ -148,16 +145,10 @@ gateway:
       nodeSelector: {tracegate.io/role: entry}
       tls:
         serverName: edge.example.net
-    transit:
+    endpoint:
       enabled: true
       canonicalServer: endpoint
       nodeSelector: {tracegate.io/role: endpoint}
-
-naiveproxy:
-  enabled: false
-
-transitRouter:
-  enabled: false
 
 experimentalProfiles:
   enabled: false
@@ -206,14 +197,6 @@ interconnect:
         hMaxRequestTimes: "256-384"
         hMaxReusableSecs: "600-900"
         hKeepAlivePeriod: 45
-  entryTransit:
-    enabled: false
-    routerEntry: {enabled: false}
-    routerTransit: {enabled: false}
-  mieru:
-    enabled: false
-  zapret2:
-    enabled: false
 
 wireguard:
   enabled: true

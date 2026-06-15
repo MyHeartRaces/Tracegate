@@ -51,12 +51,9 @@ def _encode_query(params: dict[str, Any], *, safe: str = "") -> str:
 
 def _vless_encryption(effective: dict[str, Any]) -> str:
     block = effective.get("vless_encryption")
-    if not isinstance(block, dict) or not bool(block.get("enabled", False)):
-        return "none"
-    encryption = str(block.get("encryption") or "").strip()
-    if not encryption:
-        raise ClientConfigExportError("VLESS encryption is enabled but encryption material is missing")
-    return encryption
+    if isinstance(block, dict) and bool(block.get("enabled", False)):
+        raise ClientConfigExportError("Encrypted VLESS was removed from Tracegate 3")
+    return "none"
 
 
 def _normalize_alpn(value: object, *, default: tuple[str, ...]) -> list[str]:
@@ -541,7 +538,6 @@ def export_client_config(effective: dict[str, Any]) -> ExportResult:
 
     - VLESS+REALITY: returns a `vless://...` URI
     - Hysteria2: returns a `hysteria2://...` URI (with insecure=1 by default)
-    - NaiveProxy: returns a Shadowrocket-friendly URI plus official `naive` JSON attachment
     - MTProto: returns a Telegram proxy deep link
     """
 
@@ -568,7 +564,7 @@ def export_client_config(effective: dict[str, Any]) -> ExportResult:
     if proto == "hysteria2":
         return _export_hysteria2(effective)
     if proto == "naiveproxy":
-        return _export_naiveproxy(effective)
+        raise ClientConfigExportError("NaiveProxy was removed from Tracegate 3")
     if proto in {"shadowsocks2022", "shadowsocks"}:
         return _export_shadowsocks2022_shadowtls(effective)
     if proto == "wireguard":
@@ -860,17 +856,11 @@ def _export_hysteria2(effective: dict[str, Any]) -> ExportResult:
         params["alpn"] = ",".join(alpn_values)
 
     name = effective.get("profile") or "tracegate-hysteria2"
-    alternate_uri: str | None = None
-    alternate_title: str | None = None
     if auth_type == "userpass":
         if not username or not password:
             raise ClientConfigExportError("Missing userpass fields for Hysteria2 export")
         share_auth = f"{username}:{password}"
-        authority = f"{_q(username)}:{_q(password)}"
-        fallback_authority = _q(password)
-        fallback_name = f"{name} Shadowrocket"
-        alternate_uri = f"hy2://{fallback_authority}@{server}:{port}/?{_encode_query(params)}#{_q(str(fallback_name))}"
-        alternate_title = "Hysteria2 Shadowrocket fallback URI"
+        authority = _q(share_auth)
     else:
         if not token:
             raise ClientConfigExportError("Missing token field for Hysteria2 export")
@@ -906,84 +896,9 @@ def _export_hysteria2(effective: dict[str, Any]) -> ExportResult:
         kind="uri",
         title="Hysteria2 link",
         content=uri,
-        alternate_title=alternate_title,
-        alternate_content=alternate_uri,
         extra_messages=(_local_socks_extra_message(effective),),
         attachment_content=attachment_content,
         attachment_filename=attachment_filename,
-        attachment_mime="application/json",
-    )
-
-
-def _export_naiveproxy(effective: dict[str, Any]) -> ExportResult:
-    server = str(effective.get("server") or "").strip()
-    port = int(effective.get("port") or 443)
-    profile = str(effective.get("profile") or "v4-direct-naiveproxy").strip()
-    auth = effective.get("auth") or {}
-    username = str(auth.get("username") or "").strip()
-    password = str(auth.get("password") or "").strip()
-    if not server or not username or not password:
-        raise ClientConfigExportError("Missing fields for NaiveProxy export")
-
-    local_host, local_port = _local_socks_endpoint(effective)
-    local_user, local_pass = _local_socks_auth(effective)
-    listen = f"socks://{_q(local_user)}:{_q(local_pass)}@{local_host}:{local_port}"
-    authority = f"{_q(username)}:{_q(password)}@{server}"
-    if port != 443:
-        authority = f"{authority}:{port}"
-    h2_proxy = f"https://{authority}"
-    h3_proxy = f"quic://{authority}"
-    label = profile or "Tracegate NaiveProxy"
-    shadowrocket_uri = f"naive+{h2_proxy}?padding=true#{_q(label)}"
-    h3_uri = f"naive+{h3_proxy}?padding=true#{_q(label)}"
-    anywhere_authority = f"{_q(username)}:{_q(password)}@{server}:{port}"
-    anywhere_h2_uri = f"https://{anywhere_authority}#{_q(label)}"
-    anywhere_h3_uri = f"quic://{anywhere_authority}#{_q(label)}"
-    anywhere_h2_deep_link = f"anywhere://add-proxy?link={_q(anywhere_h2_uri)}"
-    anywhere_h3_deep_link = f"anywhere://add-proxy?link={_q(anywhere_h3_uri)}"
-
-    config = {
-        "listen": listen,
-        "proxy": h3_proxy,
-        "log": "",
-    }
-    attachment_content = json.dumps(config, ensure_ascii=True, indent=2).encode("utf-8")
-    filename = f"{_safe_filename_fragment(profile)}.naive.json"
-    return ExportResult(
-        kind="uri",
-        title="NaiveProxy link · Shadowrocket / Exclave",
-        content=shadowrocket_uri,
-        alternate_title="NaiveProxy HTTP/3 URI",
-        alternate_content=h3_uri,
-        extra_messages=(
-            (
-                "Shadowrocket / Exclave import",
-                "Use the QR code below with Shadowrocket's built-in scanner, or import the single-line "
-                "`naive+https://...` URI from the previous message. Exclave can also import the "
-                "`naive+https://...` and `naive+quic://...` URIs. The attached `.naive.json` file is "
-                "for native NaiveProxy clients, not for Shadowrocket or Exclave.",
-            ),
-            (
-                "Anywhere import",
-                "\n".join(
-                    (
-                        "Deep link HTTP/2 (Android, iOS, macOS, Apple TV):",
-                        anywhere_h2_deep_link,
-                        "",
-                        "Raw HTTP/2:",
-                        anywhere_h2_uri,
-                        "",
-                        "Deep link HTTP/3 (iOS, macOS, Apple TV):",
-                        anywhere_h3_deep_link,
-                        "",
-                        "Raw HTTP/3:",
-                        anywhere_h3_uri,
-                    )
-                ),
-            ),
-        ),
-        attachment_content=attachment_content,
-        attachment_filename=filename,
         attachment_mime="application/json",
     )
 

@@ -87,10 +87,12 @@ def render(values: dict[str, Any]) -> str:
     ]
     if tcp_ports:
         lines.append(
-            f"    ip daddr {{ {', '.join(reject_ips)} }} tcp dport {{ {', '.join(map(str, sorted(tcp_ports)))} }} reject with tcp reset"
+            f"    iifname != \"lo\" ip daddr {{ {', '.join(reject_ips)} }} tcp dport {{ {', '.join(map(str, sorted(tcp_ports)))} }} reject with tcp reset"
         )
     if udp_ports:
-        lines.append(f"    ip daddr {{ {', '.join(reject_ips)} }} udp dport {{ {', '.join(map(str, sorted(udp_ports)))} }} drop")
+        lines.append(
+            f"    iifname != \"lo\" ip daddr {{ {', '.join(reject_ips)} }} udp dport {{ {', '.join(map(str, sorted(udp_ports)))} }} drop"
+        )
     lines.extend(["  }", "}", ""])
     return "\n".join(lines)
 

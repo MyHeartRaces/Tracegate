@@ -60,8 +60,6 @@ def _artifact(exported: ExportResult) -> dict[str, Any] | None:
         artifact["kind"] = "sing-box-config"
     elif exported.attachment_filename.endswith(".xray.json"):
         artifact["kind"] = "xray-config"
-    elif exported.attachment_filename.endswith(".naive.json"):
-        artifact["kind"] = "naiveproxy-config"
     else:
         artifact["kind"] = "file"
     return artifact
@@ -103,28 +101,6 @@ def _singbox_outbounds_from_attachment(exported: ExportResult, *, tag_prefix: st
         return [], None
     outbounds = [row for row in raw_outbounds if isinstance(row, dict)]
     return _retag_singbox_outbounds(outbounds, tag_prefix=tag_prefix)
-
-
-def _singbox_naive_outbound(effective: dict[str, Any], *, tag: str) -> dict[str, Any] | None:
-    server = str(effective.get("server") or "").strip()
-    auth = effective.get("auth") if isinstance(effective.get("auth"), dict) else {}
-    username = str(auth.get("username") or "").strip()
-    password = str(auth.get("password") or "").strip()
-    if not server or not username or not password:
-        return None
-    return {
-        "type": "naive",
-        "tag": tag,
-        "server": server,
-        "server_port": int(effective.get("port") or 443),
-        "username": username,
-        "password": password,
-        "quic": True,
-        "tls": {
-            "enabled": True,
-            "server_name": str(effective.get("sni") or server).strip(),
-        },
-    }
 
 
 def _singbox_vless_outbound(effective: dict[str, Any], *, tag: str) -> dict[str, Any] | None:
@@ -187,9 +163,6 @@ def _singbox_outbounds_for_profile(
 
     proto = str(effective.get("protocol") or "").strip().lower()
     tag = f"{tag_prefix}-proxy"
-    if proto == "naiveproxy":
-        outbound = _singbox_naive_outbound(effective, tag=tag)
-        return ([outbound], tag, warnings) if outbound else ([], None, ["naiveproxy_missing_singbox_fields"])
     if proto == "vless":
         vless_encryption = effective.get("vless_encryption")
         if isinstance(vless_encryption, dict) and bool(vless_encryption.get("enabled", False)):
