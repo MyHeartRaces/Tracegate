@@ -248,6 +248,41 @@ def test_entry_hysteria_http_auth_rejects_chain_bandwidth_above_cap(monkeypatch,
     assert rejected_missing.json() == {"ok": False, "id": None}
 
 
+def test_endpoint_hysteria_http_auth_accepts_private_backhaul_token_only_on_endpoint(monkeypatch, tmp_path) -> None:
+    endpoint_settings = Settings(
+        agent_auth_token="test-agent-token",
+        agent_data_root=str(tmp_path / "endpoint"),
+        agent_role="TRANSIT",
+        agent_dry_run=True,
+        hysteria_endpoint_backhaul_auth_token="private-backhaul-token",
+    )
+    monkeypatch.setattr(agent_main, "settings", endpoint_settings)
+    monkeypatch.setattr(agent_main, "_is_loopback_host", lambda _host: True)
+
+    with TestClient(agent_main.app) as client:
+        accepted = client.post(
+            "/v1/hysteria/auth",
+            json={"addr": "198.51.100.10:40000", "auth": "private-backhaul-token", "tx": 0},
+        )
+
+    entry_settings = Settings(
+        agent_auth_token="test-agent-token",
+        agent_data_root=str(tmp_path / "entry"),
+        agent_role="ENTRY",
+        agent_dry_run=True,
+        hysteria_endpoint_backhaul_auth_token="private-backhaul-token",
+    )
+    monkeypatch.setattr(agent_main, "settings", entry_settings)
+    with TestClient(agent_main.app) as client:
+        rejected = client.post(
+            "/v1/hysteria/auth",
+            json={"addr": "198.51.100.10:40000", "auth": "private-backhaul-token", "tx": 0},
+        )
+
+    assert accepted.json() == {"ok": True, "id": "tracegate-entry-endpoint-backhaul"}
+    assert rejected.json() == {"ok": False, "id": None}
+
+
 def test_agent_mtproto_access_issue_persists_user_bound_profile(monkeypatch, tmp_path) -> None:
     settings = _settings(tmp_path)
     _write_profile(Path(settings.mtproto_public_profile_file))

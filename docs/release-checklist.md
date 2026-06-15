@@ -31,6 +31,18 @@ python3 deploy/k3s/prod-overlay-check.py --strict \
 
 Production promotion gates run from the operator environment.
 
+## Universal Entry Backhaul
+
+- Render and apply both Universal Entry nftables policies.
+- Verify every XHTTP shard transfers sustained authenticated payload through
+  its own SNI, REALITY destination and path.
+- Verify Xray observatory removes a failed XHTTP shard without parallel dial
+  bursts.
+- Verify Hysteria2/Salamander fallback transfers TCP and UDP after all XHTTP
+  shards are unavailable.
+- Confirm Endpoint UDP/4443 accepts only configured Entry source addresses.
+- Confirm Entry has no direct user-traffic egress during every failure test.
+
 ## NaiveProxy V4
 
 - Build and push `deploy/images/naiveproxy-caddy/Dockerfile`.

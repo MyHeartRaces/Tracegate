@@ -1,0 +1,156 @@
+# Public-safe Universal Entry delta for a private two-node production overlay.
+# Keep real hosts, addresses, REALITY keys and Hysteria credentials private.
+
+architecture:
+  mode: entry-endpoint
+  ingressRotation:
+    enabled: false
+  entryIngress:
+    enabled: false
+  universalEntry:
+    enabled: true
+    publicHost: edge.example.net
+    provider: cloudflare
+    transport: grpc-tls-h2
+    originFirewall:
+      required: true
+      denyDirectAccess: true
+      allowedSourceCidrs:
+        - 173.245.48.0/20
+    clientPolicy:
+      multiplexSingleTls: true
+      maxParallelHandshakes: 1
+      reconnectBaseSeconds: 5
+      reconnectMaxSeconds: 120
+      jitter: true
+    backhaul:
+      requireMultiTransportPool: true
+      failClosed: true
+      endpointEgressOnly: true
+
+interconnect:
+  endpointBackhaul:
+    enabled: true
+    primary: vless-reality-xhttp
+    secondary: hysteria2-salamander
+    selection:
+      strategy: roundRobin
+      stickyScope: connection
+      maxParallelDials: 1
+    health:
+      payloadProbeRequired: true
+      probeUrl: https://yandex.ru/
+      probeInterval: 30s
+    hysteria2:
+      enabled: true
+      endpointHost: 198.51.100.20
+      endpointPort: 4443
+      serverName: endpoint.example.net
+      entrySocksPort: 11086
+      allowedSources:
+        - 203.0.113.10
+      fastOpen: false
+      lazy: false
+      quic:
+        maxIdleTimeout: 30s
+        keepAlivePeriod: 10s
+        disablePathMTUDiscovery: false
+      congestion:
+        type: bbr
+        profile: conservative
+  emergencyXrayChain:
+    enabled: true
+    endpointHost: 198.51.100.20
+    endpointPort: 443
+    allowedSources:
+      - 203.0.113.10
+    shards:
+      - id: yandex
+        serverName: yandex.ru
+        dest: yandex.ru:443
+        endpointListenPort: 2451
+        path: /api/v1/backhaul/yandex
+      - id: wb
+        serverName: splitter.wb.ru
+        dest: splitter.wb.ru:443
+        endpointListenPort: 2452
+        path: /api/v1/backhaul/wb
+    xhttp:
+      clientMode: stream-one
+      serverMode: auto
+      xmux:
+        maxConnections: 1
+        cMaxReuseTimes: "32-64"
+        hMaxRequestTimes: "256-384"
+        hMaxReusableSecs: "600-900"
+        hKeepAlivePeriod: 45
+  entryTransit:
+    enabled: false
+    routerEntry:
+      enabled: false
+    routerTransit:
+      enabled: false
+
+controlPlane:
+  env:
+    enabledClientProfiles:
+      - universal
+    defaultEntryHost: edge.example.net
+
+network:
+  egressIsolation:
+    ingressPublicIPs:
+      - 203.0.113.10
+    egressPublicIPs:
+      - 198.51.100.20
+
+gateway:
+  roles:
+    entry:
+      tls:
+        serverName: edge.example.net
+    transit:
+      canonicalServer: endpoint
+      tls:
+        serverName: endpoint.example.net
+  nodeEncryption:
+    enabled: false
+    required: false
+    runtimeInitValidation: false
+    markerFile: ""
+    markerValue: ""
+    requireDeviceMapperSource: false
+    nodeAnnotations:
+      enabled: false
+      encryptedRuntime: ""
+      expectedValue: ""
+
+topology:
+  servers:
+    entry:
+      publicIp: 203.0.113.10
+    endpoint:
+      publicIp: 198.51.100.20
+    transit:
+      publicIp: ""
+      kubernetesNodeName: ""
+
+transitRouter:
+  enabled: false
+
+mtproto:
+  runtime: mtg
+  fallback:
+    enabled: false
+  egress:
+    mode: socks5-only
+    socksPort: 11084
+    domainFrontingHost: yandex.ru
+    shadowtls:
+      enabled: true
+      serverName: splitter.wb.ru
+      endpointHost: 198.51.100.20
+      allowedSources:
+        - 203.0.113.10
+  route:
+    mode: entry-local-endpoint-egress

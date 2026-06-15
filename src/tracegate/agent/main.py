@@ -4,6 +4,7 @@ import logging
 from importlib.metadata import PackageNotFoundError, version as pkg_version
 from ipaddress import ip_address
 from pathlib import Path
+import secrets
 
 import uvicorn
 from fastapi import Depends, FastAPI, HTTPException, Request, Response, status
@@ -224,6 +225,14 @@ def _match_hysteria_auth(auth_value: str) -> str:
     requested = str(auth_value or "").strip()
     if not requested:
         return ""
+
+    backhaul_token = str(settings.hysteria_endpoint_backhaul_auth_token or "").strip()
+    if (
+        str(settings.agent_role or "").strip().upper() == "TRANSIT"
+        and backhaul_token
+        and secrets.compare_digest(requested, backhaul_token)
+    ):
+        return "tracegate-entry-endpoint-backhaul"
 
     paths = AgentPaths.from_settings(settings)
     for row in load_all_user_artifacts(paths):

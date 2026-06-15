@@ -500,6 +500,9 @@ class Settings(BaseSettings):
         default="",
         validation_alias=AliasChoices("HYSTERIA_SALAMANDER_PASSWORD_TRANSIT", "HYSTERIA_SALAMANDER_PASSWORD"),
     )
+    # Shared Entry -> Endpoint Hysteria2 fallback credential. It is accepted
+    # only by the Endpoint-role agent and must remain in the private Secret.
+    hysteria_endpoint_backhaul_auth_token: str = ""
     # Optional Hysteria/ECH hints exposed to client effective configs.
     hysteria_ech_config_list_entry: str = Field(
         default="",

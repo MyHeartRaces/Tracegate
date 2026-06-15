@@ -30,8 +30,8 @@ architecture:
     requireDistinctAsns: true
     rotateEndpointEgress: false
   # One-address Entry contract. Clients use one Cloudflare-proxied gRPC/TLS/H2
-  # hostname and Entry forwards all user traffic through one encrypted,
-  # fail-closed bridge to Endpoint.
+  # hostname and Entry forwards all user traffic through a shared,
+  # multi-transport, fail-closed backhaul pool to Endpoint.
   universalEntry:
     enabled: false
     publicHost: ""
@@ -52,7 +52,7 @@ architecture:
       grpcReadTimeout: 1h
       grpcSendTimeout: 1h
     backhaul:
-      requireSingleEncryptedBridge: true
+      requireMultiTransportPool: true
       failClosed: true
       endpointEgressOnly: true
   # Four-address Entry ingress contract: one service-facing address that never
@@ -250,6 +250,7 @@ privateProfiles:
     hysteriaSalamanderTransit: hysteria/transit-salamander-password
     hysteriaStatsEntry: hysteria/entry-stats-secret
     hysteriaStatsTransit: hysteria/transit-stats-secret
+    hysteriaEndpointBackhaulAuth: credentials/hysteria-endpoint-backhaul-auth
     xrayChainBridgeClientId: xray/chain-bridge-client-id
     mieruClient: mieru/client.json
     mieruServer: mieru/server.json
@@ -282,6 +283,7 @@ privateProfiles:
     hysteriaSalamanderTransit: hysteria-transit-salamander-password
     hysteriaStatsEntry: hysteria-entry-stats-secret
     hysteriaStatsTransit: hysteria-transit-stats-secret
+    hysteriaEndpointBackhaulAuth: hysteria-endpoint-backhaul-auth
     xrayChainBridgeClientId: xray-chain-bridge-client-id
     mieruClient: mieru-client-json
     mieruServer: mieru-server-json
@@ -820,6 +822,36 @@ gateway:
       resources: {}
 
 interconnect:
+  # Shared Entry -> Endpoint client-traffic backhaul. XHTTP/REALITY remains the
+  # primary carrier; Hysteria2/Salamander is an independent fail-closed fallback.
+  endpointBackhaul:
+    enabled: false
+    primary: vless-reality-xhttp
+    secondary: hysteria2-salamander
+    selection:
+      strategy: roundRobin
+      stickyScope: connection
+      maxParallelDials: 1
+    health:
+      payloadProbeRequired: true
+      probeUrl: https://yandex.ru/
+      probeInterval: 30s
+    hysteria2:
+      enabled: false
+      endpointHost: ""
+      endpointPort: 4443
+      serverName: ""
+      entrySocksPort: 11086
+      allowedSources: []
+      fastOpen: false
+      lazy: false
+      quic:
+        maxIdleTimeout: 30s
+        keepAlivePeriod: 10s
+        disablePathMTUDiscovery: false
+      congestion:
+        type: bbr
+        profile: conservative
   emergencyXrayChain:
     enabled: false
     socksPort: 11082
@@ -831,6 +863,19 @@ interconnect:
     # this on a restricted interconnect port when public TLS demux is unhealthy.
     endpointListenHost: "127.0.0.1"
     serverName: chain.example.com
+    # Optional connect-level SNI shard pool. Each row creates a dedicated
+    # Endpoint REALITY inbound and Entry XHTTP outbound in the same Xray
+    # processes. Keep destinations and SNI values aligned.
+    shards: []
+    xhttp:
+      clientMode: stream-one
+      serverMode: auto
+      xmux:
+        maxConnections: 1
+        cMaxReuseTimes: "32-64"
+        hMaxRequestTimes: "256-384"
+        hMaxReusableSecs: "600-900"
+        hKeepAlivePeriod: 45
     # Optional source allowlist for the Endpoint-side chain bridge SNI.
     # When set, the Endpoint TLS mux rejects this SNI unless the source matches.
     allowedSources: []

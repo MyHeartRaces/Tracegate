@@ -10,6 +10,12 @@
 {{- $roleHysteriaSalamanderSecretKey := ternary $.Values.privateProfiles.secretKeys.hysteriaSalamanderEntry $.Values.privateProfiles.secretKeys.hysteriaSalamanderTransit (eq $roleName "entry") }}
 {{- $roleHysteriaStatsKey := ternary $.Values.privateProfiles.keys.hysteriaStatsEntry $.Values.privateProfiles.keys.hysteriaStatsTransit (eq $roleName "entry") }}
 {{- $roleHysteriaStatsSecretKey := ternary $.Values.privateProfiles.secretKeys.hysteriaStatsEntry $.Values.privateProfiles.secretKeys.hysteriaStatsTransit (eq $roleName "entry") }}
+{{- $endpointBackhaul := $.Values.interconnect.endpointBackhaul | default dict }}
+{{- $endpointBackhaulHysteria := dig "hysteria2" (dict) $endpointBackhaul }}
+{{- $endpointBackhaulHysteriaEnabled := and ($endpointBackhaul.enabled | default false) (dig "enabled" false $endpointBackhaulHysteria) }}
+{{- $roleEndpointBackhaulHysteriaClientEnabled := and (eq $roleName "entry") $endpointBackhaulHysteriaEnabled }}
+{{- $endpointBackhaulAuthKey := $.Values.privateProfiles.keys.hysteriaEndpointBackhaulAuth }}
+{{- $endpointBackhaulAuthSecretKey := $.Values.privateProfiles.secretKeys.hysteriaEndpointBackhaulAuth }}
 {{- $roleZapretKey := ternary $.Values.privateProfiles.keys.zapretEntry $.Values.privateProfiles.keys.zapretTransit (eq $roleName "entry") }}
 {{- $roleZapretSecretKey := ternary $.Values.privateProfiles.secretKeys.zapretEntry $.Values.privateProfiles.secretKeys.zapretTransit (eq $roleName "entry") }}
 {{- $roleShadowsocks2022Key := ternary $.Values.privateProfiles.keys.shadowsocks2022Entry $.Values.privateProfiles.keys.shadowsocks2022Transit (eq $roleName "entry") }}
@@ -243,6 +249,14 @@ spec:
                 path: {{ $roleHysteriaSalamanderKey }}
               - key: {{ $roleHysteriaStatsSecretKey }}
                 path: {{ $roleHysteriaStatsKey }}
+{{- if $endpointBackhaulHysteriaEnabled }}
+              - key: {{ $endpointBackhaulAuthSecretKey }}
+                path: {{ $endpointBackhaulAuthKey }}
+{{- end }}
+{{- if $roleEndpointBackhaulHysteriaClientEnabled }}
+              - key: {{ $.Values.privateProfiles.secretKeys.hysteriaSalamanderTransit }}
+                path: {{ $.Values.privateProfiles.keys.hysteriaSalamanderTransit }}
+{{- end }}
 {{- if $.Values.interconnect.emergencyXrayChain.enabled }}
               - key: {{ $.Values.privateProfiles.secretKeys.xrayChainBridgeClientId }}
                 path: {{ $.Values.privateProfiles.keys.xrayChainBridgeClientId }}
@@ -432,6 +446,9 @@ spec:
               mkdir -p /state/base/xray /state/base/haproxy /state/base/nginx /state/base/hysteria /state/runtime/xray /state/runtime/haproxy /state/runtime/nginx /state/runtime/hysteria
               cp /base/xray/config.json /state/base/xray/config.json
               cp /base/hysteria/server.yaml /state/base/hysteria/server.yaml
+{{- if $roleEndpointBackhaulHysteriaClientEnabled }}
+              cp /base/hysteria/backhaul-client.yaml /state/base/hysteria/backhaul-client.yaml
+{{- end }}
               escape_sed_replacement() {
                 printf '%s' "$1" | sed 's/[\/&|\\]/\\&/g'
               }
@@ -471,10 +488,17 @@ spec:
 {{- end }}
               replace_hysteria_literal REPLACE_HYSTERIA_SALAMANDER_PASSWORD "$(read_secret_file "{{ $.Values.privateProfiles.mountPath }}/{{ $roleHysteriaSalamanderKey }}")"
               replace_hysteria_literal REPLACE_HYSTERIA_STATS_SECRET "$(read_secret_file "{{ $.Values.privateProfiles.mountPath }}/{{ $roleHysteriaStatsKey }}")"
+{{- if $roleEndpointBackhaulHysteriaClientEnabled }}
+              replace_literal_in_file /state/base/hysteria/backhaul-client.yaml REPLACE_HYSTERIA_ENDPOINT_BACKHAUL_AUTH "$(read_secret_file "{{ $.Values.privateProfiles.mountPath }}/{{ $endpointBackhaulAuthKey }}")"
+              replace_literal_in_file /state/base/hysteria/backhaul-client.yaml REPLACE_HYSTERIA_ENDPOINT_BACKHAUL_SALAMANDER_PASSWORD "$(read_secret_file "{{ $.Values.privateProfiles.mountPath }}/{{ $.Values.privateProfiles.keys.hysteriaSalamanderTransit }}")"
+{{- end }}
               cp /base/haproxy/haproxy.cfg /state/base/haproxy/haproxy.cfg
               cp /base/nginx/nginx.conf /state/base/nginx/nginx.conf
               [ -f /state/runtime/xray/config.json ] || cp /state/base/xray/config.json /state/runtime/xray/config.json
               cp /state/base/hysteria/server.yaml /state/runtime/hysteria/server.yaml
+{{- if $roleEndpointBackhaulHysteriaClientEnabled }}
+              cp /state/base/hysteria/backhaul-client.yaml /state/runtime/hysteria/backhaul-client.yaml
+{{- end }}
               cp /state/base/haproxy/haproxy.cfg /state/runtime/haproxy/haproxy.cfg
               cp /state/base/nginx/nginx.conf /state/runtime/nginx/nginx.conf
 {{- if $mtprotoRuntimeRoleEnabled }}
@@ -715,6 +739,13 @@ spec:
               value: {{ $.Values.gateway.trafficShaping.hysteria.ignoreClientBandwidth | quote }}
             - name: HYSTERIA_ENTRY_CHAIN_IGNORE_CLIENT_BANDWIDTH
               value: {{ $.Values.gateway.trafficShaping.hysteria.entryChainIgnoreClientBandwidth | quote }}
+{{- if $endpointBackhaulHysteriaEnabled }}
+            - name: HYSTERIA_ENDPOINT_BACKHAUL_AUTH_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "tracegate.privateProfilesSecretName" $ }}
+                  key: {{ $endpointBackhaulAuthSecretKey }}
+{{- end }}
             - name: AGENT_NODE_ENCRYPTION_ENABLED
               value: {{ $.Values.gateway.nodeEncryption.enabled | quote }}
             - name: AGENT_NODE_ENCRYPTION_REQUIRED
@@ -1066,6 +1097,41 @@ spec:
             - name: tls
               mountPath: /etc/tracegate/tls
               readOnly: true
+{{- if $roleEndpointBackhaulHysteriaClientEnabled }}
+        - name: hysteria-backhaul-client
+          image: {{ include "tracegate.image" $.Values.gateway.images.hysteria | quote }}
+          imagePullPolicy: {{ $.Values.gateway.images.hysteria.pullPolicy }}
+          command: ["hysteria", "client", "-c", "/etc/hysteria/backhaul-client.yaml"]
+{{- with (index $roleContainerResources "hysteria") }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+{{- end }}
+{{- if $.Values.gateway.probes.enabled }}
+          startupProbe:
+            exec:
+              command: ["sh", "-lc", "test -s /etc/hysteria/backhaul-client.yaml"]
+            periodSeconds: {{ int $.Values.gateway.probes.startup.periodSeconds }}
+            failureThreshold: {{ int $.Values.gateway.probes.startup.failureThreshold }}
+            timeoutSeconds: {{ int $.Values.gateway.probes.startup.timeoutSeconds }}
+          readinessProbe:
+            tcpSocket:
+              host: 127.0.0.1
+              port: {{ int (dig "entrySocksPort" 11086 $endpointBackhaulHysteria) }}
+            periodSeconds: {{ int $.Values.gateway.probes.readiness.periodSeconds }}
+            failureThreshold: {{ int $.Values.gateway.probes.readiness.failureThreshold }}
+            timeoutSeconds: {{ int $.Values.gateway.probes.readiness.timeoutSeconds }}
+          livenessProbe:
+            exec:
+              command: ["sh", "-lc", "test -s /etc/hysteria/backhaul-client.yaml"]
+            periodSeconds: {{ int $.Values.gateway.probes.liveness.periodSeconds }}
+            failureThreshold: {{ int $.Values.gateway.probes.liveness.failureThreshold }}
+            timeoutSeconds: {{ int $.Values.gateway.probes.liveness.timeoutSeconds }}
+{{- end }}
+          volumeMounts:
+            - name: gateway-state
+              mountPath: /etc/hysteria
+              subPath: runtime/hysteria
+{{- end }}
 {{- if $roleEntryTrafficShaperEnabled }}
         - name: entry-traffic-shaper
           image: {{ include "tracegate.image" $.Values.global.image | quote }}

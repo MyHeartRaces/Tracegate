@@ -12,6 +12,7 @@ from tracegate.services.runtime_contract import TRACEGATE22_CLIENT_PROFILES
 CHART_ROOT = Path("deploy/k3s/tracegate")
 K3S_PROD_EXAMPLE = Path("deploy/k3s/values-prod.example.yaml")
 ENTRY_ENDPOINT_EXAMPLE = Path("deploy/k3s/values-entry-endpoint.example.yaml")
+UNIVERSAL_ENTRY_EXAMPLE = Path("deploy/k3s/values-universal-entry.example.yaml")
 PRIVATE_PROFILE_BODY_CANARIES = (
     "client-private-secret",
     "server-private-secret",
@@ -42,7 +43,7 @@ def _chart_text() -> str:
 
 def _public_k3s_text() -> str:
     paths = [path for path in CHART_ROOT.rglob("*") if path.is_file()]
-    paths.extend([K3S_PROD_EXAMPLE, ENTRY_ENDPOINT_EXAMPLE])
+    paths.extend([K3S_PROD_EXAMPLE, ENTRY_ENDPOINT_EXAMPLE, UNIVERSAL_ENTRY_EXAMPLE])
     return "\n".join(path.read_text(encoding="utf-8") for path in sorted(paths, key=str))
 
 
@@ -496,13 +497,35 @@ def _universal_entry_overlay_values() -> dict:
         },
         "serverPolicy": {"grpcReadTimeout": "1h", "grpcSendTimeout": "1h"},
         "backhaul": {
-            "requireSingleEncryptedBridge": True,
+            "requireMultiTransportPool": True,
             "failClosed": True,
             "endpointEgressOnly": True,
         },
     }
     values["controlPlane"]["env"]["enabledClientProfiles"] = ["universal"]
     values["interconnect"]["emergencyXrayChain"]["allowedSources"] = ["8.8.4.4"]
+    values["interconnect"]["emergencyXrayChain"]["shards"] = [
+        {
+            "id": "yandex",
+            "serverName": "yandex.ru",
+            "dest": "yandex.ru:443",
+            "endpointListenPort": 2451,
+            "path": "/api/v1/backhaul/yandex",
+        },
+        {
+            "id": "wb",
+            "serverName": "splitter.wb.ru",
+            "dest": "splitter.wb.ru:443",
+            "endpointListenPort": 2452,
+            "path": "/api/v1/backhaul/wb",
+        },
+    ]
+    values["interconnect"]["endpointBackhaul"] = _values()["interconnect"]["endpointBackhaul"]
+    values["interconnect"]["endpointBackhaul"]["enabled"] = True
+    values["interconnect"]["endpointBackhaul"]["hysteria2"]["enabled"] = True
+    values["interconnect"]["endpointBackhaul"]["hysteria2"]["endpointHost"] = "198.51.100.20"
+    values["interconnect"]["endpointBackhaul"]["hysteria2"]["serverName"] = "endpoint.prod.test"
+    values["interconnect"]["endpointBackhaul"]["hysteria2"]["allowedSources"] = ["8.8.4.4"]
     return values
 
 
@@ -590,6 +613,31 @@ def test_k3s_strict_prod_overlay_check_accepts_universal_entry_overlay(tmp_path:
     assert firewall.returncode == 0, firewall.stderr
     assert "ip daddr 8.8.4.4 tcp dport 443" in firewall.stdout
     assert "reject with tcp reset" in firewall.stdout
+
+
+def test_k3s_strict_prod_overlay_check_rejects_conflicting_xhttp_xmux_limits(tmp_path: Path) -> None:
+    values = _universal_entry_overlay_values()
+    values["interconnect"]["emergencyXrayChain"]["xhttp"] = {"xmux": {"maxConcurrency": "8-16"}}
+    values_path = tmp_path / "values-universal-entry.yaml"
+    values_path.write_text(yaml.safe_dump(values, sort_keys=True), encoding="utf-8")
+
+    validation = subprocess.run(
+        [
+            "python3",
+            "deploy/k3s/prod-overlay-check.py",
+            "--strict",
+            "--chart-values",
+            str(CHART_ROOT / "values.yaml"),
+            "--values",
+            str(values_path),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert validation.returncode != 0
+    assert "XHTTP xmux.maxConcurrency conflicts with maxConnections" in validation.stderr
 
 
 def test_k3s_four_ip_entry_overlay_binds_only_shards_and_renders_firewall(tmp_path: Path) -> None:
@@ -1046,6 +1094,7 @@ def test_tracegate21_chart_externalizes_private_profiles() -> None:
     assert values["privateProfiles"]["secretKeys"]["hysteriaSalamanderTransit"] == "hysteria-transit-salamander-password"
     assert values["privateProfiles"]["secretKeys"]["hysteriaStatsEntry"] == "hysteria-entry-stats-secret"
     assert values["privateProfiles"]["secretKeys"]["hysteriaStatsTransit"] == "hysteria-transit-stats-secret"
+    assert values["privateProfiles"]["secretKeys"]["hysteriaEndpointBackhaulAuth"] == "hysteria-endpoint-backhaul-auth"
     assert values["privateProfiles"]["secretKeys"]["shadowsocks2022Entry"] == "shadowsocks2022-entry-server-json"
     assert values["privateProfiles"]["secretKeys"]["shadowsocks2022Transit"] == "shadowsocks2022-transit-server-json"
     assert values["privateProfiles"]["secretKeys"]["shadowtlsEntry"] == "shadowtls-entry-config-yaml"
@@ -3062,7 +3111,7 @@ def test_tracegate22_entry_ingress_rejects_duplicate_client_ip(tmp_path: Path) -
     assert "architecture.entryIngress.shards[].publicIp values must be unique" in rendered.stderr
 
 
-def test_tracegate22_universal_entry_routes_all_entry_traffic_through_one_bridge(tmp_path: Path) -> None:
+def test_tracegate22_universal_entry_routes_all_entry_traffic_through_dual_transport_pool(tmp_path: Path) -> None:
     values = _universal_entry_overlay_values()
 
     rendered = _helm_template_with_values(tmp_path, values)
@@ -3073,18 +3122,59 @@ def test_tracegate22_universal_entry_routes_all_entry_traffic_through_one_bridge
         for doc in _helm_docs(rendered.stdout)
         if doc.get("kind") == "ConfigMap" and isinstance(doc.get("data"), dict)
     }
+    deployments = {
+        doc["metadata"]["name"]: doc
+        for doc in _helm_docs(rendered.stdout)
+        if doc.get("kind") == "Deployment"
+    }
     entry_xray = json.loads(configmaps["tracegate-tracegate-gateway-entry-xray"]["data"]["config.json"])
     entry_nginx = configmaps["tracegate-tracegate-gateway-entry-nginx"]["data"]["nginx.conf"]
+    entry_hysteria = configmaps["tracegate-tracegate-gateway-entry-hysteria"]["data"]
+    endpoint_xray = json.loads(configmaps["tracegate-tracegate-gateway-transit-xray"]["data"]["config.json"])
+    endpoint_haproxy = configmaps["tracegate-tracegate-gateway-transit-haproxy"]["data"]["haproxy.cfg"]
+    entry_containers = _containers_by_name(deployments["tracegate-tracegate-gateway-entry"]["spec"]["template"])
     user_rules = [
         rule
         for rule in entry_xray["routing"]["rules"]
         if "vless-grpc-in" in rule.get("inboundTag", [])
     ]
 
-    assert any(rule.get("outboundTag") == "chain-to-transit" for rule in user_rules)
+    assert any(rule.get("balancerTag") == "endpoint-backhaul" for rule in user_rules)
     assert not any(rule.get("outboundTag") == "direct" for rule in user_rules)
-    assert entry_xray["outbounds"][0]["tag"] == "chain-to-transit"
-    assert entry_xray["outbounds"][0]["streamSettings"]["security"] == "reality"
+    xhttp_outbounds = [row for row in entry_xray["outbounds"] if str(row.get("tag", "")).startswith("chain-xhttp-")]
+    assert len(xhttp_outbounds) == 2
+    assert {row["streamSettings"]["realitySettings"]["serverName"] for row in xhttp_outbounds} == {
+        "yandex.ru",
+        "splitter.wb.ru",
+    }
+    assert all(row["streamSettings"]["xhttpSettings"]["mode"] == "stream-one" for row in xhttp_outbounds)
+    assert all(row["streamSettings"]["xhttpSettings"]["extra"]["xmux"]["maxConnections"] == 1 for row in xhttp_outbounds)
+    assert any(row.get("tag") == "chain-hysteria2" for row in entry_xray["outbounds"])
+    assert entry_xray["routing"]["balancers"] == [
+        {
+            "tag": "endpoint-backhaul",
+            "selector": ["chain-xhttp-"],
+            "fallbackTag": "chain-hysteria2",
+            "strategy": {"type": "roundRobin"},
+        }
+    ]
+    assert entry_xray["observatory"]["subjectSelector"] == ["chain-xhttp-"]
+    assert entry_xray["observatory"]["probeURL"] == "https://yandex.ru/"
+    assert "backhaul-client.yaml" in entry_hysteria
+    assert "REPLACE_HYSTERIA_ENDPOINT_BACKHAUL_AUTH" in entry_hysteria["backhaul-client.yaml"]
+    backhaul_client = yaml.safe_load(entry_hysteria["backhaul-client.yaml"])
+    assert backhaul_client["server"] == "198.51.100.20:4443"
+    assert backhaul_client["obfs"]["type"] == "salamander"
+    assert backhaul_client["quic"]["keepAlivePeriod"] == "10s"
+    assert backhaul_client["congestion"] == {"type": "bbr", "bbrProfile": "conservative"}
+    assert backhaul_client["socks5"] == {"listen": "127.0.0.1:11086", "disableUDP": False}
+    assert "hysteria-backhaul-client" in entry_containers
+    assert {row["tag"] for row in endpoint_xray["inbounds"] if str(row.get("tag", "")).startswith("chain-bridge-")} == {
+        "chain-bridge-yandex-in",
+        "chain-bridge-wb-in",
+    }
+    assert "use_backend be_chain_bridge_yandex if chain_bridge_yandex_sni chain_bridge_yandex_src" in endpoint_haproxy
+    assert "use_backend be_chain_bridge_wb if chain_bridge_wb_sni chain_bridge_wb_src" in endpoint_haproxy
     assert "grpc_read_timeout 1h;" in entry_nginx
     assert "grpc_send_timeout 1h;" in entry_nginx
 
@@ -3108,6 +3198,46 @@ def test_tracegate22_universal_entry_rejects_parallel_ingress_rotation(tmp_path:
 
     assert rendered.returncode != 0
     assert "architecture.universalEntry.enabled=true forbids architecture.ingressRotation.enabled=true" in rendered.stderr
+
+
+def test_tracegate22_universal_entry_rejects_parallel_backhaul_dials(tmp_path: Path) -> None:
+    values = _universal_entry_overlay_values()
+    values["interconnect"]["endpointBackhaul"]["selection"]["maxParallelDials"] = 2
+
+    rendered = _helm_template_with_values(tmp_path, values)
+
+    assert rendered.returncode != 0
+    assert "interconnect.endpointBackhaul.selection.maxParallelDials must stay 1" in rendered.stderr
+
+
+def test_tracegate22_universal_entry_rejects_conflicting_xhttp_xmux_limits(tmp_path: Path) -> None:
+    values = _universal_entry_overlay_values()
+    values["interconnect"]["emergencyXrayChain"]["xhttp"] = {"xmux": {"maxConcurrency": "8-16"}}
+
+    rendered = _helm_template_with_values(tmp_path, values)
+
+    assert rendered.returncode != 0
+    assert "xhttp.xmux.maxConnections and maxConcurrency cannot be set together" in rendered.stderr
+
+
+def test_tracegate22_universal_entry_rejects_duplicate_xhttp_shard_sni(tmp_path: Path) -> None:
+    values = _universal_entry_overlay_values()
+    values["interconnect"]["emergencyXrayChain"]["shards"][1]["serverName"] = "yandex.ru"
+
+    rendered = _helm_template_with_values(tmp_path, values)
+
+    assert rendered.returncode != 0
+    assert "interconnect.emergencyXrayChain.shards[].serverName values must be unique" in rendered.stderr
+
+
+def test_tracegate22_universal_entry_rejects_disabled_hysteria_fallback(tmp_path: Path) -> None:
+    values = _universal_entry_overlay_values()
+    values["interconnect"]["endpointBackhaul"]["hysteria2"]["enabled"] = False
+
+    rendered = _helm_template_with_values(tmp_path, values)
+
+    assert rendered.returncode != 0
+    assert "requires interconnect.endpointBackhaul.hysteria2.enabled=true" in rendered.stderr
 
 
 def test_tracegate22_k3s_renders_naiveproxy_tcp443_demux(tmp_path: Path) -> None:

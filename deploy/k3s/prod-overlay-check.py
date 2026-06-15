@@ -115,6 +115,10 @@ def _entry_small_containers(values: Mapping[str, Any]) -> list[str]:
     mieru = _as_dict(interconnect.get("mieru"))
     zapret2 = _as_dict(interconnect.get("zapret2"))
     containers = ["agent", "haproxy", "nginx", "xray", "hysteria"]
+    endpoint_backhaul = _as_dict(interconnect.get("endpointBackhaul"))
+    if bool(endpoint_backhaul.get("enabled", False)) and bool(_as_dict(endpoint_backhaul.get("hysteria2")).get("enabled", False)):
+        # The shared Endpoint fallback adds one Hysteria2 client sidecar on Entry.
+        containers.append("hysteria")
     if bool(mieru.get("enabled", False)) and (
         bool(entry_transit.get("enabled", False)) or bool(_as_dict(entry_transit.get("routerEntry")).get("enabled", False))
     ):
@@ -782,10 +786,20 @@ def validate_prod_overlay(chart_values: Path, prod_values: Path, *, strict: bool
         origin_firewall = _as_dict(universal_entry.get("originFirewall"))
         client_policy = _as_dict(universal_entry.get("clientPolicy"))
         backhaul = _as_dict(universal_entry.get("backhaul"))
+        endpoint_backhaul = _as_dict(interconnect.get("endpointBackhaul"))
+        endpoint_backhaul_selection = _as_dict(endpoint_backhaul.get("selection"))
+        endpoint_backhaul_health = _as_dict(endpoint_backhaul.get("health"))
+        endpoint_backhaul_hysteria = _as_dict(endpoint_backhaul.get("hysteria2"))
         allowed_source_cidrs, invalid_source_cidrs = _valid_public_ipv4_networks(origin_firewall.get("allowedSourceCidrs"))
         enabled_client_profiles = {_text(value).lower() for value in _as_list(env.get("enabledClientProfiles")) if _text(value)}
         chain_bridge = _as_dict(interconnect.get("emergencyXrayChain"))
         chain_allowed_sources = {_text(value) for value in _as_list(chain_bridge.get("allowedSources")) if _text(value)}
+        chain_shards = [_as_dict(row) for row in _as_list(chain_bridge.get("shards"))]
+        chain_xhttp = _as_dict(chain_bridge.get("xhttp"))
+        chain_xmux = _as_dict(chain_xhttp.get("xmux"))
+        hysteria_allowed_sources = {
+            _text(value) for value in _as_list(endpoint_backhaul_hysteria.get("allowedSources")) if _text(value)
+        }
         entry_public_ip = _text(entry_topology.get("publicIp"))
 
         require(architecture_mode == "entry-endpoint", "Universal Entry requires architecture.mode=entry-endpoint")
@@ -807,12 +821,36 @@ def validate_prod_overlay(chart_values: Path, prod_values: Path, *, strict: bool
         require(bool(client_policy.get("multiplexSingleTls", False)), "Universal Entry must multiplex over one TLS connection")
         require(_as_int(client_policy.get("maxParallelHandshakes")) == 1, "Universal Entry maxParallelHandshakes must stay 1")
         require(bool(client_policy.get("jitter", False)), "Universal Entry reconnect jitter must stay enabled")
-        require(bool(backhaul.get("requireSingleEncryptedBridge", False)), "Universal Entry requires one encrypted bridge")
+        require(bool(backhaul.get("requireMultiTransportPool", False)), "Universal Entry requires a multi-transport backhaul pool")
         require(bool(backhaul.get("failClosed", False)), "Universal Entry backhaul must fail closed")
         require(bool(backhaul.get("endpointEgressOnly", False)), "Universal Entry traffic must egress through Endpoint")
         require(enabled_client_profiles == {"universal"}, "Universal Entry deployment must expose only the universal client profile")
         require(bool(chain_bridge.get("enabled", False)), "Universal Entry requires interconnect.emergencyXrayChain.enabled=true")
         require(entry_public_ip in chain_allowed_sources, "Universal Entry chain bridge allowedSources must include Entry publicIp")
+        require(bool(endpoint_backhaul.get("enabled", False)), "Universal Entry requires interconnect.endpointBackhaul.enabled=true")
+        require(_text(endpoint_backhaul.get("primary")) == "vless-reality-xhttp", "Universal Entry primary backhaul must stay vless-reality-xhttp")
+        require(_text(endpoint_backhaul.get("secondary")) == "hysteria2-salamander", "Universal Entry secondary backhaul must stay hysteria2-salamander")
+        require(_text(endpoint_backhaul_selection.get("strategy")) == "roundRobin", "Universal Entry connect sharding must stay roundRobin")
+        require(_text(endpoint_backhaul_selection.get("stickyScope")) == "connection", "Universal Entry connect sharding must stay connection-sticky")
+        require(_as_int(endpoint_backhaul_selection.get("maxParallelDials")) == 1, "Universal Entry maxParallelDials must stay 1")
+        require(bool(endpoint_backhaul_health.get("payloadProbeRequired", False)), "Universal Entry backhaul payload probes must stay required")
+        require(bool(endpoint_backhaul_hysteria.get("enabled", False)), "Universal Entry Hysteria2 fallback must stay enabled")
+        require(
+            _as_int(endpoint_backhaul_hysteria.get("endpointPort")) == _as_int(_as_dict(transit.get("ports")).get("publicUdp")),
+            "Universal Entry Hysteria2 endpointPort must match Endpoint publicUdp",
+        )
+        require(entry_public_ip in hysteria_allowed_sources, "Universal Entry Hysteria2 allowedSources must include Entry publicIp")
+        require(not bool(endpoint_backhaul_hysteria.get("fastOpen", True)), "Universal Entry Hysteria2 fastOpen must stay false")
+        require(not bool(endpoint_backhaul_hysteria.get("lazy", True)), "Universal Entry Hysteria2 lazy must stay false")
+        require(2 <= len(chain_shards) <= 8, "Universal Entry requires 2 to 8 XHTTP connect/SNI shards")
+        require(len({_text(row.get("id")) for row in chain_shards}) == len(chain_shards), "Universal Entry XHTTP shard ids must be unique")
+        require(len({_text(row.get("serverName")) for row in chain_shards}) == len(chain_shards), "Universal Entry XHTTP shard SNI values must be unique")
+        require(len({_as_int(row.get("endpointListenPort")) for row in chain_shards}) == len(chain_shards), "Universal Entry XHTTP shard ports must be unique")
+        require(all(_is_clean_http_path(row.get("path")) for row in chain_shards), "Universal Entry XHTTP shard paths must be clean absolute paths")
+        require(_text(chain_xhttp.get("clientMode")) == "stream-one", "Universal Entry XHTTP clientMode must stay stream-one")
+        require(_text(chain_xhttp.get("serverMode")) == "auto", "Universal Entry XHTTP serverMode must stay auto")
+        require(_as_int(chain_xmux.get("maxConnections")) == 1, "Universal Entry XHTTP xmux.maxConnections must stay 1")
+        require(not _has_value(chain_xmux.get("maxConcurrency")), "Universal Entry XHTTP xmux.maxConcurrency conflicts with maxConnections")
         require(ingress_public_ips == {entry_public_ip}, "Universal Entry ingressPublicIPs must contain only the Entry publicIp")
 
     if architecture_mode == "entry-endpoint":

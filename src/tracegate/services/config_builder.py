@@ -456,6 +456,35 @@ def _entry_transit_private_relay(
     return relay
 
 
+def _entry_endpoint_backhaul_pool(*, endpoints: EndpointSet) -> dict[str, Any]:
+    return {
+        "type": "entry_endpoint_backhaul_pool",
+        "entry": endpoints.entry_host,
+        "endpoint": endpoints.transit_host,
+        "primary": {
+            "carrier": "vless-reality-xhttp",
+            "selection": "round-robin-connect-sni-shards",
+            "health": "authenticated-payload-probe",
+        },
+        "secondary": {
+            "carrier": "hysteria2-salamander",
+            "role": "fail-closed-fallback",
+            "udp_capable": True,
+        },
+        "connect_sharding": {
+            "scope": "connection",
+            "max_parallel_dials": 1,
+            "revision_sticky": False,
+        },
+        "sni_sharding": {
+            "scope": "xhttp-backhaul-shard",
+            "client_visible": False,
+        },
+        "endpoint_egress_only": True,
+        "fail_closed": True,
+    }
+
+
 
 def build_effective_config(
     *,
@@ -659,7 +688,7 @@ def build_effective_config(
             "profile": connection_profile_label(connection.protocol, connection.mode, connection.variant),
             "server": public_host,
             "chain": (
-                _entry_transit_private_relay(endpoints=endpoints, inner_transport="vless-reality-xhttp")
+                _entry_endpoint_backhaul_pool(endpoints=endpoints)
                 if is_universal_entry
                 else None
             ),
@@ -672,7 +701,9 @@ def build_effective_config(
                         "http2_single_tls_multiplexing": True,
                         "entry_role_required": True,
                         "transit_role_required": True,
-                        "private_interconnect": "xray-vless-reality",
+                        "private_interconnect": "vless-reality-xhttp+hysteria2-salamander",
+                        "connect_sharding": "round-robin-xhttp-sni-shards",
+                        "secondary_backhaul": "hysteria2-salamander",
                         "endpoint_egress_required": True,
                     }
                     if is_universal_entry

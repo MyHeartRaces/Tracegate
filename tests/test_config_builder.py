@@ -945,9 +945,14 @@ def test_grpc_tls_universal_entry_uses_proxied_entry_and_encrypted_endpoint_chai
     assert cfg["tls"]["alpn"] == ["h2"]
     assert cfg["grpc"]["authority"] == "entry-proxy.tracegate.test"
     assert cfg["chain"]["entry"] == "entry-origin.tracegate.test"
-    assert cfg["chain"]["transit"] == "endpoint.tracegate.test"
+    assert cfg["chain"]["endpoint"] == "endpoint.tracegate.test"
+    assert cfg["chain"]["primary"]["carrier"] == "vless-reality-xhttp"
+    assert cfg["chain"]["secondary"]["carrier"] == "hysteria2-salamander"
+    assert cfg["chain"]["connect_sharding"]["scope"] == "connection"
+    assert cfg["chain"]["connect_sharding"]["max_parallel_dials"] == 1
     assert cfg["design_constraints"]["cloudflare_proxied_ingress_required"] is True
     assert cfg["design_constraints"]["endpoint_egress_required"] is True
+    assert cfg["design_constraints"]["secondary_backhaul"] == "hysteria2-salamander"
 
 
 def test_grpc_tls_universal_entry_rejects_missing_proxy_hostname() -> None:

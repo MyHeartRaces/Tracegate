@@ -80,9 +80,11 @@ domains provide 45 active revision slots, including overlap revisions.
 
 The alternative one-address contract is configured under
 `architecture.universalEntry`. It exposes one `V5-Universal-Entry` profile via
-a Cloudflare-proxied gRPC/TLS/H2 hostname, requires the single encrypted
-Entry-to-Endpoint bridge, disables direct Entry user egress and forbids
-four-address sharding in the same deployment. Render and persist its mandatory
+a Cloudflare-proxied gRPC/TLS/H2 hostname and routes it through a shared
+Entry-to-Endpoint backhaul pool: connect-level VLESS/REALITY/XHTTP SNI shards
+with Hysteria2/Salamander fallback. It disables direct Entry user egress and
+forbids four-address sharding in the same deployment. Start from
+`values-universal-entry.example.yaml`, then render and persist its mandatory
 Cloudflare-only origin policy with
 `deploy/k3s/universal-entry-origin-firewall.py`.
 

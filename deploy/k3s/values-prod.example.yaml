@@ -66,6 +66,7 @@ privateProfiles:
     hysteriaSalamanderTransit: hysteria-transit-salamander-password
     hysteriaStatsEntry: hysteria-entry-stats-secret
     hysteriaStatsTransit: hysteria-transit-stats-secret
+    hysteriaEndpointBackhaulAuth: hysteria-endpoint-backhaul-auth
 
 decoy:
   # Mount the existing production decoy tree. The chart does not ship decoy

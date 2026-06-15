@@ -17,7 +17,9 @@ Transit node.
 - Endpoint owns stable outbound internet egress.
 - `gateway.roles.transit.canonicalServer: endpoint`
 - `transitRouter.enabled: false`
-- every `interconnect.entryTransit` switch is disabled
+- every legacy `interconnect.entryTransit` switch is disabled
+- Universal Entry uses `interconnect.endpointBackhaul`: shared XHTTP/REALITY
+  connect/SNI shards with a Hysteria2/Salamander fallback
 - MTProto runs on Entry and uses `entry-local-endpoint-egress`
 - no Kubernetes node has `tracegate.io/role=transit` or
   `tracegate.io/role=chain-transit`
@@ -44,11 +46,12 @@ legacy Transit node labels, even when no workload currently selects them.
 
 ## Migration Order
 
-1. Provision encrypted runtime storage and host policy on new Entry and
-   Endpoint.
+1. Provision ordinary protected runtime paths and host policy on new Entry and
+   Endpoint; keep every `gateway.nodeEncryption` guard disabled.
 2. Deploy with ingress rotation disabled.
-3. Validate authenticated, sustained payload transfer for every promoted
-   profile. A successful TCP connect is not a release gate.
+3. Validate authenticated, sustained payload transfer through every XHTTP shard
+   and through the Hysteria2 fallback. A successful TCP or QUIC handshake is
+   not a release gate.
 4. Validate Entry failure cannot cause client traffic to leave directly from
    Entry.
 5. Move a canary DNS name, wait through TTL, then issue new revisions.
