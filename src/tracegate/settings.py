@@ -429,6 +429,10 @@ class Settings(BaseSettings):
     entry_ingress_alias_token_length: int = 20
     entry_ingress_exclusive_sni_pairs_enabled: bool = False
     entry_ingress_sni_pool: list[str] = Field(default_factory=list)
+    endpoint_ingress_shards: list[dict] = Field(default_factory=list)
+    endpoint_ingress_alias_token_length: int = 20
+    endpoint_ingress_exclusive_sni_pairs_enabled: bool = False
+    endpoint_ingress_sni_pool: list[str] = Field(default_factory=list)
     mtproto_ingress_hosts: list[str] = Field(default_factory=list)
 
     # Material required to build working client configs.

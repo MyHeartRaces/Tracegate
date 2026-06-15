@@ -33,6 +33,14 @@ TRACEGATE3_CLIENT_PROFILE_KEYS = {
     "backup-shadowtls",
     "backup-wgws",
 }
+ENDPOINT_FIRST_CLIENT_PROFILE_KEYS = {
+    "reality",
+    "hysteria",
+    "backup-grpc",
+    "backup-ws",
+    "backup-shadowtls",
+    "backup-wgws",
+}
 
 
 def _read_yaml(path: Path) -> dict[str, Any]:
@@ -261,10 +269,15 @@ def validate_prod_overlay(chart_values: Path, prod_values: Path, *, strict: bool
     naiveproxy = _as_dict(merged.get("naiveproxy"))
     architecture = _as_dict(merged.get("architecture"))
     architecture_mode = _text(architecture.get("mode")) or "legacy-three-node"
+    deployment_phase = _text(architecture.get("deploymentPhase")) or "full"
+    pod_runtime_only = bool(architecture.get("podRuntimeOnly", False))
     require(
         architecture_mode in {"legacy-three-node", "entry-endpoint"},
         "architecture.mode must be legacy-three-node or entry-endpoint",
     )
+    require(deployment_phase in {"endpoint-first", "full"}, "architecture.deploymentPhase must be endpoint-first or full")
+    if deployment_phase == "endpoint-first":
+        require(architecture_mode == "entry-endpoint", "endpoint-first requires architecture.mode=entry-endpoint")
     interconnect_for_images = _as_dict(merged.get("interconnect"))
     entry_transit_for_images = _as_dict(interconnect_for_images.get("entryTransit"))
     mieru_for_images = _as_dict(interconnect_for_images.get("mieru"))
@@ -335,6 +348,9 @@ def validate_prod_overlay(chart_values: Path, prod_values: Path, *, strict: bool
 
     entry_enabled = bool(entry.get("enabled", False))
     transit_enabled = bool(transit.get("enabled", False))
+    if architecture_mode == "entry-endpoint":
+        require(transit_enabled, "entry-endpoint requires the Endpoint gateway role")
+        require(entry_enabled == (deployment_phase == "full"), "Entry gateway role must be enabled only in the full deployment phase")
     if bool(gateway.get("hostNetwork", False)) and entry_enabled and transit_enabled:
         entry_selector = _as_dict(entry.get("nodeSelector"))
         transit_selector = _as_dict(transit.get("nodeSelector"))
@@ -410,7 +426,9 @@ def validate_prod_overlay(chart_values: Path, prod_values: Path, *, strict: bool
 
     topology = _as_dict(merged.get("topology"))
     topology_servers = _as_dict(topology.get("servers"))
-    canonical_servers = {"endpoint": "Endpoint", "entry": "Entry"}
+    canonical_servers = {"endpoint": "Endpoint"}
+    if deployment_phase == "full":
+        canonical_servers["entry"] = "Entry"
     if architecture_mode == "legacy-three-node":
         canonical_servers["transit"] = "Transit"
     for server_key, display_name in canonical_servers.items():
@@ -424,8 +442,8 @@ def validate_prod_overlay(chart_values: Path, prod_values: Path, *, strict: bool
     endpoint_topology = _as_dict(topology_servers.get("endpoint"))
     transit_topology = _as_dict(topology_servers.get("transit"))
     entry_topology = _as_dict(topology_servers.get("entry"))
-    require(_text(endpoint_topology.get("publicIp")) in egress_public_ips, "Endpoint publicIp must be listed as an egress public IP")
     if architecture_mode == "legacy-three-node":
+        require(_text(endpoint_topology.get("publicIp")) in egress_public_ips, "Endpoint publicIp must be listed as an egress public IP")
         require(_text(transit_topology.get("publicIp")) in ingress_public_ips, "Transit publicIp must be listed as an ingress public IP")
     else:
         require(not _has_value(transit_topology.get("publicIp")), "entry-endpoint forbids topology.servers.transit.publicIp")
@@ -433,11 +451,12 @@ def validate_prod_overlay(chart_values: Path, prod_values: Path, *, strict: bool
             not _has_value(transit_topology.get("kubernetesNodeName")),
             "entry-endpoint forbids topology.servers.transit.kubernetesNodeName",
         )
-    require(_text(entry_topology.get("publicIp")) in ingress_public_ips, "Entry publicIp must be listed as an ingress public IP")
-    require(
-        _as_dict(entry_topology.get("nodeSelector")) == _as_dict(entry.get("nodeSelector")),
-        "topology.servers.entry.nodeSelector must match gateway.roles.entry.nodeSelector",
-    )
+    if deployment_phase == "full":
+        require(_text(entry_topology.get("publicIp")) in ingress_public_ips, "Entry publicIp must be listed as an ingress public IP")
+        require(
+            _as_dict(entry_topology.get("nodeSelector")) == _as_dict(entry.get("nodeSelector")),
+            "topology.servers.entry.nodeSelector must match gateway.roles.entry.nodeSelector",
+        )
     require(
         _as_dict(endpoint_topology.get("nodeSelector")) == _as_dict(transit.get("nodeSelector")),
         "topology.servers.endpoint.nodeSelector must match the endpoint gateway selector",
@@ -468,18 +487,13 @@ def validate_prod_overlay(chart_values: Path, prod_values: Path, *, strict: bool
     require(bool(_as_dict(gateway.get("probes")).get("enabled", False)), "gateway.probes.enabled must stay true")
     require(bool(private_preflight.get("enabled", False)), "gateway.privatePreflight.enabled must stay true")
     require(bool(private_preflight.get("forbidPlaceholders", False)), "gateway.privatePreflight.forbidPlaceholders must stay true")
-    require(bool(entry_traffic_shaping.get("enabled", False)), "gateway.trafficShaping.entry.enabled must stay true")
-    require(_has_value(entry_traffic_shaping.get("interface")), "gateway.trafficShaping.entry.interface must be set")
-    require(
-        _as_int(entry_traffic_shaping.get("maxMbit")) == 65,
-        "gateway.trafficShaping.entry.maxMbit must stay at 65",
-    )
-    require(bool(entry_traffic_shaping.get("applyEgress", False)), "gateway.trafficShaping.entry.applyEgress must stay true")
-    require(
-        bool(entry_traffic_shaping.get("applyIngressPolicing", False)),
-        "gateway.trafficShaping.entry.applyIngressPolicing must stay true",
-    )
-    require(bool(entry_traffic_shaping.get("failClosed", False)), "gateway.trafficShaping.entry.failClosed must stay true")
+    if entry_enabled:
+        require(bool(entry_traffic_shaping.get("enabled", False)), "gateway.trafficShaping.entry.enabled must stay true")
+        require(_has_value(entry_traffic_shaping.get("interface")), "gateway.trafficShaping.entry.interface must be set")
+        require(_as_int(entry_traffic_shaping.get("maxMbit")) == 65, "gateway.trafficShaping.entry.maxMbit must stay at 65")
+        require(bool(entry_traffic_shaping.get("applyEgress", False)), "gateway.trafficShaping.entry.applyEgress must stay true")
+        require(bool(entry_traffic_shaping.get("applyIngressPolicing", False)), "gateway.trafficShaping.entry.applyIngressPolicing must stay true")
+        require(bool(entry_traffic_shaping.get("failClosed", False)), "gateway.trafficShaping.entry.failClosed must stay true")
     require(bool(chain_client_traffic_shaping.get("enabled", False)), "gateway.trafficShaping.chainClient.enabled must stay true")
     require(
         1 <= _as_int(chain_client_traffic_shaping.get("maxMbit")) <= 10,
@@ -583,6 +597,14 @@ def validate_prod_overlay(chart_values: Path, prod_values: Path, *, strict: bool
     decoy = _as_dict(merged.get("decoy"))
     has_decoy_source = any(_has_value(decoy.get(key)) for key in ("hostPath", "existingClaim", "existingConfigMap"))
     require(has_decoy_source, "production decoy must use hostPath, existingClaim, or existingConfigMap, not built-in lab files")
+    if pod_runtime_only:
+        state_storage = _as_dict(gateway.get("stateStorage"))
+        existing_claims = _as_dict(state_storage.get("existingClaims"))
+        require(_text(state_storage.get("mode")) == "pvc", "podRuntimeOnly requires gateway.stateStorage.mode=pvc")
+        require(not _has_value(decoy.get("hostPath")), "podRuntimeOnly forbids decoy.hostPath")
+        for role_name, role_enabled in (("entry", entry_enabled), ("transit", transit_enabled)):
+            if role_enabled:
+                require(_has_value(existing_claims.get(role_name)), f"podRuntimeOnly requires gateway.stateStorage.existingClaims.{role_name}")
 
     require(not bool(naiveproxy.get("enabled", False)), "naiveproxy.enabled must stay false in Tracegate 3")
 
@@ -662,8 +684,10 @@ def validate_prod_overlay(chart_values: Path, prod_values: Path, *, strict: bool
 
     ingress_rotation = _as_dict(architecture.get("ingressRotation"))
     entry_ingress = _as_dict(architecture.get("entryIngress"))
+    endpoint_ingress = _as_dict(architecture.get("endpointIngress"))
     universal_entry = _as_dict(architecture.get("universalEntry"))
     entry_ingress_enabled = bool(entry_ingress.get("enabled", False))
+    endpoint_ingress_enabled = bool(endpoint_ingress.get("enabled", False))
     universal_entry_enabled = bool(universal_entry.get("enabled", False))
     ingress_rotation_enabled = bool(ingress_rotation.get("enabled", False))
     entry_rotation_hosts = [_text(host) for host in _as_list(ingress_rotation.get("entryHosts")) if _text(host)]
@@ -694,8 +718,9 @@ def validate_prod_overlay(chart_values: Path, prod_values: Path, *, strict: bool
         )
         require(
             entry_ingress_enabled
+            or endpoint_ingress_enabled
             or max(len(set(entry_rotation_hosts)), len(set(endpoint_rotation_hosts))) >= minimum_pool_size,
-            "ingress rotation requires entryIngress shards or at least one hostname pool meeting minimumPoolSize",
+            "ingress rotation requires ingress shards or at least one hostname pool meeting minimumPoolSize",
         )
         require(
             len(ingress_public_ips) >= minimum_pool_size,
@@ -743,6 +768,42 @@ def validate_prod_overlay(chart_values: Path, prod_values: Path, *, strict: bool
         require(_as_int(tcp_channel.get("maxConnectionsPerSource")) >= 1, "Entry TCP maxConnectionsPerSource must be at least 1")
         require(_as_int(tcp_channel.get("newConnectionsPer10Seconds")) >= 1, "Entry TCP newConnectionsPer10Seconds must be at least 1")
         require(bool(udp_channel.get("serviceIpRejectRequired", False)), "Entry UDP service-facing IP rejection must stay required")
+
+    if endpoint_ingress_enabled:
+        service_facing = _as_dict(endpoint_ingress.get("serviceFacing"))
+        service_ip = _text(service_facing.get("publicIp"))
+        shards = [_as_dict(shard) for shard in _as_list(endpoint_ingress.get("shards"))]
+        shard_ids = [_text(shard.get("id")) for shard in shards]
+        shard_ips = [_text(shard.get("publicIp")) for shard in shards]
+        hostname_templates = [_text(shard.get("hostnameTemplate")) for shard in shards]
+        active_shards = [shard for shard in shards if _text(shard.get("state") or "active") == "active"]
+        alias = _as_dict(endpoint_ingress.get("alias"))
+        firewall = _as_dict(endpoint_ingress.get("firewall"))
+        channel = _as_dict(endpoint_ingress.get("channel"))
+        tcp_channel = _as_dict(channel.get("tcp"))
+        udp_channel = _as_dict(channel.get("udp"))
+        endpoint_ips = {service_ip, *shard_ips}
+        normalized_endpoint_ips, invalid_endpoint_ips = _valid_public_ip_set({value for value in endpoint_ips if value})
+        expected_ingress_ips = set(shard_ips)
+        if deployment_phase == "full":
+            expected_ingress_ips.add(_text(entry_topology.get("publicIp")))
+
+        require(architecture_mode == "entry-endpoint", "Endpoint ingress sharding requires architecture.mode=entry-endpoint")
+        require(len(shards) == 3, "architecture.endpointIngress.shards must contain exactly three shards")
+        require(len(active_shards) >= 2, "Endpoint ingress sharding requires at least two active shards")
+        require(len(set(shard_ids)) == 3 and all(shard_ids), "Endpoint shard ids must be non-empty and unique")
+        require(len(set(shard_ips)) == 3 and all(shard_ips), "Endpoint shard public IPs must be non-empty and unique")
+        require(service_ip not in set(shard_ips), "Endpoint service/egress IP must be distinct from every shard IP")
+        require(len(normalized_endpoint_ips) == 4 and not invalid_endpoint_ips, "Endpoint ingress requires four distinct public IPv4 addresses")
+        require(egress_public_ips == {service_ip}, "Endpoint service-facing IP must be the only egress public IP")
+        require(ingress_public_ips == expected_ingress_ips, "ingressPublicIPs must exactly match Endpoint shards plus Entry IP in full phase")
+        require(_text(endpoint_topology.get("publicIp")) in set(shard_ips), "topology.servers.endpoint.publicIp must be one Endpoint shard IP")
+        require(all("{token}" in template for template in hostname_templates), "every Endpoint shard hostnameTemplate must contain {token}")
+        require(len(set(hostname_templates)) == 3, "Endpoint shard hostnameTemplate values must be unique")
+        require(8 <= _as_int(alias.get("tokenLength"), default=0) <= 48, "architecture.endpointIngress.alias.tokenLength must be in 8..48")
+        require(bool(firewall.get("required", False)), "architecture.endpointIngress.firewall.required must stay true")
+        require(bool(tcp_channel.get("bindShardIpsOnly", False)), "Endpoint TCP listeners must bind shard IPs only")
+        require(bool(udp_channel.get("serviceIpRejectRequired", False)), "Endpoint UDP service-facing IP rejection must stay required")
 
     if universal_entry_enabled:
         universal_host = _text(universal_entry.get("publicHost"))
@@ -817,12 +878,39 @@ def validate_prod_overlay(chart_values: Path, prod_values: Path, *, strict: bool
         require(_text(chain_xhttp.get("serverMode")) == "auto", "Universal Entry XHTTP serverMode must stay auto")
         require(_as_int(chain_xmux.get("maxConnections")) == 1, "Universal Entry XHTTP xmux.maxConnections must stay 1")
         require(not _has_value(chain_xmux.get("maxConcurrency")), "Universal Entry XHTTP xmux.maxConcurrency conflicts with maxConnections")
-        require(ingress_public_ips == {entry_public_ip}, "Universal Entry ingressPublicIPs must contain only the Entry publicIp")
+        if endpoint_ingress_enabled:
+            endpoint_shard_ips = {
+                _text(_as_dict(row).get("publicIp"))
+                for row in _as_list(endpoint_ingress.get("shards"))
+                if _text(_as_dict(row).get("publicIp"))
+            }
+            require(
+                ingress_public_ips == endpoint_shard_ips | {entry_public_ip},
+                "full ingressPublicIPs must contain the Entry IP and three Endpoint shard IPs",
+            )
+        else:
+            require(ingress_public_ips == {entry_public_ip}, "Universal Entry ingressPublicIPs must contain only the Entry publicIp")
 
     if architecture_mode == "entry-endpoint":
         require(not transit_router_enabled, "entry-endpoint forbids transitRouter.enabled=true")
         require(not link_crypto_enabled, "entry-endpoint forbids the legacy interconnect.entryTransit path")
         require(mtproto_route_mode == "entry-endpoint-tunnel", "entry-endpoint requires mtproto.route.mode=entry-endpoint-tunnel")
+        if pod_runtime_only:
+            require(endpoint_ingress_enabled, "entry-endpoint pod-only production requires architecture.endpointIngress.enabled=true")
+            enabled_profiles = {_text(value).lower() for value in _as_list(env.get("enabledClientProfiles")) if _text(value)}
+            if deployment_phase == "endpoint-first":
+                require(not universal_entry_enabled, "endpoint-first forbids Universal Entry")
+                require(enabled_profiles == ENDPOINT_FIRST_CLIENT_PROFILE_KEYS, "endpoint-first must expose only Endpoint-direct and Backup profiles")
+            else:
+                require(universal_entry_enabled, "full entry-endpoint deployment requires Universal Entry")
+                require(enabled_profiles == TRACEGATE3_CLIENT_PROFILE_KEYS, "full deployment must expose the complete Tracegate 3 client profile set")
+            require(not bool(naiveproxy.get("enabled", False)), "podRuntimeOnly forbids NaiveProxy")
+            require(not bool(_as_dict(interconnect.get("mieru")).get("enabled", False)), "podRuntimeOnly forbids Mieru")
+            require(not bool(zapret2.get("enabled", False)), "podRuntimeOnly forbids Zapret2")
+            require(not _experimental_requested(merged), "podRuntimeOnly forbids experimental profiles")
+            wireguard_runtime = _as_dict(merged.get("wireguard"))
+            require(bool(wireguard_runtime.get("enabled", False)), "podRuntimeOnly new production requires WireGuard-over-WebSocket")
+            require(bool(_as_dict(wireguard_runtime.get("wstunnel")).get("enabled", False)), "WireGuard-over-WebSocket requires the wstunnel pod container")
 
     mtproto = _as_dict(merged.get("mtproto"))
     require(bool(mtproto.get("enabled", False)), "mtproto.enabled must stay true in core Tracegate 3")

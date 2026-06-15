@@ -263,6 +263,14 @@ spec:
               value: {{ dig "exclusiveSniPairs" "enabled" false .Values.architecture.entryIngress | quote }}
             - name: ENTRY_INGRESS_SNI_POOL
               value: {{ toJson (dig "exclusiveSniPairs" "pool" (list) .Values.architecture.entryIngress) | quote }}
+            - name: ENDPOINT_INGRESS_SHARDS
+              value: {{ toJson (.Values.architecture.endpointIngress.shards | default (list)) | quote }}
+            - name: ENDPOINT_INGRESS_ALIAS_TOKEN_LENGTH
+              value: {{ int .Values.architecture.endpointIngress.alias.tokenLength | quote }}
+            - name: ENDPOINT_INGRESS_EXCLUSIVE_SNI_PAIRS_ENABLED
+              value: {{ dig "exclusiveSniPairs" "enabled" false .Values.architecture.endpointIngress | quote }}
+            - name: ENDPOINT_INGRESS_SNI_POOL
+              value: {{ toJson (dig "exclusiveSniPairs" "pool" (list) .Values.architecture.endpointIngress) | quote }}
             - name: MTPROTO_INGRESS_HOSTS
               value: {{ toJson $mtprotoIngressHosts | quote }}
             - name: REALITY_PUBLIC_KEY

@@ -60,3 +60,12 @@ def test_entry_ingress_firewall_script_is_executable() -> None:
     assert path.stat().st_mode & 0o111
     assert "tracegate_entry_ingress" in path.read_text(encoding="utf-8")
     assert yaml.safe_load(Path("deploy/k3s/tracegate/values.yaml").read_text(encoding="utf-8"))["architecture"]["entryIngress"]["firewall"]["required"] is True
+
+
+def test_endpoint_ingress_firewall_script_is_executable() -> None:
+    path = Path("deploy/k3s/endpoint-ingress-firewall.py")
+
+    assert path.stat().st_mode & 0o111
+    assert "tracegate_endpoint_ingress" in path.read_text(encoding="utf-8")
+    values = yaml.safe_load(Path("deploy/k3s/tracegate/values.yaml").read_text(encoding="utf-8"))
+    assert values["architecture"]["endpointIngress"]["firewall"]["required"] is True

@@ -1,11 +1,14 @@
-# Public-safe full-phase delta. Promote from values-endpoint-first only after
-# Endpoint payload, egress and client profile validation succeeds.
+# Public-safe first phase for the new production topology. Deploy and validate
+# Endpoint before provisioning Entry. Keep real addresses, domains, claims,
+# secrets and image digests in an ignored private overlay.
 
 architecture:
   mode: entry-endpoint
-  deploymentPhase: full
+  deploymentPhase: endpoint-first
   podRuntimeOnly: true
   ingressRotation:
+    enabled: false
+  universalEntry:
     enabled: false
   entryIngress:
     enabled: false
@@ -53,25 +56,6 @@ architecture:
         tunnelTimeout: 1h
       udp:
         serviceIpRejectRequired: true
-  universalEntry:
-    enabled: true
-    publicHost: edge.example.net
-    provider: cloudflare
-    transport: grpc-tls-h2
-    originFirewall:
-      required: true
-      denyDirectAccess: true
-      allowedSourceCidrs: [173.245.48.0/20]
-    clientPolicy:
-      multiplexSingleTls: true
-      maxParallelHandshakes: 1
-      reconnectBaseSeconds: 5
-      reconnectMaxSeconds: 120
-      jitter: true
-    backhaul:
-      requireMultiTransportPool: true
-      failClosed: true
-      endpointEgressOnly: true
 
 topology:
   servers:
@@ -83,17 +67,14 @@ topology:
       publicIp: ""
       kubernetesNodeName: ""
     entry:
-      publicIp: 203.0.113.10
-      kubernetesNodeName: tracegate-entry
-      nodeSelector: {tracegate.io/role: entry}
+      publicIp: ""
+      kubernetesNodeName: ""
 
 controlPlane:
   env:
-    defaultEntryHost: edge.example.net
     enabledClientProfiles:
       - reality
       - hysteria
-      - entry
       - backup-grpc
       - backup-ws
       - backup-shadowtls
@@ -101,7 +82,7 @@ controlPlane:
 
 network:
   egressIsolation:
-    ingressPublicIPs: [198.51.100.21, 198.51.100.22, 198.51.100.23, 203.0.113.10]
+    ingressPublicIPs: [198.51.100.21, 198.51.100.22, 198.51.100.23]
     egressPublicIPs: [198.51.100.20]
 
 decoy:
@@ -128,7 +109,7 @@ gateway:
   stateStorage:
     mode: pvc
     existingClaims:
-      entry: tracegate-entry-state
+      entry: ""
       transit: tracegate-endpoint-state
   nodeEncryption:
     enabled: false
@@ -143,11 +124,7 @@ gateway:
       expectedValue: ""
   roles:
     entry:
-      enabled: true
-      canonicalServer: entry
-      nodeSelector: {tracegate.io/role: entry}
-      tls:
-        serverName: edge.example.net
+      enabled: false
     transit:
       enabled: true
       canonicalServer: endpoint
@@ -164,48 +141,9 @@ experimentalProfiles:
 
 interconnect:
   endpointBackhaul:
-    enabled: true
-    primary: vless-reality-xhttp
-    secondary: hysteria2-salamander
-    selection:
-      strategy: roundRobin
-      stickyScope: connection
-      maxParallelDials: 1
-    health:
-      payloadProbeRequired: true
-      probeUrl: https://api.dobro.ru/
-      probeInterval: 30s
-    hysteria2:
-      enabled: true
-      endpointHost: 198.51.100.21
-      endpointPort: 443
-      serverName: endpoint.example.net
-      entrySocksPort: 11086
-      allowedSources: [203.0.113.10]
-      fastOpen: false
-      lazy: false
-      quic:
-        disablePathMTUDiscovery: false
-      congestion:
-        type: bbr
-        profile: conservative
+    enabled: false
   emergencyXrayChain:
-    enabled: true
-    endpointHost: 198.51.100.21
-    endpointPort: 443
-    allowedSources: [203.0.113.10]
-    shards:
-      - {id: lemanapro, serverName: partners.lemanapro.ru, dest: "partners.lemanapro.ru:443", endpointListenPort: 2451, path: /api/v1/backhaul/lemanapro}
-      - {id: 2gis-reviews, serverName: public-api.reviews.2gis.com, dest: "public-api.reviews.2gis.com:443", endpointListenPort: 2452, path: /api/v1/backhaul/2gis-reviews}
-    xhttp:
-      clientMode: stream-one
-      serverMode: auto
-      xmux:
-        maxConnections: 1
-        cMaxReuseTimes: "32-64"
-        hMaxRequestTimes: "256-384"
-        hMaxReusableSecs: "600-900"
-        hKeepAlivePeriod: 45
+    enabled: false
   entryTransit:
     enabled: false
     routerEntry: {enabled: false}

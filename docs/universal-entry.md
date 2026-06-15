@@ -1,8 +1,8 @@
 # Universal Entry
 
-`V5-Universal-Entry` is the one-address client ingress for new two-node
-deployments. It replaces a user-visible set of Chain transports with one
-cross-platform profile:
+`V5-Universal-Entry` is added in the full phase after the four-IP Endpoint has
+passed direct-profile validation. It replaces a user-visible set of Chain
+transports with one cross-platform profile:
 
 ```text
 Karing/sing-box client
@@ -38,11 +38,11 @@ The chart then requires:
 - one shared Hysteria2 client process on Entry, authenticated to the existing
   Endpoint Hysteria2 listener with a private backhaul token;
 - fail-closed Endpoint-only egress for all Entry user-traffic inbounds;
-- no four-IP Entry sharding and no ingress hostname rotation in the same mode.
+- no four-IP Entry sharding; the independent four-IP Endpoint remains active.
 
-The control plane must expose only the `universal` profile in a dedicated
-Universal Entry deployment. Set the active Entry node `proxy_fqdn` to the
-proxied hostname so generated profiles never publish the origin address.
+The full control plane exposes all seven Tracegate 3 profile keys. Set the
+active Entry node `proxy_fqdn` to the proxied hostname so generated Entry Chain
+profiles never publish the origin address.
 
 Render the mandatory host policy with:
 
@@ -52,10 +52,6 @@ python3 deploy/k3s/universal-entry-origin-firewall.py \
   --values /path/to/private-values.yaml \
   --output /etc/nftables.d/tracegate-universal-entry-origin.nft
 
-python3 deploy/k3s/universal-entry-endpoint-backhaul-firewall.py \
-  --chart-values deploy/k3s/tracegate/values.yaml \
-  --values /path/to/private-values.yaml \
-  --output /etc/nftables.d/tracegate-universal-entry-endpoint-backhaul.nft
 ```
 
 Refresh `architecture.universalEntry.originFirewall.allowedSourceCidrs` from
@@ -96,8 +92,8 @@ Tracegate client transport or Endpoint egress path.
 - Probe sustained authenticated payload, not only TLS handshake success.
 - Alert on reconnect rate, gRPC duration, per-shard XHTTP payload health,
   Hysteria2 fallback use and unexpected direct Entry egress.
-- Allow the Endpoint Hysteria2 listener only from configured Entry source
-  addresses. Private auth and Salamander are defense in depth.
+- Keep Endpoint Hysteria2 public for direct clients; private backhaul auth and
+  Salamander separate Entry backhaul use from direct client credentials.
 - Do not enable host-wide NFQUEUE, speculative TTL rewriting or unconditional
   ClientHello fragmentation. Promote packet changes only after carrier-specific
   sustained-payload tests.

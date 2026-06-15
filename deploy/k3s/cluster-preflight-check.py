@@ -352,6 +352,7 @@ def validate_cluster(
     checked_egress_nodes = 0
     checked_encrypted_nodes = 0
     checked_decoy_resources = 0
+    checked_gateway_state_claims = 0
 
     try:
         _kubectl_json(kubectl, context, ["get", "namespace", namespace, "-o", "json"])
@@ -418,6 +419,7 @@ def validate_cluster(
     topology = _as_dict(values.get("topology"))
     topology_servers = _as_dict(topology.get("servers"))
     endpoint_selector = _as_dict(_as_dict(topology_servers.get("endpoint")).get("nodeSelector"))
+    endpoint_ingress_enabled = _enabled(_as_dict(_as_dict(values.get("architecture")).get("endpointIngress")).get("enabled"))
     egress_isolation = _as_dict(_as_dict(values.get("network")).get("egressIsolation"))
     node_annotations = _as_dict(egress_isolation.get("nodeAnnotations"))
     check_egress_annotations = _enabled(node_annotations.get("enabled"))
@@ -486,7 +488,7 @@ def validate_cluster(
                     annotations = _as_dict(metadata.get("annotations"))
                     if check_egress_annotations:
                         selector_is_endpoint = bool(endpoint_selector) and _same_selector(selector, endpoint_selector)
-                        requires_ingress_annotation = not selector_is_endpoint
+                        requires_ingress_annotation = not selector_is_endpoint or endpoint_ingress_enabled
                         requires_egress_annotation = role_name == "transit" or selector_is_endpoint
                         ingress_ips = _csv_set(annotations.get(ingress_annotation_key))
                         if requires_ingress_annotation and node_name not in checked_ingress_annotation_nodes:
@@ -542,6 +544,23 @@ def validate_cluster(
             errors=errors,
         )
 
+    state_storage = _as_dict(gateway.get("stateStorage"))
+    if _text(state_storage.get("mode")) == "pvc":
+        existing_claims = _as_dict(state_storage.get("existingClaims"))
+        for role_name in ("entry", "transit"):
+            if not _enabled(_as_dict(roles.get(role_name)).get("enabled")):
+                continue
+            claim_name = _text(existing_claims.get(role_name))
+            if claim_name:
+                checked_gateway_state_claims += _check_resource(
+                    kubectl=kubectl,
+                    context=context,
+                    namespace=namespace,
+                    kind="pvc",
+                    name=claim_name,
+                    errors=errors,
+                )
+
     return errors, {
         "namespace": namespace,
         "secrets": checked_secrets,
@@ -549,6 +568,7 @@ def validate_cluster(
         "egressNodes": checked_egress_nodes,
         "encryptedNodes": checked_encrypted_nodes,
         "decoyResources": checked_decoy_resources,
+        "gatewayStateClaims": checked_gateway_state_claims,
     }
 
 
@@ -583,6 +603,7 @@ def main(argv: list[str] | None = None) -> int:
         f"egress_nodes={summary['egressNodes']} "
         f"encrypted_nodes={summary['encryptedNodes']} "
         f"decoy_resources={summary['decoyResources']}"
+        f" gateway_state_claims={summary['gatewayStateClaims']}"
     )
     return 0
 

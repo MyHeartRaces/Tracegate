@@ -31,7 +31,20 @@ python3 deploy/k3s/prod-overlay-check.py --strict \
 
 Production promotion gates run from the operator environment.
 
-## Universal Entry Backhaul
+## Endpoint First
+
+- Confirm Endpoint has four distinct IPv4 addresses: one service/egress and
+  three ingress shards.
+- Confirm only `gateway-transit` renders in `endpoint-first`.
+- Run `pod-runtime-readiness.py` and confirm WGWS, Telemt and all Endpoint
+  runtimes are pod containers.
+- Confirm gateway state is PVC-backed and no Endpoint gateway volume uses
+  hostPath.
+- Confirm Endpoint nftables blocks client ports on service/egress IP.
+- Validate sustained payload for Direct and every Backup profile.
+- Confirm the service/egress IP is the only observed client egress identity.
+
+## Full Backhaul
 
 - Render and apply both Universal Entry nftables policies.
 - Verify every XHTTP shard transfers sustained authenticated payload through
@@ -40,14 +53,11 @@ Production promotion gates run from the operator environment.
   bursts.
 - Verify Hysteria2/Salamander fallback transfers TCP and UDP after all XHTTP
   shards are unavailable.
-- Confirm Endpoint backhaul UDP/443 accepts only configured Entry source
-  addresses.
-- Confirm private legacy link-crypto remains isolated on UDP/4443.
 - Confirm Entry has no direct user-traffic egress during every failure test.
 
 ## MTProto
 
-- Confirm Telemt runs only on Endpoint and is loopback-bound.
+- Confirm Telemt runs only in the Endpoint gateway pod.
 - Confirm Entry TCP/443 routes only the validated FakeTLS SNI to the local
   MTProto tunnel inbound.
 - Confirm Endpoint has no public MTProto frontend in tunnel mode.
@@ -60,8 +70,8 @@ Production promotion gates run from the operator environment.
 
 - Private values are updated when chart inputs change.
 - Encrypted Secrets are current.
-- Decoy assets are stored only in the private repository or on the production
-  host storage expected by the private overlay.
+- Decoy assets are stored only in the private repository and mounted through
+  the production ConfigMap/PVC expected by the private overlay.
 - Telemt and backhaul image pins are present before promotion.
 - Any operational notes that reveal live layout stay private.
 - In `entry-endpoint` mode, cluster preflight reports no legacy Transit or

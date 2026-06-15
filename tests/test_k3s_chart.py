@@ -12,7 +12,7 @@ from tracegate.services.runtime_contract import TRACEGATE3_CLIENT_PROFILES
 CHART_ROOT = Path("deploy/k3s/tracegate")
 K3S_PROD_EXAMPLE = Path("deploy/k3s/values-prod.example.yaml")
 ENTRY_ENDPOINT_EXAMPLE = Path("deploy/k3s/values-entry-endpoint.example.yaml")
-UNIVERSAL_ENTRY_EXAMPLE = Path("deploy/k3s/values-universal-entry.example.yaml")
+ENDPOINT_FIRST_EXAMPLE = Path("deploy/k3s/values-endpoint-first.example.yaml")
 PRIVATE_PROFILE_BODY_CANARIES = (
     "client-private-secret",
     "server-private-secret",
@@ -43,7 +43,7 @@ def _chart_text() -> str:
 
 def _public_k3s_text() -> str:
     paths = [path for path in CHART_ROOT.rglob("*") if path.is_file()]
-    paths.extend([K3S_PROD_EXAMPLE, ENTRY_ENDPOINT_EXAMPLE, UNIVERSAL_ENTRY_EXAMPLE])
+    paths.extend([K3S_PROD_EXAMPLE, ENTRY_ENDPOINT_EXAMPLE, ENDPOINT_FIRST_EXAMPLE])
     return "\n".join(path.read_text(encoding="utf-8") for path in sorted(paths, key=str))
 
 
@@ -547,6 +547,56 @@ def _universal_entry_overlay_values() -> dict:
     return values
 
 
+def _pod_only_new_prod_overlay_values(*, phase: str) -> dict:
+    values = _universal_entry_overlay_values() if phase == "full" else _entry_endpoint_overlay_values(rotation=False)
+    example = yaml.safe_load(ENDPOINT_FIRST_EXAMPLE.read_text(encoding="utf-8"))
+    values["architecture"].update(
+        {
+            "deploymentPhase": phase,
+            "podRuntimeOnly": True,
+            "entryIngress": {"enabled": False},
+            "endpointIngress": example["architecture"]["endpointIngress"],
+            "universalEntry": values["architecture"].get("universalEntry", {"enabled": False})
+            if phase == "full"
+            else {"enabled": False},
+        }
+    )
+    values["architecture"]["endpointIngress"]["serviceFacing"] = {"publicIp": "1.1.1.1", "hostname": "status.prod.test"}
+    for shard, public_ip in zip(values["architecture"]["endpointIngress"]["shards"], ["8.8.8.8", "9.9.9.9", "1.0.0.1"], strict=True):
+        shard["publicIp"] = public_ip
+        shard["hostnameTemplate"] = shard["hostnameTemplate"].replace("example.net", "prod.test")
+    values["topology"]["servers"]["endpoint"]["publicIp"] = "8.8.8.8"
+    values["topology"]["servers"]["transit"]["publicIp"] = ""
+    values["gateway"]["realityMultiInboundGroups"] = example["gateway"]["realityMultiInboundGroups"]
+    values["gateway"]["stateStorage"] = {
+        "mode": "pvc",
+        "existingClaims": {"entry": "tracegate-entry-state" if phase == "full" else "", "transit": "tracegate-endpoint-state"},
+    }
+    values["gateway"]["roles"]["entry"]["enabled"] = phase == "full"
+    values["gateway"]["roles"]["transit"]["enabled"] = True
+    values["decoy"] = {"hostPath": "", "existingConfigMap": "tracegate-decoy"}
+    values["network"]["egressIsolation"]["egressPublicIPs"] = ["1.1.1.1"]
+    values["network"]["egressIsolation"]["ingressPublicIPs"] = ["8.8.8.8", "9.9.9.9", "1.0.0.1"] + (["8.8.4.4"] if phase == "full" else [])
+    values["interconnect"]["entryTransit"] = {"enabled": False, "routerEntry": {"enabled": False}, "routerTransit": {"enabled": False}}
+    values["interconnect"]["mieru"] = {"enabled": False}
+    values["interconnect"]["zapret2"] = {"enabled": False}
+    if phase == "endpoint-first":
+        values["interconnect"]["endpointBackhaul"] = {"enabled": False}
+        values["interconnect"]["emergencyXrayChain"] = {"enabled": False}
+        values["controlPlane"]["env"]["enabledClientProfiles"] = [
+            "reality",
+            "hysteria",
+            "backup-grpc",
+            "backup-ws",
+            "backup-shadowtls",
+            "backup-wgws",
+        ]
+    values["experimentalProfiles"] = {"enabled": False}
+    values["wireguard"] = {"enabled": True, "wstunnel": {"enabled": True, "mode": "wireguard-over-websocket"}}
+    values["shadowsocks2022"] = {"enabled": True}
+    return values
+
+
 def test_k3s_strict_prod_overlay_check_accepts_private_overlay(tmp_path: Path) -> None:
     values_path = tmp_path / "values-prod.yaml"
     values_path.write_text(yaml.safe_dump(_prod_overlay_values(), sort_keys=True), encoding="utf-8")
@@ -568,6 +618,29 @@ def test_k3s_strict_prod_overlay_check_accepts_private_overlay(tmp_path: Path) -
 
     assert result.returncode == 0, result.stderr
     assert "prod-overlay-check: OK" in result.stdout
+
+
+@pytest.mark.parametrize("phase", ["endpoint-first", "full"])
+def test_k3s_strict_prod_overlay_check_accepts_pod_only_new_prod(tmp_path: Path, phase: str) -> None:
+    values_path = tmp_path / f"values-{phase}.yaml"
+    values_path.write_text(yaml.safe_dump(_pod_only_new_prod_overlay_values(phase=phase), sort_keys=True), encoding="utf-8")
+
+    result = subprocess.run(
+        [
+            "python3",
+            "deploy/k3s/prod-overlay-check.py",
+            "--strict",
+            "--chart-values",
+            str(CHART_ROOT / "values.yaml"),
+            "--values",
+            str(values_path),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
 
 
 @pytest.mark.parametrize("rotation", [False, True])
@@ -871,10 +944,20 @@ def _fake_kubectl(tmp_path: Path, *, omit_private_key: str = "", include_legacy_
         "hysteria-transit-salamander-password",
         "hysteria-entry-stats-secret",
         "hysteria-transit-stats-secret",
+        "hysteria-endpoint-backhaul-auth",
+        "xray-chain-bridge-client-id",
         "mieru-client-json",
         "mieru-server-json",
         "mtproto-secret-txt",
         "wireguard-wg-conf",
+        "shadowsocks2022-entry-server-json",
+        "shadowsocks2022-transit-server-json",
+        "shadowsocks2022-entry-password",
+        "shadowsocks2022-transit-password",
+        "shadowtls-entry-config-yaml",
+        "shadowtls-transit-config-yaml",
+        "shadowtls-entry-password",
+        "shadowtls-transit-password",
         "zapret-entry-env",
         "zapret-transit-env",
         "zapret-entry-transit-env",
@@ -904,7 +987,7 @@ if args[:2] == ["get", "nodes"]:
     if selector == "tracegate.io/role=entry":
         emit({{"items": [{{"metadata": {{"name": "entry-node", "annotations": {{"tracegate.io/ingress-public-ip": "203.0.113.10", "tracegate.io/encrypted-runtime": "true"}}}}}}]}})
     if selector == "tracegate.io/role=endpoint":
-        emit({{"items": [{{"metadata": {{"name": "endpoint-node", "annotations": {{"tracegate.io/ingress-public-ip": "203.0.113.10", "tracegate.io/egress-public-ip": "198.51.100.20", "tracegate.io/encrypted-runtime": "true"}}}}}}]}})
+        emit({{"items": [{{"metadata": {{"name": "endpoint-node", "annotations": {{"tracegate.io/ingress-public-ip": "203.0.113.10,8.8.8.8,9.9.9.9,1.0.0.1", "tracegate.io/egress-public-ip": "198.51.100.20,1.1.1.1", "tracegate.io/encrypted-runtime": "true"}}}}}}]}})
     if selector == "tracegate.io/role=transit":
         if include_legacy_nodes:
             emit({{"items": [{{"metadata": {{"name": "transit-node", "annotations": {{"tracegate.io/ingress-public-ip": "203.0.113.10", "tracegate.io/egress-public-ip": "198.51.100.20", "tracegate.io/encrypted-runtime": "true"}}}}}}]}})
@@ -930,6 +1013,9 @@ if args[:2] == ["get", "secret"]:
         print("not found", file=sys.stderr)
         raise SystemExit(1)
     emit({{"data": {{key: "cmVkYWN0ZWQ=" for key in secrets[name]}}}})
+
+if args[:2] in (["get", "pvc"], ["get", "configmap"]):
+    emit({{"metadata": {{"name": args[2]}}}})
 
 print("unsupported kubectl args: " + " ".join(args), file=sys.stderr)
 raise SystemExit(1)
@@ -989,6 +1075,32 @@ def test_k3s_cluster_preflight_accepts_two_node_architecture(tmp_path: Path) -> 
 
     assert result.returncode == 0, result.stderr
     assert "nodes=2" in result.stdout
+
+
+def test_k3s_cluster_preflight_accepts_endpoint_first_pod_only_prerequisites(tmp_path: Path) -> None:
+    values = _pod_only_new_prod_overlay_values(phase="endpoint-first")
+    values_path = tmp_path / "values-endpoint-first.yaml"
+    values_path.write_text(yaml.safe_dump(values, sort_keys=True), encoding="utf-8")
+
+    result = subprocess.run(
+        [
+            "python3",
+            "deploy/k3s/cluster-preflight-check.py",
+            "--chart-values",
+            str(CHART_ROOT / "values.yaml"),
+            "--values",
+            str(values_path),
+            "--kubectl",
+            str(_fake_kubectl(tmp_path, include_legacy_nodes=False)),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "nodes=1" in result.stdout
+    assert "gateway_state_claims=1" in result.stdout
 
 
 def test_k3s_cluster_preflight_rejects_legacy_node_in_two_node_architecture(tmp_path: Path) -> None:
@@ -3617,3 +3729,33 @@ def test_tracegate21_gateway_projects_private_profile_secret_paths() -> None:
     assert '"hy2-in"' not in configmaps
     assert 'protocol": "hysteria"' not in configmaps
     assert "REPLACE_FROM_PRIVATE_SECRET" not in configmaps
+
+
+@pytest.mark.parametrize(
+    ("values_path", "phase"),
+    [
+        (ENDPOINT_FIRST_EXAMPLE, "endpoint-first"),
+        (ENTRY_ENDPOINT_EXAMPLE, "full"),
+    ],
+)
+def test_new_production_examples_render_as_pod_only_runtime(tmp_path: Path, values_path: Path, phase: str) -> None:
+    helm = shutil.which("helm")
+    if helm is None:
+        pytest.skip("helm is not installed")
+    manifest = tmp_path / f"{phase}.yaml"
+    rendered = subprocess.run(
+        [helm, "template", "tracegate", str(CHART_ROOT), "-f", str(values_path)],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert rendered.returncode == 0, rendered.stderr
+    manifest.write_text(rendered.stdout, encoding="utf-8")
+
+    readiness = subprocess.run(
+        ["python3", "deploy/k3s/pod-runtime-readiness.py", "--manifest", str(manifest), "--phase", phase],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert readiness.returncode == 0, readiness.stdout + readiness.stderr

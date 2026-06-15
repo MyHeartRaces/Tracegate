@@ -226,9 +226,16 @@ spec:
           emptyDir: {}
 {{- end }}
         - name: gateway-state
+{{- if eq (toString $.Values.gateway.stateStorage.mode) "pvc" }}
+          persistentVolumeClaim:
+            claimName: {{ required (printf "gateway.stateStorage.existingClaims.%s is required" $roleName) (index $.Values.gateway.stateStorage.existingClaims $roleName) | quote }}
+{{- else if eq (toString $.Values.gateway.stateStorage.mode) "emptyDir" }}
+          emptyDir: {}
+{{- else }}
           hostPath:
             path: {{ printf "%s/%s" $.Values.gateway.agent.dataHostPathPrefix $roleName | quote }}
             type: DirectoryOrCreate
+{{- end }}
 {{- if and $mtprotoRuntimeRoleEnabled (eq $mtprotoRuntime "telemt") }}
         - name: telemt-work
           emptyDir:

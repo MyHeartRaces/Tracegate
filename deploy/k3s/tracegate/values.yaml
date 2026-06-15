@@ -17,6 +17,12 @@ architecture:
   # installations should use entry-endpoint and keep the internal
   # gateway.roles.transit name only as an Endpoint compatibility alias.
   mode: legacy-three-node
+  # endpoint-first deploys and validates only Endpoint. full enables Entry
+  # after Endpoint payload, egress and client profile checks have passed.
+  deploymentPhase: full
+  # New production must keep every data-plane runtime in k3s pods. Host
+  # firewall policy remains an operator-managed node prerequisite.
+  podRuntimeOnly: false
   ingressRotation:
     enabled: false
     strategy: revision-sticky
@@ -58,6 +64,34 @@ architecture:
   # Four-address Entry ingress contract: one service-facing address that never
   # accepts proxy clients and exactly three client-facing shard addresses.
   entryIngress:
+    enabled: false
+    serviceFacing:
+      publicIp: ""
+      hostname: ""
+    shards: []
+    alias:
+      tokenLength: 20
+    exclusiveSniPairs:
+      enabled: false
+      pool: []
+    firewall:
+      required: true
+    channel:
+      tcp:
+        bindShardIpsOnly: true
+        maxConnections: 20000
+        maxConnectionsPerSource: 8
+        newConnectionsPer10Seconds: 12
+        inspectDelay: 5s
+        connectTimeout: 5s
+        clientTimeout: 5m
+        serverTimeout: 5m
+        tunnelTimeout: 1h
+      udp:
+        serviceIpRejectRequired: true
+  # Four-address Endpoint contract: one service/egress address that never
+  # accepts proxy clients and exactly three client-facing shard addresses.
+  endpointIngress:
     enabled: false
     serviceFacing:
       publicIp: ""
@@ -482,6 +516,13 @@ experimentalProfiles:
 
 gateway:
   enabled: true
+  stateStorage:
+    # hostPath remains for legacy installations. New production with
+    # architecture.podRuntimeOnly=true must use existing PVCs.
+    mode: hostPath
+    existingClaims:
+      entry: ""
+      transit: ""
   strategy: RollingUpdate
   allowRecreateStrategy: false
   progressDeadlineSeconds: 600

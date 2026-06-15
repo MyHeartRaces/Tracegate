@@ -10,6 +10,9 @@ metadata:
 data:
   tracegate-3-runtime.yaml: |
     architecture: Tracegate 3
+    architectureMode: {{ .Values.architecture.mode }}
+    deploymentPhase: {{ .Values.architecture.deploymentPhase }}
+    podRuntimeOnly: {{ .Values.architecture.podRuntimeOnly }}
     runtimeProfile: {{ .Values.global.runtimeProfile }}
     zeroRestartRule: "user and connection mutations must use live APIs or read-through state only; reload hooks are base/topology only"
     localSocksAuth: {{ .Values.transportProfiles.socks5.required | ternary "required" "disabled" }}
@@ -34,6 +37,12 @@ data:
       source: external-secret
       inlineProfilesAllowed: {{ .Values.privateProfiles.inlineProfiles }}
       secretName: {{ include "tracegate.privateProfilesSecretName" . }}
+    gatewayState:
+      mode: {{ .Values.gateway.stateStorage.mode }}
+    endpointIngress:
+      enabled: {{ .Values.architecture.endpointIngress.enabled }}
+      serviceFacingPublicIp: {{ .Values.architecture.endpointIngress.serviceFacing.publicIp | quote }}
+      shardCount: {{ len (.Values.architecture.endpointIngress.shards | default (list)) }}
     network:
       topology:
         servers:
@@ -625,14 +634,16 @@ data:
 {{- $roleTopology := index ($.Values.topology.servers | default dict) $roleCanonicalServer | default dict }}
 {{- $roleDisplayName := toString ($roleTopology.displayName | default (title $roleCanonicalServer)) }}
 {{- $entryIngress := $.Values.architecture.entryIngress | default dict }}
+{{- $endpointIngress := $.Values.architecture.endpointIngress | default dict }}
+{{- $roleIngress := ternary $entryIngress $endpointIngress (eq $roleName "entry") }}
 {{- $universalEntry := $.Values.architecture.universalEntry | default dict }}
 {{- $entryEndpointMode := eq (toString $.Values.architecture.mode) "entry-endpoint" }}
 {{- $universalEntryEnabled := and (eq $roleName "entry") ($universalEntry.enabled | default false) }}
 {{- $universalGrpcReadTimeout := toString (dig "serverPolicy" "grpcReadTimeout" "1h" $universalEntry) }}
 {{- $universalGrpcSendTimeout := toString (dig "serverPolicy" "grpcSendTimeout" "1h" $universalEntry) }}
-{{- $entryIngressEnabled := and (eq $roleName "entry") ($entryIngress.enabled | default false) }}
-{{- $entryIngressShards := $entryIngress.shards | default (list) }}
-{{- $entryIngressTcp := dig "channel" "tcp" (dict) $entryIngress }}
+{{- $entryIngressEnabled := $roleIngress.enabled | default false }}
+{{- $entryIngressShards := $roleIngress.shards | default (list) }}
+{{- $entryIngressTcp := dig "channel" "tcp" (dict) $roleIngress }}
 {{- $entryIngressMaxConnections := int (dig "maxConnections" 20000 $entryIngressTcp) }}
 {{- $entryIngressMaxConnectionsPerSource := int (dig "maxConnectionsPerSource" 8 $entryIngressTcp) }}
 {{- $entryIngressNewConnectionsPer10Seconds := int (dig "newConnectionsPer10Seconds" 12 $entryIngressTcp) }}
@@ -685,7 +696,7 @@ data:
 {{- if $entryIngressEnabled }}
 {{- range $shard := $entryIngressShards }}
 {{- if or (eq (toString ($shard.state | default "active")) "active") (eq (toString ($shard.state | default "active")) "draining") }}
-      bind {{ required "architecture.entryIngress.shards[].publicIp is required" $shard.publicIp }}:{{ $mtprotoPublicPort }}
+      bind {{ required "architecture ingress shards[].publicIp is required" $shard.publicIp }}:{{ $mtprotoPublicPort }}
 {{- end }}
 {{- end }}
 {{- else }}
@@ -716,7 +727,7 @@ data:
 {{- if $entryIngressEnabled }}
 {{- range $shard := $entryIngressShards }}
 {{- if or (eq (toString ($shard.state | default "active")) "active") (eq (toString ($shard.state | default "active")) "draining") }}
-      bind {{ required "architecture.entryIngress.shards[].publicIp is required" $shard.publicIp }}:{{ int $role.ports.publicTcp }}
+      bind {{ required "architecture ingress shards[].publicIp is required" $shard.publicIp }}:{{ int $role.ports.publicTcp }}
 {{- end }}
 {{- end }}
 {{- else }}

@@ -57,34 +57,41 @@ Real deployments must provide these inputs outside the public repository:
 - TLS material and decoy content for any externally exposed surfaces;
 - node labels, annotations and host policy;
 - production image pins;
-- operator-managed Entry and Endpoint firewall state.
+- operator-managed Entry and Endpoint firewall state;
+- PVCs for every enabled gateway role in pod-only production.
 
 Entry traffic shaping and chain-client limits are enabled in public values as
 guardrails. The real Entry network interface must be set in the operator
 overlay.
 
-The optional four-address Entry contract is configured under
-`architecture.entryIngress`: one service-facing IPv4 address and exactly three
-client shard IPv4 addresses. HAProxy binds only shard addresses. Because UDP
-runtimes may bind wildcard sockets, operators must render and persist the
-required host policy with `deploy/k3s/entry-ingress-firewall.py`.
+The new-production four-address Endpoint contract is configured under
+`architecture.endpointIngress`: one service/egress IPv4 address and exactly
+three client shard IPv4 addresses. HAProxy binds only shard addresses. Because
+UDP runtimes may bind wildcard sockets, operators must render and persist the
+required host policy with `deploy/k3s/endpoint-ingress-firewall.py`.
 
-New four-address deployments should enable
-`architecture.entryIngress.exclusiveSniPairs`. The control plane then leases a
-unique active `(Entry shard, SNI)` pair to each V1 Chain Reality revision.
+New deployments enable `architecture.endpointIngress.exclusiveSniPairs`. The
+control plane then leases a unique active `(Endpoint shard, SNI)` pair to each
+direct VLESS Reality revision.
 Configure 12 to 15 pool domains and exactly one
 `gateway.realityMultiInboundGroups` row per domain. Three active shards and 15
 domains provide 45 active revision slots, including overlap revisions.
 
-The alternative one-address contract is configured under
-`architecture.universalEntry`. It exposes one `V5-Universal-Entry` profile via
+The full phase adds one-address `architecture.universalEntry`. It exposes one
+`V5-Universal-Entry` profile via
 a Cloudflare-proxied gRPC/TLS/H2 hostname and routes it through a shared
 Entry-to-Endpoint backhaul pool: connect-level VLESS/REALITY/XHTTP SNI shards
 with Hysteria2/Salamander fallback. It disables direct Entry user egress and
-forbids four-address sharding in the same deployment. Start from
-`values-universal-entry.example.yaml`, then render and persist its mandatory
+uses the same four-address Endpoint. Start from
+`values-endpoint-first.example.yaml`, then promote with
+`values-entry-endpoint.example.yaml` and persist Entry's mandatory
 Cloudflare-only origin policy with
 `deploy/k3s/universal-entry-origin-firewall.py`.
+
+Set `architecture.podRuntimeOnly=true` for new production. This requires
+PVC-backed gateway state, forbids data-plane hostPath volumes and rejects
+legacy/experimental runtimes. Verify rendered manifests with
+`deploy/k3s/pod-runtime-readiness.py`.
 
 Legacy three-node deployments retain the encrypted-runtime guard documented in
 [docs/node-encryption-runbook.md](../../docs/node-encryption-runbook.md).
