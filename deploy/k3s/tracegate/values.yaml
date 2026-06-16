@@ -804,9 +804,9 @@ gateway:
         serverName: entry.example.com
         existingSecretName: tracegate-entry-tls
       reality:
-        dest: partners.lemanapro.ru:443
+        dest: cdn.lemanapro.ru:443
         serverNames:
-          - partners.lemanapro.ru
+          - cdn.lemanapro.ru
         shortIds:
           - "0123456789abcdef"
         privateKeySecret:

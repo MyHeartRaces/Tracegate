@@ -45,8 +45,8 @@ def test_settings_accept_new_entry_transit_field_names() -> None:
 def test_settings_use_less_popular_default_camouflage_domains() -> None:
     settings = Settings()
 
-    assert settings.reality_dest == "partners.lemanapro.ru:443"
-    assert settings.sni_seed == ["partners.lemanapro.ru"]
+    assert settings.reality_dest == "cdn.lemanapro.ru:443"
+    assert settings.sni_seed == ["cdn.lemanapro.ru"]
     assert settings.shadowtls_server_name_entry == "api.photo.2gis.com"
     assert settings.shadowtls_server_name_transit == "api.evotor.ru"
 

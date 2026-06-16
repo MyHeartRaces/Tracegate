@@ -525,8 +525,8 @@ def _universal_entry_overlay_values() -> dict:
     values["interconnect"]["emergencyXrayChain"]["shards"] = [
         {
             "id": "lemanapro",
-            "serverName": "partners.lemanapro.ru",
-            "dest": "partners.lemanapro.ru:443",
+            "serverName": "cdn.lemanapro.ru",
+            "dest": "cdn.lemanapro.ru:443",
             "endpointListenPort": 2451,
             "path": "/api/v1/backhaul/lemanapro",
         },
@@ -3300,7 +3300,7 @@ def test_tracegate22_universal_entry_routes_all_entry_traffic_through_dual_trans
     xhttp_outbounds = [row for row in entry_xray["outbounds"] if str(row.get("tag", "")).startswith("chain-xhttp-")]
     assert len(xhttp_outbounds) == 2
     assert {row["streamSettings"]["realitySettings"]["serverName"] for row in xhttp_outbounds} == {
-        "partners.lemanapro.ru",
+        "cdn.lemanapro.ru",
         "public-api.reviews.2gis.com",
     }
     assert all(row["streamSettings"]["xhttpSettings"]["mode"] == "stream-one" for row in xhttp_outbounds)
@@ -3403,7 +3403,7 @@ def test_tracegate22_universal_entry_rejects_conflicting_xhttp_xmux_limits(tmp_p
 
 def test_tracegate22_universal_entry_rejects_duplicate_xhttp_shard_sni(tmp_path: Path) -> None:
     values = _universal_entry_overlay_values()
-    values["interconnect"]["emergencyXrayChain"]["shards"][1]["serverName"] = "partners.lemanapro.ru"
+    values["interconnect"]["emergencyXrayChain"]["shards"][1]["serverName"] = "cdn.lemanapro.ru"
 
     rendered = _helm_template_with_values(tmp_path, values)
 

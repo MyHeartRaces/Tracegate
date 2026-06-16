@@ -23,7 +23,7 @@ architecture:
     exclusiveSniPairs:
       enabled: true
       pool:
-        - partners.lemanapro.ru
+        - cdn.lemanapro.ru
         - goya.rutube.ru
         - ssp.rutube.ru
         - api.evotor.ru
@@ -102,7 +102,7 @@ decoy:
 
 gateway:
   realityMultiInboundGroups:
-    - {id: sni-101, port: 2501, dest: partners.lemanapro.ru, snis: [partners.lemanapro.ru]}
+    - {id: sni-116, port: 2501, dest: cdn.lemanapro.ru, snis: [cdn.lemanapro.ru]}
     - {id: sni-102, port: 2502, dest: goya.rutube.ru, snis: [goya.rutube.ru]}
     - {id: sni-103, port: 2503, dest: ssp.rutube.ru, snis: [ssp.rutube.ru]}
     - {id: sni-108, port: 2508, dest: api.evotor.ru, snis: [api.evotor.ru]}
@@ -176,7 +176,7 @@ interconnect:
     endpointPort: 443
     allowedSources: [203.0.113.10]
     shards:
-      - {id: lemanapro, serverName: partners.lemanapro.ru, dest: "partners.lemanapro.ru:443", endpointListenPort: 2451, path: /api/v1/backhaul/lemanapro}
+      - {id: lemanapro, serverName: cdn.lemanapro.ru, dest: "cdn.lemanapro.ru:443", endpointListenPort: 2451, path: /api/v1/backhaul/lemanapro}
       - {id: 2gis-reviews, serverName: public-api.reviews.2gis.com, dest: "public-api.reviews.2gis.com:443", endpointListenPort: 2452, path: /api/v1/backhaul/2gis-reviews}
     xhttp:
       clientMode: stream-one

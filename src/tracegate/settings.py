@@ -460,13 +460,13 @@ class Settings(BaseSettings):
     )
     # REALITY "dest" is a single upstream used for the mimic handshake.
     # Default to a commonly reachable whitelist-friendly dest (operator can override).
-    reality_dest: str = "partners.lemanapro.ru:443"
+    reality_dest: str = "cdn.lemanapro.ru:443"
     # Optional SNI compatibility filter (used by the API/bot).
     # If empty, all enabled SNIs from DB are allowed.
     reality_sni_allow_suffixes: list[str] = Field(default_factory=list)
     # Pre-seeded SNI allow-list for REALITY inbounds. Keep it minimal to avoid
     # advertising unrelated camouflage targets by default.
-    sni_seed: list[str] = Field(default_factory=lambda: ["partners.lemanapro.ru"])
+    sni_seed: list[str] = Field(default_factory=lambda: ["cdn.lemanapro.ru"])
     # Optional REALITY multi-inbound mapping.
     # Each row is an object with:
     # - id: stable slug (used in generated inbound tag)
@@ -475,7 +475,7 @@ class Settings(BaseSettings):
     # - snis: list of client SNI values routed to this inbound
     # Example:
     # [
-    #   {"id": "shared-a", "port": 2501, "dest": "partners.lemanapro.ru", "snis": ["partners.lemanapro.ru"]}
+    #   {"id": "shared-a", "port": 2501, "dest": "cdn.lemanapro.ru", "snis": ["cdn.lemanapro.ru"]}
     # ]
     reality_multi_inbound_groups: list[dict] = Field(default_factory=list)
 

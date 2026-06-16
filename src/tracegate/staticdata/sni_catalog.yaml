@@ -90,9 +90,9 @@
   providers: []
 - id: 101
   fqdn: partners.lemanapro.ru
-  enabled: true
+  enabled: false
   is_test: false
-  note: Less-popular whitelist target; TLS 1.3 verified.
+  note: Disabled on 2026-06-16; Endpoint TLS handshake timed out from production.
   providers: []
 - id: 102
   fqdn: goya.rutube.ru
@@ -177,4 +177,10 @@
   enabled: true
   is_test: false
   note: Less-popular whitelist target; TLS 1.3 verified.
+  providers: []
+- id: 116
+  fqdn: cdn.lemanapro.ru
+  enabled: true
+  is_test: false
+  note: Less-popular whitelist target; TLS 1.3 verified from production Endpoint.
   providers: []

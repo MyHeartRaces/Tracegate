@@ -52,10 +52,10 @@
         "security": "reality",
         "realitySettings": {
           "show": false,
-          "dest": "partners.lemanapro.ru:443",
+          "dest": "cdn.lemanapro.ru:443",
           "xver": 0,
           "serverNames": [
-            "partners.lemanapro.ru"
+            "cdn.lemanapro.ru"
           ],
           "privateKey": "REPLACE_PRIVATE_KEY",
           "shortIds": [

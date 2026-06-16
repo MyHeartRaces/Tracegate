@@ -490,7 +490,7 @@ class MaterializedBundleRenderContext:
         reality_private_key_entry = _require(env, "REALITY_PRIVATE_KEY_ENTRY")
         reality_private_key_transit = _require(env, "REALITY_PRIVATE_KEY_TRANSIT")
 
-        reality_dest_default = _first(env, "REALITY_DEST", default="partners.lemanapro.ru:443")
+        reality_dest_default = _first(env, "REALITY_DEST", default="cdn.lemanapro.ru:443")
         reality_dest_entry = _first(env, "REALITY_DEST_ENTRY", default=reality_dest_default)
         reality_dest_transit = _first(env, "REALITY_DEST_TRANSIT", default=reality_dest_default)
         reality_server_name_entry = _first(env, "REALITY_SERVER_NAME_ENTRY", default=host_from_dest(reality_dest_entry))
