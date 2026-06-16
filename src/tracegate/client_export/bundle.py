@@ -166,7 +166,7 @@ def _singbox_outbounds_for_profile(
     if proto == "vless":
         vless_encryption = effective.get("vless_encryption")
         if isinstance(vless_encryption, dict) and bool(vless_encryption.get("enabled", False)):
-            warnings.append("vless_encryption_requires_xray_client")
+            warnings.append("removed_profile_not_exported")
             return [], None, warnings
         outbound = _singbox_vless_outbound(effective, tag=tag)
         if outbound:

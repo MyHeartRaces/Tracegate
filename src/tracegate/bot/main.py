@@ -310,7 +310,7 @@ def _mtproto_access_label(user: dict) -> str | None:
 def _format_mtproto_delivery_message(*, result: dict, rotate: bool) -> str:
     grant = result.get("grant") if isinstance(result.get("grant"), dict) else {}
     profile = result.get("profile") if isinstance(result.get("profile"), dict) else {}
-    node = str(result.get("node") or "").strip() or "transit"
+    node = str(result.get("node") or "").strip() or "endpoint"
     reused = bool(profile.get("reused"))
 
     if rotate:
@@ -328,7 +328,7 @@ def _format_mtproto_delivery_message(*, result: dict, rotate: bool) -> str:
         "🔐 Telegram Proxy",
         "",
         status_line,
-        f"Transit: {node}",
+        f"Endpoint: {node}",
     ]
     if label:
         lines.append(f"Метка: {label}")
@@ -1758,7 +1758,7 @@ async def mtproto_revoke(callback: CallbackQuery) -> None:
     await callback.message.answer(
         _msg_warn(
             "Отозвать постоянный Telegram Proxy-доступ?\n\n"
-            "Текущий секрет перестанет работать после применения revoke на Transit."
+            "Текущий секрет перестанет работать после применения revoke на Endpoint."
         ),
         reply_markup=confirm_action_keyboard(
             confirm_callback_data="mtproto_revoke_confirm",
@@ -2349,9 +2349,6 @@ async def new_connection(callback: CallbackQuery) -> None:
             mode,
             variant,
             None,
-            custom_overrides_json={"vless_encryption": False}
-            if protocol == ConnectionProtocol.VLESS_REALITY
-            else None,
         )
         text, keyboard = await render_device_page(device_id)
         await _safe_edit_text(callback.message, text, reply_markup=keyboard)
@@ -2389,7 +2386,6 @@ async def vless_new(callback: CallbackQuery) -> None:
             mode,
             variant,
             None,
-            custom_overrides_json={"vless_encryption": False},
         )
         text, keyboard = await render_device_page(device_id)
         await _safe_edit_text(callback.message, text, reply_markup=keyboard)
@@ -2456,7 +2452,6 @@ async def vless_transport(callback: CallbackQuery) -> None:
                 mode,
                 variant,
                 None,
-                custom_overrides_json={"vless_encryption": False},
             )
             text, keyboard = await render_device_page(device_id)
             await _safe_edit_text(callback.message, text, reply_markup=keyboard)
@@ -2484,7 +2479,6 @@ async def new_vless_with_sni(callback: CallbackQuery) -> None:
             mode,
             variant,
             int(sni_id_raw),
-            custom_overrides_json={"vless_encryption": False},
         )
         text, keyboard = await render_device_page(device_id)
         await _safe_edit_text(callback.message, text, reply_markup=keyboard)

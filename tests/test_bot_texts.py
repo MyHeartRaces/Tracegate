@@ -150,7 +150,7 @@ def test_format_mtproto_delivery_message_humanizes_reused_profile() -> None:
 
     assert "Telegram Proxy" in text
     assert "Текущий постоянный Telegram Proxy-профиль отправлен повторно." in text
-    assert "Transit: transit-a" in text
+    assert "Endpoint: transit-a" in text
     assert "Метка: @user101" in text
     assert "Домен: proxied.tracegate.test" in text
     assert "Синхронизация: 2026-04-17T02:00:00Z" in text
