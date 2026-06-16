@@ -458,7 +458,8 @@ def _build_wgws_client_attachment(
             "strategy": "ipv6_only",
         }
 
-    host_header = str(wstunnel.get("host") or ws_server).strip()
+    tls_server_name = str(wstunnel.get("tls_server_name") or effective.get("sni") or ws_server).strip()
+    host_header = str(wstunnel.get("host") or tls_server_name or ws_server).strip()
     headers = {str(key): str(value) for key, value in (wstunnel.get("headers") or {}).items()} if isinstance(wstunnel.get("headers"), dict) else {}
     if host_header and host_header != ws_server:
         headers.setdefault("Host", host_header)
@@ -467,11 +468,25 @@ def _build_wgws_client_attachment(
         "server": ws_server,
         "server_port": ws_port,
         "tls": parsed.scheme == "wss",
-        "sni": str(wstunnel.get("tls_server_name") or effective.get("sni") or ws_server).strip(),
+        "sni": tls_server_name,
         "host": host_header or ws_server,
         "path": ws_path,
         "headers": headers,
     }
+    wstunnel_command_parts = [
+        "wstunnel client",
+        f"--http-upgrade-path-prefix {ws_path.lstrip('/')}",
+    ]
+    if tls_server_name and tls_server_name != ws_server:
+        wstunnel_command_parts.append(f"--tls-sni-override {tls_server_name}")
+    if host_header:
+        wstunnel_command_parts.append(f"-H 'Host: {host_header}'")
+    wstunnel_command_parts.extend(
+        [
+            f"-L udp://{local_udp_listen}:127.0.0.1:{local_udp_port}",
+            f"wss://{ws_server}:{ws_port}",
+        ]
+    )
     attachment = {
         "type": "wgws",
         "schema": "tracegate.wgws-client.v1",
@@ -493,11 +508,7 @@ def _build_wgws_client_attachment(
             "local_udp_listen": local_udp_listen,
             "remote_udp_endpoint": f"127.0.0.1:{local_udp_port}",
             "http_upgrade_path_prefix": ws_path.lstrip("/"),
-            "client_command": (
-                f"wstunnel client --http-upgrade-path-prefix {ws_path.lstrip('/')} "
-                f"-L udp://{local_udp_listen}:127.0.0.1:{local_udp_port} "
-                f"wss://{ws_server}:{ws_port}"
-            ),
+            "client_command": " ".join(wstunnel_command_parts),
         },
         "singbox": singbox,
         "local_socks": {

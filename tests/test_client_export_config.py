@@ -560,6 +560,12 @@ def test_export_wireguard_wstunnel_attachment_requires_local_auth() -> None:
     }
     assert attachment["wstunnel"]["local_udp_listen"] == "127.0.0.1:51820"
     assert attachment["wstunnel"]["http_upgrade_path_prefix"] == "cdn/ws"
+    assert attachment["wstunnel"]["client_command"] == (
+        "wstunnel client --http-upgrade-path-prefix cdn/ws "
+        "-H 'Host: edge.example.com' "
+        "-L udp://127.0.0.1:51820:127.0.0.1:51820 "
+        "wss://edge.example.com:443"
+    )
     assert attachment["singbox"]["inbounds"][0]["listen_port"] == 18083
     assert attachment["singbox"]["inbounds"][0]["users"] == [{"username": "wg-local", "password": "wg-pass"}]
     assert attachment["singbox"]["dns"] == {
@@ -574,6 +580,40 @@ def test_export_wireguard_wstunnel_attachment_requires_local_auth() -> None:
     assert endpoint["peers"][0]["port"] == 51820
     assert endpoint["peers"][0]["pre_shared_key"] == "wg-psk"
     assert endpoint["peers"][0]["allowed_ips"] == ["0.0.0.0/0"]
+
+
+def test_export_wireguard_wstunnel_client_command_uses_canonical_tls_name() -> None:
+    effective = {
+        "protocol": "wireguard",
+        "transport": "wstunnel",
+        "server": "token.r2.example.com",
+        "sni": "endpoint.example.com",
+        "profile": "V7-WireGuard-WSTunnel-Direct",
+        "wstunnel": {
+            "url": "wss://token.r2.example.com:443/wgws",
+            "tls_server_name": "endpoint.example.com",
+            "local_udp_listen": "127.0.0.1:51820",
+        },
+        "wireguard": {
+            "private_key": "client-private",
+            "server_public_key": "server-public",
+            "address": "10.70.0.2/32",
+        },
+    }
+
+    out = export_client_config(effective)
+    attachment = json.loads((out.attachment_content or b"").decode("utf-8"))
+
+    assert attachment["websocket"]["sni"] == "endpoint.example.com"
+    assert attachment["websocket"]["host"] == "endpoint.example.com"
+    assert attachment["websocket"]["headers"] == {"Host": "endpoint.example.com"}
+    assert attachment["wstunnel"]["client_command"] == (
+        "wstunnel client --http-upgrade-path-prefix wgws "
+        "--tls-sni-override endpoint.example.com "
+        "-H 'Host: endpoint.example.com' "
+        "-L udp://127.0.0.1:51820:127.0.0.1:51820 "
+        "wss://token.r2.example.com:443"
+    )
 
 
 def test_export_wireguard_wstunnel_rejects_invalid_wstunnel_target() -> None:
