@@ -73,7 +73,7 @@ required host policy with `deploy/k3s/endpoint-ingress-firewall.py`.
 New deployments enable `architecture.endpointIngress.exclusiveSniPairs`. The
 control plane then leases a unique active `(Endpoint shard, SNI)` pair to each
 direct VLESS Reality revision.
-Configure 12 to 15 pool domains and exactly one
+Configure 10 to 15 pool domains and exactly one
 `gateway.realityMultiInboundGroups` row per domain. Three active shards and 15
 domains provide 45 active revision slots, including overlap revisions.
 

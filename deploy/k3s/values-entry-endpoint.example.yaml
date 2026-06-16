@@ -26,17 +26,12 @@ architecture:
         - partners.lemanapro.ru
         - goya.rutube.ru
         - ssp.rutube.ru
-        - public-api.reviews.2gis.com
-        - api.photo.2gis.com
-        - styles.api.2gis.com
-        - api.reviews.2gis.com
         - api.evotor.ru
         - api.max.ru
         - cdn.newyear.mail.ru
         - static.dl.mail.ru
         - static.lemanapro.ru
         - api.dobro.ru
-        - market.rzd.ru
         - api.events.plus.yandex.net
     firewall:
       required: true
@@ -110,17 +105,12 @@ gateway:
     - {id: sni-101, port: 2501, dest: partners.lemanapro.ru, snis: [partners.lemanapro.ru]}
     - {id: sni-102, port: 2502, dest: goya.rutube.ru, snis: [goya.rutube.ru]}
     - {id: sni-103, port: 2503, dest: ssp.rutube.ru, snis: [ssp.rutube.ru]}
-    - {id: sni-104, port: 2504, dest: public-api.reviews.2gis.com, snis: [public-api.reviews.2gis.com]}
-    - {id: sni-105, port: 2505, dest: api.photo.2gis.com, snis: [api.photo.2gis.com]}
-    - {id: sni-106, port: 2506, dest: styles.api.2gis.com, snis: [styles.api.2gis.com]}
-    - {id: sni-107, port: 2507, dest: api.reviews.2gis.com, snis: [api.reviews.2gis.com]}
     - {id: sni-108, port: 2508, dest: api.evotor.ru, snis: [api.evotor.ru]}
     - {id: sni-109, port: 2509, dest: api.max.ru, snis: [api.max.ru]}
     - {id: sni-110, port: 2510, dest: cdn.newyear.mail.ru, snis: [cdn.newyear.mail.ru]}
     - {id: sni-111, port: 2511, dest: static.dl.mail.ru, snis: [static.dl.mail.ru]}
     - {id: sni-112, port: 2512, dest: static.lemanapro.ru, snis: [static.lemanapro.ru]}
     - {id: sni-113, port: 2513, dest: api.dobro.ru, snis: [api.dobro.ru]}
-    - {id: sni-114, port: 2514, dest: market.rzd.ru, snis: [market.rzd.ru]}
     - {id: sni-115, port: 2515, dest: api.events.plus.yandex.net, snis: [api.events.plus.yandex.net]}
   stateStorage:
     mode: pvc

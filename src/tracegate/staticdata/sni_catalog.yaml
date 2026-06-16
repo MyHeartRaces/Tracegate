@@ -108,27 +108,27 @@
   providers: []
 - id: 104
   fqdn: public-api.reviews.2gis.com
-  enabled: true
+  enabled: false
   is_test: false
-  note: Less-popular whitelist target; TLS 1.3 verified.
+  note: Disabled on 2026-06-16; Endpoint TLS handshake timed out from production.
   providers: []
 - id: 105
   fqdn: api.photo.2gis.com
-  enabled: true
+  enabled: false
   is_test: false
-  note: Less-popular whitelist target; TLS 1.3 verified.
+  note: Disabled on 2026-06-16; Endpoint TLS handshake timed out from production.
   providers: []
 - id: 106
   fqdn: styles.api.2gis.com
-  enabled: true
+  enabled: false
   is_test: false
-  note: Less-popular whitelist target; TLS 1.3 verified.
+  note: Disabled on 2026-06-16; Endpoint TLS handshake timed out from production.
   providers: []
 - id: 107
   fqdn: api.reviews.2gis.com
-  enabled: true
+  enabled: false
   is_test: false
-  note: Less-popular whitelist target; TLS 1.3 verified.
+  note: Disabled on 2026-06-16; Endpoint TLS handshake timed out from production.
   providers: []
 - id: 108
   fqdn: api.evotor.ru
@@ -168,9 +168,9 @@
   providers: []
 - id: 114
   fqdn: market.rzd.ru
-  enabled: true
+  enabled: false
   is_test: false
-  note: Less-popular whitelist target; TLS 1.3 verified.
+  note: Disabled on 2026-06-16; Endpoint TLS handshake timed out from production.
   providers: []
 - id: 115
   fqdn: api.events.plus.yandex.net

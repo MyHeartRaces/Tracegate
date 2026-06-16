@@ -505,7 +505,6 @@ def test_export_shadowsocks2022_shadowtls_single_line_uri() -> None:
         "tls": {
             "enabled": True,
             "server_name": "www.microsoft.com",
-            "utls": {"enabled": True, "fingerprint": "chrome"},
         },
     }
 

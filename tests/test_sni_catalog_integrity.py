@@ -24,7 +24,7 @@ def test_sni_catalog_integrity() -> None:
             assert p == p.lower().strip()
             assert p in allowed_providers
 
-    assert len(enabled) == 15
+    assert len(enabled) == 10
     assert all(not row.providers for row in enabled)
     assert not {"yandex.ru", "splitter.wb.ru", "vk.com", "ok.ru", "www.wildberries.ru"} & {
         row.fqdn for row in enabled

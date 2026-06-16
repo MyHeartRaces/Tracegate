@@ -164,8 +164,8 @@ def _render_entry_ingress_alias(
 def _exclusive_sni_pool(settings, *, role: str = "entry") -> list[SniCatalogEntry]:
     requested = [str(value or "").strip().lower() for value in getattr(settings, f"{role}_ingress_sni_pool")]
     requested = list(dict.fromkeys(value for value in requested if value))
-    if len(requested) < 12 or len(requested) > 15:
-        raise RevisionError(f"Exclusive {role.title()} SNI pool must contain 12 to 15 unique domains")
+    if len(requested) < 10 or len(requested) > 15:
+        raise RevisionError(f"Exclusive {role.title()} SNI pool must contain 10 to 15 unique domains")
 
     by_fqdn = {row.fqdn.lower(): row for row in load_catalog() if row.enabled}
     missing = [fqdn for fqdn in requested if fqdn not in by_fqdn]

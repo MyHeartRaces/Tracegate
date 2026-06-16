@@ -89,7 +89,7 @@ async def test_exclusive_entry_pair_allocation_is_stable_and_skips_leased_pair()
 
 
 @pytest.mark.asyncio
-async def test_exclusive_entry_pair_allocation_reports_45_pair_capacity_exhaustion() -> None:
+async def test_exclusive_entry_pair_allocation_reports_pair_capacity_exhaustion() -> None:
     settings = _settings()
     used = [
         _entry_ingress_pair_key(shard["publicIp"], sni)
@@ -97,7 +97,7 @@ async def test_exclusive_entry_pair_allocation_reports_45_pair_capacity_exhausti
         for sni in settings.entry_ingress_sni_pool
     ]
 
-    with pytest.raises(RevisionError, match=r"exhausted \(45 active-pair capacity\)"):
+    with pytest.raises(RevisionError, match=r"exhausted \(30 active-pair capacity\)"):
         await _allocate_entry_ingress_pair(
             _PairSession([(pair_key, {}) for pair_key in used]),
             connection_id=UUID("00000000-0000-0000-0000-000000000456"),
