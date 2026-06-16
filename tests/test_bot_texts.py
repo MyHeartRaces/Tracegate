@@ -553,6 +553,66 @@ async def test_send_client_config_hides_local_socks_extra_message(monkeypatch: p
 
 
 @pytest.mark.asyncio
+async def test_send_client_config_prefers_shadowsocks_singbox_attachment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def _get_connection(_connection_id: str) -> dict:
+        return {
+            "id": "conn-1",
+            "user_id": 1,
+            "device_id": "dev-1",
+            "device_name": "Phone",
+            "protocol": "shadowsocks2022_shadowtls",
+            "mode": "direct",
+            "variant": "V3",
+        }
+
+    exported = SimpleNamespace(
+        kind="uri",
+        title="Shadowsocks-2022 + ShadowTLS",
+        content="ss://example#Backup-Shadowsocks",
+        alternate_title=None,
+        alternate_content=None,
+        extra_messages=(
+            (
+                "Shadowsocks import note",
+                "Use the attached sing-box JSON first.",
+            ),
+        ),
+        attachment_content=b'{"log":{"level":"warn"}}',
+        attachment_filename="backup-shadowsocks.singbox.json",
+        attachment_mime="application/json",
+    )
+
+    monkeypatch.setattr(main.api, "get_connection", _get_connection)
+    monkeypatch.setattr(main, "export_client_config", lambda _effective: exported)
+    monkeypatch.setattr(main, "_build_qr_png", lambda payload: payload.encode("utf-8"))
+    monkeypatch.setattr(main.settings, "public_base_url", "")
+
+    callback = _DummyCallback("send")
+    await main._send_client_config(
+        callback,
+        {
+            "id": "rev-1",
+            "slot": 0,
+            "connection_id": "conn-1",
+            "effective_config_json": {
+                "protocol": "shadowsocks2022",
+                "transport": "shadowtls_v3",
+            },
+        },
+        context="created",
+    )
+
+    summary = str(callback.message.answer_calls[0][0][0])
+    assert "1. Скачайте приложенный `.json` файл" in summary
+    assert "2. Ссылка и QR ниже - запасной вариант" in summary
+    assert any("Shadowsocks import note" in str(args[0]) for args, _kwargs in callback.message.answer_calls)
+    assert len(callback.message.answer_photo_calls) == 1
+    assert len(callback.message.answer_document_calls) == 1
+
+
+@pytest.mark.asyncio
 async def test_send_client_config_includes_universal_url_when_public_base_is_configured(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

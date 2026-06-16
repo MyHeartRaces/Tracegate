@@ -475,7 +475,7 @@ def test_export_shadowsocks2022_shadowtls_single_line_uri() -> None:
     assert out.alternate_content is None
     assert out.attachment_filename == "backup-shadowsocks.singbox.json"
     assert out.attachment_mime == "application/json"
-    assert out.extra_messages == ()
+    assert dict(out.extra_messages)["Shadowsocks import note"].startswith("Use the attached sing-box JSON first.")
 
     parsed = urlparse(out.content)
     assert base64.urlsafe_b64decode(f"{parsed.username}==").decode("utf-8") == (

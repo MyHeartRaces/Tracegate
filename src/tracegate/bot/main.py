@@ -65,7 +65,7 @@ from tracegate.bot.keyboards import (
     sni_page_keyboard_issue,
     sni_page_keyboard_new,
 )
-from tracegate.client_export.config import ClientConfigExportError, export_client_config
+from tracegate.client_export.config import ClientConfigExportError, client_profile_name, export_client_config
 from tracegate.enums import ConnectionMode, ConnectionProtocol, ConnectionVariant
 from tracegate.observability import configure_logging
 from tracegate.services.bot_blocks import (
@@ -1124,7 +1124,13 @@ async def _send_client_config(callback: CallbackQuery, revision: dict, *, contex
         prefer_attachment = bool(
             exported.attachment_content
             and exported.attachment_filename
-            and exported.attachment_filename.endswith(".xray.json")
+            and (
+                exported.attachment_filename.endswith(".xray.json")
+                or (
+                    exported.attachment_filename.endswith(".singbox.json")
+                    and client_profile_name(effective) == "Backup-Shadowsocks"
+                )
+            )
         )
         summary_msg = await callback.message.answer(
             _format_config_delivery_message(

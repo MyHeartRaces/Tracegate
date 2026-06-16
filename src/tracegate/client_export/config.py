@@ -1027,6 +1027,13 @@ def _export_shadowsocks2022_shadowtls(effective: dict[str, Any]) -> ExportResult
         kind="uri",
         title="Shadowsocks-2022 + ShadowTLS",
         content=uri,
+        extra_messages=(
+            (
+                "Shadowsocks import note",
+                "Use the attached sing-box JSON first. The ss:// link and QR require client-side "
+                "ShadowTLS v3 plugin support; clients that import it as plain Shadowsocks will time out.",
+            ),
+        ),
         attachment_content=attachment_content,
         attachment_filename=attachment_filename,
         attachment_mime="application/json",
