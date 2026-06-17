@@ -97,40 +97,6 @@ def client_profile_name(effective: dict[str, Any]) -> str:
     return str(effective.get("profile") or "Tracegate").strip() or "Tracegate"
 
 
-def _router_import_filename(effective: dict[str, Any], *, suffix: str) -> str | None:
-    protocol = str(effective.get("protocol") or "").strip().lower()
-    transport = str(effective.get("transport") or "").strip().lower()
-    if not transport and protocol == "vless":
-        if effective.get("reality"):
-            transport = "reality"
-        elif effective.get("grpc"):
-            transport = "grpc_tls"
-        elif effective.get("ws"):
-            transport = "ws_tls"
-
-    if suffix == "xray.json" and protocol == "vless":
-        if transport in {"reality", "reality_xhttp", "reality-xhttp", "xhttp_reality"} or isinstance(
-            effective.get("reality"),
-            dict,
-        ):
-            return "v1-direct-reality-vless.xray.json"
-        if transport in {"ws_tls", "ws+tls", "ws-tls"}:
-            return "v0-ws-vless.xray.json"
-        if transport in {"grpc_tls", "grpc+tls", "grpc-tls"}:
-            return "v0-grpc-vless.xray.json"
-
-    if suffix == "singbox.json":
-        if protocol == "hysteria2":
-            return "v2-direct-quic-hysteria.singbox.json"
-        if protocol in {"shadowsocks2022", "shadowsocks2022_shadowtls", "shadowsocks"} or transport == "shadowtls_v3":
-            return "v3-direct-shadowtls-shadowsocks.singbox.json"
-
-    if suffix == "wgws.json" and (protocol == "wireguard" or transport in {"wireguard_wstunnel", "wstunnel"}):
-        return "v0-wgws-wireguard.wgws.json"
-
-    return None
-
-
 def _is_loopback_host(host: str) -> bool:
     normalized = str(host or "").strip().lower()
     if normalized == "localhost":
@@ -376,7 +342,7 @@ def _build_xray_client_attachment(effective: dict[str, Any], outbound: dict[str,
         ],
         "outbounds": [outbound],
     }
-    filename = _router_import_filename(effective, suffix="xray.json") or f"{_safe_filename_fragment(profile_name)}.xray.json"
+    filename = f"{_safe_filename_fragment(profile_name)}.xray.json"
     return json.dumps(config, ensure_ascii=True, indent=2).encode("utf-8"), filename
 
 
@@ -407,7 +373,7 @@ def _build_singbox_client_attachment(
             "final": "proxy",
         },
     }
-    filename = _router_import_filename(effective, suffix="singbox.json") or f"{_safe_filename_fragment(profile_name)}.singbox.json"
+    filename = f"{_safe_filename_fragment(profile_name)}.singbox.json"
     return json.dumps(config, ensure_ascii=True, indent=2).encode("utf-8"), filename
 
 
@@ -552,7 +518,7 @@ def _build_wgws_client_attachment(
     }
     if preshared_key:
         attachment["wireguard"]["pre_shared_key"] = preshared_key
-    filename = _router_import_filename(effective, suffix="wgws.json") or f"{_safe_filename_fragment(profile_name)}.wgws.json"
+    filename = f"{_safe_filename_fragment(profile_name)}.wgws.json"
     return json.dumps(attachment, ensure_ascii=True, indent=2).encode("utf-8"), filename
 
 
