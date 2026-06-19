@@ -71,7 +71,7 @@ def validate(path: Path, phase: str) -> list[str]:
 def main() -> int:
     parser = argparse.ArgumentParser(description="Verify Tracegate 3 pod-only rendered runtime.")
     parser.add_argument("--manifest", required=True, type=Path)
-    parser.add_argument("--phase", required=True, choices=("endpoint-first", "full"))
+    parser.add_argument("--phase", required=True, choices=("endpoint-first", "entry-staged", "full"))
     args = parser.parse_args()
     errors = validate(args.manifest, args.phase)
     if errors:

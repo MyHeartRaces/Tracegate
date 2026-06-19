@@ -275,9 +275,12 @@ def validate_prod_overlay(chart_values: Path, prod_values: Path, *, strict: bool
         architecture_mode in {"legacy-three-node", "entry-endpoint"},
         "architecture.mode must be legacy-three-node or entry-endpoint",
     )
-    require(deployment_phase in {"endpoint-first", "full"}, "architecture.deploymentPhase must be endpoint-first or full")
-    if deployment_phase == "endpoint-first":
-        require(architecture_mode == "entry-endpoint", "endpoint-first requires architecture.mode=entry-endpoint")
+    require(
+        deployment_phase in {"endpoint-first", "entry-staged", "full"},
+        "architecture.deploymentPhase must be endpoint-first, entry-staged or full",
+    )
+    if deployment_phase in {"endpoint-first", "entry-staged"}:
+        require(architecture_mode == "entry-endpoint", "endpoint-first/entry-staged requires architecture.mode=entry-endpoint")
     interconnect_for_images = _as_dict(merged.get("interconnect"))
     entry_transit_for_images = _as_dict(interconnect_for_images.get("entryTransit"))
     mieru_for_images = _as_dict(interconnect_for_images.get("mieru"))
@@ -350,7 +353,10 @@ def validate_prod_overlay(chart_values: Path, prod_values: Path, *, strict: bool
     transit_enabled = bool(transit.get("enabled", False))
     if architecture_mode == "entry-endpoint":
         require(transit_enabled, "entry-endpoint requires the Endpoint gateway role")
-        require(entry_enabled == (deployment_phase == "full"), "Entry gateway role must be enabled only in the full deployment phase")
+        require(
+            entry_enabled == (deployment_phase in {"entry-staged", "full"}),
+            "Entry gateway role must be enabled only in the entry-staged and full deployment phases",
+        )
     if bool(gateway.get("hostNetwork", False)) and entry_enabled and transit_enabled:
         entry_selector = _as_dict(entry.get("nodeSelector"))
         transit_selector = _as_dict(transit.get("nodeSelector"))
@@ -427,7 +433,7 @@ def validate_prod_overlay(chart_values: Path, prod_values: Path, *, strict: bool
     topology = _as_dict(merged.get("topology"))
     topology_servers = _as_dict(topology.get("servers"))
     canonical_servers = {"endpoint": "Endpoint"}
-    if deployment_phase == "full":
+    if deployment_phase in {"entry-staged", "full"}:
         canonical_servers["entry"] = "Entry"
     if architecture_mode == "legacy-three-node":
         canonical_servers["transit"] = "Transit"
@@ -451,7 +457,7 @@ def validate_prod_overlay(chart_values: Path, prod_values: Path, *, strict: bool
             not _has_value(transit_topology.get("kubernetesNodeName")),
             "entry-endpoint forbids topology.servers.transit.kubernetesNodeName",
         )
-    if deployment_phase == "full":
+    if deployment_phase in {"entry-staged", "full"}:
         require(_text(entry_topology.get("publicIp")) in ingress_public_ips, "Entry publicIp must be listed as an ingress public IP")
         require(
             _as_dict(entry_topology.get("nodeSelector")) == _as_dict(entry.get("nodeSelector")),
@@ -785,7 +791,7 @@ def validate_prod_overlay(chart_values: Path, prod_values: Path, *, strict: bool
         endpoint_ips = {service_ip, *shard_ips}
         normalized_endpoint_ips, invalid_endpoint_ips = _valid_public_ip_set({value for value in endpoint_ips if value})
         expected_ingress_ips = set(shard_ips)
-        if deployment_phase == "full":
+        if deployment_phase in {"entry-staged", "full"}:
             expected_ingress_ips.add(_text(entry_topology.get("publicIp")))
 
         require(architecture_mode == "entry-endpoint", "Endpoint ingress sharding requires architecture.mode=entry-endpoint")
@@ -796,7 +802,10 @@ def validate_prod_overlay(chart_values: Path, prod_values: Path, *, strict: bool
         require(service_ip not in set(shard_ips), "Endpoint service/egress IP must be distinct from every shard IP")
         require(len(normalized_endpoint_ips) == 4 and not invalid_endpoint_ips, "Endpoint ingress requires four distinct public IPv4 addresses")
         require(egress_public_ips == {service_ip}, "Endpoint service-facing IP must be the only egress public IP")
-        require(ingress_public_ips == expected_ingress_ips, "ingressPublicIPs must exactly match Endpoint shards plus Entry IP in full phase")
+        require(
+            ingress_public_ips == expected_ingress_ips,
+            "ingressPublicIPs must exactly match Endpoint shards plus Entry IP when Entry is deployed",
+        )
         require(_text(endpoint_topology.get("publicIp")) in set(shard_ips), "topology.servers.endpoint.publicIp must be one Endpoint shard IP")
         require(all("{token}" in template for template in hostname_templates), "every Endpoint shard hostnameTemplate must contain {token}")
         require(len(set(hostname_templates)) == 3, "Endpoint shard hostnameTemplate values must be unique")
@@ -804,6 +813,63 @@ def validate_prod_overlay(chart_values: Path, prod_values: Path, *, strict: bool
         require(bool(firewall.get("required", False)), "architecture.endpointIngress.firewall.required must stay true")
         require(bool(tcp_channel.get("bindShardIpsOnly", False)), "Endpoint TCP listeners must bind shard IPs only")
         require(bool(udp_channel.get("serviceIpRejectRequired", False)), "Endpoint UDP service-facing IP rejection must stay required")
+
+    if deployment_phase == "entry-staged":
+        endpoint_backhaul = _as_dict(interconnect.get("endpointBackhaul"))
+        endpoint_backhaul_selection = _as_dict(endpoint_backhaul.get("selection"))
+        endpoint_backhaul_health = _as_dict(endpoint_backhaul.get("health"))
+        endpoint_backhaul_hysteria = _as_dict(endpoint_backhaul.get("hysteria2"))
+        chain_bridge = _as_dict(interconnect.get("emergencyXrayChain"))
+        chain_allowed_sources = {_text(value) for value in _as_list(chain_bridge.get("allowedSources")) if _text(value)}
+        chain_shards = [_as_dict(row) for row in _as_list(chain_bridge.get("shards"))]
+        chain_xhttp = _as_dict(chain_bridge.get("xhttp"))
+        chain_xmux = _as_dict(chain_xhttp.get("xmux"))
+        hysteria_allowed_sources = {
+            _text(value) for value in _as_list(endpoint_backhaul_hysteria.get("allowedSources")) if _text(value)
+        }
+        enabled_client_profiles = {_text(value).lower() for value in _as_list(env.get("enabledClientProfiles")) if _text(value)}
+        entry_public_ip = _text(entry_topology.get("publicIp"))
+        staged_entry_host = _text(env.get("defaultEntryHost")).lower().rstrip(".")
+        entry_tls_server_name = _text(_as_dict(entry.get("tls")).get("serverName")).lower().rstrip(".")
+
+        require(entry_enabled, "entry-staged requires the Entry gateway role")
+        require(not universal_entry_enabled, "entry-staged forbids Universal Entry until the Entry domain is configured")
+        require(not _has_value(universal_entry.get("publicHost")), "entry-staged forbids architecture.universalEntry.publicHost")
+        require(staged_entry_host.endswith(".invalid"), "entry-staged defaultEntryHost must stay a non-routable .invalid sentinel")
+        require(
+            entry_tls_server_name == staged_entry_host,
+            "entry-staged gateway.roles.entry.tls.serverName must match the .invalid defaultEntryHost sentinel",
+        )
+        require(
+            enabled_client_profiles == ENDPOINT_FIRST_CLIENT_PROFILE_KEYS,
+            "entry-staged must keep bot/API issuance limited to Endpoint-direct and Backup profiles",
+        )
+        require(bool(chain_bridge.get("enabled", False)), "entry-staged requires interconnect.emergencyXrayChain.enabled=true")
+        require(entry_public_ip in chain_allowed_sources, "entry-staged chain bridge allowedSources must include Entry publicIp")
+        require(bool(endpoint_backhaul.get("enabled", False)), "entry-staged requires interconnect.endpointBackhaul.enabled=true")
+        require(_text(endpoint_backhaul.get("primary")) == "vless-reality-xhttp", "entry-staged primary backhaul must stay vless-reality-xhttp")
+        require(_text(endpoint_backhaul.get("secondary")) == "hysteria2-salamander", "entry-staged secondary backhaul must stay hysteria2-salamander")
+        require(_text(endpoint_backhaul_selection.get("strategy")) == "roundRobin", "entry-staged connect sharding must stay roundRobin")
+        require(_text(endpoint_backhaul_selection.get("stickyScope")) == "connection", "entry-staged connect sharding must stay connection-sticky")
+        require(_as_int(endpoint_backhaul_selection.get("maxParallelDials")) == 1, "entry-staged maxParallelDials must stay 1")
+        require(bool(endpoint_backhaul_health.get("payloadProbeRequired", False)), "entry-staged backhaul payload probes must stay required")
+        require(bool(endpoint_backhaul_hysteria.get("enabled", False)), "entry-staged Hysteria2 fallback must stay enabled")
+        require(
+            _as_int(endpoint_backhaul_hysteria.get("endpointPort")) == _as_int(_as_dict(transit.get("ports")).get("publicUdp")),
+            "entry-staged Hysteria2 endpointPort must match Endpoint publicUdp",
+        )
+        require(entry_public_ip in hysteria_allowed_sources, "entry-staged Hysteria2 allowedSources must include Entry publicIp")
+        require(not bool(endpoint_backhaul_hysteria.get("fastOpen", True)), "entry-staged Hysteria2 fastOpen must stay false")
+        require(not bool(endpoint_backhaul_hysteria.get("lazy", True)), "entry-staged Hysteria2 lazy must stay false")
+        require(2 <= len(chain_shards) <= 8, "entry-staged requires 2 to 8 XHTTP connect/SNI shards")
+        require(len({_text(row.get("id")) for row in chain_shards}) == len(chain_shards), "entry-staged XHTTP shard ids must be unique")
+        require(len({_text(row.get("serverName")) for row in chain_shards}) == len(chain_shards), "entry-staged XHTTP shard SNI values must be unique")
+        require(len({_as_int(row.get("endpointListenPort")) for row in chain_shards}) == len(chain_shards), "entry-staged XHTTP shard ports must be unique")
+        require(all(_is_clean_http_path(row.get("path")) for row in chain_shards), "entry-staged XHTTP shard paths must be clean absolute paths")
+        require(_text(chain_xhttp.get("clientMode")) == "stream-one", "entry-staged XHTTP clientMode must stay stream-one")
+        require(_text(chain_xhttp.get("serverMode")) == "auto", "entry-staged XHTTP serverMode must stay auto")
+        require(_as_int(chain_xmux.get("maxConnections")) == 1, "entry-staged XHTTP xmux.maxConnections must stay 1")
+        require(not _has_value(chain_xmux.get("maxConcurrency")), "entry-staged XHTTP xmux.maxConcurrency conflicts with maxConnections")
 
     if universal_entry_enabled:
         universal_host = _text(universal_entry.get("publicHost"))
@@ -901,6 +967,12 @@ def validate_prod_overlay(chart_values: Path, prod_values: Path, *, strict: bool
             if deployment_phase == "endpoint-first":
                 require(not universal_entry_enabled, "endpoint-first forbids Universal Entry")
                 require(enabled_profiles == ENDPOINT_FIRST_CLIENT_PROFILE_KEYS, "endpoint-first must expose only Endpoint-direct and Backup profiles")
+            elif deployment_phase == "entry-staged":
+                require(not universal_entry_enabled, "entry-staged forbids Universal Entry")
+                require(
+                    enabled_profiles == ENDPOINT_FIRST_CLIENT_PROFILE_KEYS,
+                    "entry-staged must expose only Endpoint-direct and Backup profiles",
+                )
             else:
                 require(universal_entry_enabled, "full entry-endpoint deployment requires Universal Entry")
                 require(enabled_profiles == TRACEGATE3_CLIENT_PROFILE_KEYS, "full deployment must expose the complete Tracegate 3 client profile set")

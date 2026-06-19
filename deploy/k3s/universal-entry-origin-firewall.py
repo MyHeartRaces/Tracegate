@@ -86,6 +86,7 @@ def render(values: dict[str, Any]) -> str:
             "table inet tracegate_universal_entry_origin {",
             "  chain input {",
             "    type filter hook input priority -11; policy accept;",
+            f"    ip daddr {entry_ip} tcp dport 443 ip saddr {entry_ip} accept",
             f"    ip daddr {entry_ip} tcp dport 443 ip saddr {{ {', '.join(allowed)} }} accept",
             f"    ip daddr {entry_ip} tcp dport 443 reject with tcp reset",
             "  }",

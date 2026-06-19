@@ -55,6 +55,7 @@ def test_universal_entry_origin_firewall_script_is_executable() -> None:
 def test_universal_entry_origin_firewall_allows_cloudflare_then_rejects_direct() -> None:
     rendered = _module()["render"](_values())
 
+    assert "ip daddr 8.8.4.4 tcp dport 443 ip saddr 8.8.4.4 accept" in rendered
     assert "ip daddr 8.8.4.4 tcp dport 443 ip saddr { 103.21.244.0/22, 173.245.48.0/20 } accept" in rendered
     assert "ip daddr 8.8.4.4 tcp dport 443 reject with tcp reset" in rendered
 

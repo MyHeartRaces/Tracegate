@@ -550,6 +550,7 @@ def _universal_entry_overlay_values() -> dict:
 def _pod_only_new_prod_overlay_values(*, phase: str) -> dict:
     values = _universal_entry_overlay_values() if phase == "full" else _entry_endpoint_overlay_values(rotation=False)
     example = yaml.safe_load(ENDPOINT_FIRST_EXAMPLE.read_text(encoding="utf-8"))
+    entry_deployed = phase in {"entry-staged", "full"}
     values["architecture"].update(
         {
             "deploymentPhase": phase,
@@ -570,13 +571,13 @@ def _pod_only_new_prod_overlay_values(*, phase: str) -> dict:
     values["gateway"]["realityMultiInboundGroups"] = example["gateway"]["realityMultiInboundGroups"]
     values["gateway"]["stateStorage"] = {
         "mode": "pvc",
-        "existingClaims": {"entry": "tracegate-entry-state" if phase == "full" else "", "transit": "tracegate-endpoint-state"},
+        "existingClaims": {"entry": "tracegate-entry-state" if entry_deployed else "", "transit": "tracegate-endpoint-state"},
     }
-    values["gateway"]["roles"]["entry"]["enabled"] = phase == "full"
+    values["gateway"]["roles"]["entry"]["enabled"] = entry_deployed
     values["gateway"]["roles"]["transit"]["enabled"] = True
     values["decoy"] = {"hostPath": "", "existingConfigMap": "tracegate-decoy"}
     values["network"]["egressIsolation"]["egressPublicIPs"] = ["1.1.1.1"]
-    values["network"]["egressIsolation"]["ingressPublicIPs"] = ["8.8.8.8", "9.9.9.9", "1.0.0.1"] + (["8.8.4.4"] if phase == "full" else [])
+    values["network"]["egressIsolation"]["ingressPublicIPs"] = ["8.8.8.8", "9.9.9.9", "1.0.0.1"] + (["8.8.4.4"] if entry_deployed else [])
     values["interconnect"]["entryTransit"] = {"enabled": False, "routerEntry": {"enabled": False}, "routerTransit": {"enabled": False}}
     values["interconnect"]["mieru"] = {"enabled": False}
     values["interconnect"]["zapret2"] = {"enabled": False}
@@ -591,6 +592,37 @@ def _pod_only_new_prod_overlay_values(*, phase: str) -> dict:
             "backup-shadowtls",
             "backup-wgws",
         ]
+    if phase == "entry-staged":
+        values["controlPlane"]["env"]["defaultEntryHost"] = "entry-disabled.invalid"
+        values["controlPlane"]["env"]["enabledClientProfiles"] = [
+            "reality",
+            "hysteria",
+            "backup-grpc",
+            "backup-ws",
+            "backup-shadowtls",
+            "backup-wgws",
+        ]
+        values["gateway"]["roles"]["entry"]["tls"]["serverName"] = "entry-disabled.invalid"
+        values["interconnect"]["emergencyXrayChain"]["shards"] = [
+            {
+                "id": "lemanapro",
+                "serverName": "cdn.lemanapro.ru",
+                "dest": "cdn.lemanapro.ru:443",
+                "endpointListenPort": 2451,
+                "path": "/api/v1/backhaul/lemanapro",
+            },
+            {
+                "id": "2gis-reviews",
+                "serverName": "public-api.reviews.2gis.com",
+                "dest": "public-api.reviews.2gis.com:443",
+                "endpointListenPort": 2452,
+                "path": "/api/v1/backhaul/2gis-reviews",
+            },
+        ]
+        values["interconnect"]["endpointBackhaul"]["hysteria2"]["enabled"] = True
+        values["interconnect"]["endpointBackhaul"]["hysteria2"]["endpointHost"] = "198.51.100.20"
+        values["interconnect"]["endpointBackhaul"]["hysteria2"]["serverName"] = "endpoint.prod.test"
+        values["interconnect"]["endpointBackhaul"]["hysteria2"]["allowedSources"] = ["8.8.4.4"]
     values["experimentalProfiles"] = {"enabled": False}
     values["wireguard"] = {"enabled": True, "wstunnel": {"enabled": True, "mode": "wireguard-over-websocket"}}
     values["shadowsocks2022"] = {"enabled": True}
@@ -620,7 +652,7 @@ def test_k3s_strict_prod_overlay_check_accepts_private_overlay(tmp_path: Path) -
     assert "prod-overlay-check: OK" in result.stdout
 
 
-@pytest.mark.parametrize("phase", ["endpoint-first", "full"])
+@pytest.mark.parametrize("phase", ["endpoint-first", "entry-staged", "full"])
 def test_k3s_strict_prod_overlay_check_accepts_pod_only_new_prod(tmp_path: Path, phase: str) -> None:
     values_path = tmp_path / f"values-{phase}.yaml"
     values_path.write_text(yaml.safe_dump(_pod_only_new_prod_overlay_values(phase=phase), sort_keys=True), encoding="utf-8")
