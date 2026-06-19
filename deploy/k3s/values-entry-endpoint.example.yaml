@@ -176,7 +176,7 @@ interconnect:
     endpointPort: 443
     allowedSources: [203.0.113.10]
     shards:
-      - {id: lemanapro, serverName: cdn.lemanapro.ru, dest: "cdn.lemanapro.ru:443", endpointListenPort: 2451, path: /api/v1/backhaul/lemanapro}
+      - {id: mail, serverName: ctlog2024.mail.ru, dest: "ctlog2024.mail.ru:443", endpointListenPort: 2451, path: /api/v1/backhaul/mail}
       - {id: 2gis-reviews, serverName: public-api.reviews.2gis.com, dest: "public-api.reviews.2gis.com:443", endpointListenPort: 2452, path: /api/v1/backhaul/2gis-reviews}
     xhttp:
       clientMode: stream-one

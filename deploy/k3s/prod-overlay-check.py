@@ -788,6 +788,17 @@ def validate_prod_overlay(chart_values: Path, prod_values: Path, *, strict: bool
         channel = _as_dict(endpoint_ingress.get("channel"))
         tcp_channel = _as_dict(channel.get("tcp"))
         udp_channel = _as_dict(channel.get("udp"))
+        endpoint_exclusive_pairs = _as_dict(endpoint_ingress.get("exclusiveSniPairs"))
+        endpoint_sni_pool = {
+            _text(value).lower().rstrip(".") for value in _as_list(endpoint_exclusive_pairs.get("pool")) if _text(value)
+        }
+        shadowtls_sni = _text(_as_dict(_as_dict(merged.get("shadowsocks2022")).get("shadowtls")).get("serverNameTransit")).lower().rstrip(".")
+        chain_bridge = _as_dict(interconnect.get("emergencyXrayChain"))
+        chain_shard_snis = {
+            _text(_as_dict(row).get("serverName")).lower().rstrip(".")
+            for row in _as_list(chain_bridge.get("shards"))
+            if _text(_as_dict(row).get("serverName"))
+        }
         endpoint_ips = {service_ip, *shard_ips}
         normalized_endpoint_ips, invalid_endpoint_ips = _valid_public_ip_set({value for value in endpoint_ips if value})
         expected_ingress_ips = set(shard_ips)
@@ -813,6 +824,14 @@ def validate_prod_overlay(chart_values: Path, prod_values: Path, *, strict: bool
         require(bool(firewall.get("required", False)), "architecture.endpointIngress.firewall.required must stay true")
         require(bool(tcp_channel.get("bindShardIpsOnly", False)), "Endpoint TCP listeners must bind shard IPs only")
         require(bool(udp_channel.get("serviceIpRejectRequired", False)), "Endpoint UDP service-facing IP rejection must stay required")
+        require(
+            not (endpoint_sni_pool & chain_shard_snis),
+            "Endpoint direct SNI pool must not overlap Entry-to-Endpoint XHTTP shard SNI values",
+        )
+        require(
+            not (shadowtls_sni and shadowtls_sni in endpoint_sni_pool),
+            "shadowsocks2022.shadowtls.serverNameTransit must not reuse an Endpoint direct SNI",
+        )
 
     if deployment_phase == "entry-staged":
         endpoint_backhaul = _as_dict(interconnect.get("endpointBackhaul"))

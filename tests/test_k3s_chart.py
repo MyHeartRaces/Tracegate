@@ -524,11 +524,11 @@ def _universal_entry_overlay_values() -> dict:
     values["interconnect"]["emergencyXrayChain"]["allowedSources"] = ["8.8.4.4"]
     values["interconnect"]["emergencyXrayChain"]["shards"] = [
         {
-            "id": "lemanapro",
-            "serverName": "cdn.lemanapro.ru",
-            "dest": "cdn.lemanapro.ru:443",
+            "id": "mail",
+            "serverName": "ctlog2024.mail.ru",
+            "dest": "ctlog2024.mail.ru:443",
             "endpointListenPort": 2451,
-            "path": "/api/v1/backhaul/lemanapro",
+            "path": "/api/v1/backhaul/mail",
         },
         {
             "id": "2gis-reviews",
@@ -605,11 +605,11 @@ def _pod_only_new_prod_overlay_values(*, phase: str) -> dict:
         values["gateway"]["roles"]["entry"]["tls"]["serverName"] = "entry-disabled.invalid"
         values["interconnect"]["emergencyXrayChain"]["shards"] = [
             {
-                "id": "lemanapro",
-                "serverName": "cdn.lemanapro.ru",
-                "dest": "cdn.lemanapro.ru:443",
+                "id": "mail",
+                "serverName": "ctlog2024.mail.ru",
+                "dest": "ctlog2024.mail.ru:443",
                 "endpointListenPort": 2451,
-                "path": "/api/v1/backhaul/lemanapro",
+                "path": "/api/v1/backhaul/mail",
             },
             {
                 "id": "2gis-reviews",
@@ -3332,7 +3332,7 @@ def test_tracegate22_universal_entry_routes_all_entry_traffic_through_dual_trans
     xhttp_outbounds = [row for row in entry_xray["outbounds"] if str(row.get("tag", "")).startswith("chain-xhttp-")]
     assert len(xhttp_outbounds) == 2
     assert {row["streamSettings"]["realitySettings"]["serverName"] for row in xhttp_outbounds} == {
-        "cdn.lemanapro.ru",
+        "ctlog2024.mail.ru",
         "public-api.reviews.2gis.com",
     }
     assert all(row["streamSettings"]["xhttpSettings"]["mode"] == "stream-one" for row in xhttp_outbounds)
@@ -3358,10 +3358,10 @@ def test_tracegate22_universal_entry_routes_all_entry_traffic_through_dual_trans
     assert backhaul_client["socks5"] == {"listen": "127.0.0.1:11086", "disableUDP": False}
     assert "hysteria-backhaul-client" in entry_containers
     assert {row["tag"] for row in endpoint_xray["inbounds"] if str(row.get("tag", "")).startswith("chain-bridge-")} == {
-        "chain-bridge-lemanapro-in",
+        "chain-bridge-mail-in",
         "chain-bridge-2gis_reviews-in",
     }
-    assert "use_backend be_chain_bridge_lemanapro if chain_bridge_lemanapro_sni chain_bridge_lemanapro_src" in endpoint_haproxy
+    assert "use_backend be_chain_bridge_mail if chain_bridge_mail_sni chain_bridge_mail_src" in endpoint_haproxy
     assert (
         "use_backend be_chain_bridge_2gis_reviews if chain_bridge_2gis_reviews_sni chain_bridge_2gis_reviews_src"
         in endpoint_haproxy
@@ -3435,12 +3435,33 @@ def test_tracegate22_universal_entry_rejects_conflicting_xhttp_xmux_limits(tmp_p
 
 def test_tracegate22_universal_entry_rejects_duplicate_xhttp_shard_sni(tmp_path: Path) -> None:
     values = _universal_entry_overlay_values()
-    values["interconnect"]["emergencyXrayChain"]["shards"][1]["serverName"] = "cdn.lemanapro.ru"
+    values["interconnect"]["emergencyXrayChain"]["shards"][1]["serverName"] = "ctlog2024.mail.ru"
 
     rendered = _helm_template_with_values(tmp_path, values)
 
     assert rendered.returncode != 0
     assert "interconnect.emergencyXrayChain.shards[].serverName values must be unique" in rendered.stderr
+
+
+def test_tracegate3_entry_staged_rejects_endpoint_direct_sni_reused_by_xhttp_shard(tmp_path: Path) -> None:
+    values = _pod_only_new_prod_overlay_values(phase="entry-staged")
+    values["interconnect"]["emergencyXrayChain"]["shards"][0]["serverName"] = "cdn.lemanapro.ru"
+    values["interconnect"]["emergencyXrayChain"]["shards"][0]["dest"] = "cdn.lemanapro.ru:443"
+
+    rendered = _helm_template_with_values(tmp_path, values)
+
+    assert rendered.returncode != 0
+    assert "Endpoint direct SNI pool must not overlap Entry-to-Endpoint XHTTP shard SNI values" in rendered.stderr
+
+
+def test_tracegate3_entry_staged_rejects_endpoint_direct_sni_reused_by_shadowtls(tmp_path: Path) -> None:
+    values = _pod_only_new_prod_overlay_values(phase="entry-staged")
+    values["shadowsocks2022"]["shadowtls"] = {"serverNameTransit": "api.evotor.ru"}
+
+    rendered = _helm_template_with_values(tmp_path, values)
+
+    assert rendered.returncode != 0
+    assert "shadowsocks2022.shadowtls.serverNameTransit must not reuse an Endpoint direct SNI" in rendered.stderr
 
 
 def test_tracegate22_universal_entry_rejects_disabled_hysteria_fallback(tmp_path: Path) -> None:

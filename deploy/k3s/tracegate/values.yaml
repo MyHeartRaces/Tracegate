@@ -1052,7 +1052,7 @@ shadowsocks2022:
     enabled: true
     version: 3
     serverNameEntry: api.photo.2gis.com
-    serverNameTransit: api.evotor.ru
+    serverNameTransit: splitter.wb.ru
     listenPort: 14443
 
 mtproto:

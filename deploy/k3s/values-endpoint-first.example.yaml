@@ -135,7 +135,7 @@ wireguard:
 shadowsocks2022:
   enabled: true
   shadowtls:
-    serverNameEndpoint: api.evotor.ru
+    serverNameEndpoint: splitter.wb.ru
 
 mtproto:
   enabled: true
