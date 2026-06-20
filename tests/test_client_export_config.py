@@ -494,6 +494,7 @@ def test_export_shadowsocks2022_shadowtls_single_line_uri() -> None:
         "method": "2022-blake3-aes-128-gcm",
         "password": "server-password:user-password",
         "detour": "shadowtls-out",
+        "multiplex": {"enabled": True},
     }
     assert attachment["outbounds"][1] == {
         "type": "shadowtls",
@@ -505,6 +506,10 @@ def test_export_shadowsocks2022_shadowtls_single_line_uri() -> None:
         "tls": {
             "enabled": True,
             "server_name": "www.microsoft.com",
+            "utls": {
+                "enabled": True,
+                "fingerprint": "chrome",
+            },
         },
     }
 

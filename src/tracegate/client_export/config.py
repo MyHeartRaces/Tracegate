@@ -1007,6 +1007,7 @@ def _export_shadowsocks2022_shadowtls(effective: dict[str, Any]) -> ExportResult
                 "method": method,
                 "password": password,
                 "detour": "shadowtls-out",
+                "multiplex": {"enabled": True},
             },
             {
                 "type": "shadowtls",
@@ -1018,6 +1019,10 @@ def _export_shadowsocks2022_shadowtls(effective: dict[str, Any]) -> ExportResult
                 "tls": {
                     "enabled": True,
                     "server_name": shadowtls_server_name,
+                    "utls": {
+                        "enabled": True,
+                        "fingerprint": "chrome",
+                    },
                 },
             },
         ],
