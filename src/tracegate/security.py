@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import hmac
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
@@ -37,6 +38,19 @@ def _extract_token(x_api_token: str | None, authorization: str | None) -> str | 
 
 def _hash_token(token: str) -> str:
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def _tokens_match(provided: str | None, expected: str | None) -> bool:
+    """Constant-time, None/empty-safe comparison for shared-secret tokens.
+
+    Plain ``==``/``!=`` on secrets leaks length and prefix information through
+    timing. Bootstrap and agent tokens are long-lived shared secrets, so they
+    must be compared with :func:`hmac.compare_digest` like every other secret
+    comparison in the codebase (decoy auth, Grafana signing).
+    """
+    if not provided or not expected:
+        return False
+    return hmac.compare_digest(provided, expected)
 
 
 def _normalize_scopes(raw: Any) -> frozenset[str]:
@@ -81,7 +95,7 @@ async def require_internal_api_token(
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing API token")
 
     settings = get_settings()
-    if settings.api_internal_token and token == settings.api_internal_token:
+    if _tokens_match(token, settings.api_internal_token):
         return ApiPrincipal(
             token_id=None,
             token_name="bootstrap",
@@ -129,7 +143,7 @@ async def require_bootstrap_token(
     settings = get_settings()
     if not settings.api_internal_token:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Bootstrap token is not configured")
-    if token != settings.api_internal_token:
+    if not _tokens_match(token, settings.api_internal_token):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Bootstrap token required")
 
 
@@ -149,5 +163,5 @@ async def require_agent_token(
 
     if not token:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing agent token")
-    if token != expected:
+    if not _tokens_match(token, expected):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid agent token")

@@ -191,6 +191,11 @@ spec:
         tracegate.io/no-host-wide-nfqueue: {{ not $.Values.interconnect.zapret2.hostWideInterception | quote }}
         checksum/tracegate-configmaps: {{ include (print $.Template.BasePath "/configmaps.yaml") $ | sha256sum | quote }}
     spec:
+{{- if $.Values.gateway.seccompProfileType }}
+      securityContext:
+        seccompProfile:
+          type: {{ $.Values.gateway.seccompProfileType }}
+{{- end }}
       hostNetwork: {{ $.Values.gateway.hostNetwork }}
       dnsPolicy: {{ $.Values.gateway.dnsPolicy }}
       shareProcessNamespace: {{ $.Values.gateway.shareProcessNamespace }}

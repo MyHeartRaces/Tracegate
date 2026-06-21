@@ -43,3 +43,29 @@ def test_private_k3s_values_have_reality_inbound_for_each_bot_sni() -> None:
     # Private production overlays may retain disabled legacy SNI groups while
     # previously issued revisions drain.
     assert enabled_snis <= grouped_snis
+
+
+def test_chart_shadowtls_server_names_avoid_forbidden_faketls_domains() -> None:
+    """Default ShadowTLS camouflage SNIs must never reuse a domain the project
+    marks as a forbidden MTProto FakeTLS front, and the Entry/Endpoint fronts
+    must differ so the HAProxy SNI demux stays unambiguous.
+
+    Regression guard for the audit finding where the chart shipped
+    ``serverNameTransit: splitter.wb.ru`` -- a domain listed in the same file's
+    ``mtproto.stealth.forbiddenTlsDomains`` and called out in the release
+    checklist as forbidden in active SNI fields. (ShadowTLS fronts are
+    intentionally kept *out* of the enabled Reality lease pool to avoid an SNI
+    demux collision, so they are not required to be catalog-``enabled``.)
+    """
+    values = yaml.safe_load(Path("deploy/k3s/tracegate/values.yaml").read_text(encoding="utf-8"))
+    shadowtls = values["shadowsocks2022"]["shadowtls"]
+    server_names = {
+        str(shadowtls.get("serverNameEntry") or "").strip(),
+        str(shadowtls.get("serverNameTransit") or "").strip(),
+    }
+    forbidden = {str(d).strip() for d in values["mtproto"]["stealth"].get("forbiddenTlsDomains", [])}
+
+    for name in server_names:
+        assert name, "ShadowTLS serverName defaults must be set"
+        assert name not in forbidden, f"ShadowTLS serverName {name!r} is a forbidden MTProto FakeTLS domain"
+    assert len(server_names) == 2, "Entry and Endpoint ShadowTLS fronts must differ"

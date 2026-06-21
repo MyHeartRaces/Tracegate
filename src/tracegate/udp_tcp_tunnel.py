@@ -386,6 +386,11 @@ class UdpOverTcpClient:
         if self.tls_ca_file:
             context.load_verify_locations(cafile=self.tls_ca_file)
         if self.tls_insecure_skip_verify:
+            logging.getLogger(__name__).warning(
+                "TLS certificate verification is DISABLED for the UDP-over-TCP tunnel client "
+                "(tls_insecure_skip_verify=True); the outer transport is exposed to active MITM. "
+                "Use tls_server_name with tls_ca_file (pinned CA) for any non-loopback deployment."
+            )
             context.check_hostname = False
             context.verify_mode = ssl.CERT_NONE
         elif not self.tls_server_name:

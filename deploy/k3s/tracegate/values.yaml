@@ -530,6 +530,11 @@ gateway:
     maxUnavailable: 0
     maxSurge: 1
   hostNetwork: true
+  # Pod-level seccomp profile applied to every gateway data-plane container.
+  # RuntimeDefault constrains the syscall surface (defense in depth) while still
+  # permitting the NET_ADMIN/NET_RAW networking the data plane needs. Set to ""
+  # to omit the profile, or to "Unconfined" only for short-lived debugging.
+  seccompProfileType: RuntimeDefault
   shareProcessNamespace: true
   dnsPolicy: ClusterFirstWithHostNet
   terminationGracePeriodSeconds: 60
@@ -1051,8 +1056,13 @@ shadowsocks2022:
   shadowtls:
     enabled: true
     version: 3
+    # ShadowTLS handshake fronts. These MUST stay distinct from the active
+    # Reality serverNames pool (the HAProxy SNI demux routes by SNI, and the
+    # chart fails closed on a collision) and MUST NOT appear in
+    # mtproto.stealth.forbiddenTlsDomains. Operators should repoint these to a
+    # reachable, TLS 1.3-verified domain that is outside the Reality lease pool.
     serverNameEntry: api.photo.2gis.com
-    serverNameTransit: splitter.wb.ru
+    serverNameTransit: api.reviews.2gis.com
     listenPort: 14443
 
 mtproto:

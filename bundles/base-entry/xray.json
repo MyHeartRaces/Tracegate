@@ -251,7 +251,8 @@
         "inboundTag": [
           "entry-in",
           "vless-ws-in",
-          "vless-grpc-in"
+          "vless-grpc-in",
+          "hy2-in"
         ],
         "domain": [
           "geosite:category-ru",
@@ -267,7 +268,8 @@
         "inboundTag": [
           "entry-in",
           "vless-ws-in",
-          "vless-grpc-in"
+          "vless-grpc-in",
+          "hy2-in"
         ],
         "ip": [
           "geoip:ru"
