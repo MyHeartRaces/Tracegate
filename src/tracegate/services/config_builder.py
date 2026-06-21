@@ -10,9 +10,6 @@ from typing import Any
 from tracegate.constants import (
     TRACEGATE_FORBIDDEN_PUBLIC_TCP_PORT,
     TRACEGATE_FORBIDDEN_PUBLIC_UDP_PORT,
-    TRACEGATE_NAIVEPROXY_HOST,
-    TRACEGATE_NAIVEPROXY_PUBLIC_TCP_PORT,
-    TRACEGATE_NAIVEPROXY_PUBLIC_UDP_PORT,
     TRACEGATE_PUBLIC_UDP_PORT,
 )
 from tracegate.enums import ConnectionMode, ConnectionProtocol, ConnectionVariant
@@ -88,9 +85,6 @@ class EndpointSet:
     wireguard_allowed_ips: tuple[str, ...] = ("0.0.0.0/0", "::/0")
     wireguard_mtu: int = 1280
     wstunnel_path: str = "/wgws"
-    naiveproxy_host: str = TRACEGATE_NAIVEPROXY_HOST
-    naiveproxy_public_tcp_port: int = TRACEGATE_NAIVEPROXY_PUBLIC_TCP_PORT
-    naiveproxy_public_udp_port: int = TRACEGATE_NAIVEPROXY_PUBLIC_UDP_PORT
 
 
 def _build_local_socks_auth(
@@ -790,9 +784,6 @@ def build_effective_config(
             if is_chain
             else None,
         }
-
-    if connection.protocol == ConnectionProtocol.NAIVEPROXY:
-        raise ValueError("NaiveProxy was removed in Tracegate 3")
 
     if connection.protocol == ConnectionProtocol.SHADOWSOCKS2022_SHADOWTLS:
         if (connection.mode, connection.variant) not in {

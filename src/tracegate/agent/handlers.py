@@ -129,7 +129,6 @@ def _proxy_reload_commands(settings: Settings) -> list[str]:
     commands.append(settings.agent_reload_fronting_cmd)
     commands.append(settings.agent_reload_profiles_cmd)
     commands.append(settings.agent_reload_link_crypto_cmd)
-    commands.append(settings.agent_reload_naiveproxy_cmd)
     return commands
 
 
@@ -159,8 +158,6 @@ def _reload_commands_for_changed(
         cmds.append(settings.agent_reload_profiles_cmd)
     if "link-crypto" in changed:
         cmds.append(settings.agent_reload_link_crypto_cmd)
-    if contract.manages_component("naiveproxy") and "naiveproxy" in changed:
-        cmds.append(settings.agent_reload_naiveproxy_cmd)
     return cmds
 
 

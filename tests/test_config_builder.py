@@ -1286,31 +1286,6 @@ def test_wireguard_wstunnel_connects_to_endpoint_shard_with_canonical_tls_name()
     assert cfg["wstunnel"]["tls_server_name"] == "endpoint.example"
 
 
-def test_naiveproxy_v4_direct_is_rejected_after_tracegate3_removal() -> None:
-    user = _user()
-    device = _device(user.telegram_id)
-    conn = Connection(
-        id=uuid4(),
-        user_id=user.telegram_id,
-        device_id=device.id,
-        protocol=ConnectionProtocol.NAIVEPROXY,
-        mode=ConnectionMode.DIRECT,
-        variant=ConnectionVariant.V4,
-        profile_name="v4-direct-naiveproxy",
-        custom_overrides_json={},
-        status=RecordStatus.ACTIVE,
-    )
-
-    with pytest.raises(ValueError, match="NaiveProxy was removed in Tracegate 3"):
-        build_effective_config(
-            user=user,
-            device=device,
-            connection=conn,
-            selected_sni=None,
-            endpoints=EndpointSet(transit_host="transit.example.com", entry_host="entry.example.com"),
-        )
-
-
 def test_wireguard_wstunnel_generates_client_material_without_overrides() -> None:
     user = _user()
     device = _device(user.telegram_id)

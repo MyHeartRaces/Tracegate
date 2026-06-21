@@ -210,17 +210,14 @@ async def gather_health_checks(
     *,
     mtproto_public_port: int = 443,
     mtproto_route_mode: str = "endpoint-direct",
-    naiveproxy_tcp_exposure: str = "demux",
 ) -> list[dict]:
     contract = resolve_runtime_contract(runtime_profile)
     checks: list[dict] = []
     role_upper = str(role or "").strip().upper()
     route_mode = str(mtproto_route_mode or "").strip().lower()
-    naiveproxy_exposure = str(naiveproxy_tcp_exposure or "").strip().lower()
     mtproto_uses_tcp8443 = int(mtproto_public_port or 0) == TRACEGATE_FORBIDDEN_PUBLIC_TCP_PORT and (
         (role_upper == "TRANSIT" and route_mode != "entry-local-endpoint-egress")
         or (role_upper == "ENTRY" and route_mode in {"entry-transit-endpoint", "entry-local-endpoint-egress"})
-        or (role_upper == "NAIVEPROXY" and naiveproxy_exposure == "demux")
     )
 
     for protocol, port, name in contract.expected_ports(role):

@@ -55,7 +55,6 @@ def test_tracegate3_connection_variants_are_validated() -> None:
         (ConnectionProtocol.VLESS_REALITY, ConnectionMode.DIRECT, ConnectionVariant.V0),
         (ConnectionProtocol.HYSTERIA2, ConnectionMode.CHAIN, ConnectionVariant.V2),
         (ConnectionProtocol.SHADOWSOCKS2022_SHADOWTLS, ConnectionMode.CHAIN, ConnectionVariant.V3),
-        (ConnectionProtocol.NAIVEPROXY, ConnectionMode.DIRECT, ConnectionVariant.V4),
     ],
 )
 def test_removed_tracegate3_variants_are_rejected(protocol, mode, variant) -> None:

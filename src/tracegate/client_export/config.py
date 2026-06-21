@@ -598,8 +598,6 @@ def export_client_config(effective: dict[str, Any]) -> ExportResult:
         raise ClientConfigExportError(f"Unsupported VLESS transport for export: {transport!r}")
     if proto == "hysteria2":
         return _export_hysteria2(effective)
-    if proto == "naiveproxy":
-        raise ClientConfigExportError("NaiveProxy was removed from Tracegate 3")
     if proto in {"shadowsocks2022", "shadowsocks"}:
         return _export_shadowsocks2022_shadowtls(effective)
     if proto == "wireguard":

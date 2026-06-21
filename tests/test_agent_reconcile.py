@@ -999,67 +999,6 @@ def test_reconcile_runtime_contract_exposes_private_wrapper_state(tmp_path: Path
     assert runtime_contract["xray"]["echEnabled"] is True
 
 
-def test_reconcile_naiveproxy_v4_writes_caddyfile_from_user_artifacts(tmp_path: Path) -> None:
-    settings = Settings(
-        agent_data_root=str(tmp_path),
-        agent_role="NAIVEPROXY",
-        agent_runtime_profile="tracegate-naiveproxy-v4",
-        naiveproxy_enabled=True,
-        naiveproxy_host="auth.example.com",
-    )
-    _write(
-        tmp_path / "users/1/connection-c1.json",
-        json.dumps(
-            {
-                "user_id": "1",
-                "connection_id": "c1",
-                "device_id": "d1",
-                "protocol": "naiveproxy",
-                "mode": "direct",
-                "variant": "V4",
-                "config": {
-                    "protocol": "naiveproxy",
-                    "auth": {"type": "basic", "username": "tg_v4_user", "password": "secret-pass"},
-                },
-            }
-        ),
-    )
-
-    changed = reconcile_all(settings)
-
-    assert changed == ["naiveproxy"]
-    caddyfile = (tmp_path / "runtime/naiveproxy/Caddyfile").read_text(encoding="utf-8")
-    assert "auth.example.com" in caddyfile
-    assert "servers :11443" in caddyfile
-    assert "protocols h1 h2" in caddyfile
-    assert "servers :443" in caddyfile
-    assert "protocols h3" in caddyfile
-    assert ":11443, auth.example.com:11443" in caddyfile
-    assert 'basic_auth "tg_v4_user" "secret-pass"' in caddyfile
-    assert "hide_ip" in caddyfile
-    assert "hide_via" in caddyfile
-    assert "probe_resistance" in caddyfile
-    users = json.loads((tmp_path / "runtime/naiveproxy/users.json").read_text(encoding="utf-8"))
-    assert users["users"] == [
-        {
-            "username": "tg_v4_user",
-            "connectionId": "c1",
-            "userId": "1",
-            "deviceId": "d1",
-            "disabled": False,
-        }
-    ]
-    contract = json.loads((tmp_path / "runtime/runtime-contract.json").read_text(encoding="utf-8"))
-    assert contract["role"] == "NAIVEPROXY"
-    assert contract["fronting"]["tcp443Owner"] == "haproxy-demux"
-    assert contract["fronting"]["tcp443Demux"] is True
-    assert contract["fronting"]["naiveproxyTcpBackend"] == "127.0.0.1:11443"
-    assert contract["fronting"]["udp443Owner"] == "naiveproxy"
-    assert contract["naiveproxy"]["tcpExposure"] == "demux"
-    assert contract["naiveproxy"]["tcpListenPort"] == 11443
-    assert contract["naiveproxy"]["userCount"] == 1
-
-
 def test_reconcile_materializes_private_runtime_handoff_surfaces_for_transit(tmp_path: Path) -> None:
     settings = Settings(
         agent_data_root=str(tmp_path),

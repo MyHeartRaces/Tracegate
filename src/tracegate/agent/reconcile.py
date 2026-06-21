@@ -3,7 +3,6 @@ from __future__ import annotations
 import copy
 import json
 import os
-import secrets
 from dataclasses import dataclass
 from pathlib import Path
 import threading
@@ -14,10 +13,6 @@ from tracegate.constants import (
     TRACEGATE_FORBIDDEN_PUBLIC_TCP_PORT,
     TRACEGATE_INTERCONNECT_UDP_PORT,
     TRACEGATE_FORBIDDEN_PUBLIC_UDP_PORT,
-    TRACEGATE_NAIVEPROXY_DEMUX_TCP_PORT,
-    TRACEGATE_NAIVEPROXY_HOST,
-    TRACEGATE_NAIVEPROXY_PUBLIC_TCP_PORT,
-    TRACEGATE_NAIVEPROXY_PUBLIC_UDP_PORT,
     TRACEGATE_PUBLIC_TCP_PORT,
     TRACEGATE_PUBLIC_UDP_PORT,
 )
@@ -261,8 +256,6 @@ def _contract_port_owner(contract, role: str, *, protocol: str, port: int) -> st
     for row_protocol, row_port, _name in contract.expected_ports(role):
         if row_protocol != protocol or row_port != port:
             continue
-        if contract.manages_component("naiveproxy"):
-            return "naiveproxy"
         if protocol == "udp":
             return "xray" if contract.hysteria_metrics_source == "xray_stats" else "hysteria"
         if contract.manages_component("haproxy"):
@@ -270,57 +263,6 @@ def _contract_port_owner(contract, role: str, *, protocol: str, port: int) -> st
         if contract.manages_component("xray"):
             return "xray"
     return ""
-
-
-def _collect_naiveproxy_runtime_state(paths: AgentPaths, settings: Settings) -> dict[str, object]:
-    runtime_dir = paths.runtime / "naiveproxy"
-    caddyfile_path = runtime_dir / "Caddyfile"
-    users_path = runtime_dir / "users.json"
-    users_payload = _try_load_json(users_path) or {}
-    users = users_payload.get("users") if isinstance(users_payload, dict) else []
-    active_user_count = (
-        len([row for row in users if isinstance(row, dict) and not bool(row.get("disabled"))])
-        if isinstance(users, list)
-        else 0
-    )
-    tcp_exposure = str(settings.naiveproxy_tcp_exposure or "").strip().lower() or "demux"
-    if tcp_exposure not in {"demux", "dedicated"}:
-        tcp_exposure = "demux"
-    public_tcp_port = int(settings.naiveproxy_public_tcp_port or TRACEGATE_NAIVEPROXY_PUBLIC_TCP_PORT)
-    demux_tcp_port = int(settings.naiveproxy_demux_tcp_port or TRACEGATE_NAIVEPROXY_DEMUX_TCP_PORT)
-    tcp_listen_port = demux_tcp_port if tcp_exposure == "demux" else public_tcp_port
-    return {
-        "enabled": bool(settings.naiveproxy_enabled),
-        "domain": str(settings.naiveproxy_host or TRACEGATE_NAIVEPROXY_HOST).strip() or TRACEGATE_NAIVEPROXY_HOST,
-        "tcpExposure": tcp_exposure,
-        "tcpPort": public_tcp_port,
-        "tcpListenPort": tcp_listen_port,
-        "udpPort": int(settings.naiveproxy_public_udp_port or TRACEGATE_NAIVEPROXY_PUBLIC_UDP_PORT),
-        "demux": {
-            "enabled": tcp_exposure == "demux",
-            "tcp443Owner": "haproxy",
-            "backendHost": "127.0.0.1",
-            "backendPort": demux_tcp_port,
-        },
-        "configPresent": caddyfile_path.exists(),
-        "configPath": str(caddyfile_path),
-        "usersPath": str(users_path),
-        "userCount": active_user_count,
-        "stealth": {
-            "mode": str(settings.naiveproxy_decoy_mode or "").strip() or "auth-portal",
-            "probeResistance": True,
-            "hideIp": True,
-            "hideVia": True,
-            "coverPaths": [
-                "/auth/login",
-                "/auth/session",
-                "/auth/token",
-                "/oauth2/authorize",
-                "/oauth2/token",
-                "/.well-known/openid-configuration",
-            ],
-        },
-    }
 
 
 def _collect_xray_runtime_state(paths: AgentPaths) -> dict[str, object]:
@@ -904,8 +846,6 @@ def _build_runtime_contract_payload(settings: Settings) -> dict[str, object]:
         runtime_hysteria = _try_load_yaml(paths.runtime / "hysteria" / "config.yaml") or {}
     runtime_nginx_path = paths.runtime / "nginx" / "nginx.conf"
     runtime_nginx = runtime_nginx_path.read_text(encoding="utf-8") if runtime_nginx_path.exists() else ""
-    runtime_naiveproxy = _collect_naiveproxy_runtime_state(paths, settings)
-
     link_crypto = _build_link_crypto_contract_payload(settings)
     public_udp_owner = _contract_port_owner(
         contract,
@@ -914,15 +854,7 @@ def _build_runtime_contract_payload(settings: Settings) -> dict[str, object]:
         port=TRACEGATE_PUBLIC_UDP_PORT,
     )
     tcp443_owner = _contract_port_owner(contract, settings.agent_role, protocol="tcp", port=443)
-    naiveproxy_tcp_exposure = str(settings.naiveproxy_tcp_exposure or "").strip().lower() or "demux"
-    naiveproxy_demux_enabled = (
-        bool(settings.naiveproxy_enabled)
-        and naiveproxy_tcp_exposure == "demux"
-        and (contract.name == "tracegate-3" or contract.manages_component("naiveproxy"))
-    )
-    if contract.manages_component("naiveproxy") and naiveproxy_demux_enabled:
-        tcp443_owner = "haproxy-demux"
-    udp443_owner = "naiveproxy" if bool(settings.naiveproxy_enabled) else public_udp_owner
+    udp443_owner = public_udp_owner
     role_upper = str(settings.agent_role or "").strip().upper()
     mtproto_public_port = int(settings.mtproto_public_port or TRACEGATE_PUBLIC_TCP_PORT)
     mtproto_route_mode = str(settings.mtproto_route_mode or "").strip().lower()
@@ -1070,15 +1002,9 @@ def _build_runtime_contract_payload(settings: Settings) -> dict[str, object]:
         },
         "fronting": {
             "tcp443Owner": tcp443_owner,
-            "tcp443Demux": naiveproxy_demux_enabled,
-            "naiveproxyTcpBackend": (
-                f"127.0.0.1:{int(settings.naiveproxy_demux_tcp_port or TRACEGATE_NAIVEPROXY_DEMUX_TCP_PORT)}"
-                if naiveproxy_demux_enabled
-                else ""
-            ),
             "publicUdpPort": TRACEGATE_PUBLIC_UDP_PORT,
             "publicUdpOwner": public_udp_owner,
-            "udp443Port": TRACEGATE_NAIVEPROXY_PUBLIC_UDP_PORT,
+            "udp443Port": TRACEGATE_PUBLIC_UDP_PORT,
             "udp443Owner": udp443_owner,
             "udpPublicPort": TRACEGATE_PUBLIC_UDP_PORT,
             "forbiddenUdp443": False,
@@ -1106,7 +1032,6 @@ def _build_runtime_contract_payload(settings: Settings) -> dict[str, object]:
             "hysteriaConfig": str(paths.runtime / "hysteria" / "server.yaml"),
             "haproxyConfig": str(paths.runtime / "haproxy" / "haproxy.cfg"),
             "nginxConfig": str(runtime_nginx_path),
-            "naiveproxyConfig": str(paths.runtime / "naiveproxy" / "Caddyfile"),
         },
         "decoy": {
             "nginxRoots": _extract_nginx_roots(runtime_nginx),
@@ -1117,14 +1042,8 @@ def _build_runtime_contract_payload(settings: Settings) -> dict[str, object]:
             runtime_hysteria,
             config_path=runtime_hysteria_config_path,
         ),
-        "naiveproxy": runtime_naiveproxy,
         "xray": runtime_xray,
     }
-    if not naiveproxy_demux_enabled:
-        fronting = payload.get("fronting")
-        if isinstance(fronting, dict):
-            fronting.pop("tcp443Demux", None)
-            fronting.pop("naiveproxyTcpBackend", None)
     return payload
 
 
@@ -1146,9 +1065,6 @@ def _cleanup_unmanaged_runtime_state(settings: Settings) -> None:
     if not contract.manages_component("hysteria"):
         runtime_hysteria_dir = paths.runtime / "hysteria"
         _safe_remove_path(runtime_hysteria_dir)
-    if not contract.manages_component("naiveproxy"):
-        runtime_naiveproxy_dir = paths.runtime / "naiveproxy"
-        _safe_remove_path(runtime_naiveproxy_dir)
 
 
 def _safe_decoy_target_root(path_raw: str) -> Path | None:
@@ -2469,223 +2385,6 @@ def _reconcile_passthrough_component(
     return True
 
 
-def _caddy_token(value: object) -> str:
-    return json.dumps(str(value or ""), ensure_ascii=True)
-
-
-def _naiveproxy_auth_rows(paths: AgentPaths) -> list[dict[str, str]]:
-    rows: list[dict[str, str]] = []
-    seen: set[tuple[str, str]] = set()
-    for artifact in load_all_user_artifacts(paths):
-        proto = str(artifact.get("protocol") or "").strip().lower()
-        config = artifact.get("config") if isinstance(artifact.get("config"), dict) else {}
-        if (
-            proto != ConnectionProtocol.NAIVEPROXY.value
-            and str(config.get("protocol") or "").strip().lower() != "naiveproxy"
-        ):
-            continue
-        auth = config.get("auth") if isinstance(config.get("auth"), dict) else {}
-        username = str(auth.get("username") or "").strip()
-        password = str(auth.get("password") or "").strip()
-        if not username or not password:
-            continue
-        key = (username, password)
-        if key in seen:
-            continue
-        seen.add(key)
-        rows.append(
-            {
-                "username": username,
-                "password": password,
-                "connectionId": str(artifact.get("connection_id") or "").strip(),
-                "userId": str(artifact.get("user_id") or "").strip(),
-                "deviceId": str(artifact.get("device_id") or "").strip(),
-            }
-        )
-    rows.sort(key=lambda row: (row["username"], row["connectionId"]))
-    return rows
-
-
-def _naiveproxy_disabled_auth(paths: AgentPaths) -> dict[str, str]:
-    state_path = paths.runtime / "naiveproxy" / ".disabled-auth.json"
-    payload = _try_load_json(state_path)
-    if isinstance(payload, dict):
-        username = str(payload.get("username") or "").strip()
-        password = str(payload.get("password") or "").strip()
-        if username and password:
-            return {"username": username, "password": password}
-    disabled = {
-        "username": "tg_v4_disabled",
-        "password": secrets.token_urlsafe(32),
-    }
-    _safe_dump_json(state_path, disabled)
-    return disabled
-
-
-def _render_naiveproxy_caddyfile(*, settings: Settings, auth_rows: list[dict[str, str]]) -> str:
-    domain = str(settings.naiveproxy_host or TRACEGATE_NAIVEPROXY_HOST).strip() or TRACEGATE_NAIVEPROXY_HOST
-    mode = str(settings.naiveproxy_decoy_mode or "").strip() or "auth-portal"
-    auth_lines = [
-        f"\t\tbasic_auth {_caddy_token(row['username'])} {_caddy_token(row['password'])}"
-        for row in auth_rows
-    ]
-    issuer = f"https://{domain}"
-    openid = json.dumps(
-        {
-            "issuer": issuer,
-            "authorization_endpoint": f"{issuer}/oauth2/authorize",
-            "token_endpoint": f"{issuer}/oauth2/token",
-            "userinfo_endpoint": f"{issuer}/auth/session",
-            "jwks_uri": f"{issuer}/.well-known/jwks.json",
-            "response_types_supported": ["code"],
-            "subject_types_supported": ["public"],
-            "id_token_signing_alg_values_supported": ["RS256"],
-        },
-        ensure_ascii=True,
-        separators=(",", ":"),
-    )
-    login_html = (
-        "<!doctype html><html><head><meta charset=\"utf-8\"><meta name=\"robots\" content=\"noindex\">"
-        "<title>Tracegate Auth</title></head><body><main><h1>Sign in</h1>"
-        "<form method=\"post\" action=\"/auth/session\"><input name=\"email\" type=\"email\" autocomplete=\"username\">"
-        "<input name=\"password\" type=\"password\" autocomplete=\"current-password\">"
-        "<button type=\"submit\">Continue</button></form></main></body></html>"
-    )
-    session_json = json.dumps({"authenticated": False, "provider": "tracegate", "mode": mode}, ensure_ascii=True)
-    public_tcp_port = int(settings.naiveproxy_public_tcp_port or TRACEGATE_NAIVEPROXY_PUBLIC_TCP_PORT)
-    public_udp_port = int(settings.naiveproxy_public_udp_port or TRACEGATE_NAIVEPROXY_PUBLIC_UDP_PORT)
-    demux_tcp_port = int(settings.naiveproxy_demux_tcp_port or TRACEGATE_NAIVEPROXY_DEMUX_TCP_PORT)
-    tcp_exposure = str(settings.naiveproxy_tcp_exposure or "").strip().lower() or "demux"
-    if tcp_exposure not in {"demux", "dedicated"}:
-        tcp_exposure = "demux"
-
-    def site_block(addresses: str) -> list[str]:
-        return [
-            f"{addresses} {{",
-            "\ttls /etc/tracegate/tls/tls.crt /etc/tracegate/tls/tls.key",
-            "\tencode zstd gzip",
-            "\tlog {",
-            "\t\toutput stdout",
-            "\t\tformat json",
-            "\t\tlevel WARN",
-            "\t}",
-            "\theader {",
-            "\t\t-Server",
-            "\t\tStrict-Transport-Security \"max-age=31536000; includeSubDomains\"",
-            "\t\tX-Content-Type-Options \"nosniff\"",
-            "\t\tReferrer-Policy \"same-origin\"",
-            "\t\tCache-Control \"no-store\"",
-            "\t}",
-            "",
-            "\tforward_proxy {",
-            *auth_lines,
-            "\t\thide_ip",
-            "\t\thide_via",
-            "\t\tprobe_resistance",
-            "\t}",
-            "",
-            "\t@openid path /.well-known/openid-configuration",
-            "\trespond @openid " + _caddy_token(openid) + " 200",
-            "\t@jwks path /.well-known/jwks.json",
-            "\trespond @jwks " + _caddy_token(json.dumps({"keys": []}, separators=(",", ":"))) + " 200",
-            "\t@session path /auth/session /auth/token /oauth2/token",
-            "\trespond @session " + _caddy_token(session_json) + " 200",
-            "\t@auth path /auth* /oauth2*",
-            "\trespond @auth " + _caddy_token(login_html) + " 200",
-            "\trespond \"\" 204",
-            "}",
-            "",
-        ]
-
-    lines = [
-        "{",
-        "\tadmin 127.0.0.1:2019",
-        "\tauto_https off",
-        "\torder forward_proxy before respond",
-    ]
-    if tcp_exposure == "demux":
-        lines.extend(
-            [
-                f"\tservers :{demux_tcp_port} {{",
-                "\t\tprotocols h1 h2",
-                "\t}",
-                f"\tservers :{public_udp_port} {{",
-                "\t\tprotocols h3",
-                "\t}",
-            ]
-        )
-    else:
-        lines.extend(
-            [
-                f"\tservers :{public_tcp_port} {{",
-                "\t\tprotocols h1 h2 h3",
-                "\t}",
-            ]
-        )
-    lines.extend(
-        [
-            "}",
-            "",
-        ]
-    )
-    if tcp_exposure == "demux":
-        lines.extend(site_block(f":{demux_tcp_port}, {domain}:{demux_tcp_port}"))
-        lines.extend(site_block(f":{public_udp_port}, {domain}"))
-        return "\n".join(lines)
-
-    lines.extend(site_block(f":{public_tcp_port}, {domain}"))
-    return "\n".join(lines)
-
-
-def reconcile_naiveproxy(settings: Settings) -> bool:
-    if not bool(settings.naiveproxy_enabled):
-        return False
-    paths = AgentPaths.from_settings(settings)
-    auth_rows = _naiveproxy_auth_rows(paths)
-    disabled_mode = False
-    if not auth_rows:
-        disabled = _naiveproxy_disabled_auth(paths)
-        disabled_mode = True
-        auth_rows = [
-            {
-                "username": disabled["username"],
-                "password": disabled["password"],
-                "connectionId": "",
-                "userId": "",
-                "deviceId": "",
-            }
-        ]
-    runtime_dir = paths.runtime / "naiveproxy"
-    caddyfile_path = runtime_dir / "Caddyfile"
-    users_path = runtime_dir / "users.json"
-    desired_caddyfile = _render_naiveproxy_caddyfile(settings=settings, auth_rows=auth_rows)
-    desired_users = {
-        "schema": "tracegate.naiveproxy.users.v1",
-        "domain": str(settings.naiveproxy_host or TRACEGATE_NAIVEPROXY_HOST).strip() or TRACEGATE_NAIVEPROXY_HOST,
-        "users": [
-            {
-                "username": row["username"],
-                "connectionId": row["connectionId"],
-                "userId": row["userId"],
-                "deviceId": row["deviceId"],
-                "disabled": disabled_mode,
-            }
-            for row in auth_rows
-        ],
-    }
-
-    changed = False
-    current_caddyfile = caddyfile_path.read_text(encoding="utf-8") if caddyfile_path.exists() else None
-    if current_caddyfile != desired_caddyfile:
-        _overwrite_text_preserving_inode(caddyfile_path, desired_caddyfile)
-        changed = True
-    current_users = _try_load_json(users_path)
-    if current_users != desired_users:
-        _safe_dump_json(users_path, desired_users)
-        changed = True
-    return changed
-
-
 def _file_fingerprint(path: Path) -> dict[str, int]:
     stat = path.stat()
     return {
@@ -2798,7 +2497,7 @@ def _reconcile_all_result(settings: Settings) -> ReconcileAllResult:
         if xray_result.changed:
             changed.append("xray")
         force_xray_reload = xray_result.force_reload
-    if settings.agent_role in {"TRANSIT", "ENTRY", "NAIVEPROXY"}:
+    if settings.agent_role in {"TRANSIT", "ENTRY"}:
         if contract.manages_component("haproxy") and _reconcile_passthrough_component(
             settings=settings, component="haproxy", source_name="haproxy.cfg"
         ):
@@ -2811,8 +2510,6 @@ def _reconcile_all_result(settings: Settings) -> ReconcileAllResult:
             settings=settings, component="hysteria", source_name="server.yaml"
         ):
             changed.append("hysteria")
-        if contract.manages_component("naiveproxy") and reconcile_naiveproxy(settings):
-            changed.append("naiveproxy")
         if reconcile_decoy(settings):
             changed.append("decoy")
 
@@ -2834,15 +2531,12 @@ def _reconcile_all_result(settings: Settings) -> ReconcileAllResult:
             changed.append("fronting")
         if str(settings.agent_reload_link_crypto_cmd or "").strip():
             changed.append("link-crypto")
-        if str(settings.agent_reload_naiveproxy_cmd or "").strip():
-            changed.append("naiveproxy")
     for component, command in (
         ("obfuscation", str(settings.agent_reload_obfuscation_cmd or "").strip()),
         ("mtproto", str(settings.agent_reload_mtproto_cmd or "").strip()),
         ("fronting", str(settings.agent_reload_fronting_cmd or "").strip()),
         ("profiles", str(settings.agent_reload_profiles_cmd or "").strip()),
         ("link-crypto", str(settings.agent_reload_link_crypto_cmd or "").strip()),
-        ("naiveproxy", str(settings.agent_reload_naiveproxy_cmd or "").strip()),
     ):
         marker_stale = _k3s_private_reload_marker_stale(settings, component=component)
         if (component in private_handoffs_changed or marker_stale) and command and component not in changed:

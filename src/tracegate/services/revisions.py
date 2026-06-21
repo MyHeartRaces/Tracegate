@@ -494,9 +494,6 @@ async def _resolve_endpoints(
         hysteria_udp_port=settings.hysteria_udp_port,
         hysteria_salamander_password_entry=settings.hysteria_salamander_password_entry,
         hysteria_salamander_password_transit=settings.hysteria_salamander_password_transit,
-        naiveproxy_host=settings.naiveproxy_host,
-        naiveproxy_public_tcp_port=settings.naiveproxy_public_tcp_port,
-        naiveproxy_public_udp_port=settings.naiveproxy_public_udp_port,
         transit_proxy_host=(
             None if _is_placeholder_host(transit.proxy_fqdn) else _normalize_optional_host(transit.proxy_fqdn)
         )

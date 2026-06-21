@@ -143,28 +143,6 @@ def test_export_hysteria2_direct_keeps_explicit_bandwidth_override() -> None:
     assert attachment["outbounds"][0]["down_mbps"] == 200
 
 
-def test_export_rejects_removed_naiveproxy() -> None:
-    effective = {
-        "protocol": "naiveproxy",
-        "server": "auth.example.com",
-        "port": 443,
-        "udp_port": 443,
-        "auth": {"type": "basic", "username": "tg_v4_user", "password": "secret-pass"},
-        "profile": "v4-direct-naiveproxy",
-        "local_socks": {
-            "listen": "127.0.0.1:28080",
-            "auth": {
-                "mode": "username_password",
-                "required": True,
-                "username": "local-user",
-                "password": "local-pass",
-            },
-        },
-    }
-    with pytest.raises(ClientConfigExportError, match="NaiveProxy was removed"):
-        export_client_config(effective)
-
-
 def test_export_hysteria2_rejects_missing_salamander() -> None:
     effective = {
         "protocol": "hysteria2",
