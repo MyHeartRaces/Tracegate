@@ -1,0 +1,214 @@
+# Public-safe full-phase delta. Promote from values-endpoint-first only after
+# Endpoint payload, egress and client profile validation succeeds.
+
+architecture:
+  mode: entry-endpoint
+  deploymentPhase: full
+  podRuntimeOnly: true
+  ingressRotation:
+    enabled: false
+  entryIngress:
+    enabled: false
+  endpointIngress:
+    enabled: true
+    serviceFacing:
+      publicIp: 198.51.100.20
+      hostname: status.example.net
+    shards:
+      - {id: endpoint-a, publicIp: 198.51.100.21, hostnameTemplate: "{token}.a.example.net", state: active}
+      - {id: endpoint-b, publicIp: 198.51.100.22, hostnameTemplate: "{token}.b.example.net", state: active}
+      - {id: endpoint-c, publicIp: 198.51.100.23, hostnameTemplate: "{token}.c.example.net", state: active}
+    alias:
+      tokenLength: 20
+    exclusiveSniPairs:
+      enabled: true
+      pool:
+        - cdn.cdn-d.example.net
+        - goya.front-f.example.net
+        - ssp.front-f.example.net
+        - api.front-a.example.net
+        - api.front-b.example.net
+        - cdn.newyear.cdn-e.example.net
+        - static.dl.cdn-e.example.net
+        - static.cdn-d.example.net
+        - api.front-c.example.net
+        - api.events.plus.example.net
+    firewall:
+      required: true
+    channel:
+      tcp:
+        bindShardIpsOnly: true
+        maxConnections: 20000
+        maxConnectionsPerSource: 8
+        newConnectionsPer10Seconds: 12
+        inspectDelay: 5s
+        connectTimeout: 5s
+        clientTimeout: 5m
+        serverTimeout: 5m
+        tunnelTimeout: 1h
+      udp:
+        serviceIpRejectRequired: true
+  universalEntry:
+    enabled: true
+    publicHost: edge.example.net
+    provider: cloudflare
+    transport: grpc-tls-h2
+    originFirewall:
+      required: true
+      denyDirectAccess: true
+      allowedSourceCidrs: [173.245.48.0/20]
+    clientPolicy:
+      multiplexSingleTls: true
+      maxParallelHandshakes: 1
+      reconnectBaseSeconds: 5
+      reconnectMaxSeconds: 120
+      jitter: true
+    backhaul:
+      requireMultiTransportPool: true
+      failClosed: true
+      endpointEgressOnly: true
+
+topology:
+  servers:
+    endpoint:
+      publicIp: 198.51.100.21
+      kubernetesNodeName: tracegate-endpoint
+      nodeSelector: {tracegate.io/role: endpoint}
+    entry:
+      publicIp: 203.0.113.10
+      kubernetesNodeName: tracegate-entry
+      nodeSelector: {tracegate.io/role: entry}
+
+controlPlane:
+  env:
+    defaultEntryHost: edge.example.net
+    enabledClientProfiles:
+      - reality
+      - hysteria
+      - entry
+      - backup-grpc
+      - backup-ws
+      - backup-shadowtls
+      - backup-wgws
+
+network:
+  egressIsolation:
+    ingressPublicIPs: [198.51.100.21, 198.51.100.22, 198.51.100.23, 203.0.113.10]
+    egressPublicIPs: [198.51.100.20]
+
+decoy:
+  hostPath: ""
+  existingConfigMap: tracegate-decoy
+
+gateway:
+  realityMultiInboundGroups:
+    - {id: sni-116, port: 2501, dest: cdn.cdn-d.example.net, snis: [cdn.cdn-d.example.net]}
+    - {id: sni-102, port: 2502, dest: goya.front-f.example.net, snis: [goya.front-f.example.net]}
+    - {id: sni-103, port: 2503, dest: ssp.front-f.example.net, snis: [ssp.front-f.example.net]}
+    - {id: sni-108, port: 2508, dest: api.front-a.example.net, snis: [api.front-a.example.net]}
+    - {id: sni-109, port: 2509, dest: api.front-b.example.net, snis: [api.front-b.example.net]}
+    - {id: sni-110, port: 2510, dest: cdn.newyear.cdn-e.example.net, snis: [cdn.newyear.cdn-e.example.net]}
+    - {id: sni-111, port: 2511, dest: static.dl.cdn-e.example.net, snis: [static.dl.cdn-e.example.net]}
+    - {id: sni-112, port: 2512, dest: static.cdn-d.example.net, snis: [static.cdn-d.example.net]}
+    - {id: sni-113, port: 2513, dest: api.front-c.example.net, snis: [api.front-c.example.net]}
+    - {id: sni-115, port: 2515, dest: api.events.plus.example.net, snis: [api.events.plus.example.net]}
+  stateStorage:
+    mode: pvc
+    existingClaims:
+      entry: tracegate-entry-state
+      endpoint: tracegate-endpoint-state
+  nodeEncryption:
+    enabled: false
+    required: false
+    runtimeInitValidation: false
+    markerFile: ""
+    markerValue: ""
+    requireDeviceMapperSource: false
+    nodeAnnotations:
+      enabled: false
+      encryptedRuntime: ""
+      expectedValue: ""
+  roles:
+    entry:
+      enabled: true
+      canonicalServer: entry
+      nodeSelector: {tracegate.io/role: entry}
+      tls:
+        serverName: edge.example.net
+    endpoint:
+      enabled: true
+      canonicalServer: endpoint
+      nodeSelector: {tracegate.io/role: endpoint}
+
+experimentalProfiles:
+  enabled: false
+
+interconnect:
+  endpointBackhaul:
+    enabled: true
+    primary: vless-reality-xhttp
+    secondary: hysteria2-salamander
+    selection:
+      strategy: roundRobin
+      stickyScope: connection
+      maxParallelDials: 1
+    health:
+      payloadProbeRequired: true
+      probeUrl: https://api.front-c.example.net/
+      probeInterval: 30s
+    hysteria2:
+      enabled: true
+      endpointHost: 198.51.100.21
+      endpointPort: 443
+      serverName: endpoint.example.net
+      entrySocksPort: 11086
+      allowedSources: [203.0.113.10]
+      fastOpen: false
+      lazy: false
+      quic:
+        disablePathMTUDiscovery: false
+      congestion:
+        type: bbr
+        profile: conservative
+  emergencyXrayChain:
+    enabled: true
+    endpointHost: 198.51.100.21
+    endpointPort: 443
+    allowedSources: [203.0.113.10]
+    shards:
+      - {id: mail, serverName: ctlog2024.cdn-e.example.net, dest: "ctlog2024.cdn-e.example.net:443", endpointListenPort: 2451, path: /api/v1/backhaul/mail}
+      - {id: 2gis-reviews, serverName: public-api.reviews.example.net, dest: "public-api.reviews.example.net:443", endpointListenPort: 2452, path: /api/v1/backhaul/2gis-reviews}
+    xhttp:
+      clientMode: stream-one
+      serverMode: auto
+      xmux:
+        maxConnections: 1
+        cMaxReuseTimes: "32-64"
+        hMaxRequestTimes: "256-384"
+        hMaxReusableSecs: "600-900"
+        hKeepAlivePeriod: 45
+
+wireguard:
+  enabled: true
+  wstunnel:
+    enabled: true
+    mode: wireguard-over-websocket
+
+shadowsocks2022:
+  enabled: true
+
+mtproto:
+  enabled: true
+  runtime: telemt
+  domain: proto.example.net
+  tlsDomain: ctlog2024.cdn-e.example.net
+  fallback:
+    enabled: false
+  stealth:
+    requireWhitelistedTlsDomain: true
+    forbiddenTlsDomains: [front-g.example.net, splitter.front-m.example.net]
+    validatedTlsDomains: [ctlog2024.cdn-e.example.net]
+  route:
+    mode: entry-endpoint-tunnel
+    entry:
+      tunnelPort: 11087

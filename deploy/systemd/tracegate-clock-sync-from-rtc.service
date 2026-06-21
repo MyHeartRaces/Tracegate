@@ -1,0 +1,7 @@
+[Unit]
+Description=Align system clock with the verified UTC RTC
+ConditionPathExists=/dev/rtc0
+
+[Service]
+Type=oneshot
+ExecStart=/sbin/hwclock --hctosys --utc

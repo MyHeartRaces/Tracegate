@@ -1,0 +1,12 @@
+[Unit]
+Description=Periodically align system clock with the verified UTC RTC
+
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec=10min
+AccuracySec=30s
+Persistent=true
+Unit=tracegate-clock-sync-from-rtc.service
+
+[Install]
+WantedBy=timers.target

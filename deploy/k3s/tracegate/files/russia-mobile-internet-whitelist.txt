@@ -1,0 +1,9 @@
+# RU-bypass split-tunnel whitelist (PLACEHOLDER).
+# The real production whitelist is supplied privately and dropped into
+# deploy/k3s/tracegate/files/ before rendering. These example entries keep
+# the chart renderable; they are documentation-reserved and non-functional.
+example-bank.example.net
+example-rail.example.net
+example-gov.example.net
+example-media.example.net
+example-shop.example.net

@@ -1,0 +1,266 @@
+# Copy this file to an ignored values file, for example:
+#   deploy/k3s/values-prod.yaml
+#
+# Never commit real tokens, keys, Hysteria Salamander/stat secrets, Mieru profiles,
+# zapret2 profiles, ShadowTLS passwords, WireGuard keys or MTProto secrets.
+
+namespace:
+  name: tracegate
+
+global:
+  image:
+    repository: ghcr.io/your-org/tracegate
+    tag: "3.0.0"
+  publicBaseUrl: "https://tracegate.example.com"
+
+topology:
+  servers:
+    endpoint:
+      displayName: Endpoint
+      publicIp: 198.51.100.20
+      kubernetesNodeName: tracegate-endpoint
+      nodeSelector:
+        tracegate.io/role: endpoint
+    transit:
+      displayName: Transit
+      publicIp: 203.0.113.30
+      kubernetesNodeName: tracegate-transit
+      nodeSelector:
+        tracegate.io/role: transit
+    entry:
+      displayName: Entry
+      publicIp: 203.0.113.10
+      kubernetesNodeName: tracegate-entry
+      nodeSelector:
+        tracegate.io/role: entry
+
+controlPlane:
+  auth:
+    existingSecretName: tracegate-control-plane-auth
+  database:
+    externalUrlSecret:
+      name: tracegate-database-url
+      key: url
+  env:
+    defaultEntryHost: entry.example.com
+    defaultTransitHost: endpoint.example.com
+    naiveproxyHost: auth.example.com
+    mtprotoDomain: mtproto.example.com
+    grafanaPublicBaseUrl: https://grafana.example.com
+    grafanaHost: grafana.example.com
+    botWelcomeMessageSecret:
+      name: tracegate-bot-welcome
+      key: message
+    botGuideMessageSecret:
+      name: tracegate-bot-guide
+      key: message
+
+privateProfiles:
+  required: true
+  existingSecretName: tracegate-private-profiles
+  defaultMode: 256
+  secretKeys:
+    realityPrivateKeyEntry: reality-entry-private-key
+    realityPrivateKeyTransit: reality-transit-private-key
+    hysteriaSalamanderEntry: hysteria-entry-salamander-password
+    hysteriaSalamanderTransit: hysteria-transit-salamander-password
+    hysteriaStatsEntry: hysteria-entry-stats-secret
+    hysteriaStatsTransit: hysteria-transit-stats-secret
+    hysteriaEndpointBackhaulAuth: hysteria-endpoint-backhaul-auth
+
+decoy:
+  # Mount the existing production decoy tree. The chart does not ship decoy
+  # HTML/CSS/JS and rejects inline decoy.files.
+  hostPath: /srv/tracegate/decoy
+  hostPathType: Directory
+  mountPath: /var/www/decoy
+
+network:
+  egressIsolation:
+    # Replace with real node public IPs in the ignored production values file.
+    # User-facing ingress IPs must never be used for user traffic SNAT.
+    ingressPublicIPs:
+      - 203.0.113.10
+      - 203.0.113.30
+    egressPublicIPs:
+      - 198.51.100.20
+    nodeAnnotations:
+      enabled: true
+      ingressPublicIP: tracegate.io/ingress-public-ip
+      egressPublicIP: tracegate.io/egress-public-ip
+
+gateway:
+  terminationGracePeriodSeconds: 60
+  trafficShaping:
+    entry:
+      enabled: true
+      # Public network interface on the Entry node. Tracegate 3 requires 65 Mbit/s.
+      interface: eth0
+      maxMbit: 65
+      applyEgress: true
+      applyIngressPolicing: true
+      failClosed: true
+    chainClient:
+      enabled: true
+      maxMbit: 10
+      requireDeclaredHysteriaTx: true
+    hysteria:
+      ignoreClientBandwidth: true
+      entryChainIgnoreClientBandwidth: false
+  nodeEncryption:
+    enabled: true
+    required: true
+    # Before promotion, provision the Entry runtime and Endpoint gateway
+    # runtime directories on encrypted storage and write this marker file
+    # inside each role directory.
+    markerFile: .tracegate-encrypted
+    markerValue: tracegate-encrypted-runtime-v1
+    # Set false only for verified provider-managed encrypted volumes that do
+    # not appear as dm-crypt devices on the node.
+    requireDeviceMapperSource: true
+    nodeAnnotations:
+      enabled: true
+      encryptedRuntime: tracegate.io/encrypted-runtime
+      expectedValue: "true"
+  agent:
+    corsOrigins:
+      - https://tracegate.example.com
+      - https://entry.example.com
+      - https://endpoint.example.com
+    reloadCommands:
+      profiles: "sh -lc 'tracegate-k3s-private-reload --component profiles --role \"${AGENT_ROLE}\" --private-runtime-root /var/lib/tracegate/private --runtime-contract /var/lib/tracegate/runtime/runtime-contract.json'"
+      linkCrypto: "sh -lc 'tracegate-k3s-private-reload --component link-crypto --role \"${AGENT_ROLE}\" --private-runtime-root /var/lib/tracegate/private --runtime-contract /var/lib/tracegate/runtime/runtime-contract.json'"
+      naiveproxy: "sh -lc 'true'"
+  pdb:
+    enabled: true
+    minAvailable: 1
+  probes:
+    enabled: true
+  privatePreflight:
+    enabled: true
+    forbidPlaceholders: true
+  entrySmall:
+    # Enable in the ignored production overlay when the Entry node is limited
+    # to roughly 1 GB RAM and 1 vCPU. This mode requires V3 to be enabled.
+    enabled: false
+  images:
+    mtproto:
+      repository: ghcr.io/your-org/tracegate
+      digest: sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+    naiveproxy:
+      repository: ghcr.io/your-org/tracegate-naiveproxy-caddy
+      digest: sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+  roles:
+    entry:
+      canonicalServer: entry
+      nodeSelector:
+        tracegate.io/role: entry
+      tls:
+        serverName: entry.example.com
+        existingSecretName: tracegate-entry-tls
+      reality:
+        dest: cdn.cdn-d.example.net:443
+        serverNames:
+          - cdn.cdn-d.example.net
+        privateKeySecret:
+          name: tracegate-entry-reality
+          key: private-key
+        shortIds:
+          - "0123456789abcdef"
+      hysteria:
+        # Optional. Bind Hysteria UDP replies to a specific ingress IP on
+        # multi-IP nodes instead of wildcard :publicUdp.
+        listenHost: ""
+    transit:
+      canonicalServer: endpoint
+      nodeSelector:
+        tracegate.io/role: endpoint
+      tls:
+        serverName: endpoint.example.com
+        existingSecretName: tracegate-transit-tls
+      reality:
+        dest: public-api.reviews.example.net:443
+        serverNames:
+          - public-api.reviews.example.net
+        privateKeySecret:
+          name: tracegate-transit-reality
+          key: private-key
+        shortIds:
+          - "fedcba9876543210"
+      hysteria:
+        # Set to the endpoint ingress IP on multi-IP endpoint nodes.
+        listenHost: ""
+
+naiveproxy:
+  enabled: false
+
+transitRouter:
+  enabled: true
+  name: tracegate-transit-router
+  nodeSelector:
+    tracegate.io/role: transit
+  endpoint:
+    host: 198.51.100.20
+  entry:
+    allowedSources:
+      - 203.0.113.10
+  tls:
+    serverName: transit.example.com
+    existingSecretName: tracegate-transit-router-tls
+  xray:
+    existingSecretName: tracegate-transit-router-xray
+  sni:
+    decoy: transit.example.com
+    reality:
+      - market.front-h.example.net
+
+interconnect:
+  emergencyXrayChain:
+    enabled: true
+    socksPort: 11082
+    # Entry -> Endpoint backhaul dial target. Keep this as the Endpoint public IP
+    # when DNS points clients at a domain/SNI but routing must use the canonical
+    # Endpoint address.
+    endpointHost: 198.51.100.20
+    endpointPort: 2443
+    endpointListenHost: "0.0.0.0"
+  entryTransit:
+    enabled: true
+    primary: mieru
+    fallback: none
+    chainBridgeOwner: link-crypto
+    xrayBackhaul: false
+    outerCarrier:
+      enabled: true
+      mode: wss
+      serverName: bridge.example.com
+      publicPort: 443
+      publicPath: /cdn-cgi/tracegate-link
+      verifyTls: true
+  mieru:
+    enabled: true
+    localSocks:
+      routerEntryPort: 10883
+      routerTransitPort: 10884
+  zapret2:
+    enabled: true
+
+wireguard:
+  enabled: true
+  wstunnel:
+    enabled: true
+
+mtproto:
+  enabled: true
+  runtime: telemt
+  domain: mtproto.example.com
+  tlsDomain: ctlog2024.cdn-e.example.net
+  publicPort: 443
+  stealth:
+    requireWhitelistedTlsDomain: true
+    forbiddenTlsDomains: [front-g.example.net, splitter.front-m.example.net]
+    validatedTlsDomains: [ctlog2024.cdn-e.example.net]
+  fallback:
+    enabled: false
+  route:
+    mode: endpoint-direct

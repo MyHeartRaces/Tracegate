@@ -1,0 +1,82 @@
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-tracegate}
+      POSTGRES_USER: ${POSTGRES_USER:-tracegate}
+      # Keep secrets out of git: provide via `.env` (not committed).
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+    ports:
+      - "5432:5432"
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+
+  api:
+    build: .
+    command: tracegate-api
+    environment:
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
+      API_INTERNAL_TOKEN: ${API_INTERNAL_TOKEN:?API_INTERNAL_TOKEN is required}
+      DEFAULT_TRANSIT_HOST: ${DEFAULT_TRANSIT_HOST:?DEFAULT_TRANSIT_HOST is required}
+      DEFAULT_ENTRY_HOST: ${DEFAULT_ENTRY_HOST:?DEFAULT_ENTRY_HOST is required}
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-}
+      VLESS_WS_PATH: ${VLESS_WS_PATH:-/ws}
+      VLESS_WS_TLS_PORT: ${VLESS_WS_TLS_PORT:-443}
+      GRAFANA_ENABLED: ${GRAFANA_ENABLED:-false}
+      GRAFANA_INTERNAL_URL: ${GRAFANA_INTERNAL_URL:-}
+      GRAFANA_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GRAFANA_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-}
+      GRAFANA_COOKIE_SECRET: ${GRAFANA_COOKIE_SECRET:-}
+    ports:
+      - "8080:8080"
+    depends_on:
+      - postgres
+
+  dispatcher:
+    build: .
+    command: tracegate-dispatcher
+    environment:
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
+      AGENT_AUTH_TOKEN: ${AGENT_AUTH_TOKEN:?AGENT_AUTH_TOKEN is required}
+      DISPATCHER_POLL_SECONDS: ${DISPATCHER_POLL_SECONDS:-3}
+      DISPATCHER_BATCH_SIZE: ${DISPATCHER_BATCH_SIZE:-50}
+      DISPATCHER_LOCK_TTL_SECONDS: ${DISPATCHER_LOCK_TTL_SECONDS:-60}
+      DISPATCHER_MAX_ATTEMPTS: ${DISPATCHER_MAX_ATTEMPTS:-25}
+      DISPATCHER_CONCURRENCY: ${DISPATCHER_CONCURRENCY:-10}
+    depends_on:
+      - postgres
+      - api
+
+  agent:
+    build: .
+    command: tracegate-agent
+    environment:
+      AGENT_AUTH_TOKEN: ${AGENT_AUTH_TOKEN:?AGENT_AUTH_TOKEN is required}
+      AGENT_DRY_RUN: ${AGENT_DRY_RUN:-true}
+      AGENT_ROLE: ${AGENT_ROLE:-TRANSIT}
+      AGENT_DATA_ROOT: ${AGENT_DATA_ROOT:-/data/tracegate-agent}
+      AGENT_RUNTIME_MODE: ${AGENT_RUNTIME_MODE:-systemd}
+      AGENT_STATS_SECRET: ${AGENT_STATS_SECRET:?AGENT_STATS_SECRET is required}
+    ports:
+      - "8070:8070"
+    volumes:
+      - agent_data:/data
+    profiles:
+      - agent
+
+  bot:
+    build: .
+    command: tracegate-bot
+    environment:
+      # Optional unless the `bot` profile is enabled.
+      BOT_TOKEN: ${BOT_TOKEN:-}
+      BOT_API_BASE_URL: http://api:8080
+      BOT_API_TOKEN: ${BOT_API_TOKEN:-}
+    depends_on:
+      - api
+    profiles:
+      - bot
+
+volumes:
+  pg_data:
+  agent_data:

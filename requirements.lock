@@ -1,0 +1,31 @@
+# Pinned direct dependencies for reproducible installs in local/CI.
+# Generated from the currently running production image (runtime deps)
+# plus local dev toolchain versions (dev deps).
+#
+# Usage:
+#   python -m pip install -e '.[dev]' -c requirements.lock
+
+# Runtime
+aiogram==3.25.0
+alembic==1.18.4
+asyncpg==0.31.0
+fastapi==0.133.1
+grpcio==1.78.1
+httpx==0.28.1
+prometheus-client==0.24.1
+protobuf==6.33.5
+psycopg==3.3.3
+psycopg-binary==3.3.3
+pydantic==2.12.5
+pydantic-settings==2.13.1
+python-dateutil==2.9.0.post0
+PyYAML==6.0.3
+qrcode==8.2
+SQLAlchemy==2.0.47
+uvicorn==0.41.0
+
+# Dev
+grpcio-tools==1.78.1
+pytest==9.0.2
+pytest-asyncio==1.3.0
+ruff==0.15.0
