@@ -144,6 +144,22 @@ def _mieru_profile_path(settings: Settings, *, side: str) -> str:
     return str(profile_dir / profile_name)
 
 
+def _link_crypto_inner_carrier(settings: Settings) -> str:
+    carrier = str(settings.private_link_crypto_inner_carrier or "").strip().lower()
+    return carrier if carrier in {"mieru", "shadowsocks2022"} else "mieru"
+
+
+def _shadowsocks2022_link_profile_path(settings: Settings, *, side: str) -> str:
+    profile_dir = Path(
+        str(settings.private_shadowsocks2022_link_profile_dir or "").strip() or "/etc/tracegate/private/link-crypto-ss2022"
+    )
+    if side.strip().lower() == "client":
+        profile_name = str(settings.private_shadowsocks2022_link_client_profile or "").strip() or "client.json"
+    else:
+        profile_name = str(settings.private_shadowsocks2022_link_server_profile or "").strip() or "server.json"
+    return str(profile_dir / profile_name)
+
+
 def _udp_link_profile_path(settings: Settings, *, side: str) -> str:
     profile_dir = Path(str(settings.private_udp_link_profile_dir or "").strip() or "/etc/tracegate/private/udp-link")
     if side.strip().lower() == "client":
@@ -503,7 +519,44 @@ def _link_crypto_zapret2_policy(settings: Settings, *, profile_file: str) -> dic
     }
 
 
+def _link_crypto_tcp_dpi_resistance_shadowsocks2022(
+    settings: Settings, *, link_class: str, outer_carrier_enabled: bool
+) -> dict[str, Any]:
+    promotion_profile = _link_crypto_private_profile_path(
+        settings,
+        settings.private_link_crypto_promotion_preflight_profile,
+        fallback="promotion-preflight.env",
+    )
+    required_layers = ["shadowsocks2022-aead", "loopback-only", "generation-drain", "no-direct-backhaul"]
+    if outer_carrier_enabled:
+        required_layers.extend(["outer-wss-tls", "spki-sha256-pin", "hmac-admission"])
+    return {
+        "enabled": True,
+        "mode": "shadowsocks2022-wss-spki-hmac" if outer_carrier_enabled else "shadowsocks2022-direct",
+        "requiredLayers": required_layers,
+        "outerCarrier": {
+            "required": bool(outer_carrier_enabled),
+            "spkiPinningRequired": bool(outer_carrier_enabled),
+            "hmacAdmissionRequired": bool(outer_carrier_enabled),
+        },
+        "promotionPreflight": {
+            "required": True,
+            "failClosed": True,
+            "profileSource": "private-file-reference",
+            "profileRef": _private_file_ref(promotion_profile),
+            "checks": ["shadowsocks2022-aead", "no-direct-backhaul"]
+            + (["spki-pin", "hmac-admission"] if outer_carrier_enabled else []),
+            "secretMaterial": False,
+        },
+        "linkClass": link_class,
+    }
+
+
 def _link_crypto_tcp_dpi_resistance(settings: Settings, *, link_class: str, outer_carrier_enabled: bool) -> dict[str, Any]:
+    if _link_crypto_inner_carrier(settings) == "shadowsocks2022":
+        return _link_crypto_tcp_dpi_resistance_shadowsocks2022(
+            settings, link_class=link_class, outer_carrier_enabled=outer_carrier_enabled
+        )
     zapret_profile = _interconnect_profile_path(settings)
     shaping_profile = _link_crypto_private_profile_path(
         settings,
@@ -573,9 +626,13 @@ def _link_crypto_tcp_dpi_resistance(settings: Settings, *, link_class: str, oute
 
 
 def _link_crypto_profile_ref(settings: Settings, *, side: str) -> dict[str, Any]:
+    if _link_crypto_inner_carrier(settings) == "shadowsocks2022":
+        path = _shadowsocks2022_link_profile_path(settings, side=side)
+    else:
+        path = _mieru_profile_path(settings, side=side)
     return {
         "kind": "file",
-        "path": _mieru_profile_path(settings, side=side),
+        "path": path,
         "secretMaterial": True,
     }
 
@@ -592,12 +649,13 @@ def _link_crypto_row(
     selected_profiles: list[str],
 ) -> dict[str, Any]:
     outer_carrier = _link_crypto_outer_carrier(settings, link_class=link_class, side=side)
-    return {
+    carrier = _link_crypto_inner_carrier(settings)
+    row: dict[str, Any] = {
         "class": link_class,
         "enabled": True,
         "role": role_upper,
         "side": side,
-        "carrier": "mieru",
+        "carrier": carrier,
         "managedBy": "link-crypto",
         "xrayBackhaul": False,
         "generation": int(settings.private_link_crypto_generation or 1),
@@ -615,7 +673,6 @@ def _link_crypto_row(
         },
         "outerCarrier": outer_carrier,
         "selectedProfiles": selected_profiles,
-        "zapret2": _link_crypto_zapret2_policy(settings, profile_file=_interconnect_profile_path(settings)),
         "dpiResistance": _link_crypto_tcp_dpi_resistance(
             settings,
             link_class=link_class,
@@ -631,6 +688,9 @@ def _link_crypto_row(
             "dropUnrelatedTraffic": False,
         },
     }
+    if carrier == "mieru":
+        row["zapret2"] = _link_crypto_zapret2_policy(settings, profile_file=_interconnect_profile_path(settings))
+    return row
 
 
 def _udp_link_row(
@@ -928,7 +988,7 @@ def _write_link_crypto_state(
         f"TRACEGATE_LINK_CRYPTO_SECRET_MATERIAL={_shell_quote(_bool_text(bool(payload['secretMaterial'])))}",
         f"TRACEGATE_LINK_CRYPTO_COUNT={_shell_quote(payload['counts']['total'])}",
         f"TRACEGATE_LINK_CRYPTO_CLASSES={_shell_quote(':'.join(link_classes))}",
-        f"TRACEGATE_LINK_CRYPTO_CARRIER={_shell_quote('mieru')}",
+        f"TRACEGATE_LINK_CRYPTO_CARRIER={_shell_quote(_link_crypto_inner_carrier(settings))}",
         f"TRACEGATE_LINK_CRYPTO_UDP_COUNT={_shell_quote(payload.get('udpCounts', {}).get('total', 0))}",
         f"TRACEGATE_LINK_CRYPTO_UDP_CLASSES={_shell_quote(':'.join(udp_link_classes))}",
         f"TRACEGATE_LINK_CRYPTO_UDP_CARRIER={_shell_quote('hysteria2')}",

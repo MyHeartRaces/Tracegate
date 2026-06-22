@@ -5930,3 +5930,41 @@ def test_link_crypto_row_dispatches_shadowsocks2022_carrier() -> None:
     assert not any("zapret2" in code for code in ss_codes)
     # The same row under Mieru (which carries no zapret2 block here) trips the zapret2 checks.
     assert any("zapret2" in code for code in mieru_codes)
+
+
+def test_link_crypto_generation_matches_validation_for_shadowsocks2022() -> None:
+    from tracegate.services.private_handoffs import _link_crypto_row
+    from tracegate.services.runtime_preflight import _validate_link_crypto_row
+    from tracegate.settings import Settings
+
+    settings = Settings(private_link_crypto_inner_carrier="shadowsocks2022")
+    row = _link_crypto_row(
+        settings,
+        link_class="entry-transit",
+        role_upper="ENTRY",
+        side="client",
+        local_listen="127.0.0.1:10881",
+        remote_role="TRANSIT",
+        remote_endpoint="transit.example.com:443",
+        selected_profiles=["V1", "V3"],
+    )
+
+    # Generation emits the SS-2022 inner carrier with no Mieru/zapret2 baggage.
+    assert row["carrier"] == "shadowsocks2022"
+    assert "zapret2" not in row
+    assert row["dpiResistance"]["mode"] == "shadowsocks2022-wss-spki-hmac"
+    assert row["profileRef"]["path"].endswith("/link-crypto-ss2022/client.json")
+
+    # The generated row passes the carrier-aware validator with no carrier/zapret2/DPI errors:
+    # the generation and validation sides agree on the SS-2022 inner-carrier contract.
+    findings = _validate_link_crypto_row(
+        row=row,
+        role_upper="ENTRY",
+        index=0,
+        prefix="entry-link-crypto",
+        known_profile_variants={"V1", "V3"},
+    )
+    errors = {finding.code for finding in findings if finding.severity == "error"}
+    assert not any(code.endswith("-carrier") for code in errors)
+    assert not any("zapret2" in code for code in errors)
+    assert not any("dpi-resistance" in code for code in errors)

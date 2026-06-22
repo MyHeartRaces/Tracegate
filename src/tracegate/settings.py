@@ -299,6 +299,11 @@ class Settings(BaseSettings):
     private_mieru_profile_dir: str = "/etc/tracegate/private/mieru"
     private_mieru_client_profile: str = "client.json"
     private_mieru_server_profile: str = "server.json"
+    # Inner backhaul carrier selector: "mieru" (default) or "shadowsocks2022".
+    private_link_crypto_inner_carrier: str = "mieru"
+    private_shadowsocks2022_link_profile_dir: str = "/etc/tracegate/private/link-crypto-ss2022"
+    private_shadowsocks2022_link_client_profile: str = "client.json"
+    private_shadowsocks2022_link_server_profile: str = "server.json"
     private_shadowtls_profile_dir: str = "/etc/tracegate/private/shadowtls"
     private_shadowtls_profile_entry: str = "entry-config.yaml"
     private_shadowtls_profile_transit: str = "transit-config.yaml"
