@@ -5871,3 +5871,62 @@ def test_link_crypto_shadowsocks2022_dpi_resistance_contract() -> None:
     # Dropping the AEAD layer is a missing-required-layer error.
     no_aead = {**dpi, "requiredLayers": [layer for layer in dpi["requiredLayers"] if layer != "shadowsocks2022-aead"]}
     assert "entry-link-dpi-resistance-layers" in _errors(no_aead)
+
+
+def test_link_crypto_row_dispatches_shadowsocks2022_carrier() -> None:
+    from tracegate.services.runtime_preflight import _validate_link_crypto_row
+
+    ss2022_dpi = {
+        "enabled": True,
+        "mode": "shadowsocks2022-wss-spki-hmac",
+        "requiredLayers": [
+            "shadowsocks2022-aead",
+            "loopback-only",
+            "generation-drain",
+            "no-direct-backhaul",
+            "outer-wss-tls",
+            "spki-sha256-pin",
+            "hmac-admission",
+        ],
+        "outerCarrier": {"required": True, "spkiPinningRequired": True, "hmacAdmissionRequired": True},
+        "promotionPreflight": {
+            "required": True,
+            "failClosed": True,
+            "checks": ["shadowsocks2022-aead", "no-direct-backhaul", "spki-pin", "hmac-admission"],
+        },
+    }
+    base_row = {
+        "class": "entry-transit",
+        "side": "client",
+        "enabled": True,
+        "managedBy": "link-crypto",
+        "xrayBackhaul": False,
+        "generation": 1,
+        "profileRef": {"kind": "file", "path": "/tmp/tracegate-private/inner/client.json", "secretMaterial": True},
+        "local": {"listen": "127.0.0.1:10881", "auth": {"required": True, "mode": "private-profile"}},
+        "remote": {"role": "TRANSIT", "endpoint": "transit.example.com:443"},
+        "selectedProfiles": ["V1", "V3"],
+        "rotation": {"strategy": "generation-drain", "restartExisting": False},
+        "stability": {"failOpen": True, "dropUnrelatedTraffic": False},
+        "outerCarrier": {"enabled": True},
+        "dpiResistance": ss2022_dpi,
+    }
+
+    def _error_codes(carrier: str) -> set[str]:
+        findings = _validate_link_crypto_row(
+            row={**base_row, "carrier": carrier},
+            role_upper="ENTRY",
+            index=0,
+            prefix="entry-link-crypto",
+            known_profile_variants={"V1", "V3"},
+        )
+        return {finding.code for finding in findings if finding.severity == "error"}
+
+    ss_codes = _error_codes("shadowsocks2022")
+    mieru_codes = _error_codes("mieru")
+
+    # SS-2022 is an accepted carrier and routes around the Mieru-only zapret2 checks.
+    assert not any(code.endswith("-carrier") for code in ss_codes)
+    assert not any("zapret2" in code for code in ss_codes)
+    # The same row under Mieru (which carries no zapret2 block here) trips the zapret2 checks.
+    assert any("zapret2" in code for code in mieru_codes)

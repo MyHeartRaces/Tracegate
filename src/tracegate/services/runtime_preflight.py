@@ -4439,12 +4439,12 @@ def _validate_link_crypto_contract_alignment(
         )
 
     carrier = _row_string(link_crypto, "carrier").lower()
-    if carrier and carrier != "mieru":
+    if carrier and carrier not in {"mieru", "shadowsocks2022"}:
         findings.append(
             _finding(
                 "error",
                 f"{prefix}-contract-carrier",
-                f"{prefix.replace('-', ' ')} carrier must stay mieru in runtime-contract",
+                f"{prefix.replace('-', ' ')} carrier must be mieru or shadowsocks2022 in runtime-contract",
             )
         )
     manager = _row_string(link_crypto, "manager")
@@ -4842,8 +4842,9 @@ def _validate_link_crypto_row(
 
     if not bool(row.get("enabled", False)):
         findings.append(_finding("warning", f"{code_prefix}-disabled", f"{label} is disabled"))
-    if _row_string(row, "carrier").lower() != "mieru":
-        findings.append(_finding("error", f"{code_prefix}-carrier", f"{label} carrier must be mieru"))
+    carrier = _row_string(row, "carrier").lower()
+    if carrier not in {"mieru", "shadowsocks2022"}:
+        findings.append(_finding("error", f"{code_prefix}-carrier", f"{label} carrier must be mieru or shadowsocks2022"))
     if _row_string(row, "managedBy") != "link-crypto":
         findings.append(_finding("error", f"{code_prefix}-managed-by", f"{label} must be managed by link-crypto"))
     if bool(row.get("xrayBackhaul", True)):
@@ -4922,29 +4923,40 @@ def _validate_link_crypto_row(
                 )
             )
 
-    zapret2 = _row_dict(row, "zapret2")
-    if bool(zapret2.get("hostWideInterception", True)):
-        findings.append(_finding("error", f"{code_prefix}-zapret2-host-wide", f"{label} must not enable host-wide interception"))
-    if bool(zapret2.get("nfqueue", True)):
-        findings.append(_finding("error", f"{code_prefix}-zapret2-nfqueue", f"{label} must not enable broad NFQUEUE"))
-    if str(zapret2.get("packetShaping") or "").strip().lower() != "zapret2-scoped":
-        findings.append(_finding("error", f"{code_prefix}-zapret2-packet-shaping", f"{label} must keep zapret2-scoped packet shaping"))
-    if str(zapret2.get("applyMode") or "").strip().lower() != "marked-flow-only":
-        findings.append(_finding("error", f"{code_prefix}-zapret2-apply-mode", f"{label} zapret2 applyMode must be marked-flow-only"))
-    if bool(zapret2.get("enabled", False)) and not _row_string(zapret2, "profileFile"):
-        findings.append(_finding("error", f"{code_prefix}-zapret2-profile-file", f"{label} enabled zapret2 needs profileFile"))
-    if not bool(zapret2.get("failOpen", False)):
-        findings.append(_finding("error", f"{code_prefix}-zapret2-fail-open", f"{label} zapret2 layer must fail open"))
-    findings.extend(
-        _validate_link_crypto_tcp_dpi_resistance(
-            dpi=_row_dict(row, "dpiResistance"),
-            zapret2=zapret2,
-            outer_carrier=_row_dict(row, "outerCarrier"),
-            code_prefix=code_prefix,
-            label=label,
-            require_outer_carrier=link_class == "entry-transit",
+    if carrier == "shadowsocks2022":
+        findings.extend(
+            _validate_link_crypto_tcp_dpi_resistance_shadowsocks2022(
+                dpi=_row_dict(row, "dpiResistance"),
+                outer_carrier=_row_dict(row, "outerCarrier"),
+                code_prefix=code_prefix,
+                label=label,
+                require_outer_carrier=link_class == "entry-transit",
+            )
         )
-    )
+    else:
+        zapret2 = _row_dict(row, "zapret2")
+        if bool(zapret2.get("hostWideInterception", True)):
+            findings.append(_finding("error", f"{code_prefix}-zapret2-host-wide", f"{label} must not enable host-wide interception"))
+        if bool(zapret2.get("nfqueue", True)):
+            findings.append(_finding("error", f"{code_prefix}-zapret2-nfqueue", f"{label} must not enable broad NFQUEUE"))
+        if str(zapret2.get("packetShaping") or "").strip().lower() != "zapret2-scoped":
+            findings.append(_finding("error", f"{code_prefix}-zapret2-packet-shaping", f"{label} must keep zapret2-scoped packet shaping"))
+        if str(zapret2.get("applyMode") or "").strip().lower() != "marked-flow-only":
+            findings.append(_finding("error", f"{code_prefix}-zapret2-apply-mode", f"{label} zapret2 applyMode must be marked-flow-only"))
+        if bool(zapret2.get("enabled", False)) and not _row_string(zapret2, "profileFile"):
+            findings.append(_finding("error", f"{code_prefix}-zapret2-profile-file", f"{label} enabled zapret2 needs profileFile"))
+        if not bool(zapret2.get("failOpen", False)):
+            findings.append(_finding("error", f"{code_prefix}-zapret2-fail-open", f"{label} zapret2 layer must fail open"))
+        findings.extend(
+            _validate_link_crypto_tcp_dpi_resistance(
+                dpi=_row_dict(row, "dpiResistance"),
+                zapret2=zapret2,
+                outer_carrier=_row_dict(row, "outerCarrier"),
+                code_prefix=code_prefix,
+                label=label,
+                require_outer_carrier=link_class == "entry-transit",
+            )
+        )
 
     rotation = _row_dict(row, "rotation")
     if str(rotation.get("strategy") or "").strip().lower() != "generation-drain":
@@ -5432,8 +5444,8 @@ def validate_link_crypto_env(
         findings.append(_finding("error", f"{prefix}-role", f"{prefix.replace('-', ' ')} role must be {role_upper}, got {env.role or 'missing'}"))
     if env.secret_material:
         findings.append(_finding("error", f"{prefix}-secret-material", f"{prefix.replace('-', ' ')} must not embed secrets"))
-    if env.carrier != "mieru":
-        findings.append(_finding("error", f"{prefix}-carrier", f"{prefix.replace('-', ' ')} carrier must be mieru"))
+    if env.carrier not in {"mieru", "shadowsocks2022"}:
+        findings.append(_finding("error", f"{prefix}-carrier", f"{prefix.replace('-', ' ')} carrier must be mieru or shadowsocks2022"))
     if "entry-transit" in env.classes and not env.outer_carrier_enabled:
         findings.append(_finding("error", f"{prefix}-outer-carrier-enabled", f"{prefix.replace('-', ' ')} must enable WSS outer carrier for entry-transit"))
     if env.outer_carrier_enabled and env.outer_carrier_mode != "wss":
