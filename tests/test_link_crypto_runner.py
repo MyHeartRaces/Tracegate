@@ -355,7 +355,7 @@ def test_link_crypto_runner_builds_mieru_and_hysteria_plan(tmp_path: Path) -> No
     )
 
     assert plan["schema"] == "tracegate.link-crypto-runner-plan.v1"
-    assert plan["counts"] == {"mieru": 1, "hysteria2": 1, "pairedUdpObfs": 0}
+    assert plan["counts"] == {"mieru": 1, "shadowsocks2022": 0, "hysteria2": 1, "pairedUdpObfs": 0}
     assert plan["security"]["secretMaterialInline"] is False
     assert plan["security"]["udpFailClosed"] is True
     assert plan["security"]["udpDpiResistanceRequired"] is True

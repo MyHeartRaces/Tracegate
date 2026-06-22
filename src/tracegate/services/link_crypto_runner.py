@@ -210,6 +210,7 @@ def build_link_crypto_runner_plan(
     role: str,
     paths: LinkCryptoRunnerPaths,
     mieru_bin: str = "mieru",
+    singbox_bin: str = "sing-box",
     hysteria_bin: str = "hysteria",
     paired_obfs_runner: str = "",
     include_mieru: bool = True,
@@ -236,15 +237,23 @@ def build_link_crypto_runner_plan(
             continue
         link_class = _row_string(row, "class")
         side = _row_string(row, "side")
-        profile_path = _profile_path(row, label=f"{link_class} Mieru")
+        carrier = _row_string(row, "carrier") or "mieru"
+        if carrier == "shadowsocks2022":
+            profile_path = _profile_path(row, label=f"{link_class} Shadowsocks-2022")
+            command = [_binary_command(singbox_bin, "sing-box"), "run", "-c", profile_path]
+        elif carrier == "mieru":
+            profile_path = _profile_path(row, label=f"{link_class} Mieru")
+            command = [_binary_command(mieru_bin, "mieru"), "run", "-c", profile_path]
+        else:
+            raise LinkCryptoRunnerError(f"unsupported inner-carrier: {carrier!r}")
         processes.append(
             _process_spec(
-                kind="mieru",
+                kind=carrier,
                 link_class=link_class,
                 side=side,
                 profile_path=profile_path,
                 runtime_dir=paths.runtime_dir,
-                command=[_binary_command(mieru_bin, "mieru"), "run", "-c", profile_path],
+                command=command,
                 local=_row_dict(row, "local"),
                 remote=_row_dict(row, "remote"),
                 hardening=_row_dict(row, "zapret2"),
@@ -315,6 +324,7 @@ def build_link_crypto_runner_plan(
         "runtimeDir": str(paths.runtime_dir),
         "counts": {
             "mieru": len([row for row in processes if row["kind"] == "mieru"]),
+            "shadowsocks2022": len([row for row in processes if row["kind"] == "shadowsocks2022"]),
             "hysteria2": len([row for row in processes if row["kind"] == "hysteria2"]),
             "pairedUdpObfs": len([row for row in processes if row["kind"] == "paired-udp-obfs"]),
         },
