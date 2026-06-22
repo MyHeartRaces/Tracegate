@@ -2415,6 +2415,8 @@ def test_tracegate21_templates_keep_user_state_out_of_rollout_checksums() -> Non
     assert "PRIVATE_ZAPRET_PROFILE_ENTRY" in gateways
     assert "PRIVATE_ZAPRET_PROFILE_TRANSIT" in gateways
     assert "PRIVATE_MIERU_PROFILE_DIR" in gateways
+    assert "PRIVATE_LINK_CRYPTO_INNER_CARRIER" in gateways
+    assert "PRIVATE_SHADOWSOCKS2022_LINK_PROFILE_DIR" in gateways
     assert "PRIVATE_SHADOWTLS_PROFILE_DIR" in gateways
     assert "PRIVATE_SHADOWTLS_PROFILE_ENTRY" in gateways
     assert "PRIVATE_SHADOWTLS_PROFILE_TRANSIT" in gateways

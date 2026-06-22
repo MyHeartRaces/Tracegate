@@ -866,6 +866,14 @@ spec:
               value: "client.json"
             - name: PRIVATE_MIERU_SERVER_PROFILE
               value: "server.json"
+            - name: PRIVATE_LINK_CRYPTO_INNER_CARRIER
+              value: {{ $.Values.interconnect.entryTransit.innerCarrier | quote }}
+            - name: PRIVATE_SHADOWSOCKS2022_LINK_PROFILE_DIR
+              value: {{ printf "%s/link-crypto-ss2022" $.Values.privateProfiles.mountPath | quote }}
+            - name: PRIVATE_SHADOWSOCKS2022_LINK_CLIENT_PROFILE
+              value: "client.json"
+            - name: PRIVATE_SHADOWSOCKS2022_LINK_SERVER_PROFILE
+              value: "server.json"
             - name: PRIVATE_SHADOWTLS_PROFILE_DIR
               value: {{ printf "%s/shadowtls" $.Values.privateProfiles.mountPath | quote }}
             - name: PRIVATE_SHADOWTLS_PROFILE_ENTRY

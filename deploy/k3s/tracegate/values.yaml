@@ -882,6 +882,8 @@ interconnect:
     enabled: true
     primary: mieru
     fallback: none
+    # Inner backhaul carrier inside the mandatory WSS tunnel: mieru (default) or shadowsocks2022.
+    innerCarrier: mieru
     chainBridgeOwner: link-crypto
     xrayBackhaul: false
     generation: 1
