@@ -4296,6 +4296,92 @@ def _validate_link_crypto_tcp_dpi_resistance(
     return findings
 
 
+def _validate_link_crypto_tcp_dpi_resistance_shadowsocks2022(
+    *,
+    dpi: dict[str, Any],
+    outer_carrier: dict[str, Any],
+    code_prefix: str,
+    label: str,
+    require_outer_carrier: bool,
+) -> list[RuntimePreflightFinding]:
+    """DPI-resistance contract for the Shadowsocks-2022 inner backhaul carrier.
+
+    SS-2022 supplies its own AEAD + EIH authentication, so the Mieru-specific
+    ``mieru-private-auth`` and ``zapret2`` layers are replaced by a single
+    ``shadowsocks2022-aead`` layer. The outer WSS / SPKI-pin / HMAC-admission
+    layers are retained unchanged -- they remain mandatory for the Tracegate 3
+    Entry<->Endpoint bridge regardless of the inner carrier.
+    """
+    findings: list[RuntimePreflightFinding] = []
+    if not dpi:
+        findings.append(_finding("error", f"{code_prefix}-dpi-resistance", f"{label} TCP DPI resistance policy is missing"))
+        return findings
+    if not bool(dpi.get("enabled", False)):
+        findings.append(_finding("error", f"{code_prefix}-dpi-resistance-enabled", f"{label} TCP DPI resistance must stay enabled"))
+    expected_mode = "shadowsocks2022-wss-spki-hmac" if require_outer_carrier else "shadowsocks2022-direct"
+    if _row_string(dpi, "mode") != expected_mode:
+        findings.append(_finding("error", f"{code_prefix}-dpi-resistance-mode", f"{label} TCP DPI resistance mode must stay {expected_mode}"))
+
+    required_layers = set(_string_list(dpi.get("requiredLayers")))
+    required = {
+        "shadowsocks2022-aead",
+        "loopback-only",
+        "generation-drain",
+        "no-direct-backhaul",
+    }
+    if require_outer_carrier:
+        required.update({"outer-wss-tls", "spki-sha256-pin", "hmac-admission"})
+    missing_layers = sorted(required - required_layers)
+    if missing_layers:
+        findings.append(
+            _finding(
+                "error",
+                f"{code_prefix}-dpi-resistance-layers",
+                f"{label} TCP DPI resistance missing required layers: {', '.join(missing_layers)}",
+            )
+        )
+    forbidden_layers = sorted({"scoped-zapret2", "private-zapret2-profile", "mieru-private-auth"} & required_layers)
+    if forbidden_layers:
+        findings.append(
+            _finding(
+                "error",
+                f"{code_prefix}-dpi-resistance-forbidden-layers",
+                f"{label} Shadowsocks-2022 DPI resistance must not reuse Mieru/zapret2 layers: {', '.join(forbidden_layers)}",
+            )
+        )
+
+    dpi_outer = _row_dict(dpi, "outerCarrier")
+    if bool(dpi_outer.get("required", False)) != require_outer_carrier:
+        findings.append(_finding("error", f"{code_prefix}-dpi-resistance-outer-required", f"{label} outerCarrier.required diverges from link class"))
+    if require_outer_carrier:
+        if not bool(dpi_outer.get("spkiPinningRequired", False)):
+            findings.append(_finding("error", f"{code_prefix}-dpi-resistance-spki", f"{label} must require SPKI pinning"))
+        if not bool(dpi_outer.get("hmacAdmissionRequired", False)):
+            findings.append(_finding("error", f"{code_prefix}-dpi-resistance-admission", f"{label} must require HMAC admission"))
+        if not bool(outer_carrier.get("enabled", False)):
+            findings.append(_finding("error", f"{code_prefix}-dpi-resistance-outer-carrier", f"{label} must keep outer WSS carrier enabled"))
+
+    promotion = _row_dict(dpi, "promotionPreflight")
+    if not bool(promotion.get("required", False)):
+        findings.append(_finding("error", f"{code_prefix}-promotion-preflight-required", f"{label} promotion preflight must be required"))
+    if not bool(promotion.get("failClosed", False)):
+        findings.append(_finding("error", f"{code_prefix}-promotion-preflight-fail-closed", f"{label} promotion preflight must fail closed"))
+    checks = set(_string_list(promotion.get("checks")))
+    required_checks = {"shadowsocks2022-aead", "no-direct-backhaul"}
+    if require_outer_carrier:
+        required_checks.update({"spki-pin", "hmac-admission"})
+    missing_checks = sorted(required_checks - checks)
+    if missing_checks:
+        findings.append(
+            _finding(
+                "error",
+                f"{code_prefix}-promotion-preflight-checks",
+                f"{label} promotion preflight missing checks: {', '.join(missing_checks)}",
+            )
+        )
+    return findings
+
+
 def _validate_link_crypto_contract_alignment(
     *,
     state: LinkCryptoState,

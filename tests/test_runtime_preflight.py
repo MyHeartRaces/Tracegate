@@ -5815,3 +5815,59 @@ def test_validate_runtime_contracts_cli_reports_zapret_profile_errors(
 
     out = capsys.readouterr().out
     assert "ERROR [zapret-entry-tcp-port-widen]" in out
+
+
+def test_link_crypto_shadowsocks2022_dpi_resistance_contract() -> None:
+    from tracegate.services.runtime_preflight import (
+        _validate_link_crypto_tcp_dpi_resistance_shadowsocks2022,
+    )
+
+    dpi = {
+        "enabled": True,
+        "mode": "shadowsocks2022-wss-spki-hmac",
+        "requiredLayers": [
+            "shadowsocks2022-aead",
+            "loopback-only",
+            "generation-drain",
+            "no-direct-backhaul",
+            "outer-wss-tls",
+            "spki-sha256-pin",
+            "hmac-admission",
+        ],
+        "outerCarrier": {
+            "required": True,
+            "spkiPinningRequired": True,
+            "hmacAdmissionRequired": True,
+        },
+        "promotionPreflight": {
+            "required": True,
+            "failClosed": True,
+            "checks": ["shadowsocks2022-aead", "no-direct-backhaul", "spki-pin", "hmac-admission"],
+        },
+    }
+    outer = {"enabled": True}
+
+    def _errors(policy: dict) -> set[str]:
+        findings = _validate_link_crypto_tcp_dpi_resistance_shadowsocks2022(
+            dpi=policy,
+            outer_carrier=outer,
+            code_prefix="entry-link",
+            label="entry link",
+            require_outer_carrier=True,
+        )
+        return {finding.code for finding in findings if finding.severity == "error"}
+
+    # A well-formed SS-2022 inner-carrier policy passes with no errors.
+    assert _errors(dpi) == set()
+
+    # Mieru/zapret2 layers must not be smuggled into an SS-2022 policy.
+    smuggled = {**dpi, "requiredLayers": [*dpi["requiredLayers"], "scoped-zapret2", "mieru-private-auth"]}
+    assert "entry-link-dpi-resistance-forbidden-layers" in _errors(smuggled)
+
+    # The SS-2022 carrier must declare its own mode, not Mieru's.
+    wrong_mode = {**dpi, "mode": "mieru-wss-spki-hmac-zapret2-scoped"}
+    assert "entry-link-dpi-resistance-mode" in _errors(wrong_mode)
+
+    # Dropping the AEAD layer is a missing-required-layer error.
+    no_aead = {**dpi, "requiredLayers": [layer for layer in dpi["requiredLayers"] if layer != "shadowsocks2022-aead"]}
+    assert "entry-link-dpi-resistance-layers" in _errors(no_aead)
