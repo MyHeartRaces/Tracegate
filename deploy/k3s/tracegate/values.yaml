@@ -188,7 +188,6 @@ controlPlane:
     vlessGrpcServiceName: tracegate.v1.Edge
     vlessGrpcPath: /tracegate.v1.Edge/
     mtprotoDomain: ""
-    naiveproxyHost: auth.example.com
     localSocksAuth: required
     botWelcomeRequired: true
     botWelcomeVersion: tracegate-3.0.0-ui-v1
@@ -353,50 +352,6 @@ decoy:
   hostPathType: Directory
   mountPath: /var/www/decoy
   files: {}
-
-naiveproxy:
-  enabled: false
-  canonicalServer: ""
-  domain: auth.example.com
-  role: NAIVEPROXY
-  runtimeProfile: disabled
-  # demux keeps public TCP/443 on the Transit HAProxy and forwards only
-  # auth.example.com to the host-local NaiveProxy TCP backend.
-  # dedicated keeps the older model where the NaiveProxy pod owns tcp/443.
-  tcpExposure: demux
-  demux:
-    role: transit
-    backendHost: 127.0.0.1
-    backendPort: 11443
-  hostNetwork: true
-  shareProcessNamespace: true
-  dnsPolicy: ClusterFirstWithHostNet
-  nodeSelector:
-    tracegate.io/role: transit
-  tolerations: []
-  affinity: {}
-  terminationGracePeriodSeconds: 30
-  ports:
-    publicTcp: 443
-    publicUdp: 443
-    agent: 8074
-  tls:
-    existingSecretName: tracegate-naiveproxy-tls
-  stealth:
-    decoyMode: auth-portal
-    probeResistance: true
-    hideIp: true
-    hideVia: true
-    coverPaths:
-      - /auth/login
-      - /auth/session
-      - /auth/token
-      - /oauth2/authorize
-      - /oauth2/token
-      - /.well-known/openid-configuration
-  resources:
-    agent: {}
-    caddy: {}
 
 transitRouter:
   enabled: false
@@ -706,7 +661,6 @@ gateway:
     mtproto: {}
     mtprotoOfficial: {}
     singbox: {}
-    naiveproxy: {}
   # Optional static REALITY SNI demux table. Each group becomes a dedicated
   # loopback Xray inbound, and HAProxy routes clients there by ClientHello SNI.
   # Keep this table stable: adding/removing rows is structural and requires a
@@ -724,7 +678,6 @@ gateway:
       obfuscation: "sh -lc 'true'"
       fronting: "sh -lc 'true'"
       mtproto: "sh -lc 'true'"
-      naiveproxy: "sh -lc 'true'"
       profiles: "sh -lc 'tracegate-k3s-private-reload --component profiles --role \"${AGENT_ROLE}\" --private-runtime-root /var/lib/tracegate/private --runtime-contract /var/lib/tracegate/runtime/runtime-contract.json'"
       linkCrypto: "sh -lc 'tracegate-k3s-private-reload --component link-crypto --role \"${AGENT_ROLE}\" --private-runtime-root /var/lib/tracegate/private --runtime-contract /var/lib/tracegate/runtime/runtime-contract.json'"
   images:
@@ -779,10 +732,6 @@ gateway:
     mtprotoOfficial:
       repository: mtproxy/mtproxy
       tag: "latest"
-      pullPolicy: IfNotPresent
-    naiveproxy:
-      repository: ghcr.io/your-org/tracegate-naiveproxy-caddy
-      tag: "disabled"
       pullPolicy: IfNotPresent
   roles:
     entry:

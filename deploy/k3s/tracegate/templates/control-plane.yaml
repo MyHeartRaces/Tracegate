@@ -355,14 +355,6 @@ spec:
               value: {{ int .Values.mtproto.publicPort | quote }}
             - name: MTPROTO_ROUTE_MODE
               value: {{ toString (dig "mode" "endpoint-direct" (.Values.mtproto.route | default dict)) | quote }}
-{{- if ne (toString .Values.architecture.mode) "entry-endpoint" }}
-            - name: NAIVEPROXY_HOST
-              value: {{ (.Values.controlPlane.env.naiveproxyHost | default .Values.naiveproxy.domain) | quote }}
-            - name: NAIVEPROXY_PUBLIC_TCP_PORT
-              value: {{ int .Values.naiveproxy.ports.publicTcp | quote }}
-            - name: NAIVEPROXY_PUBLIC_UDP_PORT
-              value: {{ int .Values.naiveproxy.ports.publicUdp | quote }}
-{{- end }}
             - name: SUPERADMIN_TELEGRAM_IDS
               value: {{ toJson (.Values.controlPlane.env.superadminTelegramIds | default (list)) | quote }}
 {{- if kindIs "slice" .Values.controlPlane.env.enabledClientProfiles }}

@@ -155,15 +155,6 @@ def test_tracegate21_chart_uses_entry_transit_roles() -> None:
     assert values["gateway"]["roles"]["transit"]["canonicalServer"] == "transit"
     assert values["gateway"]["roles"]["entry"]["nodeSelector"] == {"tracegate.io/role": "entry"}
     assert values["gateway"]["roles"]["transit"]["nodeSelector"] == {"tracegate.io/role": "transit"}
-    assert values["naiveproxy"]["tcpExposure"] == "demux"
-    assert values["naiveproxy"]["canonicalServer"] == ""
-    assert values["naiveproxy"]["demux"] == {
-        "role": "transit",
-        "backendHost": "127.0.0.1",
-        "backendPort": 11443,
-    }
-    assert values["naiveproxy"]["ports"]["agent"] == 8074
-    assert values["naiveproxy"]["nodeSelector"] == {"tracegate.io/role": "transit"}
     assert values["gateway"]["strategy"] == "RollingUpdate"
     assert values["gateway"]["allowRecreateStrategy"] is False
     assert values["gateway"]["rollingUpdate"]["maxUnavailable"] == 0
@@ -243,7 +234,6 @@ def test_tracegate21_chart_uses_entry_transit_roles() -> None:
         "obfuscation",
         "fronting",
         "mtproto",
-        "naiveproxy",
         "profiles",
         "linkCrypto",
     }
@@ -2381,7 +2371,6 @@ def test_tracegate21_templates_keep_user_state_out_of_rollout_checksums() -> Non
     assert "reloadCommands.xray" in gateways
     assert "reloadCommands.fronting" in gateways
     assert "reloadCommands.mtproto" in gateways
-    assert "reloadCommands.naiveproxy" in gateways
     assert "reloadCommands.profiles" in gateways
     assert "reloadCommands.linkCrypto" in gateways
     assert "validate-private-profiles" in gateways
@@ -2393,7 +2382,7 @@ def test_tracegate21_templates_keep_user_state_out_of_rollout_checksums() -> Non
     assert "gateway.privatePreflight.enabled" in gateways
     assert "--allow-placeholders" not in gateways
     assert "AGENT_RUNTIME_PROFILE" in gateways
-    assert gateways.count("name: AGENT_RUNTIME_PROFILE") == 2
+    assert gateways.count("name: AGENT_RUNTIME_PROFILE") == 1
     assert "Values.global.runtimeProfile" in gateways
     assert "AGENT_GATEWAY_STRATEGY" in gateways
     assert "AGENT_GATEWAY_ALLOW_RECREATE_STRATEGY" in gateways

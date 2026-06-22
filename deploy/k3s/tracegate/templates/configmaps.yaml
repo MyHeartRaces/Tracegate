@@ -502,31 +502,6 @@ data:
         hostWideInterception: {{ .Values.interconnect.zapret2.hostWideInterception }}
         nfqueue: {{ .Values.interconnect.zapret2.nfqueue }}
         failOpen: true
-{{- if ne (toString .Values.architecture.mode) "entry-endpoint" }}
-    naiveproxy:
-      enabled: {{ .Values.naiveproxy.enabled }}
-      domain: {{ .Values.naiveproxy.domain }}
-      role: {{ .Values.naiveproxy.role }}
-      runtimeProfile: {{ .Values.naiveproxy.runtimeProfile }}
-      tcpExposure: {{ .Values.naiveproxy.tcpExposure }}
-      publicTcpPort: {{ int .Values.naiveproxy.ports.publicTcp }}
-      publicUdpPort: {{ int .Values.naiveproxy.ports.publicUdp }}
-      demux:
-        role: {{ .Values.naiveproxy.demux.role }}
-        backendHost: {{ .Values.naiveproxy.demux.backendHost }}
-        backendPort: {{ int .Values.naiveproxy.demux.backendPort }}
-        tcp443Owner: haproxy
-      http3:
-        enabled: true
-        owner: naiveproxy
-      stealth:
-        decoyMode: {{ .Values.naiveproxy.stealth.decoyMode }}
-        probeResistance: {{ .Values.naiveproxy.stealth.probeResistance }}
-        hideIp: {{ .Values.naiveproxy.stealth.hideIp }}
-        hideVia: {{ .Values.naiveproxy.stealth.hideVia }}
-        coverPaths:
-{{ toYaml .Values.naiveproxy.stealth.coverPaths | nindent 10 }}
-{{- end }}
     transports:
 {{ toYaml .Values.transportProfiles.clientNames | nindent 6 }}
     transportProfiles:
@@ -629,9 +604,6 @@ data:
 {{- end }}
 {{- $hysteriaListenHost := toString (dig "hysteria" "listenHost" "" $role) }}
 {{- $roleShadowtlsServerName := ternary $.Values.shadowsocks2022.shadowtls.serverNameEntry $.Values.shadowsocks2022.shadowtls.serverNameTransit (eq $roleName "entry") }}
-{{- $naiveproxyTcpExposure := toString $.Values.naiveproxy.tcpExposure }}
-{{- $naiveproxyDemuxRole := toString $.Values.naiveproxy.demux.role }}
-{{- $naiveproxyTcpDemuxEnabled := and $.Values.naiveproxy.enabled (eq $naiveproxyTcpExposure "demux") (eq $roleName $naiveproxyDemuxRole) }}
 {{- $roleCanonicalServer := lower (toString ($role.canonicalServer | default $roleName)) }}
 {{- $roleTopology := index ($.Values.topology.servers | default dict) $roleCanonicalServer | default dict }}
 {{- $roleDisplayName := toString ($roleTopology.displayName | default (title $roleCanonicalServer)) }}
@@ -779,10 +751,6 @@ data:
 {{- end }}
 {{- end }}
       acl tls_adapter_sni req.ssl_sni -i {{ join " " $tlsAdapterServerNames }}
-{{- if $naiveproxyTcpDemuxEnabled }}
-      acl naiveproxy_sni req.ssl_sni -i {{ $.Values.naiveproxy.domain }}
-      use_backend be_naiveproxy if naiveproxy_sni
-{{- end }}
 {{- if and (eq $roleName "transit") $linkWssCarrierEnabled }}
       acl bridge_wss_sni req.ssl_sni -i {{ $linkOuterCarrier.serverName }}
       use_backend be_https_adapter if bridge_wss_sni
@@ -855,11 +823,6 @@ data:
 
     backend be_https_adapter
       server nginx_https 127.0.0.1:{{ int $role.ports.httpsAdapter }} check
-{{- if $naiveproxyTcpDemuxEnabled }}
-
-    backend be_naiveproxy
-      server naiveproxy {{ $.Values.naiveproxy.demux.backendHost }}:{{ int $.Values.naiveproxy.demux.backendPort }} check
-{{- end }}
 {{- if $mtprotoEntryRouteEnabled }}
 
     backend be_mtproto_tls

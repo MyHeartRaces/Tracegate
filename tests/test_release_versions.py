@@ -23,5 +23,4 @@ def test_release_versions_are_kept_in_sync() -> None:
     assert chart["version"] == package_version
     assert chart["appVersion"] == package_version
     assert values["global"]["image"]["tag"] == package_version
-    assert values["gateway"]["images"]["naiveproxy"]["tag"] == "disabled"
     assert prod_values["global"]["image"]["tag"] == package_version
