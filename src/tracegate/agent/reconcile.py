@@ -688,6 +688,32 @@ def _build_link_crypto_contract_payload(settings: Settings) -> dict[str, object]
             "secretMaterial": False,
         },
     }
+    inner_carrier = str(settings.private_link_crypto_inner_carrier or "").strip().lower()
+    if inner_carrier not in {"mieru", "shadowsocks2022"}:
+        inner_carrier = "mieru"
+    if inner_carrier == "shadowsocks2022":
+        tcp_required_layers = ["shadowsocks2022-aead", "loopback-only", "generation-drain", "no-direct-backhaul"]
+        if outer_carrier_enabled:
+            tcp_required_layers.extend(["outer-wss-tls", "spki-sha256-pin", "hmac-admission"])
+        tcp_dpi_resistance = {
+            "enabled": tcp_link_enabled,
+            "mode": "shadowsocks2022-wss-spki-hmac" if outer_carrier_enabled else "shadowsocks2022-direct",
+            "requiredLayers": tcp_required_layers,
+            "outerCarrier": {
+                "required": outer_carrier_enabled,
+                "spkiPinningRequired": outer_carrier_enabled,
+                "hmacAdmissionRequired": outer_carrier_enabled,
+            },
+            "promotionPreflight": {
+                "required": True,
+                "failClosed": True,
+                "profileSource": "private-file-reference",
+                "profileRef": private_file_ref(promotion_preflight_profile),
+                "checks": ["shadowsocks2022-aead", "no-direct-backhaul"]
+                + (["spki-pin", "hmac-admission"] if outer_carrier_enabled else []),
+                "secretMaterial": False,
+            },
+        }
     udp_hardening = {
         "enabled": bool(settings.private_udp_link_hardening_enabled),
         "failClosed": True,
@@ -758,7 +784,7 @@ def _build_link_crypto_contract_payload(settings: Settings) -> dict[str, object]
         "entryTransitEnabled": bool(settings.private_link_crypto_enabled),
         "routerEntryEnabled": bool(settings.private_link_crypto_router_entry_enabled),
         "routerTransitEnabled": bool(settings.private_link_crypto_router_transit_enabled),
-        "carrier": "mieru",
+        "carrier": inner_carrier,
         "manager": "link-crypto",
         "profileSource": "private-file-reference",
         "secretMaterial": False,

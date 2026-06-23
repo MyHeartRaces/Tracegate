@@ -3220,3 +3220,26 @@ def test_reconcile_entry_v2_split_backend_moves_reality_inbounds_to_sidecar(tmp_
     assert set(v2_inbounds) == {"entry-in", "entry-in-shared-a", "entry-in-shared-b"}
     assert {row.get("id") for row in v2_inbounds["entry-in-shared-a"]["settings"]["clients"]} == {"a"}
     assert {row.get("id") for row in v2_inbounds["entry-in-shared-b"]["settings"]["clients"]} == {"b"}
+
+
+def test_link_crypto_contract_payload_follows_shadowsocks2022_inner_carrier() -> None:
+    from tracegate.agent.reconcile import _build_link_crypto_contract_payload
+    from tracegate.settings import Settings
+
+    mieru = _build_link_crypto_contract_payload(Settings(agent_role="ENTRY", private_link_crypto_enabled=True))
+    assert mieru["carrier"] == "mieru"
+    assert str(mieru["dpiResistance"]["mode"]).startswith("mieru")
+
+    ss = _build_link_crypto_contract_payload(
+        Settings(
+            agent_role="ENTRY",
+            private_link_crypto_enabled=True,
+            private_link_crypto_inner_carrier="shadowsocks2022",
+        )
+    )
+    assert ss["carrier"] == "shadowsocks2022"
+    dpi = ss["dpiResistance"]
+    assert str(dpi["mode"]).startswith("shadowsocks2022")
+    assert "shadowsocks2022-aead" in dpi["requiredLayers"]
+    assert "mieru-private-auth" not in dpi["requiredLayers"]
+    assert "zapret2" not in dpi
