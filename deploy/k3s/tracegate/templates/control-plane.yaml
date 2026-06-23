@@ -357,6 +357,10 @@ spec:
               value: {{ toString (dig "mode" "endpoint-direct" (.Values.mtproto.route | default dict)) | quote }}
             - name: SUPERADMIN_TELEGRAM_IDS
               value: {{ toJson (.Values.controlPlane.env.superadminTelegramIds | default (list)) | quote }}
+{{- if .Values.controlPlane.sniCatalogOverrideSecret }}
+            - name: TRACEGATE_SNI_CATALOG_FILE
+              value: /etc/tracegate/sni-override/sni_catalog.yaml
+{{- end }}
 {{- if kindIs "slice" .Values.controlPlane.env.enabledClientProfiles }}
             - name: ENABLED_CLIENT_PROFILES
               value: {{ toJson .Values.controlPlane.env.enabledClientProfiles | quote }}
@@ -406,6 +410,16 @@ spec:
             periodSeconds: 15
           resources:
             {{- toYaml .Values.controlPlane.resources.api | nindent 12 }}
+{{- if .Values.controlPlane.sniCatalogOverrideSecret }}
+          volumeMounts:
+            - name: sni-catalog-override
+              mountPath: /etc/tracegate/sni-override
+              readOnly: true
+      volumes:
+        - name: sni-catalog-override
+          secret:
+            secretName: {{ .Values.controlPlane.sniCatalogOverrideSecret }}
+{{- end }}
 ---
 {{- range $name, $replicas := dict "dispatcher" .Values.controlPlane.replicas.dispatcher "bot" .Values.controlPlane.replicas.bot }}
 {{- if gt (int $replicas) 0 }}
@@ -462,6 +476,10 @@ spec:
                   key: bot-token
             - name: SUPERADMIN_TELEGRAM_IDS
               value: {{ toJson ($.Values.controlPlane.env.superadminTelegramIds | default (list)) | quote }}
+{{- if $.Values.controlPlane.sniCatalogOverrideSecret }}
+            - name: TRACEGATE_SNI_CATALOG_FILE
+              value: /etc/tracegate/sni-override/sni_catalog.yaml
+{{- end }}
 {{- if kindIs "slice" $.Values.controlPlane.env.enabledClientProfiles }}
             - name: ENABLED_CLIENT_PROFILES
               value: {{ toJson $.Values.controlPlane.env.enabledClientProfiles | quote }}
@@ -547,6 +565,16 @@ spec:
 {{- end }}
           resources:
             {{- toYaml (index $.Values.controlPlane.resources $name) | nindent 12 }}
+{{- if $.Values.controlPlane.sniCatalogOverrideSecret }}
+          volumeMounts:
+            - name: sni-catalog-override
+              mountPath: /etc/tracegate/sni-override
+              readOnly: true
+      volumes:
+        - name: sni-catalog-override
+          secret:
+            secretName: {{ $.Values.controlPlane.sniCatalogOverrideSecret }}
+{{- end }}
 ---
 {{- end }}
 {{- end }}
