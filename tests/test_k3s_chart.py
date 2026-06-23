@@ -3846,3 +3846,21 @@ def test_new_production_values_adapter_rejects_removed_surfaces(tmp_path: Path) 
 
     assert adapted.returncode != 0
     assert "removed surfaces" in adapted.stderr
+
+
+def test_tracegate_chart_runs_singbox_inner_carrier_for_shadowsocks2022(tmp_path: Path) -> None:
+    rendered = _helm_template_with_values(
+        tmp_path,
+        {"interconnect": {"entryTransit": {"innerCarrier": "shadowsocks2022"}}},
+    )
+    assert rendered.returncode == 0, rendered.stderr
+    templates = _gateway_deployment_templates(rendered.stdout)
+    sidecar = _containers_by_name(templates["gateway-entry"])["mieru"]
+    assert "ghcr.io/sagernet/sing-box" in sidecar["image"]
+    script = sidecar["command"][-1]
+    assert "sing-box run -c" in script
+    assert "/link-crypto-ss2022/client.json" in script
+    assert "mieru run -c" not in script
+    # the rendered SS-2022 launcher is valid shell
+    syntax = subprocess.run(["sh", "-n"], input=script, check=False, capture_output=True, text=True)
+    assert syntax.returncode == 0, syntax.stderr

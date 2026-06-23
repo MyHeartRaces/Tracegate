@@ -51,8 +51,12 @@
 {{- $labDirectMieruEnabled := and (eq $roleName "transit") $.Values.experimentalProfiles.enabled $.Values.experimentalProfiles.directTransitObfuscation.enabled $.Values.experimentalProfiles.directTransitObfuscation.mieru.enabled }}
 {{- $labDirectRestlsEnabled := and (eq $roleName "transit") $.Values.experimentalProfiles.enabled $.Values.experimentalProfiles.directTransitObfuscation.enabled $.Values.experimentalProfiles.directTransitObfuscation.restls.enabled }}
 {{- $labTuicRoleEnabled := and $.Values.experimentalProfiles.enabled $.Values.experimentalProfiles.tuicV5.enabled (or (and (eq $roleName "transit") $.Values.experimentalProfiles.tuicV5.directEnabled) $.Values.experimentalProfiles.tuicV5.chainEnabled) }}
-{{- $roleLinkCryptoClientEnabled := and $.Values.interconnect.mieru.enabled $.Values.interconnect.entryTransit.enabled (eq $roleName "entry") }}
-{{- $roleLinkCryptoServerEnabled := and $.Values.interconnect.mieru.enabled (or (and (eq $roleName "transit") $.Values.interconnect.entryTransit.enabled) (and (eq $roleName "entry") $.Values.interconnect.entryTransit.routerEntry.enabled) (and (eq $roleName "transit") $.Values.interconnect.entryTransit.routerTransit.enabled)) }}
+{{- $innerCarrier := toString $.Values.interconnect.entryTransit.innerCarrier }}
+{{- $innerCarrierActive := ternary $.Values.interconnect.mieru.enabled true (eq $innerCarrier "mieru") }}
+{{- $innerCarrierImage := ternary $.Values.gateway.images.singbox $.Values.gateway.images.mieru (eq $innerCarrier "shadowsocks2022") }}
+{{- $innerCarrierBinary := ternary "sing-box" "mieru" (eq $innerCarrier "shadowsocks2022") }}
+{{- $roleLinkCryptoClientEnabled := and $innerCarrierActive $.Values.interconnect.entryTransit.enabled (eq $roleName "entry") }}
+{{- $roleLinkCryptoServerEnabled := and $innerCarrierActive (or (and (eq $roleName "transit") $.Values.interconnect.entryTransit.enabled) (and (eq $roleName "entry") $.Values.interconnect.entryTransit.routerEntry.enabled) (and (eq $roleName "transit") $.Values.interconnect.entryTransit.routerTransit.enabled)) }}
 {{- $roleLinkCryptoEnabled := or $roleLinkCryptoClientEnabled $roleLinkCryptoServerEnabled }}
 {{- $roleEntryTrafficShaperEnabled := and (eq $roleName "entry") $.Values.gateway.trafficShaping.entry.enabled $.Values.gateway.trafficShaping.entry.runtimeSidecar }}
 {{- $roleNodeEncryptionRequired := and $.Values.gateway.nodeEncryption.enabled $.Values.gateway.nodeEncryption.required $.Values.gateway.nodeEncryption.runtimeInitValidation (or (eq $roleName "entry") (eq $roleName "transit")) }}
@@ -1236,8 +1240,8 @@ spec:
 {{- end }}
 {{- if $roleLinkCryptoEnabled }}
         - name: mieru
-          image: {{ include "tracegate.image" $.Values.gateway.images.mieru | quote }}
-          imagePullPolicy: {{ $.Values.gateway.images.mieru.pullPolicy }}
+          image: {{ include "tracegate.image" $innerCarrierImage | quote }}
+          imagePullPolicy: {{ $innerCarrierImage.pullPolicy }}
           command:
             - sh
             - -lc
@@ -1260,7 +1264,7 @@ spec:
                 status_file="${status_dir}/${profile_count}.status"
                 (
                   set +e
-                  mieru run -c "${profile}" &
+                  {{ $innerCarrierBinary }} run -c "${profile}" &
                   child_pid="$!"
                   trap 'kill "${child_pid}" 2>/dev/null || true; wait "${child_pid}" 2>/dev/null || true; exit 143' TERM INT
                   wait "${child_pid}"
@@ -1272,10 +1276,10 @@ spec:
               }
               trap 'shutdown_mieru_profiles; exit 143' TERM INT
 {{- if $roleLinkCryptoClientEnabled }}
-              start_mieru_profile "{{ $.Values.privateProfiles.mountPath }}/{{ $.Values.privateProfiles.keys.mieruClient }}"
+              start_mieru_profile "{{ ternary (printf "%s/link-crypto-ss2022/client.json" $.Values.privateProfiles.mountPath) (printf "%s/%s" $.Values.privateProfiles.mountPath $.Values.privateProfiles.keys.mieruClient) (eq $innerCarrier "shadowsocks2022") }}"
 {{- end }}
 {{- if $roleLinkCryptoServerEnabled }}
-              start_mieru_profile "{{ $.Values.privateProfiles.mountPath }}/{{ $.Values.privateProfiles.keys.mieruServer }}"
+              start_mieru_profile "{{ ternary (printf "%s/link-crypto-ss2022/server.json" $.Values.privateProfiles.mountPath) (printf "%s/%s" $.Values.privateProfiles.mountPath $.Values.privateProfiles.keys.mieruServer) (eq $innerCarrier "shadowsocks2022") }}"
 {{- end }}
               if [ "${profile_count}" -eq 0 ]; then
                 echo "tracegate mieru: no link-crypto profiles started"
