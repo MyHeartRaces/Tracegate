@@ -129,7 +129,7 @@ data:
 {{ toYaml .Values.interconnect.endpointBackhaul.hysteria2 | nindent 8 }}
     linkCrypto:
       enabled: {{ $linkCryptoEnabled }}
-      carrier: mieru
+      carrier: {{ .Values.interconnect.entryTransit.innerCarrier }}
       manager: link-crypto
       profileSource: external-secret-file-reference
       secretMaterial: false
@@ -175,6 +175,41 @@ data:
           transitServerListen: {{ printf "127.0.0.1:%d" (int .Values.interconnect.entryTransit.outerCarrier.serverLocalPort) | quote }}
           transitTarget: {{ printf "127.0.0.1:%d" (int .Values.interconnect.mieru.localSocks.transitPort) | quote }}
 {{- if $linkCryptoEnabled }}
+{{- if eq (toString .Values.interconnect.entryTransit.innerCarrier) "shadowsocks2022" }}
+      dpiResistance:
+        enabled: true
+        mode: {{ if and .Values.interconnect.entryTransit.enabled .Values.interconnect.entryTransit.outerCarrier.enabled }}shadowsocks2022-wss-spki-hmac{{ else }}shadowsocks2022-direct{{ end }}
+        requiredLayers:
+          - shadowsocks2022-aead
+          - loopback-only
+          - generation-drain
+          - no-direct-backhaul
+{{ if and .Values.interconnect.entryTransit.enabled .Values.interconnect.entryTransit.outerCarrier.enabled }}
+          - outer-wss-tls
+          - spki-sha256-pin
+          - hmac-admission
+{{ end }}
+        outerCarrier:
+          required: {{ and .Values.interconnect.entryTransit.enabled .Values.interconnect.entryTransit.outerCarrier.enabled }}
+          spkiPinningRequired: {{ and .Values.interconnect.entryTransit.enabled .Values.interconnect.entryTransit.outerCarrier.enabled .Values.interconnect.entryTransit.outerCarrier.spkiPinning.required }}
+          hmacAdmissionRequired: {{ and .Values.interconnect.entryTransit.enabled .Values.interconnect.entryTransit.outerCarrier.enabled .Values.interconnect.entryTransit.outerCarrier.admission.required }}
+        promotionPreflight:
+          required: true
+          failClosed: true
+          profileSource: private-file-reference
+          profileRef:
+            kind: file
+            path: {{ .Values.interconnect.entryTransit.outerCarrier.promotionPreflightProfileFile | quote }}
+            secretMaterial: true
+          checks:
+            - shadowsocks2022-aead
+            - no-direct-backhaul
+{{ if and .Values.interconnect.entryTransit.enabled .Values.interconnect.entryTransit.outerCarrier.enabled }}
+            - spki-pin
+            - hmac-admission
+{{ end }}
+          secretMaterial: false
+{{- else }}
       dpiResistance:
         enabled: true
         mode: {{ if and .Values.interconnect.entryTransit.enabled .Values.interconnect.entryTransit.outerCarrier.enabled }}mieru-wss-spki-hmac-zapret2-scoped{{ else }}mieru-zapret2-scoped{{ end }}
@@ -235,6 +270,7 @@ data:
             - hmac-admission
 {{ end }}
           secretMaterial: false
+{{- end }}
 {{- end }}
       classes:
 {{- if .Values.interconnect.entryTransit.enabled }}

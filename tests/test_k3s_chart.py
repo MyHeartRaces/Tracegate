@@ -3864,3 +3864,18 @@ def test_tracegate_chart_runs_singbox_inner_carrier_for_shadowsocks2022(tmp_path
     # the rendered SS-2022 launcher is valid shell
     syntax = subprocess.run(["sh", "-n"], input=script, check=False, capture_output=True, text=True)
     assert syntax.returncode == 0, syntax.stderr
+
+
+def test_tracegate_chart_runtime_contract_follows_shadowsocks2022_inner_carrier(tmp_path: Path) -> None:
+    rendered = _helm_template_with_values(
+        tmp_path,
+        {"interconnect": {"entryTransit": {"innerCarrier": "shadowsocks2022"}}},
+    )
+    assert rendered.returncode == 0, rendered.stderr
+    link_crypto = _rendered_runtime_contract(rendered.stdout)["linkCrypto"]
+    assert link_crypto["carrier"] == "shadowsocks2022"
+    dpi = link_crypto["dpiResistance"]
+    assert dpi["mode"] == "shadowsocks2022-wss-spki-hmac"
+    assert "shadowsocks2022-aead" in dpi["requiredLayers"]
+    assert "scoped-zapret2" not in dpi["requiredLayers"]
+    assert "zapret2" not in dpi
