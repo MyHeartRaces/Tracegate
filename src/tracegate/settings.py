@@ -358,7 +358,7 @@ class Settings(BaseSettings):
     private_router_udp_paired_obfs_profile: str = "paired-obfs.env"
     private_link_crypto_outer_carrier_enabled: bool = True
     private_link_crypto_outer_carrier_mode: str = "wss"
-    private_link_crypto_outer_wss_server_name: str = "bridge.example.com"
+    private_link_crypto_outer_wss_server_name: str = "www.rbc.ru"
     private_link_crypto_outer_wss_public_port: int = 443
     private_link_crypto_outer_wss_path: str = "/cdn-cgi/tracegate-link"
     private_link_crypto_outer_wss_client_port: int = 14081
@@ -449,13 +449,13 @@ class Settings(BaseSettings):
     )
     # REALITY "dest" is a single upstream used for the mimic handshake.
     # Default to a commonly reachable whitelist-friendly dest (operator can override).
-    reality_dest: str = "cdn.cdn-d.example.net:443"
+    reality_dest: str = "yandex.ru:443"
     # Optional SNI compatibility filter (used by the API/bot).
     # If empty, all enabled SNIs from DB are allowed.
     reality_sni_allow_suffixes: list[str] = Field(default_factory=list)
     # Pre-seeded SNI allow-list for REALITY inbounds. Keep it minimal to avoid
     # advertising unrelated camouflage targets by default.
-    sni_seed: list[str] = Field(default_factory=lambda: ["cdn.cdn-d.example.net"])
+    sni_seed: list[str] = Field(default_factory=lambda: ["yandex.ru"])
     # Optional REALITY multi-inbound mapping.
     # Each row is an object with:
     # - id: stable slug (used in generated inbound tag)
@@ -464,7 +464,7 @@ class Settings(BaseSettings):
     # - snis: list of client SNI values routed to this inbound
     # Example:
     # [
-    #   {"id": "shared-a", "port": 2501, "dest": "cdn.cdn-d.example.net", "snis": ["cdn.cdn-d.example.net"]}
+    #   {"id": "shared-a", "port": 2501, "dest": "yandex.ru", "snis": ["yandex.ru"]}
     # ]
     reality_multi_inbound_groups: list[dict] = Field(default_factory=list)
 
@@ -513,11 +513,11 @@ class Settings(BaseSettings):
     # Shadowsocks-2022 + ShadowTLS V3 uses static node-side outer credentials,
     # while Shadowsocks user keys remain per connection.
     shadowtls_server_name_entry: str = Field(
-        default="api.photo.example.net",
+        default="ozon.ru",
         validation_alias=AliasChoices("SHADOWTLS_SERVER_NAME_ENTRY", "SHADOWTLS_SERVER_NAME"),
     )
     shadowtls_server_name_transit: str = Field(
-        default="api.front-a.example.net",
+        default="www.ozon.ru",
         validation_alias=AliasChoices("SHADOWTLS_SERVER_NAME_TRANSIT", "SHADOWTLS_SERVER_NAME"),
     )
     shadowtls_password_entry: str = Field(

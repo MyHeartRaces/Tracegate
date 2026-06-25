@@ -82,7 +82,7 @@ def test_xray_structural_reload_required_detects_reality_server_name_changes() -
             {
                 "protocol": "vless",
                 "settings": {"clients": [{"id": "c1"}]},
-                "streamSettings": {"security": "reality", "realitySettings": {"serverNames": ["splitter.front-m.example.net"]}},
+                "streamSettings": {"security": "reality", "realitySettings": {"serverNames": ["old-mtproto-a.tracegate-sni.ru"]}},
             }
         ]
     }
@@ -93,7 +93,7 @@ def test_xray_structural_reload_required_detects_reality_server_name_changes() -
                 "settings": {"clients": [{"id": "c2"}]},
                 "streamSettings": {
                     "security": "reality",
-                    "realitySettings": {"serverNames": ["splitter.front-m.example.net", "www.front-j.example.net"]},
+                    "realitySettings": {"serverNames": ["old-mtproto-a.tracegate-sni.ru", "reserved-97.tracegate-sni.ru"]},
                 },
             }
         ]
@@ -189,7 +189,7 @@ def test_reconcile_xray_centric_updates_vless_and_hysteria_inbounds(tmp_path: Pa
                 "connection_id": "c1",
                 "revision_id": "r1",
                 "protocol": "vless_reality",
-                "config": {"uuid": "c1", "sni": "splitter.front-m.example.net"},
+                "config": {"uuid": "c1", "sni": "old-mtproto-a.tracegate-sni.ru"},
             }
         ),
     )
@@ -238,7 +238,7 @@ def test_reconcile_xray_centric_updates_vless_and_hysteria_inbounds(tmp_path: Pa
 
     rendered_xray = json.loads((tmp_path / "runtime/xray/config.json").read_text(encoding="utf-8"))
     assert rendered_xray["inbounds"][0]["settings"]["clients"][0]["id"] == "c1"
-    assert "splitter.front-m.example.net" in rendered_xray["inbounds"][0]["streamSettings"]["realitySettings"]["serverNames"]
+    assert "old-mtproto-a.tracegate-sni.ru" in rendered_xray["inbounds"][0]["streamSettings"]["realitySettings"]["serverNames"]
     assert rendered_xray["inbounds"][1]["settings"]["clients"][0]["id"] == "c3"
     assert rendered_xray["inbounds"][2]["settings"]["clients"][0]["id"] == "c4"
     assert rendered_xray["inbounds"][3]["settings"]["clients"] == [{"auth": "u1:d1", "email": "V? - u1 - c2"}]
@@ -302,7 +302,7 @@ def test_reconcile_keeps_encrypted_vless_clients_on_separate_inbounds(tmp_path: 
                 "connection_id": "old",
                 "revision_id": "r-old",
                 "protocol": "vless_reality",
-                "config": {"uuid": "old", "sni": "front-g.example.net"},
+                "config": {"uuid": "old", "sni": "old-forbidden.tracegate-sni.ru"},
             }
         ),
     )
@@ -317,7 +317,7 @@ def test_reconcile_keeps_encrypted_vless_clients_on_separate_inbounds(tmp_path: 
                 "protocol": "vless_reality",
                 "config": {
                     "uuid": "new",
-                    "sni": "passport.front-g.example.net",
+                    "sni": "passport.old-forbidden.tracegate-sni.ru",
                     "vless_encryption": {"enabled": True, "encryption": "mlkem768x25519plus.native.0rtt.CLIENT"},
                 },
             }
@@ -348,7 +348,7 @@ def test_reconcile_keeps_encrypted_vless_clients_on_separate_inbounds(tmp_path: 
     assert [row["id"] for row in inbounds["vless-reality-in"]["settings"]["clients"]] == ["old"]
     assert [row["id"] for row in inbounds["vless-reality-enc-in"]["settings"]["clients"]] == ["new"]
     assert inbounds["vless-reality-enc-in"]["settings"]["decryption"] == "mlkem768x25519plus.native.600s.SERVER"
-    assert inbounds["vless-reality-enc-in"]["streamSettings"]["realitySettings"]["serverNames"] == ["passport.front-g.example.net"]
+    assert inbounds["vless-reality-enc-in"]["streamSettings"]["realitySettings"]["serverNames"] == ["passport.old-forbidden.tracegate-sni.ru"]
     assert inbounds["vless-ws-in"]["settings"]["clients"] == []
     assert [row["id"] for row in inbounds["vless-ws-enc-in"]["settings"]["clients"]] == ["ws-new"]
     assert inbounds["vless-ws-enc-in"]["settings"]["decryption"] == "mlkem768x25519plus.native.600s.SERVER"
@@ -387,7 +387,7 @@ def test_reconcile_entry_updates_xray_only_in_xray_centric_runtime(tmp_path: Pat
                 "connection_id": "c1",
                 "revision_id": "r1",
                 "protocol": "vless_reality",
-                "config": {"uuid": "c1", "sni": "front-k.example.net"},
+                "config": {"uuid": "c1", "sni": "reserved-86.tracegate-sni.ru"},
             }
         ),
     )
@@ -395,7 +395,7 @@ def test_reconcile_entry_updates_xray_only_in_xray_centric_runtime(tmp_path: Pat
     changed = reconcile_all(settings)
     assert changed == ["xray"]
     rendered = json.loads((tmp_path / "runtime/xray/config.json").read_text(encoding="utf-8"))
-    assert rendered["inbounds"][0]["streamSettings"]["realitySettings"]["dest"] == "front-k.example.net:443"
+    assert rendered["inbounds"][0]["streamSettings"]["realitySettings"]["dest"] == "reserved-86.tracegate-sni.ru:443"
     assert not (tmp_path / "runtime/hysteria/config.yaml").exists()
 
 
@@ -933,10 +933,10 @@ def test_reconcile_runtime_contract_exposes_private_wrapper_state(tmp_path: Path
         "enabled": True,
         "mode": "wss",
         "protocol": "websocket-tls",
-        "serverName": "bridge.example.com",
+        "serverName": "www.rbc.ru",
         "publicPort": 443,
         "publicPath": "/cdn-cgi/tracegate-link",
-        "url": "wss://bridge.example.com:443/cdn-cgi/tracegate-link",
+        "url": "wss://www.rbc.ru:443/cdn-cgi/tracegate-link",
         "verifyTls": True,
         "secretMaterial": False,
         "tlsPinning": {
@@ -1007,7 +1007,7 @@ def test_reconcile_materializes_private_runtime_handoff_surfaces_for_transit(tmp
         agent_runtime_profile="xray-centric",
         default_transit_host="nlconn.tracegate.test",
         mtproto_domain="proxied.tracegate.test",
-        mtproto_tls_domain="www.apple.com",
+        mtproto_tls_domain="2gis.ru",
         mtproto_public_port=8443,
         private_mtproto_secret_file=str(tmp_path / "secrets" / "mtproto.txt"),
     )
@@ -1109,23 +1109,23 @@ def test_reconcile_materializes_private_runtime_handoff_surfaces_for_transit(tmp
     ) == []
 
     fronting_cfg = (private_root / "fronting" / "runtime" / "haproxy.cfg").read_text(encoding="utf-8")
-    assert "acl mtproto_sni req.ssl_sni -i www.apple.com" in fronting_cfg
+    assert "acl mtproto_sni req.ssl_sni -i 2gis.ru" in fronting_cfg
     assert "acl ws_tls_sni req.ssl_sni -i nlconn.tracegate.test" in fronting_cfg
 
     assert runtime_contract["fronting"]["mtprotoDomain"] == "proxied.tracegate.test"
-    assert runtime_contract["fronting"]["mtprotoTlsDomain"] == "www.apple.com"
+    assert runtime_contract["fronting"]["mtprotoTlsDomain"] == "2gis.ru"
     assert mtproto_state.issued_state_file == str(private_root / "mtproto" / "issued.json")
     assert mtproto_state.runtime == "mtg"
     assert mtproto_state.mtproto_config_file == str(private_root / "mtproto" / "runtime" / "config.toml")
     mtproto_config = (private_root / "mtproto" / "runtime" / "config.toml").read_text(encoding="utf-8")
-    assert 'secret = "ee00112233445566778899aabbccddeeff7777772e6170706c652e636f6d"' in mtproto_config
+    assert 'secret = "ee00112233445566778899aabbccddeeff326769732e7275"' in mtproto_config
     assert 'bind-to = "127.0.0.1:9443"' in mtproto_config
     assert "proxy-protocol-listener = true" in mtproto_config
-    assert 'host = "www.apple.com"' in mtproto_config
+    assert 'host = "2gis.ru"' in mtproto_config
     assert "proxies =" not in mtproto_config
     assert public_profile.server == "proxied.tracegate.test"
     assert public_profile.port == 8443
-    assert public_profile.domain == "www.apple.com"
+    assert public_profile.domain == "2gis.ru"
     public_profile_payload = json.loads((private_root / "mtproto" / "public-profile.json").read_text(encoding="utf-8"))
     assert public_profile_payload["publicPorts"] == [8443, 443]
     assert [row["port"] for row in public_profile_payload["links"]] == [8443, 443]
@@ -1688,10 +1688,10 @@ def test_reconcile_materializes_link_crypto_handoff_without_private_secrets(tmp_
         "enabled": True,
         "mode": "wss",
         "protocol": "websocket-tls",
-        "serverName": "bridge.example.com",
+        "serverName": "www.rbc.ru",
         "publicPort": 443,
         "publicPath": "/cdn-cgi/tracegate-link",
-        "url": "wss://bridge.example.com:443/cdn-cgi/tracegate-link",
+        "url": "wss://www.rbc.ru:443/cdn-cgi/tracegate-link",
         "verifyTls": True,
         "secretMaterial": False,
         "tlsPinning": {
@@ -2259,7 +2259,7 @@ def test_reconcile_clears_link_crypto_tcp8443_guard_for_mtproto_fallback(tmp_pat
         private_udp_link_enabled=True,
         private_udp_link_paired_obfs_enabled=True,
         mtproto_domain="proto.tracegate.test",
-        mtproto_tls_domain="www.apple.com",
+        mtproto_tls_domain="2gis.ru",
         mtproto_public_port=8443,
     )
 
@@ -2283,7 +2283,7 @@ def test_reconcile_allows_entry_mtproto_route_tcp8443(tmp_path: Path, route_mode
         default_entry_host="entry.tracegate.test",
         default_transit_host="endpoint.tracegate.test",
         mtproto_domain="proto.tracegate.test",
-        mtproto_tls_domain="www.apple.com",
+        mtproto_tls_domain="2gis.ru",
         mtproto_public_port=8443,
         mtproto_route_mode=route_mode,
     )
@@ -2311,7 +2311,7 @@ def test_reconcile_blocks_transit_tcp8443_for_entry_local_mtproto(tmp_path: Path
         default_entry_host="entry.tracegate.test",
         default_transit_host="endpoint.tracegate.test",
         mtproto_domain="proto.tracegate.test",
-        mtproto_tls_domain="www.apple.com",
+        mtproto_tls_domain="2gis.ru",
         mtproto_public_port=8443,
         mtproto_route_mode="entry-local-endpoint-egress",
     )
@@ -2501,7 +2501,7 @@ def test_reconcile_entry_adds_sticky_transit_outbounds_per_v2_connection(tmp_pat
                     "variant": "V2",
                     "config": {
                         "uuid": connection_id,
-                        "sni": "splitter.front-m.example.net",
+                        "sni": "old-mtproto-a.tracegate-sni.ru",
                         "transit": {
                             "mode": "sticky",
                             "scope": "connection",
@@ -2541,7 +2541,7 @@ def test_reconcile_entry_reality_dest_follows_latest_selected_sni(tmp_path: Path
                         "streamSettings": {
                             "security": "reality",
                             "realitySettings": {
-                                "dest": "splitter.front-m.example.net:443",
+                                "dest": "old-mtproto-a.tracegate-sni.ru:443",
                                 "serverNames": [],
                             },
                         },
@@ -2561,7 +2561,7 @@ def test_reconcile_entry_reality_dest_follows_latest_selected_sni(tmp_path: Path
                 "revision_id": "r1",
                 "op_ts": "2026-02-20T22:00:00+00:00",
                 "protocol": "vless_reality",
-                "config": {"uuid": "old", "sni": "www.front-j.example.net"},
+                "config": {"uuid": "old", "sni": "reserved-97.tracegate-sni.ru"},
             }
         ),
     )
@@ -2575,7 +2575,7 @@ def test_reconcile_entry_reality_dest_follows_latest_selected_sni(tmp_path: Path
                 "revision_id": "r2",
                 "op_ts": "2026-02-20T22:05:00+00:00",
                 "protocol": "vless_reality",
-                "config": {"uuid": "new", "sni": "st.front-l.example.net"},
+                "config": {"uuid": "new", "sni": "old-mtproto-b.tracegate-sni.ru"},
             }
         ),
     )
@@ -2585,9 +2585,9 @@ def test_reconcile_entry_reality_dest_follows_latest_selected_sni(tmp_path: Path
 
     rendered = json.loads((tmp_path / "runtime/xray/config.json").read_text(encoding="utf-8"))
     reality = rendered["inbounds"][0]["streamSettings"]["realitySettings"]
-    assert reality["dest"] == "st.front-l.example.net:443"
-    assert "www.front-j.example.net" in reality["serverNames"]
-    assert "st.front-l.example.net" in reality["serverNames"]
+    assert reality["dest"] == "old-mtproto-b.tracegate-sni.ru:443"
+    assert "reserved-97.tracegate-sni.ru" in reality["serverNames"]
+    assert "old-mtproto-b.tracegate-sni.ru" in reality["serverNames"]
 
 
 def test_reconcile_keeps_static_base_reality_clients(tmp_path: Path) -> None:
@@ -2628,7 +2628,7 @@ def test_reconcile_keeps_static_base_reality_clients(tmp_path: Path) -> None:
                 "connection_id": "c1",
                 "revision_id": "r1",
                 "protocol": "vless_reality",
-                "config": {"uuid": "11111111-1111-4111-8111-111111111111", "sni": "splitter.front-m.example.net"},
+                "config": {"uuid": "11111111-1111-4111-8111-111111111111", "sni": "old-mtproto-a.tracegate-sni.ru"},
             }
         ),
     )
@@ -2698,7 +2698,7 @@ def test_reconcile_entry_ignores_ws_direct_artifacts_not_targeted_to_role(tmp_pa
                 "revision_id": "r-chain",
                 "protocol": "vless_reality",
                 "variant": "V2",
-                "config": {"uuid": "chain-v2", "sni": "splitter.front-m.example.net"},
+                "config": {"uuid": "chain-v2", "sni": "old-mtproto-a.tracegate-sni.ru"},
             }
         ),
     )
@@ -2756,7 +2756,7 @@ def test_reconcile_transit_ignores_chain_public_xray_clients_but_keeps_link_cryp
                 "revision_id": "r-chain-v2",
                 "protocol": "vless_reality",
                 "variant": "V2",
-                "config": {"uuid": "chain-v2", "sni": "splitter.front-m.example.net"},
+                "config": {"uuid": "chain-v2", "sni": "old-mtproto-a.tracegate-sni.ru"},
             }
         ),
     )
@@ -2887,7 +2887,7 @@ def test_reconcile_tracegate21_strips_legacy_xray_backhaul_from_runtime(tmp_path
     assert runtime_contract["linkCrypto"]["xrayBackhaul"] is False
     assert runtime_contract["linkCrypto"]["classes"] == ["entry-transit"]
     assert runtime_contract["linkCrypto"]["outerCarrier"]["mode"] == "wss"
-    assert runtime_contract["linkCrypto"]["outerCarrier"]["url"] == "wss://bridge.example.com:443/cdn-cgi/tracegate-link"
+    assert runtime_contract["linkCrypto"]["outerCarrier"]["url"] == "wss://www.rbc.ru:443/cdn-cgi/tracegate-link"
     assert runtime_contract["rollout"]["gatewayStrategy"] == "RollingUpdate"
     assert runtime_contract["rollout"]["maxUnavailable"] == "0"
     assert runtime_contract["rollout"]["privatePreflightForbidPlaceholders"] is True
@@ -2902,14 +2902,14 @@ def test_reconcile_reality_multi_inbound_groups_assign_by_sni_and_keep_fallback(
             {
                 "id": "shared-a",
                 "port": 2501,
-                "dest": "splitter.front-m.example.net",
-                "snis": ["splitter.front-m.example.net"],
+                "dest": "old-mtproto-a.tracegate-sni.ru",
+                "snis": ["old-mtproto-a.tracegate-sni.ru"],
             },
             {
                 "id": "shared-b",
                 "port": 2502,
-                "dest": "st.front-l.example.net",
-                "snis": ["st.front-l.example.net"],
+                "dest": "old-mtproto-b.tracegate-sni.ru",
+                "snis": ["old-mtproto-b.tracegate-sni.ru"],
             },
         ],
     )
@@ -2926,7 +2926,7 @@ def test_reconcile_reality_multi_inbound_groups_assign_by_sni_and_keep_fallback(
                         "settings": {"clients": []},
                         "streamSettings": {
                             "security": "reality",
-                            "realitySettings": {"dest": "splitter.front-m.example.net:443", "serverNames": ["splitter.front-m.example.net"]},
+                            "realitySettings": {"dest": "old-mtproto-a.tracegate-sni.ru:443", "serverNames": ["old-mtproto-a.tracegate-sni.ru"]},
                         },
                     }
                 ],
@@ -2948,7 +2948,7 @@ def test_reconcile_reality_multi_inbound_groups_assign_by_sni_and_keep_fallback(
                 "connection_id": "a",
                 "revision_id": "r1",
                 "protocol": "vless_reality",
-                "config": {"uuid": "a", "sni": "splitter.front-m.example.net"},
+                "config": {"uuid": "a", "sni": "old-mtproto-a.tracegate-sni.ru"},
             }
         ),
     )
@@ -2961,7 +2961,7 @@ def test_reconcile_reality_multi_inbound_groups_assign_by_sni_and_keep_fallback(
                 "connection_id": "b",
                 "revision_id": "r2",
                 "protocol": "vless_reality",
-                "config": {"uuid": "b", "sni": "st.front-l.example.net"},
+                "config": {"uuid": "b", "sni": "old-mtproto-b.tracegate-sni.ru"},
             }
         ),
     )
@@ -2974,7 +2974,7 @@ def test_reconcile_reality_multi_inbound_groups_assign_by_sni_and_keep_fallback(
                 "connection_id": "legacy",
                 "revision_id": "r3",
                 "protocol": "vless_reality",
-                "config": {"uuid": "legacy", "sni": "legacy.example.com"},
+                "config": {"uuid": "legacy", "sni": "legacy.tracegate-sni.ru"},
             }
         ),
     )
@@ -3000,9 +3000,9 @@ def test_reconcile_reality_multi_inbound_groups_assign_by_sni_and_keep_fallback(
     reality_a = inbounds["entry-in-shared-a"]["streamSettings"]["realitySettings"]
     reality_b = inbounds["entry-in-shared-b"]["streamSettings"]["realitySettings"]
     reality_fallback = inbounds["entry-in"]["streamSettings"]["realitySettings"]
-    assert reality_a["dest"] == "splitter.front-m.example.net:443"
-    assert reality_b["dest"] == "st.front-l.example.net:443"
-    assert "legacy.example.com" in reality_fallback["serverNames"]
+    assert reality_a["dest"] == "old-mtproto-a.tracegate-sni.ru:443"
+    assert reality_b["dest"] == "old-mtproto-b.tracegate-sni.ru:443"
+    assert "legacy.tracegate-sni.ru" in reality_fallback["serverNames"]
 
     route_tags = rendered["routing"]["rules"][0]["inboundTag"]
     assert "entry-in" in route_tags
@@ -3019,14 +3019,14 @@ def test_reconcile_reality_multi_inbound_groups_is_idempotent_with_materialized_
             {
                 "id": "shared-a",
                 "port": 2501,
-                "dest": "splitter.front-m.example.net",
-                "snis": ["splitter.front-m.example.net"],
+                "dest": "old-mtproto-a.tracegate-sni.ru",
+                "snis": ["old-mtproto-a.tracegate-sni.ru"],
             },
             {
                 "id": "shared-b",
                 "port": 2502,
-                "dest": "st.front-l.example.net",
-                "snis": ["st.front-l.example.net"],
+                "dest": "old-mtproto-b.tracegate-sni.ru",
+                "snis": ["old-mtproto-b.tracegate-sni.ru"],
             },
         ],
     )
@@ -3043,7 +3043,7 @@ def test_reconcile_reality_multi_inbound_groups_is_idempotent_with_materialized_
                         "settings": {"clients": []},
                         "streamSettings": {
                             "security": "reality",
-                            "realitySettings": {"dest": "splitter.front-m.example.net:443", "serverNames": ["splitter.front-m.example.net"]},
+                            "realitySettings": {"dest": "old-mtproto-a.tracegate-sni.ru:443", "serverNames": ["old-mtproto-a.tracegate-sni.ru"]},
                         },
                     },
                     {
@@ -3053,7 +3053,7 @@ def test_reconcile_reality_multi_inbound_groups_is_idempotent_with_materialized_
                         "settings": {"clients": []},
                         "streamSettings": {
                             "security": "reality",
-                            "realitySettings": {"dest": "splitter.front-m.example.net:443", "serverNames": ["splitter.front-m.example.net"]},
+                            "realitySettings": {"dest": "old-mtproto-a.tracegate-sni.ru:443", "serverNames": ["old-mtproto-a.tracegate-sni.ru"]},
                         },
                     },
                     {
@@ -3063,7 +3063,7 @@ def test_reconcile_reality_multi_inbound_groups_is_idempotent_with_materialized_
                         "settings": {"clients": []},
                         "streamSettings": {
                             "security": "reality",
-                            "realitySettings": {"dest": "st.front-l.example.net:443", "serverNames": ["st.front-l.example.net"]},
+                            "realitySettings": {"dest": "old-mtproto-b.tracegate-sni.ru:443", "serverNames": ["old-mtproto-b.tracegate-sni.ru"]},
                         },
                     },
                 ],
@@ -3089,7 +3089,7 @@ def test_reconcile_reality_multi_inbound_groups_is_idempotent_with_materialized_
                 "connection_id": "a",
                 "revision_id": "r1",
                 "protocol": "vless_reality",
-                "config": {"uuid": "a", "sni": "splitter.front-m.example.net"},
+                "config": {"uuid": "a", "sni": "old-mtproto-a.tracegate-sni.ru"},
             }
         ),
     )
@@ -3102,7 +3102,7 @@ def test_reconcile_reality_multi_inbound_groups_is_idempotent_with_materialized_
                 "connection_id": "b",
                 "revision_id": "r2",
                 "protocol": "vless_reality",
-                "config": {"uuid": "b", "sni": "st.front-l.example.net"},
+                "config": {"uuid": "b", "sni": "old-mtproto-b.tracegate-sni.ru"},
             }
         ),
     )
@@ -3129,14 +3129,14 @@ def test_reconcile_entry_v2_split_backend_moves_reality_inbounds_to_sidecar(tmp_
             {
                 "id": "shared-a",
                 "port": 2501,
-                "dest": "splitter.front-m.example.net",
-                "snis": ["splitter.front-m.example.net"],
+                "dest": "old-mtproto-a.tracegate-sni.ru",
+                "snis": ["old-mtproto-a.tracegate-sni.ru"],
             },
             {
                 "id": "shared-b",
                 "port": 2502,
-                "dest": "st.front-l.example.net",
-                "snis": ["st.front-l.example.net"],
+                "dest": "old-mtproto-b.tracegate-sni.ru",
+                "snis": ["old-mtproto-b.tracegate-sni.ru"],
             },
         ],
     )
@@ -3159,7 +3159,7 @@ def test_reconcile_entry_v2_split_backend_moves_reality_inbounds_to_sidecar(tmp_
                         "settings": {"clients": []},
                         "streamSettings": {
                             "security": "reality",
-                            "realitySettings": {"dest": "splitter.front-m.example.net:443", "serverNames": ["splitter.front-m.example.net"]},
+                            "realitySettings": {"dest": "old-mtproto-a.tracegate-sni.ru:443", "serverNames": ["old-mtproto-a.tracegate-sni.ru"]},
                         },
                     },
                     {
@@ -3188,7 +3188,7 @@ def test_reconcile_entry_v2_split_backend_moves_reality_inbounds_to_sidecar(tmp_
                 "connection_id": "a",
                 "revision_id": "r1",
                 "protocol": "vless_reality",
-                "config": {"uuid": "a", "sni": "splitter.front-m.example.net"},
+                "config": {"uuid": "a", "sni": "old-mtproto-a.tracegate-sni.ru"},
             }
         ),
     )
@@ -3201,7 +3201,7 @@ def test_reconcile_entry_v2_split_backend_moves_reality_inbounds_to_sidecar(tmp_
                 "connection_id": "b",
                 "revision_id": "r2",
                 "protocol": "vless_reality",
-                "config": {"uuid": "b", "sni": "st.front-l.example.net"},
+                "config": {"uuid": "b", "sni": "old-mtproto-b.tracegate-sni.ru"},
             }
         ),
     )

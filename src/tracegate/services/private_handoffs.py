@@ -426,7 +426,7 @@ def _normalize_link_wss_path(value: object) -> str:
 
 
 def _link_crypto_outer_wss_server_name(settings: Settings) -> str:
-    return str(settings.private_link_crypto_outer_wss_server_name or "").strip() or "bridge.example.com"
+    return str(settings.private_link_crypto_outer_wss_server_name or "").strip() or "www.rbc.ru"
 
 
 def _link_crypto_outer_carrier(settings: Settings, *, link_class: str, side: str) -> dict[str, Any]:

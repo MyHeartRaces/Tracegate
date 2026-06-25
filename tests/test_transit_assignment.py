@@ -10,7 +10,7 @@ def test_assign_sticky_transit_uses_default_transit_for_new_v2_connection() -> N
         "revision_id": "r1",
         "protocol": "vless_reality",
         "variant": "V2",
-        "config": {"uuid": "c1", "sni": "splitter.front-m.example.net"},
+        "config": {"uuid": "c1", "sni": "old-mtproto-a.tracegate-sni.ru"},
     }
 
     out = assign_sticky_transit_if_needed(settings, payload)
@@ -38,7 +38,7 @@ def test_assign_sticky_transit_keeps_existing_path_without_overwrite() -> None:
     payload = {
         "protocol": "vless_reality",
         "variant": "V2",
-        "config": {"uuid": "c1", "sni": "splitter.front-m.example.net"},
+        "config": {"uuid": "c1", "sni": "old-mtproto-a.tracegate-sni.ru"},
     }
 
     out = assign_sticky_transit_if_needed(settings, payload, existing_payload=existing)

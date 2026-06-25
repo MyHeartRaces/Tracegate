@@ -25,8 +25,9 @@ def test_sni_catalog_integrity() -> None:
             assert p in allowed_providers
 
     assert len(enabled) == 10
+    assert all(row.fqdn.endswith(".ru") for row in enabled)
     assert all(not row.providers for row in enabled)
-    assert not {"front-g.example.net", "splitter.front-m.example.net", "front-k.example.net", "front-p.example.net", "www.front-j.example.net"} & {
+    assert not {"old-forbidden.tracegate-sni.ru", "old-mtproto-a.tracegate-sni.ru", "reserved-86.tracegate-sni.ru", "reserved-50.tracegate-sni.ru", "reserved-97.tracegate-sni.ru"} & {
         row.fqdn for row in enabled
     }
 
@@ -51,7 +52,7 @@ def test_chart_shadowtls_server_names_avoid_forbidden_faketls_domains() -> None:
     must differ so the HAProxy SNI demux stays unambiguous.
 
     Regression guard for the audit finding where the chart shipped
-    ``serverNameTransit: splitter.front-m.example.net`` -- a domain listed in the same file's
+    ``serverNameTransit: old-mtproto-a.tracegate-sni.ru`` -- a domain listed in the same file's
     ``mtproto.stealth.forbiddenTlsDomains`` and called out in the release
     checklist as forbidden in active SNI fields. (ShadowTLS fronts are
     intentionally kept *out* of the enabled Reality lease pool to avoid an SNI

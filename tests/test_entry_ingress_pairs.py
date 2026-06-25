@@ -147,8 +147,8 @@ async def test_exclusive_endpoint_pair_allocates_direct_shard_alias() -> None:
 
 def test_infer_legacy_entry_pair_reserves_active_pre_migration_revision() -> None:
     settings = _settings()
-    config = {"server": "private-token.b.tracegate.test", "sni": "goya.front-f.example.net"}
+    config = {"server": "private-token.b.tracegate.test", "sni": "www.yandex.ru"}
 
     inferred = _infer_legacy_entry_pair(config, settings.entry_ingress_shards)
 
-    assert inferred == (_entry_ingress_pair_key("203.0.113.12", "goya.front-f.example.net"), "b")
+    assert inferred == (_entry_ingress_pair_key("203.0.113.12", "www.yandex.ru"), "b")

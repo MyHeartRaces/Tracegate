@@ -35,16 +35,16 @@ architecture:
     exclusiveSniPairs:
       enabled: true
       pool:
-        - cdn.cdn-d.example.net
-        - goya.front-f.example.net
-        - ssp.front-f.example.net
-        - api.front-a.example.net
-        - api.front-b.example.net
-        - cdn.newyear.cdn-e.example.net
-        - static.dl.cdn-e.example.net
-        - static.cdn-d.example.net
-        - api.front-c.example.net
-        - api.events.plus.example.net
+        - yandex.ru
+        - www.yandex.ru
+        - dzen.ru
+        - www.dzen.ru
+        - vk.ru
+        - www.vk.ru
+        - mail.ru
+        - go.mail.ru
+        - sber.ru
+        - www.sber.ru
     firewall:
       required: true
     channel:
@@ -137,16 +137,16 @@ network:
 
 gateway:
   realityMultiInboundGroups:
-    - {id: sni-116, port: 2501, dest: cdn.cdn-d.example.net, snis: [cdn.cdn-d.example.net]}
-    - {id: sni-102, port: 2502, dest: goya.front-f.example.net, snis: [goya.front-f.example.net]}
-    - {id: sni-103, port: 2503, dest: ssp.front-f.example.net, snis: [ssp.front-f.example.net]}
-    - {id: sni-108, port: 2508, dest: api.front-a.example.net, snis: [api.front-a.example.net]}
-    - {id: sni-109, port: 2509, dest: api.front-b.example.net, snis: [api.front-b.example.net]}
-    - {id: sni-110, port: 2510, dest: cdn.newyear.cdn-e.example.net, snis: [cdn.newyear.cdn-e.example.net]}
-    - {id: sni-111, port: 2511, dest: static.dl.cdn-e.example.net, snis: [static.dl.cdn-e.example.net]}
-    - {id: sni-112, port: 2512, dest: static.cdn-d.example.net, snis: [static.cdn-d.example.net]}
-    - {id: sni-113, port: 2513, dest: api.front-c.example.net, snis: [api.front-c.example.net]}
-    - {id: sni-115, port: 2515, dest: api.events.plus.example.net, snis: [api.events.plus.example.net]}
+    - {id: sni-102, port: 2501, dest: yandex.ru, snis: [yandex.ru]}
+    - {id: sni-103, port: 2502, dest: www.yandex.ru, snis: [www.yandex.ru]}
+    - {id: sni-108, port: 2503, dest: dzen.ru, snis: [dzen.ru]}
+    - {id: sni-109, port: 2504, dest: www.dzen.ru, snis: [www.dzen.ru]}
+    - {id: sni-110, port: 2505, dest: vk.ru, snis: [vk.ru]}
+    - {id: sni-111, port: 2506, dest: www.vk.ru, snis: [www.vk.ru]}
+    - {id: sni-112, port: 2507, dest: mail.ru, snis: [mail.ru]}
+    - {id: sni-113, port: 2508, dest: go.mail.ru, snis: [go.mail.ru]}
+    - {id: sni-115, port: 2509, dest: sber.ru, snis: [sber.ru]}
+    - {id: sni-116, port: 2510, dest: www.sber.ru, snis: [www.sber.ru]}
   stateStorage:
     mode: pvc
     existingClaims:
@@ -190,9 +190,9 @@ gateway:
         serverName: edge.example.net
         existingSecretName: tracegate-entry-tls
       reality:
-        dest: cdn.cdn-d.example.net:443
+        dest: yandex.ru:443
         serverNames:
-          - cdn.cdn-d.example.net
+          - yandex.ru
         privateKeySecret:
           name: tracegate-entry-reality
           key: private-key
@@ -207,9 +207,9 @@ gateway:
         serverName: endpoint.example.net
         existingSecretName: tracegate-endpoint-tls
       reality:
-        dest: public-api.reviews.example.net:443
+        dest: www.rbc.ru:443
         serverNames:
-          - public-api.reviews.example.net
+          - www.rbc.ru
         privateKeySecret:
           name: tracegate-endpoint-reality
           key: private-key
@@ -227,7 +227,7 @@ interconnect:
       maxParallelDials: 1
     health:
       payloadProbeRequired: true
-      probeUrl: https://api.front-c.example.net/
+      probeUrl: https://rbc.ru/
       probeInterval: 30s
     hysteria2:
       enabled: true
@@ -249,8 +249,8 @@ interconnect:
     endpointPort: 443
     allowedSources: [203.0.113.10]
     shards:
-      - {id: mail, serverName: www.cloudflare.com, dest: "www.cloudflare.com:443", endpointListenPort: 2451, path: /api/v1/backhaul/mail}
-      - {id: reviews, serverName: public-api.reviews.example.net, dest: "public-api.reviews.example.net:443", endpointListenPort: 2452, path: /api/v1/backhaul/reviews}
+      - {id: mail, serverName: rbc.ru, dest: "rbc.ru:443", endpointListenPort: 2451, path: /api/v1/backhaul/mail}
+      - {id: reviews, serverName: www.rbc.ru, dest: "www.rbc.ru:443", endpointListenPort: 2452, path: /api/v1/backhaul/reviews}
   shadowsocks2022:
     enabled: false
   zapret2:
@@ -268,20 +268,20 @@ wireguard:
 shadowsocks2022:
   enabled: true
   shadowtls:
-    serverNameEndpoint: splitter.front-m.example.net
+    serverNameEndpoint: www.ozon.ru
 
 mtproto:
   enabled: true
   runtime: mtg
   domain: proto.example.net
-  tlsDomain: www.apple.com
+  tlsDomain: 2gis.ru
   publicPort: 443
   fallback:
     enabled: false
   stealth:
     requireWhitelistedTlsDomain: true
-    forbiddenTlsDomains: [front-g.example.net, splitter.front-m.example.net]
-    validatedTlsDomains: [www.apple.com]
+    forbiddenTlsDomains: [old-forbidden.tracegate-sni.ru, old-mtproto-a.tracegate-sni.ru]
+    validatedTlsDomains: [2gis.ru]
   route:
     mode: entry-endpoint-tunnel
     entry:

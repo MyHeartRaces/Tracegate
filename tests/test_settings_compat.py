@@ -45,10 +45,10 @@ def test_settings_accept_new_entry_transit_field_names() -> None:
 def test_settings_use_less_popular_default_camouflage_domains() -> None:
     settings = Settings()
 
-    assert settings.reality_dest == "cdn.cdn-d.example.net:443"
-    assert settings.sni_seed == ["cdn.cdn-d.example.net"]
-    assert settings.shadowtls_server_name_entry == "api.photo.example.net"
-    assert settings.shadowtls_server_name_transit == "api.front-a.example.net"
+    assert settings.reality_dest == "yandex.ru:443"
+    assert settings.sni_seed == ["yandex.ru"]
+    assert settings.shadowtls_server_name_entry == "ozon.ru"
+    assert settings.shadowtls_server_name_transit == "www.ozon.ru"
 
 
 def test_settings_keep_legacy_property_aliases() -> None:

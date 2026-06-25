@@ -46,7 +46,7 @@ def _write(path: Path, text: str) -> None:
 @pytest.mark.parametrize(
     ("dest", "expected"),
     [
-        ("splitter.front-m.example.net:443", "splitter.front-m.example.net"),
+        ("old-mtproto-a.tracegate-sni.ru:443", "old-mtproto-a.tracegate-sni.ru"),
         ("[2001:db8::1]:443", "2001:db8::1"),
         ("edge.example.com", "edge.example.com"),
     ],
@@ -292,14 +292,14 @@ def test_render_materialized_bundles_materializes_prod_style_reality_groups_and_
             {
                 "id": "shared-a",
                 "port": 2501,
-                "dest": "splitter.front-m.example.net",
-                "snis": ["splitter.front-m.example.net"],
+                "dest": "old-mtproto-a.tracegate-sni.ru",
+                "snis": ["old-mtproto-a.tracegate-sni.ru"],
             },
             {
                 "id": "shared-b",
                 "port": 2502,
-                "dest": "st.front-l.example.net:443",
-                "snis": ["st.front-l.example.net", "st-2.front-l.example.net"],
+                "dest": "old-mtproto-b.tracegate-sni.ru:443",
+                "snis": ["old-mtproto-b.tracegate-sni.ru", "st-2.tracegate-sni.ru"],
             },
         ]
     )
@@ -316,7 +316,7 @@ def test_render_materialized_bundles_materializes_prod_style_reality_groups_and_
     transit_inbounds = {str(row.get("tag")): row for row in transit_xray["inbounds"]}
 
     assert ctx.reality_multi_inbound_groups[0].id == "shared-a"
-    assert ctx.reality_multi_inbound_groups[1].dest_host == "st.front-l.example.net"
+    assert ctx.reality_multi_inbound_groups[1].dest_host == "old-mtproto-b.tracegate-sni.ru"
 
     assert entry_inbounds["entry-in-shared-a"]["port"] == 2501
     assert entry_inbounds["entry-in-shared-b"]["port"] == 2502
@@ -331,12 +331,12 @@ def test_render_materialized_bundles_materializes_prod_style_reality_groups_and_
         {"id": "00000000-0000-4000-8000-000000000123", "email": "entry-transit"}
     ]
 
-    assert entry_inbounds["entry-in-shared-a"]["streamSettings"]["realitySettings"]["dest"] == "splitter.front-m.example.net:443"
+    assert entry_inbounds["entry-in-shared-a"]["streamSettings"]["realitySettings"]["dest"] == "old-mtproto-a.tracegate-sni.ru:443"
     assert entry_inbounds["entry-in-shared-b"]["streamSettings"]["realitySettings"]["serverNames"] == [
-        "st-2.front-l.example.net",
-        "st.front-l.example.net",
+        "old-mtproto-b.tracegate-sni.ru",
+        "st-2.tracegate-sni.ru",
     ]
-    assert transit_inbounds["vless-reality-in-shared-b"]["streamSettings"]["realitySettings"]["dest"] == "st.front-l.example.net:443"
+    assert transit_inbounds["vless-reality-in-shared-b"]["streamSettings"]["realitySettings"]["dest"] == "old-mtproto-b.tracegate-sni.ru:443"
 
     entry_route_tags = [
         tuple(rule.get("inboundTag") or [])
@@ -351,11 +351,11 @@ def test_render_materialized_bundles_materializes_prod_style_reality_groups_and_
     assert any("entry-in-shared-a" in tags and "entry-in-shared-b" in tags for tags in entry_route_tags)
     assert any("vless-reality-in-shared-a" in tags and "vless-reality-in-shared-b" in tags for tags in transit_route_tags)
 
-    assert "acl reality_shared_a_sni req.ssl_sni -i splitter.front-m.example.net" in entry_haproxy
-    assert "acl reality_shared_b_sni req.ssl_sni -i st-2.front-l.example.net st.front-l.example.net" in entry_haproxy
+    assert "acl reality_shared_a_sni req.ssl_sni -i old-mtproto-a.tracegate-sni.ru" in entry_haproxy
+    assert "acl reality_shared_b_sni req.ssl_sni -i old-mtproto-b.tracegate-sni.ru st-2.tracegate-sni.ru" in entry_haproxy
     assert "use_backend be_entry_reality_shared_a if reality_shared_a_sni" in entry_haproxy
     assert "server entry_reality_shared_b 127.0.0.1:2502 check" in entry_haproxy
-    assert "acl reality_shared_b_sni req.ssl_sni -i st-2.front-l.example.net st.front-l.example.net" in transit_haproxy
+    assert "acl reality_shared_b_sni req.ssl_sni -i old-mtproto-b.tracegate-sni.ru st-2.tracegate-sni.ru" in transit_haproxy
     assert "use_backend be_transit_reality_shared_b if reality_shared_b_sni" in transit_haproxy
     assert "server transit_reality_shared_a 127.0.0.1:2501 check" in transit_haproxy
 

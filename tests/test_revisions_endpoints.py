@@ -102,7 +102,7 @@ def test_resolve_sni_defaults_v1_reality_to_less_popular_pool_target() -> None:
     selected = asyncio.run(_resolve_sni(None, ConnectionProtocol.VLESS_REALITY, None, {}))  # type: ignore[arg-type]
 
     assert selected is not None
-    assert selected.fqdn == "cdn.cdn-d.example.net"
+    assert selected.fqdn == "yandex.ru"
 
 
 def test_chain_endpoint_readiness_rejects_placeholder_entry_host() -> None:

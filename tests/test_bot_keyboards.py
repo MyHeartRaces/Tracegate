@@ -63,11 +63,11 @@ def test_sni_picker_does_not_expose_encrypted_reality_action() -> None:
         provider="all",
         page=0,
         page_count=1,
-        sni_rows_page=[{"id": 100, "fqdn": "front-g.example.net"}],
+        sni_rows_page=[{"id": 100, "fqdn": "old-forbidden.tracegate-sni.ru"}],
     )
 
     first = kb.inline_keyboard[0][0]
-    assert first.text == "front-g.example.net"
+    assert first.text == "old-forbidden.tracegate-sni.ru"
     assert first.callback_data == "sni:v1direct:dev-1:100"
 
 

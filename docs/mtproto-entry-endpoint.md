@@ -35,10 +35,10 @@ The public connection hostname and FakeTLS SNI are separate values:
 User-facing delivery must show the public hostname from the profile `server`
 field, not the FakeTLS SNI from the `domain` field.
 
-The public-safe initial FakeTLS SNI is `www.apple.com`. Operators must
+The public-safe initial FakeTLS SNI is `2gis.ru`. Operators must
 validate DNS/TLS reachability from target networks and rotate it when
-necessary. Do not use `front-g.example.net` or
-`splitter.front-m.example.net`.
+necessary. Do not use `old-forbidden.tracegate-sni.ru` or
+`old-mtproto-a.tracegate-sni.ru`.
 
 Ordinary Cloudflare proxying cannot carry raw MTProto TCP. Keep the MTProto
 public hostname DNS-only.
@@ -50,14 +50,14 @@ mtproto:
   enabled: true
   runtime: mtg
   domain: proto.example.net
-  tlsDomain: www.apple.com
+  tlsDomain: 2gis.ru
   publicPort: 443
   fallback:
     enabled: false
   stealth:
     requireWhitelistedTlsDomain: true
-    forbiddenTlsDomains: [front-g.example.net, splitter.front-m.example.net]
-    validatedTlsDomains: [www.apple.com]
+    forbiddenTlsDomains: [old-forbidden.tracegate-sni.ru, old-mtproto-a.tracegate-sni.ru]
+    validatedTlsDomains: [2gis.ru]
   route:
     mode: entry-endpoint-tunnel
     entry:

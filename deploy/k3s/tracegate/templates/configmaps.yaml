@@ -524,7 +524,7 @@ data:
 {{- $mtprotoEgressSocksPort := int (dig "socksPort" 11084 $mtprotoEgress) }}
 {{- $mtprotoEgressShadowtls := dig "shadowtls" (dict) $mtprotoEgress }}
 {{- $mtprotoEgressShadowtlsEnabled := and $.Values.mtproto.enabled (eq $mtprotoRouteMode "entry-local-endpoint-egress") (dig "enabled" false $mtprotoEgressShadowtls) }}
-{{- $mtprotoEgressShadowtlsServerName := trim (toString (dig "serverName" "styles.api.example.net" $mtprotoEgressShadowtls)) }}
+{{- $mtprotoEgressShadowtlsServerName := trim (toString (dig "serverName" "avito.ru" $mtprotoEgressShadowtls)) }}
 {{- $mtprotoEgressShadowtlsEndpointHost := trim (toString (dig "endpointHost" "" $mtprotoEgressShadowtls)) }}
 {{- $mtprotoEgressShadowtlsEndpointPort := int (dig "endpointPort" 443 $mtprotoEgressShadowtls) }}
 {{- $mtprotoEgressShadowtlsServerListenPort := int (dig "serverListenPort" 14444 $mtprotoEgressShadowtls) }}
@@ -1573,7 +1573,7 @@ data:
       }{{- if and $roleIsEntry $endpointBackhaulEnabled (gt (len $chainBridgeShards) 0) }},
       "observatory": {
         "subjectSelector": ["chain-xhttp-"],
-        "probeURL": {{ dig "probeUrl" "https://api.front-c.example.net/" $endpointBackhaulHealth | quote }},
+        "probeURL": {{ dig "probeUrl" "https://rbc.ru/" $endpointBackhaulHealth | quote }},
         "probeInterval": {{ dig "probeInterval" "30s" $endpointBackhaulHealth | quote }}
       }
 {{- end }}

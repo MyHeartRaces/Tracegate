@@ -424,8 +424,8 @@ def _entry_endpoint_overlay_values(*, rotation: bool = False) -> dict:
             "shards": [
                 {
                     "id": "mail",
-                    "serverName": "www.cloudflare.com",
-                    "dest": "www.cloudflare.com:443",
+                    "serverName": "rbc.ru",
+                    "dest": "rbc.ru:443",
                     "endpointListenPort": 2451,
                     "path": "/api/v1/backhaul/mail",
                 }
@@ -440,12 +440,12 @@ def _entry_endpoint_overlay_values(*, rotation: bool = False) -> dict:
         {
             "runtime": "mtg",
             "domain": "proto.prod.test",
-            "tlsDomain": "www.apple.com",
+            "tlsDomain": "2gis.ru",
             "fallback": {"enabled": False},
             "stealth": {
                 "requireWhitelistedTlsDomain": True,
-                "forbiddenTlsDomains": ["front-g.example.net", "splitter.front-m.example.net"],
-                "validatedTlsDomains": ["www.apple.com"],
+                "forbiddenTlsDomains": ["old-forbidden.tracegate-sni.ru", "old-mtproto-a.tracegate-sni.ru"],
+                "validatedTlsDomains": ["2gis.ru"],
             },
             "route": {"mode": "entry-endpoint-tunnel", "entry": {"tunnelPort": 11087}},
         }
@@ -524,15 +524,15 @@ def _universal_entry_overlay_values() -> dict:
     values["interconnect"]["emergencyXrayChain"]["shards"] = [
         {
             "id": "mail",
-            "serverName": "www.cloudflare.com",
-            "dest": "www.cloudflare.com:443",
+            "serverName": "rbc.ru",
+            "dest": "rbc.ru:443",
             "endpointListenPort": 2451,
             "path": "/api/v1/backhaul/mail",
         },
         {
             "id": "2gis-reviews",
-            "serverName": "public-api.reviews.example.net",
-            "dest": "public-api.reviews.example.net:443",
+            "serverName": "www.rbc.ru",
+            "dest": "www.rbc.ru:443",
             "endpointListenPort": 2452,
             "path": "/api/v1/backhaul/2gis-reviews",
         },
@@ -603,15 +603,15 @@ def _pod_only_new_prod_overlay_values(*, phase: str) -> dict:
         values["interconnect"]["emergencyXrayChain"]["shards"] = [
             {
                 "id": "mail",
-                "serverName": "www.cloudflare.com",
-                "dest": "www.cloudflare.com:443",
+                "serverName": "rbc.ru",
+                "dest": "rbc.ru:443",
                 "endpointListenPort": 2451,
                 "path": "/api/v1/backhaul/mail",
             },
             {
                 "id": "2gis-reviews",
-                "serverName": "public-api.reviews.example.net",
-                "dest": "public-api.reviews.example.net:443",
+                "serverName": "www.rbc.ru",
+                "dest": "www.rbc.ru:443",
                 "endpointListenPort": 2452,
                 "path": "/api/v1/backhaul/2gis-reviews",
             },
@@ -1429,7 +1429,7 @@ def test_tracegate21_chart_disables_hostwide_interception_by_default() -> None:
     assert entry_transit["outerCarrier"]["enabled"] is True
     assert entry_transit["outerCarrier"]["mode"] == "wss"
     assert entry_transit["outerCarrier"]["protocol"] == "websocket-tls"
-    assert entry_transit["outerCarrier"]["serverName"] == "bridge.example.com"
+    assert entry_transit["outerCarrier"]["serverName"] == "www.rbc.ru"
     assert entry_transit["outerCarrier"]["publicPort"] == 443
     assert entry_transit["outerCarrier"]["publicPath"] == "/cdn-cgi/tracegate-link"
     assert entry_transit["outerCarrier"]["verifyTls"] is True
@@ -1477,7 +1477,7 @@ def test_tracegate21_chart_disables_hostwide_interception_by_default() -> None:
     assert "gateway.roles.%s.ports.publicUdp must stay 443 for Tracegate 3 Hysteria2" in _chart_text()
     assert "Keep rollout and preflight guards enabled" in Path("deploy/k3s/README.md").read_text(encoding="utf-8")
     assert "endpointBackhaul:" in Path("deploy/k3s/values-prod.example.yaml").read_text(encoding="utf-8")
-    assert "serverNameEndpoint: splitter.front-m.example.net" in Path("deploy/k3s/values-prod.example.yaml").read_text(encoding="utf-8")
+    assert "serverNameEndpoint: www.ozon.ru" in Path("deploy/k3s/values-prod.example.yaml").read_text(encoding="utf-8")
     assert "emergencyXrayChain:" in Path("deploy/k3s/values-prod.example.yaml").read_text(encoding="utf-8")
     assert "hysteria2:" in Path("deploy/k3s/values-prod.example.yaml").read_text(encoding="utf-8")
 
@@ -1763,10 +1763,10 @@ def test_tracegate21_runtime_contract_renders_role_link_crypto_metadata(tmp_path
         "enabled": True,
         "mode": "wss",
         "protocol": "websocket-tls",
-        "serverName": "bridge.example.com",
+        "serverName": "www.rbc.ru",
         "publicPort": 443,
         "publicPath": "/cdn-cgi/tracegate-link",
-        "url": "wss://bridge.example.com:443/cdn-cgi/tracegate-link",
+        "url": "wss://www.rbc.ru:443/cdn-cgi/tracegate-link",
         "verifyTls": True,
         "secretMaterial": False,
         "tlsPinning": {
@@ -2522,13 +2522,13 @@ def test_vless_encryption_renders_separate_xray_surfaces(tmp_path: Path) -> None
     values = _values()
     values["vlessEncryption"]["enabled"] = True
     values["vlessEncryption"]["encryption"] = "mlkem768x25519plus.native.0rtt.CLIENT"
-    values["vlessEncryption"]["realitySni"] = "passport.front-g.example.net"
+    values["vlessEncryption"]["realitySni"] = "passport.old-forbidden.tracegate-sni.ru"
 
     result = _helm_template_with_values(tmp_path, values)
     assert result.returncode == 0, result.stderr
     rendered = result.stdout
 
-    assert "acl vless_encryption_reality_sni req.ssl_sni -i passport.front-g.example.net" in rendered
+    assert "acl vless_encryption_reality_sni req.ssl_sni -i passport.old-forbidden.tracegate-sni.ru" in rendered
     assert "server xray_reality_enc 127.0.0.1:2444 check" in rendered
     assert '"tag": "entry-enc-in"' in rendered
     assert '"tag": "vless-reality-enc-in"' in rendered
@@ -2542,41 +2542,41 @@ def test_vless_encryption_rejects_legacy_reality_sni_collision(tmp_path: Path) -
     values = _values()
     values["vlessEncryption"]["enabled"] = True
     values["vlessEncryption"]["encryption"] = "mlkem768x25519plus.native.0rtt.CLIENT"
-    values["vlessEncryption"]["realitySni"] = "front-g.example.net"
+    values["vlessEncryption"]["realitySni"] = "old-forbidden.tracegate-sni.ru"
     values["gateway"]["realityMultiInboundGroups"] = [
-        {"id": "legacy", "port": 2515, "dest": "front-g.example.net", "snis": ["front-g.example.net"]},
+        {"id": "legacy", "port": 2515, "dest": "old-forbidden.tracegate-sni.ru", "snis": ["old-forbidden.tracegate-sni.ru"]},
     ]
 
     result = _helm_template_with_values(tmp_path, values)
     assert result.returncode != 0
-    assert "vlessEncryption.realitySni must not reuse legacy REALITY demux SNI front-g.example.net" in result.stderr
+    assert "vlessEncryption.realitySni must not reuse legacy REALITY demux SNI old-forbidden.tracegate-sni.ru" in result.stderr
 
 
 def test_vless_encryption_rejects_emergency_xray_chain_sni_collision(tmp_path: Path) -> None:
     values = _values()
     values["vlessEncryption"]["enabled"] = True
     values["vlessEncryption"]["encryption"] = "mlkem768x25519plus.native.0rtt.CLIENT"
-    values["vlessEncryption"]["realitySni"] = "www.cloudflare.com"
+    values["vlessEncryption"]["realitySni"] = "avito.ru"
     values["interconnect"]["emergencyXrayChain"]["enabled"] = True
-    values["interconnect"]["emergencyXrayChain"]["serverName"] = "www.cloudflare.com"
+    values["interconnect"]["emergencyXrayChain"]["serverName"] = "avito.ru"
 
     result = _helm_template_with_values(tmp_path, values)
     assert result.returncode != 0
-    assert "vlessEncryption.realitySni must not reuse emergency Xray chain SNI www.cloudflare.com" in result.stderr
+    assert "vlessEncryption.realitySni must not reuse emergency Xray chain SNI avito.ru" in result.stderr
 
 
 def test_vless_encryption_rejects_tls_demux_sni_collision(tmp_path: Path) -> None:
     values = _values()
     values["vlessEncryption"]["enabled"] = True
     values["vlessEncryption"]["encryption"] = "mlkem768x25519plus.native.0rtt.CLIENT"
-    values["vlessEncryption"]["realitySni"] = "www.apple.com"
+    values["vlessEncryption"]["realitySni"] = "2gis.ru"
     values["mtproto"]["enabled"] = True
-    values["mtproto"]["tlsDomain"] = "www.apple.com"
-    values["mtproto"]["stealth"]["validatedTlsDomains"] = ["www.apple.com"]
+    values["mtproto"]["tlsDomain"] = "2gis.ru"
+    values["mtproto"]["stealth"]["validatedTlsDomains"] = ["2gis.ru"]
 
     result = _helm_template_with_values(tmp_path, values)
     assert result.returncode != 0
-    assert "vlessEncryption.realitySni must not reuse TLS demux SNI www.apple.com" in result.stderr
+    assert "vlessEncryption.realitySni must not reuse TLS demux SNI 2gis.ru" in result.stderr
 
 
 def test_mtproto_public_port_8443_renders_dedicated_fallback_frontend(tmp_path: Path) -> None:
@@ -2646,8 +2646,8 @@ def test_mtproto_entry_transit_endpoint_route_renders_entry_proxy_and_endpoint_a
         {
             "mtproto": {
                 "domain": "proto.tracegate.test",
-                "tlsDomain": "www.apple.com",
-                "stealth": {"validatedTlsDomains": ["www.apple.com"]},
+                "tlsDomain": "2gis.ru",
+                "stealth": {"validatedTlsDomains": ["2gis.ru"]},
                 "publicPort": 8443,
                 "route": {
                     "mode": "entry-transit-endpoint",
@@ -2687,14 +2687,14 @@ def test_mtproto_entry_endpoint_tunnel_keeps_mtg_private_on_endpoint(tmp_path: P
         "enabled": True,
         "runtime": "mtg",
         "domain": "proto.tracegate.test",
-        "tlsDomain": "www.apple.com",
+        "tlsDomain": "2gis.ru",
         "publicPort": 443,
         "backendPort": 9443,
         "fallback": {"enabled": False},
         "stealth": {
             "requireWhitelistedTlsDomain": True,
-            "forbiddenTlsDomains": ["front-g.example.net", "splitter.front-m.example.net"],
-            "validatedTlsDomains": ["www.apple.com"],
+            "forbiddenTlsDomains": ["old-forbidden.tracegate-sni.ru", "old-mtproto-a.tracegate-sni.ru"],
+            "validatedTlsDomains": ["2gis.ru"],
         },
         "route": {"mode": "entry-endpoint-tunnel", "entry": {"tunnelPort": 11087}},
     }
@@ -2707,7 +2707,7 @@ def test_mtproto_entry_endpoint_tunnel_keeps_mtg_private_on_endpoint(tmp_path: P
     assert "mtproto" not in _containers_by_name(entry["spec"]["template"])
     endpoint_containers = _containers_by_name(endpoint["spec"]["template"])
     assert endpoint_containers["mtproto"]["command"] == ["/mtg"]
-    assert "acl mtproto_sni req.ssl_sni -i www.apple.com" in rendered.stdout
+    assert "acl mtproto_sni req.ssl_sni -i 2gis.ru" in rendered.stdout
     assert "server mtproto_endpoint_tunnel 127.0.0.1:11087 check" in rendered.stdout
     assert '"tag": "mtproto-entry-tunnel-in"' in rendered.stdout
     assert '"inboundTag": ["mtproto-entry-tunnel-in"], "balancerTag": "endpoint-backhaul"' in rendered.stdout
@@ -2775,8 +2775,8 @@ def test_mtproto_mtg_can_use_source_restricted_shadowtls_endpoint_egress(tmp_pat
             "mtproto": {
                 "runtime": "mtg",
                 "domain": "proto.tracegate.test",
-                "tlsDomain": "www.apple.com",
-                "stealth": {"validatedTlsDomains": ["www.apple.com"]},
+                "tlsDomain": "2gis.ru",
+                "stealth": {"validatedTlsDomains": ["2gis.ru"]},
                 "publicPort": 8443,
                 "fallback": {"enabled": False},
                 "egress": {
@@ -2786,7 +2786,7 @@ def test_mtproto_mtg_can_use_source_restricted_shadowtls_endpoint_egress(tmp_pat
                     "domainFrontingPort": 443,
                     "shadowtls": {
                         "enabled": True,
-                        "serverName": "styles.api.example.net",
+                        "serverName": "avito.ru",
                         "endpointHost": "endpoint.tracegate.test",
                         "endpointPort": 443,
                         "serverListenPort": 14444,
@@ -2820,7 +2820,7 @@ def test_mtproto_mtg_can_use_source_restricted_shadowtls_endpoint_egress(tmp_pat
     assert "shadow-tls --v3 server" in transit_containers["mtproto-egress-shadowtls"]["command"][2]
     assert not any(row.get("tag") == "mtproto-egress-socks-in" for row in entry_xray["inbounds"])
     assert any(row.get("tag") == "mtproto-egress-endpoint-socks-in" for row in transit_xray["inbounds"])
-    assert "acl mtproto_egress_shadowtls_sni req.ssl_sni -i styles.api.example.net" in transit_haproxy
+    assert "acl mtproto_egress_shadowtls_sni req.ssl_sni -i avito.ru" in transit_haproxy
     assert "acl mtproto_egress_shadowtls_src src 203.0.113.10" in transit_haproxy
     assert (
         "use_backend be_mtproto_egress_shadowtls if mtproto_egress_shadowtls_sni mtproto_egress_shadowtls_src"
@@ -2837,8 +2837,8 @@ def test_mtproto_mtg_seed_runtime_pins_legacy_fronting_ip(tmp_path: Path) -> Non
             "mtproto": {
                 "runtime": "mtg",
                 "domain": "proto.tracegate.test",
-                "tlsDomain": "www.apple.com",
-                "stealth": {"validatedTlsDomains": ["www.apple.com"]},
+                "tlsDomain": "2gis.ru",
+                "stealth": {"validatedTlsDomains": ["2gis.ru"]},
                 "publicPort": 8443,
                 "fallback": {"enabled": False},
                 "egress": {
@@ -2871,13 +2871,13 @@ def test_transit_router_renders_gitops_managed_transit_hop(tmp_path: Path) -> No
                 "xray": {"existingSecretName": "tracegate-transit-router-xray"},
                 "sni": {
                     "decoy": "transit.tracegate.test",
-                    "reality": ["www.microsoft.com"],
+                    "reality": ["www.rbc.ru"],
                 },
             },
             "mtproto": {
                 "domain": "proto.tracegate.test",
-                "tlsDomain": "www.apple.com",
-                "stealth": {"validatedTlsDomains": ["www.apple.com"]},
+                "tlsDomain": "2gis.ru",
+                "stealth": {"validatedTlsDomains": ["2gis.ru"]},
             },
         },
     )
@@ -2914,7 +2914,7 @@ def test_transit_router_renders_gitops_managed_transit_hop(tmp_path: Path) -> No
     assert "tcp-request content accept if { req.ssl_hello_type 1 }" not in haproxy
     assert "server endpoint endpoint.tracegate.test:443 check" in haproxy
     assert "server endpoint_mtproto_8443 endpoint.tracegate.test:8443 check" in haproxy
-    assert "acl mtproto_sni req.ssl_sni -i proto.tracegate.test www.apple.com" in haproxy
+    assert "acl mtproto_sni req.ssl_sni -i proto.tracegate.test 2gis.ru" in haproxy
     assert "server_name transit.tracegate.test;" in nginx
     assert "http2 on;" in nginx
 
@@ -3122,8 +3122,8 @@ def test_tracegate22_k3s_renders_reality_sni_demux_groups(tmp_path: Path) -> Non
     values = {
         "gateway": {
             "realityMultiInboundGroups": [
-                {"id": "sni-067", "port": 2510, "dest": "splitter.front-m.example.net", "snis": ["splitter.front-m.example.net"]},
-                {"id": "sni-069", "port": 2511, "dest": "st.front-l.example.net", "snis": ["st.front-l.example.net"]},
+                {"id": "sni-067", "port": 2510, "dest": "old-mtproto-a.tracegate-sni.ru", "snis": ["old-mtproto-a.tracegate-sni.ru"]},
+                {"id": "sni-069", "port": 2511, "dest": "old-mtproto-b.tracegate-sni.ru", "snis": ["old-mtproto-b.tracegate-sni.ru"]},
             ]
         }
     }
@@ -3138,7 +3138,7 @@ def test_tracegate22_k3s_renders_reality_sni_demux_groups(tmp_path: Path) -> Non
         if doc.get("kind") == "ConfigMap" and doc.get("metadata", {}).get("name") == "tracegate-tracegate-gateway-transit-haproxy"
     )
     assert "tcp-request content accept if { req.ssl_hello_type 1 }" not in transit_haproxy
-    assert "acl reality_sni_067_sni req.ssl_sni -i splitter.front-m.example.net" in transit_haproxy
+    assert "acl reality_sni_067_sni req.ssl_sni -i old-mtproto-a.tracegate-sni.ru" in transit_haproxy
     assert "use_backend be_reality_sni_067 if reality_sni_067_sni" in transit_haproxy
     assert "backend be_reality_sni_069" in transit_haproxy
     assert "server xray_reality_sni_069 127.0.0.1:2511 check" in transit_haproxy
@@ -3225,8 +3225,8 @@ def test_tracegate22_universal_entry_routes_all_entry_traffic_through_dual_trans
     xhttp_outbounds = [row for row in entry_xray["outbounds"] if str(row.get("tag", "")).startswith("chain-xhttp-")]
     assert len(xhttp_outbounds) == 2
     assert {row["streamSettings"]["realitySettings"]["serverName"] for row in xhttp_outbounds} == {
-        "www.cloudflare.com",
-        "public-api.reviews.example.net",
+        "rbc.ru",
+        "www.rbc.ru",
     }
     assert all(row["streamSettings"]["xhttpSettings"]["mode"] == "stream-one" for row in xhttp_outbounds)
     assert all(row["streamSettings"]["xhttpSettings"]["extra"]["xmux"]["maxConnections"] == 1 for row in xhttp_outbounds)
@@ -3240,7 +3240,7 @@ def test_tracegate22_universal_entry_routes_all_entry_traffic_through_dual_trans
         }
     ]
     assert entry_xray["observatory"]["subjectSelector"] == ["chain-xhttp-"]
-    assert entry_xray["observatory"]["probeURL"] == "https://api.front-c.example.net/"
+    assert entry_xray["observatory"]["probeURL"] == "https://rbc.ru/"
     assert "backhaul-client.yaml" in entry_hysteria
     assert "REPLACE_HYSTERIA_ENDPOINT_BACKHAUL_AUTH" in entry_hysteria["backhaul-client.yaml"]
     backhaul_client = yaml.safe_load(entry_hysteria["backhaul-client.yaml"])
@@ -3335,7 +3335,7 @@ def test_tracegate22_universal_entry_rejects_conflicting_xhttp_xmux_limits(tmp_p
 
 def test_tracegate22_universal_entry_rejects_duplicate_xhttp_shard_sni(tmp_path: Path) -> None:
     values = _universal_entry_overlay_values()
-    values["interconnect"]["emergencyXrayChain"]["shards"][1]["serverName"] = "www.cloudflare.com"
+    values["interconnect"]["emergencyXrayChain"]["shards"][1]["serverName"] = "rbc.ru"
 
     rendered = _helm_template_with_values(tmp_path, values)
 
@@ -3345,8 +3345,8 @@ def test_tracegate22_universal_entry_rejects_duplicate_xhttp_shard_sni(tmp_path:
 
 def test_tracegate3_entry_staged_rejects_endpoint_direct_sni_reused_by_xhttp_shard(tmp_path: Path) -> None:
     values = _pod_only_new_prod_overlay_values(phase="entry-staged")
-    values["interconnect"]["emergencyXrayChain"]["shards"][0]["serverName"] = "cdn.cdn-d.example.net"
-    values["interconnect"]["emergencyXrayChain"]["shards"][0]["dest"] = "cdn.cdn-d.example.net:443"
+    values["interconnect"]["emergencyXrayChain"]["shards"][0]["serverName"] = "yandex.ru"
+    values["interconnect"]["emergencyXrayChain"]["shards"][0]["dest"] = "yandex.ru:443"
 
     rendered = _helm_template_with_values(tmp_path, values)
 
@@ -3356,7 +3356,7 @@ def test_tracegate3_entry_staged_rejects_endpoint_direct_sni_reused_by_xhttp_sha
 
 def test_tracegate3_entry_staged_rejects_endpoint_direct_sni_reused_by_shadowtls(tmp_path: Path) -> None:
     values = _pod_only_new_prod_overlay_values(phase="entry-staged")
-    values["shadowsocks2022"]["shadowtls"] = {"serverNameTransit": "api.front-a.example.net"}
+    values["shadowsocks2022"]["shadowtls"] = {"serverNameTransit": "yandex.ru"}
 
     rendered = _helm_template_with_values(tmp_path, values)
 

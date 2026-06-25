@@ -19,7 +19,7 @@ def test_export_vless_reality_uri() -> None:
         "server": "t.example.com",
         "port": 443,
         "uuid": "11111111-2222-3333-4444-555555555555",
-        "sni": "google.com",
+        "sni": "yandex.ru",
         "reality": {"public_key": "PUBKEY", "short_id": "abcd"},
         "xhttp": {"mode": "auto", "path": "/api/v1/update"},
         "profile": "V1-VLESS-Reality-Direct",
@@ -31,7 +31,7 @@ def test_export_vless_reality_uri() -> None:
     assert "type=xhttp" in out.content
     assert "mode=auto" in out.content
     assert "path=/api/v1/update" in out.content
-    assert "sni=google.com" in out.content
+    assert "sni=yandex.ru" in out.content
     assert "pbk=PUBKEY" in out.content
     assert "sid=abcd" in out.content
     assert "#Direct-VLESS" in out.content
@@ -45,7 +45,7 @@ def test_export_vless_reality_uri() -> None:
     assert attachment["inbounds"][0]["settings"]["accounts"][0]["user"].startswith("tg_")
     assert attachment["inbounds"][0]["settings"]["accounts"][0]["pass"]
     assert attachment["outbounds"][0]["streamSettings"]["network"] == "xhttp"
-    assert attachment["outbounds"][0]["streamSettings"]["realitySettings"]["serverName"] == "google.com"
+    assert attachment["outbounds"][0]["streamSettings"]["realitySettings"]["serverName"] == "yandex.ru"
 
 
 def test_export_vless_reality_rejects_removed_vless_encryption() -> None:
@@ -56,7 +56,7 @@ def test_export_vless_reality_rejects_removed_vless_encryption() -> None:
         "server": "t.example.com",
         "port": 443,
         "uuid": "11111111-2222-3333-4444-555555555555",
-        "sni": "passport.front-g.example.net",
+        "sni": "passport.old-forbidden.tracegate-sni.ru",
         "reality": {"public_key": "PUBKEY", "short_id": "abcd"},
         "xhttp": {"mode": "auto", "path": "/api/v1/update"},
         "profile": "V1-VLESS-Reality-Direct",
@@ -348,7 +348,7 @@ def test_export_uses_explicit_local_socks_credentials() -> None:
         "server": "t.example.com",
         "port": 443,
         "uuid": "11111111-2222-3333-4444-555555555555",
-        "sni": "google.com",
+        "sni": "yandex.ru",
         "reality": {"public_key": "PUBKEY", "short_id": "abcd"},
         "profile": "V1-VLESS-Reality-Direct",
         "local_socks": {
@@ -374,7 +374,7 @@ def test_export_rejects_non_loopback_local_socks_listener() -> None:
         "server": "t.example.com",
         "port": 443,
         "uuid": "11111111-2222-3333-4444-555555555555",
-        "sni": "google.com",
+        "sni": "yandex.ru",
         "reality": {"public_key": "PUBKEY", "short_id": "abcd"},
         "profile": "V1-VLESS-Reality-Direct",
         "local_socks": {
@@ -411,7 +411,7 @@ def test_export_rejects_client_side_xray_handler_service() -> None:
         "server": "t.example.com",
         "port": 443,
         "uuid": "11111111-2222-3333-4444-555555555555",
-        "sni": "google.com",
+        "sni": "yandex.ru",
         "reality": {"public_key": "PUBKEY", "short_id": "abcd"},
         "profile": "V1-VLESS-Reality-Direct",
         "xray_api": {"enabled": True, "services": ["HandlerService"]},
@@ -431,7 +431,7 @@ def test_export_shadowsocks2022_shadowtls_single_line_uri() -> None:
         "password": "server-password:user-password",
         "shadowtls": {
             "version": 3,
-            "server_name": "www.microsoft.com",
+            "server_name": "www.rbc.ru",
             "password": "shadowtls-password",
         },
         "profile": "V5-Shadowsocks2022-ShadowTLS-Direct",
@@ -460,7 +460,7 @@ def test_export_shadowsocks2022_shadowtls_single_line_uri() -> None:
         "2022-blake3-aes-128-gcm:server-password:user-password"
     )
     assert parse_qs(parsed.query) == {
-        "plugin": ["shadow-tls;host=www.microsoft.com;password=shadowtls-password;version=3"]
+        "plugin": ["shadow-tls;host=www.rbc.ru;password=shadowtls-password;version=3"]
     }
     attachment = json.loads((out.attachment_content or b"").decode("utf-8"))
     assert attachment["inbounds"][0]["users"] == [{"username": "local-user", "password": "local-pass"}]
@@ -482,7 +482,7 @@ def test_export_shadowsocks2022_shadowtls_single_line_uri() -> None:
         "password": "shadowtls-password",
         "tls": {
             "enabled": True,
-            "server_name": "www.microsoft.com",
+            "server_name": "www.rbc.ru",
             "utls": {
                 "enabled": True,
                 "fingerprint": "chrome",
@@ -696,7 +696,7 @@ def test_export_wireguard_wstunnel_rejects_unsafe_mtu() -> None:
             "server": "t.example.com",
             "port": 443,
             "uuid": "11111111-2222-3333-4444-555555555555",
-            "sni": "google.com",
+            "sni": "yandex.ru",
             "reality": {"public_key": "PUBKEY", "short_id": "abcd"},
             "profile": "V1-VLESS-Reality-Direct",
         },
@@ -773,7 +773,7 @@ def test_export_vless_reality_uri_defaults_to_xhttp_without_xhttp_block() -> Non
         "server": "t.example.com",
         "port": 443,
         "uuid": "11111111-2222-3333-4444-555555555555",
-        "sni": "google.com",
+        "sni": "yandex.ru",
         "reality": {"public_key": "PUBKEY", "short_id": "abcd"},
         "profile": "legacy-vless",
     }

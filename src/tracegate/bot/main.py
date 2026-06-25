@@ -2627,7 +2627,7 @@ async def _render_sni_catalog(
 
     lines.append("")
     lines.append("✍️ Введите номер из списка, чтобы выбрать SNI.")
-    lines.append("🔎 Или введите часть домена для поиска (например: splitter, front-k.example.net).")
+    lines.append("🔎 Или введите часть домена для поиска (например: dzen, yandex.ru).")
 
     text = "\n".join(lines)
     keyboard = sni_catalog_pick_keyboard(

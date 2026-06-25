@@ -138,10 +138,10 @@ def _contract(path: Path) -> dict:
                 "enabled": True,
                 "mode": "wss",
                 "protocol": "websocket-tls",
-                "serverName": "bridge.example.com",
+                "serverName": "www.rbc.ru",
                 "publicPort": 443,
                 "publicPath": "/cdn-cgi/tracegate-link",
-                "url": "wss://bridge.example.com:443/cdn-cgi/tracegate-link",
+                "url": "wss://www.rbc.ru:443/cdn-cgi/tracegate-link",
                 "verifyTls": True,
                 "secretMaterial": False,
                 "tlsPinning": {

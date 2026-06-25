@@ -562,7 +562,7 @@ def _build_link_crypto_contract_payload(settings: Settings) -> dict[str, object]
                 profiles=router_transit_udp_selected_profiles(),
             )
 
-    outer_wss_server_name = str(settings.private_link_crypto_outer_wss_server_name or "").strip() or "bridge.example.com"
+    outer_wss_server_name = str(settings.private_link_crypto_outer_wss_server_name or "").strip() or "www.rbc.ru"
     outer_wss_public_port = int(settings.private_link_crypto_outer_wss_public_port or 443)
     outer_wss_path = str(settings.private_link_crypto_outer_wss_path or "").strip() or "/cdn-cgi/tracegate-link"
     if not outer_wss_path.startswith("/"):

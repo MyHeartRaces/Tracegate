@@ -24,7 +24,7 @@ from tracegate.services.sni_catalog import SniCatalogEntry, get_by_id, load_cata
 from tracegate.settings import get_settings
 
 
-DEFAULT_V1_REALITY_SNI = "cdn.cdn-d.example.net"
+DEFAULT_V1_REALITY_SNI = "yandex.ru"
 ENTRY_INGRESS_PAIR_LOCK_ID = 6822526267863597649
 
 

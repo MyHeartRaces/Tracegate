@@ -1,185 +1,185 @@
 - id: 4
-  fqdn: a.front-m.example.net
+  fqdn: reserved-4.tracegate-sni.ru
   enabled: false
   is_test: false
   note: Placeholder camouflage SNI; production catalog is supplied privately.
   providers: []
 - id: 8
-  fqdn: front-n.example.net
+  fqdn: reserved-8.tracegate-sni.ru
   enabled: false
   is_test: false
   note: Placeholder camouflage SNI; production catalog is supplied privately.
   providers: []
 - id: 25
-  fqdn: front-o.example.net
+  fqdn: reserved-25.tracegate-sni.ru
   enabled: false
   is_test: false
   note: Placeholder camouflage SNI; production catalog is supplied privately.
   providers: []
 - id: 32
-  fqdn: goya.front-f.example.net
+  fqdn: reserved-32.tracegate-sni.ru
   enabled: false
   is_test: false
   note: Placeholder camouflage SNI; production catalog is supplied privately.
   providers: []
 - id: 42
-  fqdn: login.front-k.example.net
+  fqdn: reserved-42.tracegate-sni.ru
   enabled: false
   is_test: false
   note: Placeholder camouflage SNI; production catalog is supplied privately.
   providers: []
 - id: 50
-  fqdn: front-p.example.net
+  fqdn: reserved-50.tracegate-sni.ru
   enabled: false
   is_test: false
   note: Placeholder camouflage SNI; production catalog is supplied privately.
   providers: []
 - id: 57
-  fqdn: queuev4.front-k.example.net
+  fqdn: reserved-57.tracegate-sni.ru
   enabled: false
   is_test: false
   note: Placeholder camouflage SNI; production catalog is supplied privately.
   providers: []
 - id: 62
-  fqdn: sba.front-g.example.net
+  fqdn: reserved-62.tracegate-sni.ru
   enabled: false
   is_test: false
   note: Placeholder camouflage SNI; production catalog is supplied privately.
   providers: []
 - id: 66
-  fqdn: speller.front-g.example.net
+  fqdn: reserved-66.tracegate-sni.ru
   enabled: false
   is_test: false
   note: Placeholder camouflage SNI; production catalog is supplied privately.
   providers: []
 - id: 67
-  fqdn: splitter.front-m.example.net
+  fqdn: old-mtproto-a.tracegate-sni.ru
   enabled: false
   is_test: false
   note: Placeholder camouflage SNI; production catalog is supplied privately.
   providers: []
 - id: 69
-  fqdn: st.front-l.example.net
+  fqdn: old-mtproto-b.tracegate-sni.ru
   enabled: false
   is_test: false
   note: Placeholder camouflage SNI; production catalog is supplied privately.
   providers: []
 - id: 86
-  fqdn: front-k.example.net
+  fqdn: reserved-86.tracegate-sni.ru
   enabled: false
   is_test: false
   note: Placeholder camouflage SNI; production catalog is supplied privately.
   providers: []
 - id: 92
-  fqdn: www.front-i.example.net
+  fqdn: reserved-92.tracegate-sni.ru
   enabled: false
   is_test: false
   note: Placeholder camouflage SNI; production catalog is supplied privately.
   providers: []
 - id: 97
-  fqdn: www.front-j.example.net
+  fqdn: reserved-97.tracegate-sni.ru
   enabled: false
   is_test: false
   note: Placeholder camouflage SNI; production catalog is supplied privately.
   providers: []
 - id: 100
-  fqdn: front-g.example.net
+  fqdn: old-forbidden.tracegate-sni.ru
   enabled: false
   is_test: false
   note: Placeholder camouflage SNI; production catalog is supplied privately.
   providers: []
 - id: 101
-  fqdn: partners.cdn-d.example.net
+  fqdn: reserved-101.tracegate-sni.ru
   enabled: false
   is_test: false
   note: Placeholder camouflage SNI; production catalog is supplied privately.
   providers: []
 - id: 102
-  fqdn: goya.front-f.example.net
+  fqdn: yandex.ru
   enabled: true
   is_test: false
   note: Placeholder camouflage SNI; production catalog is supplied privately.
   providers: []
 - id: 103
-  fqdn: ssp.front-f.example.net
+  fqdn: www.yandex.ru
   enabled: true
   is_test: false
   note: Placeholder camouflage SNI; production catalog is supplied privately.
   providers: []
 - id: 104
-  fqdn: public-api.reviews.example.net
+  fqdn: reserved-104.tracegate-sni.ru
   enabled: false
   is_test: false
   note: Placeholder camouflage SNI; production catalog is supplied privately.
   providers: []
 - id: 105
-  fqdn: api.photo.example.net
+  fqdn: reserved-105.tracegate-sni.ru
   enabled: false
   is_test: false
   note: Placeholder camouflage SNI; production catalog is supplied privately.
   providers: []
 - id: 106
-  fqdn: styles.api.example.net
+  fqdn: reserved-106.tracegate-sni.ru
   enabled: false
   is_test: false
   note: Placeholder camouflage SNI; production catalog is supplied privately.
   providers: []
 - id: 107
-  fqdn: api.reviews.example.net
+  fqdn: reserved-107.tracegate-sni.ru
   enabled: false
   is_test: false
   note: Placeholder camouflage SNI; production catalog is supplied privately.
   providers: []
 - id: 108
-  fqdn: api.front-a.example.net
+  fqdn: dzen.ru
   enabled: true
   is_test: false
   note: Placeholder camouflage SNI; production catalog is supplied privately.
   providers: []
 - id: 109
-  fqdn: api.front-b.example.net
+  fqdn: www.dzen.ru
   enabled: true
   is_test: false
   note: Placeholder camouflage SNI; production catalog is supplied privately.
   providers: []
 - id: 110
-  fqdn: cdn.newyear.cdn-e.example.net
+  fqdn: vk.ru
   enabled: true
   is_test: false
   note: Placeholder camouflage SNI; production catalog is supplied privately.
   providers: []
 - id: 111
-  fqdn: static.dl.cdn-e.example.net
+  fqdn: www.vk.ru
   enabled: true
   is_test: false
   note: Placeholder camouflage SNI; production catalog is supplied privately.
   providers: []
 - id: 112
-  fqdn: static.cdn-d.example.net
+  fqdn: mail.ru
   enabled: true
   is_test: false
   note: Placeholder camouflage SNI; production catalog is supplied privately.
   providers: []
 - id: 113
-  fqdn: api.front-c.example.net
+  fqdn: go.mail.ru
   enabled: true
   is_test: false
   note: Placeholder camouflage SNI; production catalog is supplied privately.
   providers: []
 - id: 114
-  fqdn: market.front-h.example.net
+  fqdn: reserved-114.tracegate-sni.ru
   enabled: false
   is_test: false
   note: Placeholder camouflage SNI; production catalog is supplied privately.
   providers: []
 - id: 115
-  fqdn: api.events.plus.example.net
+  fqdn: sber.ru
   enabled: true
   is_test: false
   note: Placeholder camouflage SNI; production catalog is supplied privately.
   providers: []
 - id: 116
-  fqdn: cdn.cdn-d.example.net
+  fqdn: www.sber.ru
   enabled: true
   is_test: false
   note: Placeholder camouflage SNI; production catalog is supplied privately.

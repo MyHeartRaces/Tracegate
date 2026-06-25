@@ -395,7 +395,7 @@ transitRouter:
     mtproto: []
     decoy: transit.example.com
     reality:
-      - market.front-h.example.net
+      - www.avito.ru
   decoy:
     hostPath: /srv/tracegate/decoy
     hostPathType: Directory
@@ -754,9 +754,9 @@ gateway:
         serverName: entry.example.com
         existingSecretName: tracegate-entry-tls
       reality:
-        dest: cdn.cdn-d.example.net:443
+        dest: yandex.ru:443
         serverNames:
-          - cdn.cdn-d.example.net
+          - yandex.ru
         shortIds:
           - "0123456789abcdef"
         privateKeySecret:
@@ -793,9 +793,9 @@ gateway:
         serverName: transit.example.com
         existingSecretName: tracegate-transit-tls
       reality:
-        dest: public-api.reviews.example.net:443
+        dest: www.rbc.ru:443
         serverNames:
-          - public-api.reviews.example.net
+          - www.rbc.ru
         shortIds:
           - "fedcba9876543210"
         privateKeySecret:
@@ -820,7 +820,7 @@ interconnect:
       maxParallelDials: 1
     health:
       payloadProbeRequired: true
-      probeUrl: https://api.front-c.example.net/
+      probeUrl: https://rbc.ru/
       probeInterval: 30s
     hysteria2:
       enabled: false
@@ -850,7 +850,7 @@ interconnect:
     # Keep the Endpoint Xray listener local by default. Private overlays may expose
     # this on a restricted interconnect port when public TLS demux is unhealthy.
     endpointListenHost: "127.0.0.1"
-    serverName: chain.example.com
+    serverName: rbc.ru
     # Optional connect-level SNI shard pool. Each row creates a dedicated
     # Endpoint REALITY inbound and Entry XHTTP outbound in the same Xray
     # processes. Keep destinations and SNI values aligned.
@@ -891,7 +891,7 @@ interconnect:
       enabled: true
       mode: wss
       protocol: websocket-tls
-      serverName: bridge.example.com
+      serverName: www.rbc.ru
       publicPort: 443
       publicPath: /cdn-cgi/tracegate-link
       clientLocalPort: 14081
@@ -1008,8 +1008,8 @@ shadowsocks2022:
     # chart fails closed on a collision) and MUST NOT appear in
     # mtproto.stealth.forbiddenTlsDomains. Operators should repoint these to a
     # reachable, TLS 1.3-verified domain that is outside the Reality lease pool.
-    serverNameEntry: api.photo.example.net
-    serverNameTransit: api.reviews.example.net
+    serverNameEntry: ozon.ru
+    serverNameTransit: www.ozon.ru
     listenPort: 14443
 
 mtproto:
@@ -1018,7 +1018,7 @@ mtproto:
   domain: ""
   # FakeTLS SNI. Keep it distinct from the public address hostname and
   # validate DNS/TLS reachability from target networks before production use.
-  tlsDomain: www.apple.com
+  tlsDomain: 2gis.ru
   publicPort: 443
   backendPort: 9443
   tolerateTimeSkewness: 5m
@@ -1029,7 +1029,7 @@ mtproto:
     domainFrontingPort: 443
     shadowtls:
       enabled: false
-      serverName: styles.api.example.net
+      serverName: avito.ru
       endpointHost: ""
       endpointPort: 443
       serverListenPort: 14444
@@ -1057,9 +1057,9 @@ mtproto:
   stealth:
     requireWhitelistedTlsDomain: true
     forbiddenTlsDomains:
-      - front-g.example.net
-      - splitter.front-m.example.net
+      - old-forbidden.tracegate-sni.ru
+      - old-mtproto-a.tracegate-sni.ru
     validatedTlsDomains:
-      - www.apple.com
+      - 2gis.ru
   obfuscationProfile: mtproto-extra
   stabilityClass: aggressive-obfuscation
