@@ -195,6 +195,7 @@ class Settings(BaseSettings):
     agent_host: str = "0.0.0.0"
     agent_port: int = 8070
     agent_role: str = "TRANSIT"
+    agent_public_role: str = ""
     agent_auth_token: str = ""
     agent_data_root: str = "/tmp/tracegate-agent"
     agent_stats_url: str = "http://127.0.0.1:9999/traffic"

@@ -686,6 +686,8 @@ spec:
           env:
             - name: AGENT_ROLE
               value: {{ $roleAgentRole | quote }}
+            - name: AGENT_PUBLIC_ROLE
+              value: {{ $roleDisplayName | quote }}
             - name: AGENT_RUNTIME_MODE
               value: "kubernetes"
             - name: AGENT_RUNTIME_PROFILE

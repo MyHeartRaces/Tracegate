@@ -826,6 +826,8 @@ interconnect:
       allowedSources: []
       fastOpen: false
       lazy: false
+      tls:
+        insecure: false
       quic:
         maxIdleTimeout: 30s
         keepAlivePeriod: 10s

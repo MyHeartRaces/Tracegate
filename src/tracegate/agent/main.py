@@ -318,9 +318,14 @@ app.add_middleware(
 install_http_observability(app, component="agent")
 
 
+def _public_agent_role() -> str:
+    public_role = str(settings.agent_public_role or "").strip()
+    return public_role or settings.agent_role
+
+
 @app.get("/v1/live")
 async def live() -> dict:
-    return {"ok": True, "role": settings.agent_role, "version": _app_version()}
+    return {"ok": True, "role": _public_agent_role(), "version": _app_version()}
 
 
 @app.post("/v1/events", response_model=AgentEventResponse, dependencies=[Depends(require_agent_token)])
@@ -544,7 +549,7 @@ async def health(response: Response) -> AgentHealthResponse:
     overall_ok = all(row["ok"] for row in rows)
     if not overall_ok:
         response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
-    return AgentHealthResponse(role=settings.agent_role, checks=checks, overall_ok=overall_ok)
+    return AgentHealthResponse(role=_public_agent_role(), checks=checks, overall_ok=overall_ok)
 
 
 @app.get("/metrics", dependencies=[Depends(require_agent_token)])

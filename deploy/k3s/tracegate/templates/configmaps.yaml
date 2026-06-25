@@ -590,6 +590,7 @@ data:
 {{- $endpointBackhaulHysteriaPort := int (dig "endpointPort" 443 $endpointBackhaulHysteria) }}
 {{- $endpointBackhaulHysteriaServerName := trim (toString (dig "serverName" "" $endpointBackhaulHysteria)) }}
 {{- if not $endpointBackhaulHysteriaServerName }}{{- $endpointBackhaulHysteriaServerName = toString $endpointRole.tls.serverName }}{{- end }}
+{{- $endpointBackhaulHysteriaTls := dig "tls" (dict) $endpointBackhaulHysteria }}
 {{- $endpointBackhaulHysteriaSocksPort := int (dig "entrySocksPort" 11086 $endpointBackhaulHysteria) }}
 {{- $realityServerNames := $role.reality.serverNames }}
 {{- if and $roleIsEndpoint $chainBridge.enabled $chainBridgeSni (eq (len $chainBridgeShards) 0) }}
@@ -1169,7 +1170,7 @@ data:
     auth: REPLACE_HYSTERIA_ENDPOINT_BACKHAUL_AUTH
     tls:
       sni: {{ $endpointBackhaulHysteriaServerName | quote }}
-      insecure: false
+      insecure: {{ dig "insecure" false $endpointBackhaulHysteriaTls }}
     obfs:
       type: salamander
       salamander:
