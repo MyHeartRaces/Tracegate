@@ -314,9 +314,9 @@ spec:
             - name: HYSTERIA_UDP_PORT
               value: {{ int $endpointRole.ports.publicUdp | quote }}
             - name: HYSTERIA_SERVER_NAME_ENTRY
-              value: {{ $.Values.gateway.hysteria.clientServerNameEntry | quote }}
+              value: {{ dig "hysteria" "clientServerNameEntry" "" $.Values.gateway | quote }}
             - name: HYSTERIA_SERVER_NAME_TRANSIT
-              value: {{ $.Values.gateway.hysteria.clientServerNameTransit | quote }}
+              value: {{ dig "hysteria" "clientServerNameTransit" "" $.Values.gateway | quote }}
             - name: SHADOWTLS_SERVER_NAME_ENTRY
               value: {{ .Values.shadowsocks2022.shadowtls.serverNameEntry | quote }}
             - name: SHADOWTLS_SERVER_NAME_TRANSIT
@@ -505,9 +505,9 @@ spec:
             - name: WIREGUARD_WSTUNNEL_PATH
               value: {{ $.Values.wireguard.wstunnel.publicPath | quote }}
             - name: HYSTERIA_SERVER_NAME_ENTRY
-              value: {{ $.Values.gateway.hysteria.clientServerNameEntry | quote }}
+              value: {{ dig "hysteria" "clientServerNameEntry" "" $.Values.gateway | quote }}
             - name: HYSTERIA_SERVER_NAME_TRANSIT
-              value: {{ $.Values.gateway.hysteria.clientServerNameTransit | quote }}
+              value: {{ dig "hysteria" "clientServerNameTransit" "" $.Values.gateway | quote }}
             - name: SHADOWTLS_SERVER_NAME_ENTRY
               value: {{ $.Values.shadowsocks2022.shadowtls.serverNameEntry | quote }}
             - name: SHADOWTLS_SERVER_NAME_TRANSIT
