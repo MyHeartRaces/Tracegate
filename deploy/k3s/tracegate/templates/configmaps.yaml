@@ -608,6 +608,14 @@ data:
 {{- $universalEntry := $.Values.architecture.universalEntry | default dict }}
 {{- $entryEndpointMode := eq (toString $.Values.architecture.mode) "entry-endpoint" }}
 {{- $universalEntryEnabled := and $roleIsEntry ($universalEntry.enabled | default false) }}
+{{- $universalOriginDenyDirect := and $universalEntryEnabled (dig "originFirewall" "denyDirectAccess" false $universalEntry) }}
+{{- $universalOriginAllowedSources := list }}
+{{- range $cidr := (dig "originFirewall" "allowedSourceCidrs" (list) $universalEntry) }}
+{{- $universalOriginAllowedSources = append $universalOriginAllowedSources $cidr }}
+{{- end }}
+{{- if and $universalOriginDenyDirect $roleTopology.publicIp }}
+{{- $universalOriginAllowedSources = append $universalOriginAllowedSources $roleTopology.publicIp }}
+{{- end }}
 {{- $universalGrpcReadTimeout := toString (dig "serverPolicy" "grpcReadTimeout" "1h" $universalEntry) }}
 {{- $universalGrpcSendTimeout := toString (dig "serverPolicy" "grpcSendTimeout" "1h" $universalEntry) }}
 {{- $entryIngressEnabled := $roleIngress.enabled | default false }}
@@ -712,6 +720,18 @@ data:
       tcp-request connection reject if { sc_conn_rate(0) gt {{ $entryIngressNewConnectionsPer10Seconds }} }
 {{- end }}
       tcp-request inspect-delay {{ ternary $entryIngressInspectDelay "5s" $entryIngressEnabled }}
+{{- if and $universalOriginDenyDirect $universalOriginAllowedSources }}
+      acl request_sni_found req.ssl_sni -m found
+      acl universal_origin_allowed_src src {{ join " " $universalOriginAllowedSources }}
+{{- if and $mtprotoRoleHandlesPublic $mtprotoSniDomains }}
+      acl universal_origin_mtproto_sni req.ssl_sni -i {{ join " " $mtprotoSniDomains }}
+      tcp-request content reject if request_sni_found !universal_origin_allowed_src !universal_origin_mtproto_sni
+      tcp-request content reject if WAIT_END !universal_origin_allowed_src !universal_origin_mtproto_sni
+{{- else }}
+      tcp-request content reject if request_sni_found !universal_origin_allowed_src
+      tcp-request content reject if WAIT_END !universal_origin_allowed_src
+{{- end }}
+{{- end }}
       tcp-request content accept if { req.ssl_sni -m found }
       tcp-request content accept if WAIT_END
 {{- if and $roleIsEndpoint $mtprotoEgressShadowtlsEnabled }}

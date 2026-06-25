@@ -19,6 +19,11 @@ Telemt does not run on Entry. Endpoint Telemt is loopback-bound and has no
 public frontend in `entry-endpoint-tunnel` mode. The tunnel fails closed when
 the Endpoint backhaul is unavailable.
 
+Because this mode shares Entry `tcp/443` with Universal Entry, direct source
+filtering cannot live solely in nftables: nftables cannot inspect TLS SNI. The
+host firewall allows `443` to HAProxy; HAProxy then rejects non-Cloudflare
+origin traffic unless the SNI is the MTProto FakeTLS domain.
+
 ## Naming
 
 The public connection hostname and FakeTLS SNI are separate values:
@@ -61,11 +66,12 @@ The bot issues the derived FakeTLS Telegram link.
 
 1. Confirm Entry HAProxy routes only the configured FakeTLS SNI to
    `127.0.0.1:11087`.
-2. Confirm the Entry Xray route uses the authenticated Endpoint backhaul.
-3. Confirm Telemt exists only in the Endpoint gateway pod.
-4. Confirm Telemt renders `proxy_protocol = false`.
-5. Confirm Endpoint has no public MTProto frontend.
-6. Test sustained Telegram traffic and reconnection through Endpoint egress.
+2. Confirm direct non-Cloudflare `tracegate.su:443` is rejected by HAProxy.
+3. Confirm the Entry Xray route uses the authenticated Endpoint backhaul.
+4. Confirm Telemt exists only in the Endpoint gateway pod.
+5. Confirm Telemt renders `proxy_protocol = false`.
+6. Confirm Endpoint has no public MTProto frontend.
+7. Test sustained Telegram traffic and reconnection through Endpoint egress.
 
 No proxy configuration can guarantee permanent availability. Keep public
 hostname, FakeTLS SNI and Entry address rotation operationally prepared.

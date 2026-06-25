@@ -27,8 +27,10 @@ The chart then requires:
 - Cloudflare as the proxied ingress provider;
 - gRPC over real TLS/HTTP/2 on port `443`;
 - one TLS connection per client transport and no parallel handshake burst;
-- an operator-managed origin firewall that accepts `443` only from current
-  Cloudflare IPv4 source ranges;
+- an operator-managed origin policy: host nftables passes shared `443` to
+  HAProxy, while HAProxy accepts Universal Entry only from current Cloudflare
+  IPv4 source ranges and keeps the DNS-only MTProto SNI as the only direct
+  shared-port exception;
 - `interconnect.endpointBackhaul.enabled=true` with XHTTP/REALITY as primary
   and Hysteria2/Salamander as the independent fallback;
 - two to eight XHTTP shards with unique SNI, matching REALITY destination,
@@ -55,7 +57,9 @@ python3 deploy/k3s/universal-entry-origin-firewall.py \
 ```
 
 Refresh `architecture.universalEntry.originFirewall.allowedSourceCidrs` from
-Cloudflare's published list before every promotion.
+Cloudflare's published list before every promotion. In shared MTProto mode the
+generated nftables file must not reject non-Cloudflare `443` packets directly,
+because SNI demux happens in HAProxy.
 
 ## Why This Transport
 
@@ -88,7 +92,8 @@ Tracegate client transport or Endpoint egress path.
 
 - Enable gRPC in the Cloudflare zone and use Full or Full (strict) origin TLS.
 - Keep the proxied hostname on the Entry node TLS certificate.
-- Apply the generated origin firewall before publishing the profile.
+- Apply the generated origin firewall and verify HAProxy contains the
+  Cloudflare source ACL before publishing the profile.
 - Probe sustained authenticated payload, not only TLS handshake success.
 - Alert on reconnect rate, gRPC duration, per-shard XHTTP payload health,
   Hysteria2 fallback use and unexpected direct Entry egress.
