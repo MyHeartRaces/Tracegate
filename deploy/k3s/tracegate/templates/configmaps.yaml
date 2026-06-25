@@ -701,9 +701,9 @@ data:
 {{- end }}
 {{- else }}
       bind :{{ int $role.ports.publicTcp }}
+{{- end }}
 {{- range $bind := ($role.ports.publicTcpExtraBinds | default (list)) }}
       bind {{ $bind }}
-{{- end }}
 {{- end }}
 {{- if $entryIngressEnabled }}
       stick-table type ip size 1m expire 30s store conn_cur,conn_rate(10s)
