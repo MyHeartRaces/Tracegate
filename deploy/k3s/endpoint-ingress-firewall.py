@@ -47,6 +47,22 @@ def _port(value: Any) -> int:
     return port if 1 <= port <= 65535 else 0
 
 
+def _ipv4_sources(values: list[Any], *, field: str) -> list[str]:
+    sources: set[str] = set()
+    for raw in values:
+        value = str(raw or "").strip()
+        if not value:
+            continue
+        try:
+            ipaddress.ip_network(value, strict=False)
+        except ValueError as exc:
+            raise SystemExit(f"{field} contains an invalid IPv4 source: {value}") from exc
+        if ipaddress.ip_network(value, strict=False).version != 4:
+            raise SystemExit(f"{field} currently requires IPv4 sources: {value}")
+        sources.add(value)
+    return sorted(sources)
+
+
 def render(values: dict[str, Any]) -> str:
     architecture = _mapping(values.get("architecture"))
     endpoint_ingress = _mapping(architecture.get("endpointIngress"))
@@ -75,6 +91,18 @@ def render(values: dict[str, Any]) -> str:
     tcp_ports.discard(0)
     udp_ports.discard(0)
 
+    interconnect = _mapping(values.get("interconnect"))
+    endpoint_backhaul = _mapping(interconnect.get("endpointBackhaul"))
+    endpoint_backhaul_hysteria = _mapping(endpoint_backhaul.get("hysteria2"))
+    emergency_chain = _mapping(interconnect.get("emergencyXrayChain"))
+    backhaul_sources = _ipv4_sources(
+        [
+            *endpoint_backhaul_hysteria.get("allowedSources", []),
+            *emergency_chain.get("allowedSources", []),
+        ],
+        field="interconnect Endpoint backhaul allowedSources",
+    )
+
     disabled_ips = {
         str(shard.get("publicIp") or "").strip()
         for shard in endpoint_ingress.get("shards", [])
@@ -94,11 +122,19 @@ def render(values: dict[str, Any]) -> str:
         "  chain input {",
         "    type filter hook input priority -10; policy accept;",
     ]
+    if backhaul_sources and tcp_ports:
+        lines.append(
+            f"    iifname != \"lo\" ip daddr {service_ip} ip saddr {{ {', '.join(backhaul_sources)} }} tcp dport {{ {', '.join(map(str, sorted(tcp_ports)))} }} accept"
+        )
     if tcp_ports:
         lines.append(
             f"    iifname != \"lo\" ip daddr {{ {', '.join(reject_ips)} }} tcp dport {{ {', '.join(map(str, sorted(tcp_ports)))} }} reject with tcp reset"
         )
     if udp_ports:
+        if backhaul_sources:
+            lines.append(
+                f"    iifname != \"lo\" ip daddr {service_ip} ip saddr {{ {', '.join(backhaul_sources)} }} udp dport {{ {', '.join(map(str, sorted(udp_ports)))} }} accept"
+            )
         lines.append(
             f"    iifname != \"lo\" ct status dnat ip daddr {service_ip} udp dport {{ {', '.join(map(str, sorted(udp_ports)))} }} accept"
         )
