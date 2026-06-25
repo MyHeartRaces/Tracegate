@@ -95,12 +95,18 @@ def render(values: dict[str, Any]) -> str:
     endpoint_backhaul = _mapping(interconnect.get("endpointBackhaul"))
     endpoint_backhaul_hysteria = _mapping(endpoint_backhaul.get("hysteria2"))
     emergency_chain = _mapping(interconnect.get("emergencyXrayChain"))
+    universal_entry = _mapping(architecture.get("universalEntry"))
+    universal_origin_firewall = _mapping(universal_entry.get("originFirewall"))
     backhaul_sources = _ipv4_sources(
         [
             *endpoint_backhaul_hysteria.get("allowedSources", []),
             *emergency_chain.get("allowedSources", []),
         ],
         field="interconnect Endpoint backhaul allowedSources",
+    )
+    cloudflare_sources = _ipv4_sources(
+        list(universal_origin_firewall.get("allowedSourceCidrs", [])),
+        field="architecture.universalEntry.originFirewall.allowedSourceCidrs",
     )
 
     disabled_ips = {
@@ -125,6 +131,11 @@ def render(values: dict[str, Any]) -> str:
     if backhaul_sources and tcp_ports:
         lines.append(
             f"    iifname != \"lo\" ip daddr {service_ip} ip saddr {{ {', '.join(backhaul_sources)} }} tcp dport {{ {', '.join(map(str, sorted(tcp_ports)))} }} accept"
+        )
+    public_tcp = _port(ports.get("publicTcp"))
+    if cloudflare_sources and public_tcp:
+        lines.append(
+            f"    iifname != \"lo\" ip daddr {service_ip} ip saddr {{ {', '.join(cloudflare_sources)} }} tcp dport {public_tcp} accept"
         )
     if tcp_ports:
         lines.append(
