@@ -1,4 +1,5 @@
 {{- if .Values.controlPlane.enabled }}
+{{- $controlPlaneImage := mergeOverwrite (deepCopy .Values.global.image) (.Values.controlPlane.image | default dict) -}}
 {{- $databaseUrl := .Values.controlPlane.database.externalUrl -}}
 {{- if and (not $databaseUrl) .Values.controlPlane.database.embedded.enabled -}}
 {{- $databaseUrl = printf "postgresql+psycopg://%s:%s@%s-postgres:5432/%s" .Values.controlPlane.database.embedded.username .Values.controlPlane.database.embedded.password (include "tracegate.fullname" .) .Values.controlPlane.database.embedded.database -}}
@@ -136,8 +137,8 @@ spec:
         {{- toYaml .Values.controlPlane.affinity | nindent 8 }}
       initContainers:
         - name: migrate-db
-          image: {{ include "tracegate.image" .Values.global.image | quote }}
-          imagePullPolicy: {{ .Values.global.image.pullPolicy }}
+          image: {{ include "tracegate.image" $controlPlaneImage | quote }}
+          imagePullPolicy: {{ $controlPlaneImage.pullPolicy }}
           command: ["/bin/sh", "-lc"]
           args:
             - |
@@ -211,8 +212,8 @@ spec:
 {{- end }}
       containers:
         - name: api
-          image: {{ include "tracegate.image" .Values.global.image | quote }}
-          imagePullPolicy: {{ .Values.global.image.pullPolicy }}
+          image: {{ include "tracegate.image" $controlPlaneImage | quote }}
+          imagePullPolicy: {{ $controlPlaneImage.pullPolicy }}
           command: ["tracegate-api"]
           ports:
             - name: http
@@ -451,8 +452,8 @@ spec:
       terminationGracePeriodSeconds: {{ int $.Values.controlPlane.terminationGracePeriodSeconds }}
       containers:
         - name: {{ $name }}
-          image: {{ include "tracegate.image" $.Values.global.image | quote }}
-          imagePullPolicy: {{ $.Values.global.image.pullPolicy }}
+          image: {{ include "tracegate.image" $controlPlaneImage | quote }}
+          imagePullPolicy: {{ $controlPlaneImage.pullPolicy }}
           command: [{{ ternary "\"tracegate-dispatcher\"" "\"tracegate-bot\"" (eq $name "dispatcher") }}]
           env:
             - name: DATABASE_URL

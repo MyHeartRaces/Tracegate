@@ -141,6 +141,10 @@ topology:
 
 controlPlane:
   enabled: true
+  # Optional override for API, dispatcher, bot and DB migration init container.
+  # Empty fields inherit global.image so gateway and control-plane can roll at
+  # different tags during constrained production updates.
+  image: {}
   # Optional Secret name holding the real SNI catalog (key: sni_catalog.yaml).
   # When set, the control plane mounts it and loads it via TRACEGATE_SNI_CATALOG_FILE
   # instead of the packaged placeholder catalog. Empty -> packaged catalog.
