@@ -1182,7 +1182,7 @@ data:
     disableUDP: false
     udpIdleTimeout: 60s
     sniff:
-      enable: true
+      enable: {{ not (and $roleIsEndpoint $endpointBackhaulEnabled) }}
       timeout: 2s
 {{- if and $roleIsEntry $endpointBackhaulHysteriaEnabled }}
   backhaul-client.yaml: |
@@ -1337,7 +1337,7 @@ data:
               "path": {{ required "interconnect.emergencyXrayChain.shards[].path is required" $shard.path | quote }}
             }
           },
-          "sniffing": {"enabled": true, "destOverride": ["http", "tls", "quic"]}
+          "sniffing": {"enabled": false}
         },
 {{- end }}
 {{- end }}

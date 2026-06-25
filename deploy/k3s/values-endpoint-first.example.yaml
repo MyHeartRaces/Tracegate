@@ -149,13 +149,13 @@ mtproto:
   enabled: true
   runtime: mtg
   domain: proto.example.net
-  tlsDomain: ctlog2024.cdn-e.example.net
+  tlsDomain: www.apple.com
   fallback:
     enabled: false
   stealth:
     requireWhitelistedTlsDomain: true
     forbiddenTlsDomains: [front-g.example.net, splitter.front-m.example.net]
-    validatedTlsDomains: [ctlog2024.cdn-e.example.net]
+    validatedTlsDomains: [www.apple.com]
   route:
     mode: entry-endpoint-tunnel
     entry:

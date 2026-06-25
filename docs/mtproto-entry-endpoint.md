@@ -29,14 +29,16 @@ origin traffic unless the SNI is the MTProto FakeTLS domain.
 The public connection hostname and FakeTLS SNI are separate values:
 
 - public hostname: DNS-only record pointing to Entry;
-- FakeTLS SNI: a validated domain from the bundled mobile whitelist.
+- FakeTLS SNI: a validated, high-volume TLS domain that is not the public
+  MTProto hostname.
 
 User-facing delivery must show the public hostname from the profile `server`
 field, not the FakeTLS SNI from the `domain` field.
 
-The public-safe initial FakeTLS SNI is `ctlog2024.cdn-e.example.net`. Operators must
-validate it from target networks and rotate it when necessary. Do not use
-`front-g.example.net` or `splitter.front-m.example.net`.
+The public-safe initial FakeTLS SNI is `www.apple.com`. Operators must
+validate DNS/TLS reachability from target networks and rotate it when
+necessary. Do not use `front-g.example.net` or
+`splitter.front-m.example.net`.
 
 Ordinary Cloudflare proxying cannot carry raw MTProto TCP. Keep the MTProto
 public hostname DNS-only.
@@ -48,14 +50,14 @@ mtproto:
   enabled: true
   runtime: mtg
   domain: proto.example.net
-  tlsDomain: ctlog2024.cdn-e.example.net
+  tlsDomain: www.apple.com
   publicPort: 443
   fallback:
     enabled: false
   stealth:
     requireWhitelistedTlsDomain: true
     forbiddenTlsDomains: [front-g.example.net, splitter.front-m.example.net]
-    validatedTlsDomains: [ctlog2024.cdn-e.example.net]
+    validatedTlsDomains: [www.apple.com]
   route:
     mode: entry-endpoint-tunnel
     entry:

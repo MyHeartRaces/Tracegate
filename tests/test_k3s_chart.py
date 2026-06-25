@@ -424,8 +424,8 @@ def _entry_endpoint_overlay_values(*, rotation: bool = False) -> dict:
             "shards": [
                 {
                     "id": "mail",
-                    "serverName": "ctlog2024.cdn-e.example.net",
-                    "dest": "ctlog2024.cdn-e.example.net:443",
+                    "serverName": "www.cloudflare.com",
+                    "dest": "www.cloudflare.com:443",
                     "endpointListenPort": 2451,
                     "path": "/api/v1/backhaul/mail",
                 }
@@ -440,12 +440,12 @@ def _entry_endpoint_overlay_values(*, rotation: bool = False) -> dict:
         {
             "runtime": "mtg",
             "domain": "proto.prod.test",
-            "tlsDomain": "ctlog2024.cdn-e.example.net",
+            "tlsDomain": "www.apple.com",
             "fallback": {"enabled": False},
             "stealth": {
                 "requireWhitelistedTlsDomain": True,
                 "forbiddenTlsDomains": ["front-g.example.net", "splitter.front-m.example.net"],
-                "validatedTlsDomains": ["ctlog2024.cdn-e.example.net"],
+                "validatedTlsDomains": ["www.apple.com"],
             },
             "route": {"mode": "entry-endpoint-tunnel", "entry": {"tunnelPort": 11087}},
         }
@@ -524,8 +524,8 @@ def _universal_entry_overlay_values() -> dict:
     values["interconnect"]["emergencyXrayChain"]["shards"] = [
         {
             "id": "mail",
-            "serverName": "ctlog2024.cdn-e.example.net",
-            "dest": "ctlog2024.cdn-e.example.net:443",
+            "serverName": "www.cloudflare.com",
+            "dest": "www.cloudflare.com:443",
             "endpointListenPort": 2451,
             "path": "/api/v1/backhaul/mail",
         },
@@ -603,8 +603,8 @@ def _pod_only_new_prod_overlay_values(*, phase: str) -> dict:
         values["interconnect"]["emergencyXrayChain"]["shards"] = [
             {
                 "id": "mail",
-                "serverName": "ctlog2024.cdn-e.example.net",
-                "dest": "ctlog2024.cdn-e.example.net:443",
+                "serverName": "www.cloudflare.com",
+                "dest": "www.cloudflare.com:443",
                 "endpointListenPort": 2451,
                 "path": "/api/v1/backhaul/mail",
             },
@@ -2687,14 +2687,14 @@ def test_mtproto_entry_endpoint_tunnel_keeps_mtg_private_on_endpoint(tmp_path: P
         "enabled": True,
         "runtime": "mtg",
         "domain": "proto.tracegate.test",
-        "tlsDomain": "ctlog2024.cdn-e.example.net",
+        "tlsDomain": "www.apple.com",
         "publicPort": 443,
         "backendPort": 9443,
         "fallback": {"enabled": False},
         "stealth": {
             "requireWhitelistedTlsDomain": True,
             "forbiddenTlsDomains": ["front-g.example.net", "splitter.front-m.example.net"],
-            "validatedTlsDomains": ["ctlog2024.cdn-e.example.net"],
+            "validatedTlsDomains": ["www.apple.com"],
         },
         "route": {"mode": "entry-endpoint-tunnel", "entry": {"tunnelPort": 11087}},
     }
@@ -2707,7 +2707,7 @@ def test_mtproto_entry_endpoint_tunnel_keeps_mtg_private_on_endpoint(tmp_path: P
     assert "mtproto" not in _containers_by_name(entry["spec"]["template"])
     endpoint_containers = _containers_by_name(endpoint["spec"]["template"])
     assert endpoint_containers["mtproto"]["command"] == ["/mtg"]
-    assert "acl mtproto_sni req.ssl_sni -i ctlog2024.cdn-e.example.net" in rendered.stdout
+    assert "acl mtproto_sni req.ssl_sni -i www.apple.com" in rendered.stdout
     assert "server mtproto_endpoint_tunnel 127.0.0.1:11087 check" in rendered.stdout
     assert '"tag": "mtproto-entry-tunnel-in"' in rendered.stdout
     assert '"inboundTag": ["mtproto-entry-tunnel-in"], "balancerTag": "endpoint-backhaul"' in rendered.stdout
@@ -2775,8 +2775,8 @@ def test_mtproto_mtg_can_use_source_restricted_shadowtls_endpoint_egress(tmp_pat
             "mtproto": {
                 "runtime": "mtg",
                 "domain": "proto.tracegate.test",
-                "tlsDomain": "ctlog2024.cdn-e.example.net",
-                "stealth": {"validatedTlsDomains": ["ctlog2024.cdn-e.example.net"]},
+                "tlsDomain": "www.apple.com",
+                "stealth": {"validatedTlsDomains": ["www.apple.com"]},
                 "publicPort": 8443,
                 "fallback": {"enabled": False},
                 "egress": {
@@ -2837,8 +2837,8 @@ def test_mtproto_mtg_seed_runtime_pins_legacy_fronting_ip(tmp_path: Path) -> Non
             "mtproto": {
                 "runtime": "mtg",
                 "domain": "proto.tracegate.test",
-                "tlsDomain": "ctlog2024.cdn-e.example.net",
-                "stealth": {"validatedTlsDomains": ["ctlog2024.cdn-e.example.net"]},
+                "tlsDomain": "www.apple.com",
+                "stealth": {"validatedTlsDomains": ["www.apple.com"]},
                 "publicPort": 8443,
                 "fallback": {"enabled": False},
                 "egress": {
@@ -3211,6 +3211,7 @@ def test_tracegate22_universal_entry_routes_all_entry_traffic_through_dual_trans
     entry_nginx = configmaps["tracegate-tracegate-gateway-entry-nginx"]["data"]["nginx.conf"]
     entry_hysteria = configmaps["tracegate-tracegate-gateway-entry-hysteria"]["data"]
     endpoint_xray = json.loads(configmaps["tracegate-tracegate-gateway-endpoint-xray"]["data"]["config.json"])
+    endpoint_hysteria = configmaps["tracegate-tracegate-gateway-endpoint-hysteria"]["data"]
     endpoint_haproxy = configmaps["tracegate-tracegate-gateway-endpoint-haproxy"]["data"]["haproxy.cfg"]
     entry_containers = _containers_by_name(deployments["tracegate-tracegate-gateway-entry"]["spec"]["template"])
     user_rules = [
@@ -3224,7 +3225,7 @@ def test_tracegate22_universal_entry_routes_all_entry_traffic_through_dual_trans
     xhttp_outbounds = [row for row in entry_xray["outbounds"] if str(row.get("tag", "")).startswith("chain-xhttp-")]
     assert len(xhttp_outbounds) == 2
     assert {row["streamSettings"]["realitySettings"]["serverName"] for row in xhttp_outbounds} == {
-        "ctlog2024.cdn-e.example.net",
+        "www.cloudflare.com",
         "public-api.reviews.example.net",
     }
     assert all(row["streamSettings"]["xhttpSettings"]["mode"] == "stream-one" for row in xhttp_outbounds)
@@ -3253,6 +3254,13 @@ def test_tracegate22_universal_entry_routes_all_entry_traffic_through_dual_trans
         "chain-bridge-mail-in",
         "chain-bridge-2gis_reviews-in",
     }
+    assert all(
+        row.get("sniffing") == {"enabled": False}
+        for row in endpoint_xray["inbounds"]
+        if str(row.get("tag", "")).startswith("chain-bridge-")
+    )
+    endpoint_hysteria_server = yaml.safe_load(endpoint_hysteria["server.yaml"])
+    assert endpoint_hysteria_server["sniff"]["enable"] is False
     assert "use_backend be_chain_bridge_mail if chain_bridge_mail_sni chain_bridge_mail_src" in endpoint_haproxy
     assert (
         "use_backend be_chain_bridge_2gis_reviews if chain_bridge_2gis_reviews_sni chain_bridge_2gis_reviews_src"
@@ -3327,7 +3335,7 @@ def test_tracegate22_universal_entry_rejects_conflicting_xhttp_xmux_limits(tmp_p
 
 def test_tracegate22_universal_entry_rejects_duplicate_xhttp_shard_sni(tmp_path: Path) -> None:
     values = _universal_entry_overlay_values()
-    values["interconnect"]["emergencyXrayChain"]["shards"][1]["serverName"] = "ctlog2024.cdn-e.example.net"
+    values["interconnect"]["emergencyXrayChain"]["shards"][1]["serverName"] = "www.cloudflare.com"
 
     rendered = _helm_template_with_values(tmp_path, values)
 

@@ -1016,9 +1016,9 @@ mtproto:
   enabled: true
   runtime: mtg
   domain: ""
-  # FakeTLS SNI from the bundled Russian mobile whitelist. Keep it distinct
-  # from the public address hostname and validate it from target networks.
-  tlsDomain: ctlog2024.cdn-e.example.net
+  # FakeTLS SNI. Keep it distinct from the public address hostname and
+  # validate DNS/TLS reachability from target networks before production use.
+  tlsDomain: www.apple.com
   publicPort: 443
   backendPort: 9443
   tolerateTimeSkewness: 5m
@@ -1060,6 +1060,6 @@ mtproto:
       - front-g.example.net
       - splitter.front-m.example.net
     validatedTlsDomains:
-      - ctlog2024.cdn-e.example.net
+      - www.apple.com
   obfuscationProfile: mtproto-extra
   stabilityClass: aggressive-obfuscation
