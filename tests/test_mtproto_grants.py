@@ -75,6 +75,22 @@ def _transit_node() -> NodeEndpoint:
     )
 
 
+def _endpoint_node() -> NodeEndpoint:
+    now = datetime.now(timezone.utc)
+    return NodeEndpoint(
+        id=uuid4(),
+        role=NodeRole.TRANSIT,
+        name="endpoint",
+        base_url="http://endpoint:8070",
+        public_ipv4="203.0.113.20",
+        fqdn="endpoint.tracegate.test",
+        proxy_fqdn=None,
+        active=True,
+        created_at=now,
+        updated_at=now,
+    )
+
+
 def _entry_node() -> NodeEndpoint:
     now = datetime.now(timezone.utc)
     return NodeEndpoint(
@@ -174,6 +190,49 @@ async def test_issue_mtproto_grant_targets_entry_for_local_endpoint_egress(monke
 
     assert node_name == "entry-a"
     assert profile["server"] == "proto.tracegate.test"
+
+
+@pytest.mark.asyncio
+async def test_issue_mtproto_grant_targets_endpoint_for_entry_endpoint_tunnel(monkeypatch: pytest.MonkeyPatch) -> None:
+    session = _DummySession(user=_user(), grant=None, nodes=[_transit_node(), _endpoint_node()])
+
+    async def _request(_settings, *, node, method, path, json_payload=None):  # noqa: ANN001
+        assert node.name == "endpoint"
+        assert method == "POST"
+        assert path == "/v1/mtproto/access/issue"
+        return {
+            "changed": False,
+            "profile": {
+                "protocol": "mtproto",
+                "server": "proto.tracegate.test",
+                "httpsUrl": "https://t.me/proxy?server=proto.tracegate.test",
+            },
+        }
+
+    monkeypatch.setattr("tracegate.services.mtproto_grants._request_transit_agent", _request)
+
+    _grant, profile, _changed, node_name = await issue_mtproto_grant(
+        session,
+        settings=Settings(agent_auth_token="agent-token", mtproto_route_mode="entry-endpoint-tunnel"),
+        telegram_id=100,
+    )
+
+    assert node_name == "endpoint"
+    assert profile["server"] == "proto.tracegate.test"
+
+
+@pytest.mark.asyncio
+async def test_issue_mtproto_grant_reports_endpoint_for_missing_entry_endpoint_tunnel_node() -> None:
+    session = _DummySession(user=_user(), grant=None, nodes=[])
+
+    with pytest.raises(MTProtoGrantError, match="Active Endpoint node is not configured") as exc:
+        await issue_mtproto_grant(
+            session,
+            settings=Settings(agent_auth_token="agent-token", mtproto_route_mode="entry-endpoint-tunnel"),
+            telegram_id=100,
+        )
+
+    assert exc.value.status_code == 503
 
 
 @pytest.mark.asyncio

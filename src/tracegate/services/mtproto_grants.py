@@ -68,15 +68,26 @@ async def _request_transit_agent(
     return payload if isinstance(payload, dict) else {}
 
 
-def _mtproto_node_role(settings: Settings) -> NodeRole:
-    if str(settings.mtproto_route_mode or "").strip().lower() == "entry-local-endpoint-egress":
-        return NodeRole.ENTRY
-    return NodeRole.TRANSIT
+def _mtproto_node_target(settings: Settings) -> tuple[NodeRole, str]:
+    route_mode = str(settings.mtproto_route_mode or "").strip().lower()
+    if route_mode == "entry-local-endpoint-egress":
+        return NodeRole.ENTRY, "Entry"
+    if route_mode == "entry-endpoint-tunnel":
+        # The persistent enum still uses TRANSIT for the Endpoint-side agent in
+        # legacy schemas, but this route terminates at Endpoint-local Telemt.
+        return NodeRole.TRANSIT, "Endpoint"
+    return NodeRole.TRANSIT, "Transit"
+
+
+def _prefer_endpoint_node(rows: list[NodeEndpoint], *, role_label: str) -> list[NodeEndpoint]:
+    if role_label != "Endpoint":
+        return rows
+    preferred = [row for row in rows if str(row.name or "").strip().lower() in {"endpoint", "tracegate-endpoint"}]
+    return preferred or rows
 
 
 async def resolve_mtproto_node(session: AsyncSession, *, settings: Settings) -> NodeEndpoint:
-    role = _mtproto_node_role(settings)
-    role_label = role.value.title()
+    role, role_label = _mtproto_node_target(settings)
     rows = (
         await session.execute(
             select(NodeEndpoint)
@@ -84,6 +95,7 @@ async def resolve_mtproto_node(session: AsyncSession, *, settings: Settings) -> 
             .order_by(NodeEndpoint.created_at.asc(), NodeEndpoint.name.asc())
         )
     ).scalars().all()
+    rows = _prefer_endpoint_node(rows, role_label=role_label)
     if not rows:
         raise MTProtoGrantError(status_code=503, detail=f"Active {role_label} node is not configured")
     if len(rows) > 1:
