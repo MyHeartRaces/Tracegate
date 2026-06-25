@@ -263,6 +263,7 @@ def test_export_vless_ws_tls_uri() -> None:
     assert attachment["inbounds"][0]["settings"]["accounts"][0]["user"].startswith("tg_")
     assert attachment["outbounds"][0]["streamSettings"]["wsSettings"]["path"] == "/ws"
     assert attachment["outbounds"][0]["streamSettings"]["tlsSettings"]["alpn"] == ["http/1.1"]
+    assert "allowInsecure" not in attachment["outbounds"][0]["streamSettings"]["tlsSettings"]
 
 
 def test_export_vless_ws_tls_can_use_alternate_connect_host_with_domain_sni() -> None:

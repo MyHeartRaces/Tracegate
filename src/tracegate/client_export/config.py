@@ -731,8 +731,6 @@ def _export_vless_ws_tls(effective: dict[str, Any]) -> ExportResult:
         "fingerprint": "chrome",
         "alpn": alpn,
     }
-    if insecure:
-        tls_settings["allowInsecure"] = True
 
     attachment_content, attachment_filename = _build_xray_client_attachment(
         effective,
@@ -807,8 +805,6 @@ def _export_vless_grpc_tls(effective: dict[str, Any]) -> ExportResult:
         "fingerprint": "chrome",
         "alpn": alpn,
     }
-    if insecure:
-        tls_settings["allowInsecure"] = True
 
     grpc_settings: dict[str, Any] = {"serviceName": service_name}
     if authority:
