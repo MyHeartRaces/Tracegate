@@ -570,14 +570,14 @@ def _write_mtproto_state(
         "profileFile": "/etc/tracegate/private/zapret/mtproto-extra.env",
         "runtimeStateJson": runtime_state_json,
         "publicProfileFile": "/var/lib/tracegate/private/mtproto/public-profile.json",
-        "runtime": "telemt",
+        "runtime": "mtg",
     }
     if overrides:
         payload.update(overrides)
     if "issuedStateFile" not in payload:
         payload["issuedStateFile"] = str(Path(str(payload["publicProfileFile"])).with_name("issued.json"))
-    if "telemtConfigFile" not in payload:
-        payload["telemtConfigFile"] = str(Path(str(payload["publicProfileFile"])).with_name("runtime") / "config.toml")
+    if "mtprotoConfigFile" not in payload:
+        payload["mtprotoConfigFile"] = str(Path(str(payload["publicProfileFile"])).with_name("runtime") / "config.toml")
     path = tmp_path / file_name
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload) + "\n", encoding="utf-8")

@@ -36,7 +36,7 @@ Production promotion gates run from the operator environment.
 - Confirm Endpoint has four distinct IPv4 addresses: one service/egress and
   three ingress shards.
 - Confirm only `gateway-endpoint` renders in `endpoint-first`.
-- Run `pod-runtime-readiness.py` and confirm WGWS, Telemt and all Endpoint
+- Run `pod-runtime-readiness.py` and confirm WGWS, MTG and all Endpoint
   runtimes are pod containers.
 - Confirm gateway state is PVC-backed and no Endpoint gateway volume uses
   hostPath.
@@ -57,11 +57,12 @@ Production promotion gates run from the operator environment.
 
 ## MTProto
 
-- Confirm Telemt runs only in the Endpoint gateway pod.
+- Confirm MTG runs only in the Endpoint gateway pod.
 - Confirm Entry TCP/443 routes only the validated FakeTLS SNI to the local
   MTProto tunnel inbound.
 - Confirm Endpoint has no public MTProto frontend in tunnel mode.
-- Confirm Telemt renders `proxy_protocol = false` in tunnel mode.
+- Confirm MTG renders `proxy-protocol-listener = true` and no SOCKS proxy in
+  tunnel mode.
 - Confirm the public address hostname differs from the FakeTLS SNI.
 - Confirm `front-g.example.net` and `splitter.front-m.example.net` are absent from active SNI fields.
 - Test sustained Telegram traffic through the Endpoint egress path.
@@ -72,7 +73,7 @@ Production promotion gates run from the operator environment.
 - Encrypted Secrets are current.
 - Decoy assets are stored only in the private repository and mounted through
   the production ConfigMap/PVC expected by the private overlay.
-- Telemt and backhaul image pins are present before promotion.
+- MTProto and backhaul image pins are present before promotion.
 - Any operational notes that reveal live layout stay private.
 - In `entry-endpoint` mode, cluster preflight reports no legacy Transit or
   chain-Transit nodes.

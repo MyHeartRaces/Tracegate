@@ -18,7 +18,7 @@ New production is promoted in two phases.
 - set `architecture.deploymentPhase=full`;
 - enable Universal Entry, XHTTP/REALITY primary and Hysteria2 secondary
   backhauls;
-- enable MTProto client ingress through Entry while Telemt remains in the
+- enable MTProto client ingress through Entry while MTG remains in the
   Endpoint pod;
 - validate Endpoint-only egress and failure-closed Entry behavior.
 

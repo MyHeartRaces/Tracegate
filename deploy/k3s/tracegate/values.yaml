@@ -721,8 +721,9 @@ gateway:
       tag: "latest"
       pullPolicy: IfNotPresent
     mtproto:
-      repository: ghcr.io/telemt/telemt
-      tag: "3.4.13"
+      repository: nineseconds/mtg
+      tag: "latest"
+      digest: sha256:c082586a19886e4822f92aa8c1949a771df3519053d64b1b5505a9a280a3929d
       pullPolicy: IfNotPresent
     mtprotoOfficial:
       repository: mtproxy/mtproxy
@@ -1013,7 +1014,7 @@ shadowsocks2022:
 
 mtproto:
   enabled: true
-  runtime: telemt
+  runtime: mtg
   domain: ""
   # FakeTLS SNI from the bundled Russian mobile whitelist. Keep it distinct
   # from the public address hostname and validate it from target networks.
@@ -1037,7 +1038,7 @@ mtproto:
   fallback:
     enabled: false
     mode: failover
-    prefer: telemt
+    prefer: official
     officialBackendPort: 9444
     officialStatsPort: 2398
     officialWorkers: 1

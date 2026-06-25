@@ -544,9 +544,9 @@ data:
 {{- $mtprotoRoleHandlesPublic := or $mtprotoRuntimeHandlesPublic $mtprotoEntryRouteEnabled }}
 {{- $mtprotoFallbackPublicPort := and $mtprotoRoleHandlesPublic (ne $mtprotoPublicPort (int $role.ports.publicTcp)) }}
 {{- $mtprotoFallback := $.Values.mtproto.fallback | default dict }}
-{{- $mtprotoOfficialFallbackEnabled := and $mtprotoRuntimeRoleEnabled (eq $mtprotoRuntime "telemt") $roleIsEndpoint (dig "enabled" false $mtprotoFallback) }}
+{{- $mtprotoOfficialFallbackEnabled := and $mtprotoRuntimeRoleEnabled $roleIsEndpoint (dig "enabled" false $mtprotoFallback) }}
 {{- $mtprotoFallbackMode := lower (toString (dig "mode" "failover" $mtprotoFallback)) }}
-{{- $mtprotoFallbackPrefer := lower (toString (dig "prefer" "telemt" $mtprotoFallback)) }}
+{{- $mtprotoFallbackPrefer := lower (toString (dig "prefer" "official" $mtprotoFallback)) }}
 {{- $mtprotoOfficialBackendPort := int (dig "officialBackendPort" 9444 $mtprotoFallback) }}
 {{- $mtprotoSplitPortsEnabled := and $mtprotoOfficialFallbackEnabled (eq $mtprotoFallbackMode "split-ports") (ne $mtprotoPublicPort (int $role.ports.publicTcp)) }}
 {{- $realityMultiInboundGroups := $.Values.gateway.realityMultiInboundGroups | default (list) }}
@@ -864,13 +864,13 @@ data:
       server mtproto_endpoint {{ $mtprotoEntryPublicFallbackHost }}:{{ $mtprotoEntryFallbackPublicPort }} check backup
 {{- end }}
 {{- else if $mtprotoSplitPortsEnabled }}
-      server mtproto_telemt 127.0.0.1:{{ int $.Values.mtproto.backendPort }} check send-proxy-v2
+      server mtproto_runtime 127.0.0.1:{{ int $.Values.mtproto.backendPort }} check send-proxy-v2
 {{- else if $mtprotoOfficialFallbackEnabled }}
 {{- if eq $mtprotoFallbackPrefer "official" }}
       server mtproto_official 127.0.0.1:{{ $mtprotoOfficialBackendPort }} check
-      server mtproto_telemt 127.0.0.1:{{ int $.Values.mtproto.backendPort }} check send-proxy-v2 backup
+      server mtproto_runtime 127.0.0.1:{{ int $.Values.mtproto.backendPort }} check send-proxy-v2 backup
 {{- else }}
-      server mtproto_telemt 127.0.0.1:{{ int $.Values.mtproto.backendPort }} check send-proxy-v2
+      server mtproto_runtime 127.0.0.1:{{ int $.Values.mtproto.backendPort }} check send-proxy-v2
       server mtproto_official 127.0.0.1:{{ $mtprotoOfficialBackendPort }} check backup
 {{- end }}
 {{- else }}

@@ -1115,14 +1115,14 @@ def test_reconcile_materializes_private_runtime_handoff_surfaces_for_transit(tmp
     assert runtime_contract["fronting"]["mtprotoDomain"] == "proxied.tracegate.test"
     assert runtime_contract["fronting"]["mtprotoTlsDomain"] == "www.apple.com"
     assert mtproto_state.issued_state_file == str(private_root / "mtproto" / "issued.json")
-    assert mtproto_state.runtime == "telemt"
-    assert mtproto_state.telemt_config_file == str(private_root / "mtproto" / "runtime" / "config.toml")
-    telemt_config = (private_root / "mtproto" / "runtime" / "config.toml").read_text(encoding="utf-8")
-    assert 'public_host = "proxied.tracegate.test"' in telemt_config
-    assert "public_port = 8443" in telemt_config
-    assert "proxy_protocol = true" in telemt_config
-    assert 'tls_domain = "www.apple.com"' in telemt_config
-    assert 'unknown_sni_action = "mask"' in telemt_config
+    assert mtproto_state.runtime == "mtg"
+    assert mtproto_state.mtproto_config_file == str(private_root / "mtproto" / "runtime" / "config.toml")
+    mtproto_config = (private_root / "mtproto" / "runtime" / "config.toml").read_text(encoding="utf-8")
+    assert 'secret = "ee00112233445566778899aabbccddeeff7777772e6170706c652e636f6d"' in mtproto_config
+    assert 'bind-to = "127.0.0.1:9443"' in mtproto_config
+    assert "proxy-protocol-listener = true" in mtproto_config
+    assert 'host = "www.apple.com"' in mtproto_config
+    assert "proxies =" not in mtproto_config
     assert public_profile.server == "proxied.tracegate.test"
     assert public_profile.port == 8443
     assert public_profile.domain == "www.apple.com"
@@ -1131,7 +1131,7 @@ def test_reconcile_materializes_private_runtime_handoff_surfaces_for_transit(tmp
     assert [row["port"] for row in public_profile_payload["links"]] == [8443, 443]
     assert "port=8443" in public_profile_payload["links"][0]["httpsUrl"]
     assert "port=443" in public_profile_payload["links"][1]["httpsUrl"]
-    assert '"tracegate_shared" = "00112233445566778899aabbccddeeff"' in telemt_config
+    assert "tracegate_shared" not in mtproto_config
     issued = json.loads((private_root / "mtproto" / "issued.json").read_text(encoding="utf-8"))
     assert issued == {"version": 1, "entries": []}
 
@@ -1198,8 +1198,9 @@ def test_reconcile_preserves_existing_mtproto_issued_state(tmp_path: Path) -> No
             "issuedBy": "bot",
         }
     ]
-    telemt_config = (tmp_path / "private" / "mtproto" / "runtime" / "config.toml").read_text(encoding="utf-8")
-    assert '"tg_255761416" = "95d7ed79d0ab4494cab81c5f4acba241"' in telemt_config
+    mtproto_config = (tmp_path / "private" / "mtproto" / "runtime" / "config.toml").read_text(encoding="utf-8")
+    assert "tg_255761416" not in mtproto_config
+    assert "95d7ed79d0ab4494cab81c5f4acba241" not in mtproto_config
 
 
 def test_reconcile_materializes_mtg_runtime_on_entry_with_endpoint_egress(tmp_path: Path) -> None:

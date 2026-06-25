@@ -15,8 +15,6 @@ from tracegate.services.mtproto import (
     MTProtoConfigError,
     build_mtproto_mtg_config,
     build_mtproto_share_links,
-    build_mtproto_telemt_config,
-    load_mtproto_issued_secret_entries,
     normalize_mtproto_domain,
 )
 from tracegate.services.connection_profiles import (
@@ -1449,8 +1447,8 @@ def _write_mtproto_state(
     runtime_dir = state_dir / "runtime"
     issued_state_file = Path(effective_mtproto_issued_state_file(settings))
     obfuscation_state_json = _role_state_dir(settings, role_lower=runtime_role.lower()) / "runtime-state.json"
-    mtproto_runtime = str(settings.private_mtproto_runtime or "telemt").strip().lower() or "telemt"
-    telemt_config_file = runtime_dir / "config.toml"
+    mtproto_runtime = str(settings.private_mtproto_runtime or "mtg").strip().lower() or "mtg"
+    mtproto_config_file = runtime_dir / "config.toml"
 
     payload = {
         "action": "reconcile",
@@ -1466,7 +1464,7 @@ def _write_mtproto_state(
         "runtimeStateJson": str(obfuscation_state_json),
         "publicProfileFile": str(state_dir / "public-profile.json"),
         "issuedStateFile": str(issued_state_file),
-        "telemtConfigFile": str(telemt_config_file),
+        "mtprotoConfigFile": str(mtproto_config_file),
     }
 
     changed = False
@@ -1493,24 +1491,18 @@ def _write_mtproto_state(
                 for port in public_ports
             }
             share = shares[int(payload["publicPort"])]
-            if mtproto_runtime == "telemt":
-                telemt_config = build_mtproto_telemt_config(
-                    listen_port=int(payload["upstreamPort"]),
-                    listen_ip=str(payload["upstreamHost"]),
-                    public_host=normalized_domain,
-                    public_port=int(payload["publicPort"]),
-                    tls_domain=normalized_tls_domain,
-                    primary_secret_hex=server_secret_hex,
-                    issued_secret_entries=load_mtproto_issued_secret_entries(issued_state_file),
-                    proxy_protocol=mtproto_route_mode != "entry-endpoint-tunnel",
+            if mtproto_runtime == "mtg":
+                egress_proxy = (
+                    f"socks5://127.0.0.1:{int(settings.mtproto_egress_socks_port or 11084)}"
+                    if mtproto_route_mode == "entry-local-endpoint-egress"
+                    else ""
                 )
-            elif mtproto_runtime == "mtg":
                 mtg_config = build_mtproto_mtg_config(
                     listen_port=int(payload["upstreamPort"]),
                     listen_ip=str(payload["upstreamHost"]),
                     tls_domain=normalized_tls_domain,
                     primary_secret_hex=server_secret_hex,
-                    socks5_proxy=f"socks5://127.0.0.1:{int(settings.mtproto_egress_socks_port or 11084)}",
+                    socks5_proxy=egress_proxy,
                     domain_fronting_host=settings.mtproto_domain_fronting_host or normalized_tls_domain,
                     domain_fronting_port=int(settings.mtproto_domain_fronting_port or 443),
                     tolerate_time_skewness=settings.mtproto_tolerate_time_skewness,
@@ -1519,7 +1511,7 @@ def _write_mtproto_state(
                 raise MTProtoConfigError(f"unsupported MTProto runtime: {mtproto_runtime}")
         except (MTProtoConfigError, OSError, ValueError):
             changed = _remove_if_exists(profile_path) or changed
-            changed = _remove_if_exists(telemt_config_file) or changed
+            changed = _remove_if_exists(mtproto_config_file) or changed
         else:
             profile_payload = {
                 "protocol": "mtproto",
@@ -1545,15 +1537,13 @@ def _write_mtproto_state(
                 ],
             }
             changed = _write_text_if_changed(profile_path, _json_text(profile_payload)) or changed
-            if mtproto_runtime == "telemt":
-                changed = _write_text_if_changed(telemt_config_file, telemt_config.config_text) or changed
-            elif mtproto_runtime == "mtg":
-                changed = _write_text_if_changed(telemt_config_file, mtg_config.config_text) or changed
+            if mtproto_runtime == "mtg":
+                changed = _write_text_if_changed(mtproto_config_file, mtg_config.config_text) or changed
             else:
-                changed = _remove_if_exists(telemt_config_file) or changed
+                changed = _remove_if_exists(mtproto_config_file) or changed
     else:
         changed = _remove_if_exists(profile_path) or changed
-        changed = _remove_if_exists(telemt_config_file) or changed
+        changed = _remove_if_exists(mtproto_config_file) or changed
 
     # Ensure the state dir / runtime dir layout exists even if the helper is not active yet.
     runtime_dir.mkdir(parents=True, exist_ok=True)

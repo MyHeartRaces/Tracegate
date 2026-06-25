@@ -52,12 +52,12 @@ def test_universal_entry_origin_firewall_script_is_executable() -> None:
     assert "tracegate_universal_entry_endpoint_backhaul" in endpoint_path.read_text(encoding="utf-8")
 
 
-def test_universal_entry_origin_firewall_allows_cloudflare_then_rejects_direct() -> None:
+def test_universal_entry_origin_firewall_allows_shared_tcp443_to_haproxy() -> None:
     rendered = _module()["render"](_values())
 
-    assert "ip daddr 8.8.4.4 tcp dport 443 ip saddr 8.8.4.4 accept" in rendered
-    assert "ip daddr 8.8.4.4 tcp dport 443 ip saddr { 103.21.244.0/22, 173.245.48.0/20 } accept" in rendered
-    assert "ip daddr 8.8.4.4 tcp dport 443 reject with tcp reset" in rendered
+    assert "ip daddr 8.8.4.4 tcp dport 443 accept" in rendered
+    assert "HAProxy enforces the" in rendered
+    assert "reject with tcp reset" not in rendered
 
 
 def test_universal_entry_origin_firewall_rejects_private_source_cidr() -> None:

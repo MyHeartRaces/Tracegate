@@ -147,7 +147,7 @@ shadowsocks2022:
 
 mtproto:
   enabled: true
-  runtime: telemt
+  runtime: mtg
   domain: proto.example.net
   tlsDomain: ctlog2024.cdn-e.example.net
   fallback:

@@ -10,7 +10,7 @@ Endpoint has four public IPv4 addresses:
 - three direct/Backup client-ingress shard IPs.
 
 Every Endpoint data-plane runtime runs in the k3s `gateway-endpoint` pod,
-including Telemt and WireGuard-over-WebSocket. Gateway state uses a PVC;
+including MTG and WireGuard-over-WebSocket. Gateway state uses a PVC;
 hostPath data-plane state is forbidden.
 
 Direct VLESS Reality revisions lease exclusive active
@@ -23,7 +23,7 @@ IP and disabled shards.
 Entry adds one public IP after Endpoint validation. Entry Chain uses
 Cloudflare-proxied gRPC/TLS/H2 and a bounded Entry-to-Endpoint backhaul pool:
 VLESS Reality/XHTTP primary and Hysteria2/Salamander secondary. MTProto enters
-through shared Entry TCP/443 and terminates at Endpoint-local Telemt.
+through shared Entry TCP/443 and terminates at Endpoint-local MTG.
 
 All client internet traffic exits only through the Endpoint service/egress IP.
 Entry retains the global 65 Mbit/s cap.

@@ -1070,7 +1070,7 @@ def validate_prod_overlay(chart_values: Path, prod_values: Path, *, strict: bool
     if mtproto_route_mode == "entry-endpoint-tunnel":
         mtproto_stealth = _as_dict(mtproto.get("stealth"))
         tls_domain = _text(mtproto.get("tlsDomain")).lower().rstrip(".")
-        require(_text(mtproto.get("runtime")) == "telemt", "entry-endpoint-tunnel requires mtproto.runtime=telemt")
+        require(_text(mtproto.get("runtime")) == "mtg", "entry-endpoint-tunnel requires mtproto.runtime=mtg")
         require(_as_int(mtproto.get("publicPort")) == 443, "entry-endpoint-tunnel requires mtproto.publicPort=443")
         require(tls_domain not in {"front-g.example.net", "splitter.front-m.example.net"}, "entry-endpoint-tunnel forbids common MTProto TLS domains")
         require(

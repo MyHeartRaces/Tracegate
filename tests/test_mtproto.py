@@ -9,7 +9,6 @@ from tracegate.services.mtproto import (
     build_mtproto_mtg_config,
     build_mtproto_official_proxy_command,
     build_mtproto_share_links,
-    build_mtproto_telemt_config,
     load_mtproto_issued_secret_entries,
     load_mtproto_issued_secret_hexes,
     load_mtproto_server_secret,
@@ -136,51 +135,6 @@ def test_load_mtproto_issued_secret_entries_preserves_telegram_id(tmp_path) -> N
     assert entries == (MTProtoIssuedSecret(telegram_id=101, secret_hex="00112233445566778899aabbccddeeff"),)
 
 
-def test_build_mtproto_telemt_config_preserves_primary_and_issued_secrets() -> None:
-    config = build_mtproto_telemt_config(
-        listen_port=9443,
-        listen_ip="127.0.0.1",
-        public_host="proxied.tracegate.test",
-        public_port=443,
-        tls_domain="proxied.tracegate.test",
-        primary_secret_hex="95f0d81f7539ecbe1bd880f48b6a739a",
-        issued_secret_entries=[
-            MTProtoIssuedSecret(telegram_id=101, secret_hex="fedcba98765432100123456789abcdef"),
-            MTProtoIssuedSecret(telegram_id=102, secret_hex="95f0d81f7539ecbe1bd880f48b6a739a"),
-        ],
-    )
-
-    assert config.accepted_secret_hexes == (
-        "95f0d81f7539ecbe1bd880f48b6a739a",
-        "fedcba98765432100123456789abcdef",
-    )
-    assert config.user_count == 2
-    assert "port = 9443" in config.config_text
-    assert 'public_host = "proxied.tracegate.test"' in config.config_text
-    assert "proxy_protocol = true" in config.config_text
-    assert 'tls_domain = "proxied.tracegate.test"' in config.config_text
-    assert 'unknown_sni_action = "mask"' in config.config_text
-    assert "classic = true" in config.config_text
-    assert "secure = true" in config.config_text
-    assert "tls = true" in config.config_text
-    assert '"tracegate_shared" = "95f0d81f7539ecbe1bd880f48b6a739a"' in config.config_text
-    assert '"tg_101" = "fedcba98765432100123456789abcdef"' in config.config_text
-
-
-def test_build_mtproto_telemt_config_disables_proxy_protocol_for_xray_tunnel() -> None:
-    config = build_mtproto_telemt_config(
-        listen_port=9443,
-        public_host="proto.tracegate.test",
-        public_port=443,
-        tls_domain="ctlog2024.cdn-e.example.net",
-        primary_secret_hex="95f0d81f7539ecbe1bd880f48b6a739a",  # gitleaks:allow - synthetic test fixture
-        proxy_protocol=False,
-    )
-
-    assert "proxy_protocol = false" in config.config_text
-    assert 'tls_domain = "ctlog2024.cdn-e.example.net"' in config.config_text
-
-
 def test_build_mtproto_mtg_config_is_fail_closed_through_socks5() -> None:
     config = build_mtproto_mtg_config(
         listen_port=9443,
@@ -214,13 +168,26 @@ def test_build_mtproto_mtg_config_pins_legacy_and_current_fronting_ip() -> None:
     assert 'host = "192.0.2.12"' in config.config_text
 
 
-def test_build_mtproto_mtg_config_rejects_direct_egress() -> None:
+def test_build_mtproto_mtg_config_allows_endpoint_direct_egress() -> None:
+    config = build_mtproto_mtg_config(
+        listen_port=9443,
+        tls_domain="tracegate.test",
+        primary_secret_hex="95f0d81f7539ecbe1bd880f48b6a739a",
+        domain_fronting_host="tracegate.test",
+    )
+
+    assert 'bind-to = "127.0.0.1:9443"' in config.config_text
+    assert "proxies =" not in config.config_text
+    assert "[network.timeout]" in config.config_text
+
+
+def test_build_mtproto_mtg_config_rejects_invalid_proxy_scheme() -> None:
     with pytest.raises(MTProtoConfigError, match="socks5"):
         build_mtproto_mtg_config(
             listen_port=9443,
             tls_domain="tracegate.test",
             primary_secret_hex="95f0d81f7539ecbe1bd880f48b6a739a",
-            socks5_proxy="",
+            socks5_proxy="http://127.0.0.1:11084",
             domain_fronting_host="tracegate.test",
         )
 

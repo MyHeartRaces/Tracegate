@@ -322,7 +322,7 @@ def _format_mtproto_delivery_message(*, result: dict, rotate: bool) -> str:
 
     label = str(grant.get("label") or "").strip()
     updated_at = str(grant.get("updated_at") or grant.get("last_sync_at") or "").strip()
-    domain = str(profile.get("domain") or profile.get("server") or "").strip()
+    domain = str(profile.get("server") or profile.get("domain") or "").strip()
 
     lines = [
         "🔐 Telegram Proxy",

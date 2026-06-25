@@ -1,6 +1,6 @@
 # MTProto Shared Entry With Endpoint Runtime
 
-Tracegate 3 uses Telemt on Endpoint and exposes it through the same Entry
+Tracegate 3 uses MTG on Endpoint and exposes it through the same Entry
 TCP/443 address used by the other Entry transports.
 
 ## Architecture
@@ -11,11 +11,11 @@ Telegram client
   -> HAProxy FakeTLS SNI demux
   -> Entry-local Xray tunnel inbound
   -> Reality/XHTTP Entry-to-Endpoint backhaul
-  -> Endpoint-local Telemt
+  -> Endpoint-local MTG
   -> Telegram network through Endpoint egress
 ```
 
-Telemt does not run on Entry. Endpoint Telemt is loopback-bound and has no
+MTG does not run on Entry. Endpoint MTG is loopback-bound and has no
 public frontend in `entry-endpoint-tunnel` mode. The tunnel fails closed when
 the Endpoint backhaul is unavailable.
 
@@ -31,6 +31,9 @@ The public connection hostname and FakeTLS SNI are separate values:
 - public hostname: DNS-only record pointing to Entry;
 - FakeTLS SNI: a validated domain from the bundled mobile whitelist.
 
+User-facing delivery must show the public hostname from the profile `server`
+field, not the FakeTLS SNI from the `domain` field.
+
 The public-safe initial FakeTLS SNI is `ctlog2024.cdn-e.example.net`. Operators must
 validate it from target networks and rotate it when necessary. Do not use
 `front-g.example.net` or `splitter.front-m.example.net`.
@@ -43,7 +46,7 @@ public hostname DNS-only.
 ```yaml
 mtproto:
   enabled: true
-  runtime: telemt
+  runtime: mtg
   domain: proto.example.net
   tlsDomain: ctlog2024.cdn-e.example.net
   publicPort: 443
@@ -66,10 +69,11 @@ The bot issues the derived FakeTLS Telegram link.
 
 1. Confirm Entry HAProxy routes only the configured FakeTLS SNI to
    `127.0.0.1:11087`.
-2. Confirm direct non-Cloudflare `tracegate.su:443` is rejected by HAProxy.
+2. Confirm direct non-Cloudflare `entry.example.net:443` is rejected by HAProxy.
 3. Confirm the Entry Xray route uses the authenticated Endpoint backhaul.
-4. Confirm Telemt exists only in the Endpoint gateway pod.
-5. Confirm Telemt renders `proxy_protocol = false`.
+4. Confirm MTG exists only in the Endpoint gateway pod.
+5. Confirm MTG renders `proxy-protocol-listener = true` and no SOCKS proxy in
+   `entry-endpoint-tunnel` mode.
 6. Confirm Endpoint has no public MTProto frontend.
 7. Test sustained Telegram traffic and reconnection through Endpoint egress.
 

@@ -74,7 +74,7 @@ def _mtproto_node_target(settings: Settings) -> tuple[NodeRole, str]:
         return NodeRole.ENTRY, "Entry"
     if route_mode == "entry-endpoint-tunnel":
         # The persistent enum still uses TRANSIT for the Endpoint-side agent in
-        # legacy schemas, but this route terminates at Endpoint-local Telemt.
+        # legacy schemas, but this route terminates at Endpoint-local MTProto.
         return NodeRole.TRANSIT, "Endpoint"
     return NodeRole.TRANSIT, "Transit"
 

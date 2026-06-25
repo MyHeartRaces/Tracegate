@@ -77,7 +77,7 @@ alias while older installations migrate.
 - [tests](tests): automated coverage for behavior and generated artifacts.
 - [docs](docs): public documentation that avoids live deployment coordinates.
 - [docs/mtproto-entry-endpoint.md](docs/mtproto-entry-endpoint.md): shared Entry
-  MTProto ingress with Endpoint-local Telemt.
+  MTProto ingress with Endpoint-local MTG.
 - [docs/tracegate-3-architecture.md](docs/tracegate-3-architecture.md):
   Tracegate 3 profiles, ports, backhaul and MTProto contract.
 - [docs/entry-endpoint-migration.md](docs/entry-endpoint-migration.md):

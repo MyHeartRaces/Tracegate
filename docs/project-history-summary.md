@@ -10,7 +10,7 @@ prior project discussions and repository history.
 - Tracegate 2.1 returned deployment ownership to one k3s/Helm package and kept
   live decoys and credentials private.
 - Tracegate 2.2 added user-facing Direct/Chain variants, Hysteria, NaiveProxy,
-  WireGuard-over-WebSocket, Telemt and MTProto experiments.
+  WireGuard-over-WebSocket and MTProto experiments.
 - Repeated provider failures and payload-level Chain failures showed that a
   third Transit node was not a reliable security or availability boundary.
 - The stable MTProto direction became MTG on Entry with a dedicated,

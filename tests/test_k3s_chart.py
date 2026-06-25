@@ -438,7 +438,7 @@ def _entry_endpoint_overlay_values(*, rotation: bool = False) -> dict:
     values["interconnect"]["endpointBackhaul"]["enabled"] = True
     values["mtproto"].update(
         {
-            "runtime": "telemt",
+            "runtime": "mtg",
             "domain": "proto.prod.test",
             "tlsDomain": "ctlog2024.cdn-e.example.net",
             "fallback": {"enabled": False},
@@ -732,7 +732,8 @@ def test_k3s_strict_prod_overlay_check_accepts_universal_entry_overlay(tmp_path:
     assert "prod-overlay-check: OK" in validation.stdout
     assert firewall.returncode == 0, firewall.stderr
     assert "ip daddr 8.8.4.4 tcp dport 443" in firewall.stdout
-    assert "reject with tcp reset" in firewall.stdout
+    assert "HAProxy enforces the" in firewall.stdout
+    assert "reject with tcp reset" not in firewall.stdout
 
 
 def test_k3s_strict_prod_overlay_check_rejects_conflicting_xhttp_xmux_limits(tmp_path: Path) -> None:
@@ -2047,8 +2048,8 @@ def test_tracegate21_chart_declares_lab_only_v8_v9_surfaces() -> None:
     assert values["privateProfiles"]["keys"]["labTuicTransit"] == "lab/tuic-transit.json"
     assert values["gateway"]["images"]["singbox"]["repository"] == "ghcr.io/sagernet/sing-box"
     assert values["gateway"]["images"]["wireguard"]["repository"] == "lscr.io/linuxserver/wireguard"
-    assert values["gateway"]["images"]["mtproto"]["repository"] == "ghcr.io/telemt/telemt"
-    assert values["gateway"]["images"]["mtproto"]["tag"] == "3.4.13"
+    assert values["gateway"]["images"]["mtproto"]["repository"] == "nineseconds/mtg"
+    assert values["gateway"]["images"]["mtproto"]["digest"].startswith("sha256:")
     assert values["gateway"]["images"]["mtprotoOfficial"]["repository"] == "mtproxy/mtproxy"
     assert "experimentalProfiles:" in text
     assert "shadowsocks2022-direct-lab" not in gateways
@@ -2502,15 +2503,14 @@ def test_tracegate21_templates_include_grpc_mtproto_and_shadowsocks2022_surfaces
     assert "grpc_pass grpc://127.0.0.1" in text
     assert "client_max_body_size 0;" in text
     assert "be_mtproto" in text
-    assert 'proxy_protocol = {{ $mtprotoEntryTunnelEnabled | ternary "false" "true" }}' in text
+    assert "proxy-protocol-listener = true" in text
     assert "send-proxy-v2" in text
     assert "mtproto-entry-tunnel-in" in text
-    assert "/app/telemt" in text
+    assert "/mtg" in text
     assert "/var/lib/tracegate/private/mtproto/runtime/config.toml" in text
     assert 'mtproto_config="/state/private/mtproto/runtime/config.toml"' in text
     assert "MTProto secret must contain exactly 16 bytes in hex" in text
     assert "private/mtproto/runtime/config.toml" in text
-    assert "/mtg" in text
     assert "simple-run" not in text
     assert "sing-box run -c" in text
     assert "/home/app/wstunnel server" in text
@@ -2592,92 +2592,13 @@ def test_mtproto_public_port_8443_renders_dedicated_fallback_frontend(tmp_path: 
     assert "tcp-request inspect-delay" not in fallback_frontend
     assert "req.ssl_sni" not in fallback_frontend
     assert "default_backend be_mtproto" in rendered.stdout
-    assert 'public_port = 8443' in rendered.stdout
+    assert 'bind-to = "127.0.0.1:9443"' in rendered.stdout
     assert "name: mtproto-fb" in rendered.stdout
     assert "containerPort: 8443" in rendered.stdout
     assert "forbidTcp8443: false" in rendered.stdout
     transit = _deployment_by_component(rendered.stdout, "gateway-transit")
     transit_agent = _containers_by_name(transit["spec"]["template"])["agent"]
     assert _env_value(transit_agent, "MTPROTO_PUBLIC_PORT") == "8443"
-
-
-def test_mtproto_official_fallback_can_run_before_telemt(tmp_path: Path) -> None:
-    rendered = _helm_template_with_values(
-        tmp_path,
-        {
-            "mtproto": {
-                "domain": "proto.tracegate.test",
-                "tlsDomain": "www.apple.com",
-                "stealth": {"validatedTlsDomains": ["www.apple.com"]},
-                "fallback": {"enabled": True, "prefer": "official"},
-            }
-        },
-    )
-
-    assert rendered.returncode == 0, rendered.stderr
-    transit = _deployment_by_component(rendered.stdout, "gateway-transit")
-    entry = _deployment_by_component(rendered.stdout, "gateway-entry")
-    transit_containers = _containers_by_name(transit["spec"]["template"])
-    entry_containers = _containers_by_name(entry["spec"]["template"])
-
-    assert "mtproto-official" in transit_containers
-    assert "mtproto-official" not in entry_containers
-    official = transit_containers["mtproto-official"]
-    assert official["image"] == "mtproxy/mtproxy:latest"
-    assert _env_value(official, "SECRET_FILE") == "/data/secret"
-    assert _env_value(official, "PORT") == "9444"
-    assert _env_value(official, "INTERNAL_PORT") == "2398"
-    assert _env_value(official, "WORKERS") == "1"
-    assert _env_value(official, "ARGS") == "--domain www.apple.com --address 127.0.0.1"
-    assert "name: mtproxy-work" in rendered.stdout
-    assert 'printf \'%s\\n\' "${mtproto_secret}" > /mtproxy/secret' in rendered.stdout
-    assert "server mtproto_official 127.0.0.1:9444 check" in rendered.stdout
-    assert "server mtproto_telemt 127.0.0.1:9443 check send-proxy-v2 backup" in rendered.stdout
-
-
-def test_mtproto_official_fallback_can_run_after_telemt(tmp_path: Path) -> None:
-    rendered = _helm_template_with_values(
-        tmp_path,
-        {
-            "mtproto": {
-                "domain": "proto.tracegate.test",
-                "fallback": {"enabled": True, "prefer": "telemt", "officialBackendPort": 9445},
-            }
-        },
-    )
-
-    assert rendered.returncode == 0, rendered.stderr
-    assert "server mtproto_telemt 127.0.0.1:9443 check send-proxy-v2" in rendered.stdout
-    assert "server mtproto_official 127.0.0.1:9445 check backup" in rendered.stdout
-
-
-def test_mtproto_official_fallback_can_split_tls_and_dedicated_ports(tmp_path: Path) -> None:
-    rendered = _helm_template_with_values(
-        tmp_path,
-        {
-            "mtproto": {
-                "domain": "proto.tracegate.test",
-                "tlsDomain": "www.apple.com",
-                "stealth": {"validatedTlsDomains": ["www.apple.com"]},
-                "publicPort": 8443,
-                "fallback": {"enabled": True, "mode": "split-ports", "prefer": "official"},
-                "route": {
-                    "mode": "entry-transit-endpoint",
-                    "entry": {"upstreamHost": "198.51.100.109", "fallbackHost": "endpoint.tracegate.test"},
-                    "endpoint": {"allowedProxySources": ["198.51.100.109", "203.0.113.10"]},
-                },
-            }
-        },
-    )
-
-    assert rendered.returncode == 0, rendered.stderr
-    assert "server mtproto_transit_tls 198.51.100.109:443 check" in rendered.stdout
-    assert "server mtproto_transit 198.51.100.109:8443 check" in rendered.stdout
-    assert "use_backend be_mtproto_sni if mtproto_sni mtproto_proxy_src" in rendered.stdout
-    assert "backend be_mtproto_sni" in rendered.stdout
-    assert "server mtproto_official 127.0.0.1:9444 check" in rendered.stdout
-    assert "server mtproto_telemt 127.0.0.1:9443 check send-proxy-v2" in rendered.stdout
-    assert "server mtproto_telemt 127.0.0.1:9443 check send-proxy-v2 backup" not in rendered.stdout
 
 
 def test_mtproto_entry_route_can_split_tls_and_public_upstreams(tmp_path: Path) -> None:
@@ -2710,41 +2631,13 @@ def test_mtproto_entry_route_can_split_tls_and_public_upstreams(tmp_path: Path) 
     assert "server mtproto_endpoint endpoint.tracegate.test:8443 check backup" not in rendered.stdout
 
 
-def test_mtproto_official_fallback_rejects_unsafe_ports_and_prefer(tmp_path: Path) -> None:
-    invalid_mode = _helm_template_with_values(
+def test_mtproto_fallback_is_not_supported_with_mtg_runtime(tmp_path: Path) -> None:
+    unsupported = _helm_template_with_values(
         tmp_path,
-        {"mtproto": {"fallback": {"enabled": True, "mode": "mirror"}}},
+        {"mtproto": {"fallback": {"enabled": True, "mode": "mirror", "prefer": "parallel"}}},
     )
-    assert invalid_mode.returncode != 0
-    assert "mtproto.fallback.mode must be failover or split-ports" in invalid_mode.stderr
-
-    invalid_prefer = _helm_template_with_values(
-        tmp_path,
-        {"mtproto": {"fallback": {"enabled": True, "prefer": "parallel"}}},
-    )
-    assert invalid_prefer.returncode != 0
-    assert "mtproto.fallback.prefer must be telemt or official" in invalid_prefer.stderr
-
-    port_collision = _helm_template_with_values(
-        tmp_path,
-        {"mtproto": {"fallback": {"enabled": True, "officialBackendPort": 9443}}},
-    )
-    assert port_collision.returncode != 0
-    assert "mtproto.fallback.officialBackendPort must differ from mtproto.backendPort" in port_collision.stderr
-
-    public_bind = _helm_template_with_values(
-        tmp_path,
-        {"mtproto": {"fallback": {"enabled": True, "officialBindAddress": "0.0.0.0"}}},
-    )
-    assert public_bind.returncode != 0
-    assert "mtproto.fallback.officialBindAddress must stay loopback" in public_bind.stderr
-
-    split_without_dedicated_port = _helm_template_with_values(
-        tmp_path,
-        {"mtproto": {"fallback": {"enabled": True, "mode": "split-ports"}}},
-    )
-    assert split_without_dedicated_port.returncode != 0
-    assert "mtproto.fallback.mode=split-ports requires mtproto.publicPort to differ" in split_without_dedicated_port.stderr
+    assert unsupported.returncode != 0
+    assert "mtproto.fallback is not supported with the MTG runtime" in unsupported.stderr
 
 
 def test_mtproto_entry_transit_endpoint_route_renders_entry_proxy_and_endpoint_acl(tmp_path: Path) -> None:
@@ -2788,11 +2681,11 @@ def test_mtproto_entry_transit_endpoint_route_renders_entry_proxy_and_endpoint_a
     assert "entry-transit-endpoint" in rendered.stdout
 
 
-def test_mtproto_entry_endpoint_tunnel_keeps_telemt_private_on_endpoint(tmp_path: Path) -> None:
+def test_mtproto_entry_endpoint_tunnel_keeps_mtg_private_on_endpoint(tmp_path: Path) -> None:
     values = _universal_entry_overlay_values()
     values["mtproto"] = {
         "enabled": True,
-        "runtime": "telemt",
+        "runtime": "mtg",
         "domain": "proto.tracegate.test",
         "tlsDomain": "ctlog2024.cdn-e.example.net",
         "publicPort": 443,
@@ -2812,12 +2705,14 @@ def test_mtproto_entry_endpoint_tunnel_keeps_telemt_private_on_endpoint(tmp_path
     entry = _deployment_by_component(rendered.stdout, "gateway-entry")
     endpoint = _deployment_by_component(rendered.stdout, "gateway-endpoint")
     assert "mtproto" not in _containers_by_name(entry["spec"]["template"])
-    assert "mtproto" in _containers_by_name(endpoint["spec"]["template"])
+    endpoint_containers = _containers_by_name(endpoint["spec"]["template"])
+    assert endpoint_containers["mtproto"]["command"] == ["/mtg"]
     assert "acl mtproto_sni req.ssl_sni -i ctlog2024.cdn-e.example.net" in rendered.stdout
     assert "server mtproto_endpoint_tunnel 127.0.0.1:11087 check" in rendered.stdout
     assert '"tag": "mtproto-entry-tunnel-in"' in rendered.stdout
     assert '"inboundTag": ["mtproto-entry-tunnel-in"], "balancerTag": "endpoint-backhaul"' in rendered.stdout
-    assert "proxy_protocol = false" in rendered.stdout
+    assert "proxy-protocol-listener = true" in rendered.stdout
+    assert 'proxies = ["socks5://127.0.0.1' not in rendered.stdout
     assert "frontend fe_tracegate_transit_mtproto" not in rendered.stdout
 
 

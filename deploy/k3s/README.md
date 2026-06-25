@@ -53,7 +53,7 @@ Real deployments must provide these inputs outside the public repository:
 
 - control-plane secrets and database credentials;
 - private profile material for gateway roles;
-- pinned gateway, Telemt and control-plane images;
+- pinned gateway, MTProto and control-plane images;
 - TLS material and decoy content for any externally exposed surfaces;
 - node labels, annotations and host policy;
 - production image pins;
@@ -100,7 +100,7 @@ marker and node-annotation contract; transport encryption and external Secret
 handling remain unchanged.
 
 Tracegate 3 MTProto uses the shared Entry TCP/443 surface and an authenticated
-Entry-to-Endpoint tunnel. Telemt runs only on Endpoint. See
+Entry-to-Endpoint tunnel. MTG runs only on Endpoint in tunnel mode. See
 [docs/tracegate-3-architecture.md](../../docs/tracegate-3-architecture.md).
 
 ## Operational Notes
