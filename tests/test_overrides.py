@@ -117,6 +117,11 @@ def test_hysteria_client_mode_must_keep_authenticated_socks() -> None:
         validate_overrides(ConnectionProtocol.HYSTERIA2, {"client_mode": "tun"})
 
 
+def test_hysteria_allows_tls_insecure_override() -> None:
+    result = validate_overrides(ConnectionProtocol.HYSTERIA2, {"tls_insecure": True})
+    assert result["tls_insecure"] is True
+
+
 def test_shadowsocks2022_shadowtls_overrides_whitelist() -> None:
     result = validate_overrides(
         ConnectionProtocol.SHADOWSOCKS2022_SHADOWTLS,

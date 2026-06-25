@@ -772,7 +772,7 @@ def test_hysteria_direct_connects_to_endpoint_shard_with_canonical_tls_name() ->
     assert cfg["server"] == "token.r1.endpoint.example"
     assert cfg["sni"] == "endpoint.example"
     assert cfg["tls"]["server_name"] == "endpoint.example"
-    assert cfg["tls"]["insecure"] is False
+    assert cfg["tls"]["insecure"] is True
 
 
 def test_hysteria_direct_allows_operator_sni_override() -> None:
@@ -807,6 +807,7 @@ def test_hysteria_direct_allows_operator_sni_override() -> None:
     assert cfg["server"] == "token.r1.endpoint.example"
     assert cfg["sni"] == "hysteria-front.ru"
     assert cfg["tls"]["server_name"] == "hysteria-front.ru"
+    assert cfg["tls"]["insecure"] is True
 
 
 def test_ws_tls_chain_is_rejected() -> None:
@@ -937,6 +938,7 @@ def test_ws_tls_direct_connects_to_endpoint_shard_with_canonical_tls_name() -> N
     assert cfg["connect_host"] == "token.r1.endpoint.example"
     assert cfg["sni"] == "endpoint.example"
     assert cfg["ws"]["host"] == "endpoint.example"
+    assert cfg["tls"]["insecure"] is True
 
 
 def test_grpc_tls_direct_uses_proxied_endpoint_host_and_service_name() -> None:
@@ -1013,6 +1015,7 @@ def test_grpc_tls_direct_can_use_canonical_endpoint_proxy_name() -> None:
     assert cfg["connect_host"] == "token.r1.endpoint.example"
     assert cfg["sni"] == "endpoint.example"
     assert cfg["grpc"]["authority"] == "endpoint.example"
+    assert cfg["tls"]["insecure"] is True
     assert cfg["design_constraints"]["cloudflare_proxied_ingress_required"] is False
     assert cfg["design_constraints"]["origin_site_tls_certificate_required"] is True
 

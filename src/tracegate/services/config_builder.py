@@ -598,6 +598,7 @@ def build_effective_config(
             or "tracegate.v1.Edge"
         )
         grpc_authority = str(overrides.get("grpc_authority") or tls_server_name or "").strip()
+        tls_insecure_default = bool(connect_host and connect_host != tls_server_name)
 
         common = {
             "protocol": "vless",
@@ -609,7 +610,7 @@ def build_effective_config(
             "sni": tls_server_name,
             "tls": {
                 "server_name": tls_server_name,
-                "insecure": bool(overrides.get("tls_insecure", False)),
+                "insecure": bool(overrides.get("tls_insecure", tls_insecure_default)),
                 "alpn": tls_alpn,
             },
             "ws": {
@@ -700,7 +701,7 @@ def build_effective_config(
         )
         tls_payload: dict[str, Any] = {
             "server_name": server_name,
-            "insecure": bool(overrides.get("tls_insecure", False)) or _is_ip_literal(server_name),
+            "insecure": bool(overrides.get("tls_insecure", entry_host != server_name)) or _is_ip_literal(server_name),
             "alpn": ["h3"],
         }
         if ech_config_list:

@@ -219,6 +219,7 @@ def validate_overrides(protocol: ConnectionProtocol, overrides: dict[str, Any]) 
             "local_socks_username",
             "local_socks_password",
             "http_listen",
+            "tls_insecure",
         }
         forbidden = {
             "masquerade",
