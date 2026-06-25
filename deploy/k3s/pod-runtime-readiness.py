@@ -29,7 +29,7 @@ def _documents(path: Path) -> list[dict[str, Any]]:
 def validate(path: Path, phase: str) -> list[str]:
     errors: list[str] = []
     rendered = path.read_text(encoding="utf-8")
-    for removed_surface in ("NAIVEPROXY", "naiveproxy:", "VLESS_ENCRYPTION"):
+    for removed_surface in ("NAIVEPROXY", "naiveproxy:", "VLESS_ENCRYPTION", "gateway-transit", "transit-router"):
         if removed_surface in rendered:
             errors.append(f"removed production surface rendered: {removed_surface}")
     deployments: dict[str, dict[str, Any]] = {}
@@ -37,12 +37,12 @@ def validate(path: Path, phase: str) -> list[str]:
     for doc in _documents(path):
         labels = doc.get("metadata", {}).get("labels", {})
         component = str(labels.get("app.kubernetes.io/component") or "")
-        if component in {"naiveproxy", "transit-router"}:
+        if component in {"naiveproxy", "transit-router", "gateway-transit"}:
             forbidden_components.append(component)
         if doc.get("kind") == "Deployment" and component.startswith("gateway-"):
             deployments[component] = doc
 
-    expected = {"gateway-transit"} if phase == "endpoint-first" else {"gateway-entry", "gateway-transit"}
+    expected = {"gateway-endpoint"} if phase == "endpoint-first" else {"gateway-entry", "gateway-endpoint"}
     if set(deployments) != expected:
         errors.append(f"gateway deployments must be {sorted(expected)}, got {sorted(deployments)}")
     if forbidden_components:
@@ -58,7 +58,7 @@ def validate(path: Path, phase: str) -> list[str]:
         if "persistentVolumeClaim" not in state:
             errors.append(f"{component} gateway-state must use a persistentVolumeClaim")
 
-    endpoint = deployments.get("gateway-transit")
+    endpoint = deployments.get("gateway-endpoint")
     if endpoint:
         pod_spec = endpoint.get("spec", {}).get("template", {}).get("spec", {})
         containers = {row.get("name") for row in pod_spec.get("containers", []) if isinstance(row, dict)}

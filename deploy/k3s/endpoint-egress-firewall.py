@@ -31,6 +31,14 @@ def _mapping(value: Any) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
 
 
+def _endpoint_role(roles: Mapping[str, Any]) -> dict[str, Any]:
+    transit_role = _mapping(roles.get("transit"))
+    endpoint_override = _mapping(roles.get("endpoint"))
+    if endpoint_override:
+        return _merge(transit_role, endpoint_override)
+    return transit_role
+
+
 def _ipv4(value: Any, field: str) -> str:
     address = str(value or "").strip()
     try:
@@ -72,10 +80,11 @@ def render(values: dict[str, Any]) -> str:
         raise SystemExit("architecture.endpointIngress requires at least one active shard")
 
     gateway = _mapping(values.get("gateway"))
-    endpoint_role = _mapping(_mapping(gateway.get("roles")).get("transit"))
+    roles = _mapping(gateway.get("roles"))
+    endpoint_role = _endpoint_role(roles)
     udp_port = _port(
         _mapping(endpoint_role.get("ports")).get("publicUdp"),
-        "gateway.roles.transit.ports.publicUdp",
+        "gateway.roles.endpoint.ports.publicUdp",
     )
 
     lines = [

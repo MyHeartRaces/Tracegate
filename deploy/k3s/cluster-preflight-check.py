@@ -40,6 +40,16 @@ def _as_dict(value: Any) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
 
 
+def _endpoint_role_key(roles: Mapping[str, Any]) -> str:
+    return "endpoint" if isinstance(roles.get("endpoint"), Mapping) else "transit"
+
+
+def _endpoint_role(roles: Mapping[str, Any]) -> dict[str, Any]:
+    legacy = _as_dict(roles.get("transit"))
+    endpoint = _as_dict(roles.get("endpoint"))
+    return _merge_values(legacy, endpoint) if endpoint else legacy
+
+
 def _text(value: Any) -> str:
     if value is None:
         return ""
@@ -85,7 +95,7 @@ def _experimental_requested(values: Mapping[str, Any]) -> bool:
         for value in (
             experimental.get("enabled"),
             direct.get("enabled"),
-            _as_dict(direct.get("mieru")).get("enabled"),
+            _as_dict(direct.get("shadowsocks2022")).get("enabled"),
             _as_dict(direct.get("restls")).get("enabled"),
             tuic.get("enabled"),
             tuic.get("directEnabled"),
@@ -98,15 +108,15 @@ def _entry_small_containers(values: Mapping[str, Any]) -> list[str]:
     interconnect = _as_dict(values.get("interconnect"))
     entry_transit = _as_dict(interconnect.get("entryTransit"))
     outer_carrier = _as_dict(entry_transit.get("outerCarrier"))
-    mieru = _as_dict(interconnect.get("mieru"))
+    shadowsocks2022 = _as_dict(interconnect.get("shadowsocks2022"))
     zapret2 = _as_dict(interconnect.get("zapret2"))
     containers = ["agent", "haproxy", "nginx", "xray", "hysteria"]
-    if _enabled(mieru.get("enabled")) and (
+    if _enabled(shadowsocks2022.get("enabled")) and (
         _enabled(entry_transit.get("enabled")) or _enabled(_as_dict(entry_transit.get("routerEntry")).get("enabled"))
     ):
-        containers.append("mieru")
+        containers.append("shadowsocks2022")
     if (
-        _enabled(mieru.get("enabled"))
+        _enabled(shadowsocks2022.get("enabled"))
         and _enabled(entry_transit.get("enabled"))
         and _enabled(outer_carrier.get("enabled"))
         and _text(outer_carrier.get("mode")) == "wss"
@@ -230,7 +240,7 @@ def _private_profile_secret_keys(values: dict[str, Any]) -> set[str]:
     roles = _as_dict(gateway.get("roles"))
     interconnect = _as_dict(values.get("interconnect"))
     entry_transit = _as_dict(interconnect.get("entryTransit"))
-    mieru = _as_dict(interconnect.get("mieru"))
+    shadowsocks2022 = _as_dict(interconnect.get("shadowsocks2022"))
     zapret2 = _as_dict(interconnect.get("zapret2"))
     shadowsocks2022 = _as_dict(values.get("shadowsocks2022"))
     wireguard = _as_dict(values.get("wireguard"))
@@ -238,10 +248,13 @@ def _private_profile_secret_keys(values: dict[str, Any]) -> set[str]:
     experimental = _as_dict(values.get("experimentalProfiles"))
     direct_obfuscation = _as_dict(experimental.get("directTransitObfuscation"))
     tuic = _as_dict(experimental.get("tuicV5"))
+    architecture_mode = _text(_as_dict(values.get("architecture")).get("mode")) or "legacy-three-node"
+    legacy_link_crypto_enabled = architecture_mode != "entry-endpoint"
 
     required: set[str] = set()
-    for role_name in ("entry", "transit"):
-        role = _as_dict(roles.get(role_name))
+    endpoint_role_key = _endpoint_role_key(roles)
+    logical_roles = (("entry", _as_dict(roles.get("entry"))), (endpoint_role_key, _endpoint_role(roles)))
+    for role_name, role in logical_roles:
         if not _enabled(role.get("enabled")):
             continue
         suffix = "Entry" if role_name == "entry" else "Transit"
@@ -250,47 +263,46 @@ def _private_profile_secret_keys(values: dict[str, Any]) -> set[str]:
         required.add(_text(secret_keys.get(f"hysteriaStats{suffix}")))
 
         link_client_enabled = (
-            _enabled(mieru.get("enabled")) and _enabled(entry_transit.get("enabled")) and role_name == "entry"
+            legacy_link_crypto_enabled
+            and _enabled(shadowsocks2022.get("enabled"))
+            and _enabled(entry_transit.get("enabled"))
+            and role_name == "entry"
         )
-        link_server_enabled = _enabled(mieru.get("enabled")) and (
-            (role_name == "transit" and _enabled(entry_transit.get("enabled")))
+        link_server_enabled = legacy_link_crypto_enabled and _enabled(shadowsocks2022.get("enabled")) and (
+            (role_name != "entry" and _enabled(entry_transit.get("enabled")))
             or (role_name == "entry" and _enabled(_as_dict(entry_transit.get("routerEntry")).get("enabled")))
-            or (role_name == "transit" and _enabled(_as_dict(entry_transit.get("routerTransit")).get("enabled")))
+            or (role_name != "entry" and _enabled(_as_dict(entry_transit.get("routerTransit")).get("enabled")))
         )
         link_crypto_enabled = link_client_enabled or link_server_enabled
         if link_client_enabled:
-            required.add(_text(secret_keys.get("mieruClient")))
+            required.add(_text(secret_keys.get("shadowsocks2022LinkClient")))
         if link_server_enabled:
-            required.add(_text(secret_keys.get("mieruServer")))
+            required.add(_text(secret_keys.get("shadowsocks2022LinkServer")))
 
         if _enabled(zapret2.get("enabled")):
             required.add(_text(secret_keys.get(f"zapret{suffix}")))
-            if link_crypto_enabled:
-                required.add(_text(secret_keys.get("zapretInterconnect")))
-            if role_name == "transit" and _enabled(mtproto.get("enabled")):
+            if role_name != "entry" and _enabled(mtproto.get("enabled")):
                 required.add(_text(secret_keys.get("zapretMtproto")))
 
         if _enabled(shadowsocks2022.get("enabled")):
             required.add(_text(secret_keys.get(f"shadowsocks2022{suffix}")))
             required.add(_text(secret_keys.get(f"shadowtls{suffix}")))
 
-        if role_name == "transit" and _enabled(wireguard.get("enabled")):
+        if role_name != "entry" and _enabled(wireguard.get("enabled")):
             required.add(_text(secret_keys.get("wireguard")))
-        if role_name == "transit" and _enabled(mtproto.get("enabled")):
+        if role_name != "entry" and _enabled(mtproto.get("enabled")):
             required.add(_text(secret_keys.get("mtproto")))
 
         lab_direct_enabled = (
-            role_name == "transit"
+            role_name != "entry"
             and _enabled(experimental.get("enabled"))
             and _enabled(direct_obfuscation.get("enabled"))
         )
-        if lab_direct_enabled and _enabled(_as_dict(direct_obfuscation.get("mieru")).get("enabled")):
-            required.add(_text(secret_keys.get("labMieruDirect")))
         if lab_direct_enabled and _enabled(_as_dict(direct_obfuscation.get("restls")).get("enabled")):
             required.add(_text(secret_keys.get("labRestlsDirect")))
 
         lab_tuic_enabled = _enabled(experimental.get("enabled")) and _enabled(tuic.get("enabled")) and (
-            (role_name == "transit" and _enabled(tuic.get("directEnabled"))) or _enabled(tuic.get("chainEnabled"))
+            (role_name != "entry" and _enabled(tuic.get("directEnabled"))) or _enabled(tuic.get("chainEnabled"))
         )
         if lab_tuic_enabled:
             required.add(_text(secret_keys.get(f"labTuic{suffix}")))
@@ -438,9 +450,9 @@ def validate_cluster(
         _text(node_encryption_annotations.get("encryptedRuntime")) or "tracegate.io/encrypted-runtime"
     )
     encrypted_runtime_expected_value = _text(node_encryption_annotations.get("expectedValue")) or "true"
+    endpoint_role_key = _endpoint_role_key(roles)
     role_checks: list[tuple[str, dict[str, Any]]] = []
-    for role_name in ("entry", "transit"):
-        role = _as_dict(roles.get(role_name))
+    for role_name, role in (("entry", _as_dict(roles.get("entry"))), (endpoint_role_key, _endpoint_role(roles))):
         if not _enabled(role.get("enabled")):
             continue
         role_checks.append((role_name, role))
@@ -489,7 +501,7 @@ def validate_cluster(
                     if check_egress_annotations:
                         selector_is_endpoint = bool(endpoint_selector) and _same_selector(selector, endpoint_selector)
                         requires_ingress_annotation = not selector_is_endpoint or endpoint_ingress_enabled
-                        requires_egress_annotation = role_name == "transit" or selector_is_endpoint
+                        requires_egress_annotation = role_name != "entry" or selector_is_endpoint
                         ingress_ips = _csv_set(annotations.get(ingress_annotation_key))
                         if requires_ingress_annotation and node_name not in checked_ingress_annotation_nodes:
                             if not ingress_ips:
@@ -547,8 +559,8 @@ def validate_cluster(
     state_storage = _as_dict(gateway.get("stateStorage"))
     if _text(state_storage.get("mode")) == "pvc":
         existing_claims = _as_dict(state_storage.get("existingClaims"))
-        for role_name in ("entry", "transit"):
-            if not _enabled(_as_dict(roles.get(role_name)).get("enabled")):
+        for role_name, role in (("entry", _as_dict(roles.get("entry"))), (endpoint_role_key, _endpoint_role(roles))):
+            if not _enabled(role.get("enabled")):
                 continue
             claim_name = _text(existing_claims.get(role_name))
             if claim_name:

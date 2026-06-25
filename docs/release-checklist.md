@@ -35,7 +35,7 @@ Production promotion gates run from the operator environment.
 
 - Confirm Endpoint has four distinct IPv4 addresses: one service/egress and
   three ingress shards.
-- Confirm only `gateway-transit` renders in `endpoint-first`.
+- Confirm only `gateway-endpoint` renders in `endpoint-first`.
 - Run `pod-runtime-readiness.py` and confirm WGWS, Telemt and all Endpoint
   runtimes are pod containers.
 - Confirm gateway state is PVC-backed and no Endpoint gateway volume uses

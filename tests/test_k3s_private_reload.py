@@ -57,26 +57,19 @@ def _private_file_ref(path: str) -> dict:
 
 def _zapret2_policy() -> dict:
     return {
-        "enabled": True,
-        "required": True,
-        "profileFile": "/etc/tracegate/private/zapret/entry-transit.env",
-        "profileSource": "private-file-reference",
-        "profileRef": _private_file_ref("/etc/tracegate/private/zapret/entry-transit.env"),
-        "packetShaping": "zapret2-scoped",
-        "applyMode": "marked-flow-only",
-        "scope": "link-crypto-flow-only",
-        "targetSurfaces": ["tcp/443", "entry-transit", "router-link-crypto"],
+        "enabled": False,
+        "required": False,
         "hostWideInterception": False,
         "nfqueue": False,
-        "failOpen": True,
     }
 
 
 def _tcp_dpi_resistance(*, require_outer_carrier: bool, link_class: str) -> dict:
     required_layers = [
-        "mieru-private-auth",
-        "scoped-zapret2",
-        "private-zapret2-profile",
+        "shadowsocks2022-aead",
+        "shadowtls-v3",
+        "tls13-camouflage",
+        "sing-box-runtime",
         "loopback-only",
         "generation-drain",
         "no-direct-backhaul",
@@ -85,32 +78,12 @@ def _tcp_dpi_resistance(*, require_outer_carrier: bool, link_class: str) -> dict
         required_layers.extend(["outer-wss-tls", "spki-sha256-pin", "hmac-admission"])
     return {
         "enabled": True,
-        "mode": "mieru-wss-spki-hmac-zapret2-scoped" if require_outer_carrier else "mieru-zapret2-scoped",
+        "mode": "shadowsocks2022-wss-spki-hmac" if require_outer_carrier else "shadowsocks2022-direct",
         "requiredLayers": required_layers,
         "outerCarrier": {
             "required": require_outer_carrier,
             "spkiPinningRequired": require_outer_carrier,
             "hmacAdmissionRequired": require_outer_carrier,
-        },
-        "zapret2": {
-            "required": True,
-            "enabled": True,
-            "profileSource": "private-file-reference",
-            "profileRef": _private_file_ref("/etc/tracegate/private/zapret/entry-transit.env"),
-            "packetShaping": "zapret2-scoped",
-            "applyMode": "marked-flow-only",
-            "scope": "link-crypto-flow-only",
-            "hostWideInterception": False,
-            "nfqueue": False,
-        },
-        "trafficShaping": {
-            "required": True,
-            "strategy": "private-zapret2-profile",
-            "profileSource": "private-file-reference",
-            "profileRef": _private_file_ref("/etc/tracegate/private/link-crypto/tcp-shaping.env"),
-            "scope": "marked-flow-only",
-            "target": "tcp/443-outer-wss" if require_outer_carrier else "tcp/443-link-crypto",
-            "secretMaterial": False,
         },
         "promotionPreflight": {
             "required": True,
@@ -118,8 +91,8 @@ def _tcp_dpi_resistance(*, require_outer_carrier: bool, link_class: str) -> dict
             "profileSource": "private-file-reference",
             "profileRef": _private_file_ref("/etc/tracegate/private/link-crypto/promotion-preflight.env"),
             "checks": [
-                "mieru-private-auth",
-                "zapret2-scoped-profile",
+                "shadowsocks2022-aead",
+                "shadowtls-v3",
                 "no-direct-backhaul",
             ]
             + (["spki-pin", "hmac-admission"] if require_outer_carrier else []),
@@ -432,13 +405,13 @@ def _write_link_crypto_handoff(
                 "enabled": True,
                 "role": role_upper,
                 "side": side,
-                "carrier": "mieru",
+                "carrier": "shadowsocks2022",
                 "managedBy": "link-crypto",
                 "xrayBackhaul": False,
                 "generation": 1,
                 "profileRef": {
                     "kind": "file",
-                    "path": f"/etc/tracegate/private/mieru/{'client' if side == 'client' else 'server'}.json",
+                    "path": f"/etc/tracegate/private/link-crypto-ss2022/{'client' if side == 'client' else 'server'}.json",
                     "secretMaterial": True,
                 },
                 "local": {"listen": f"127.0.0.1:{local_port}", "auth": {"required": True, "mode": "private-profile"}},
@@ -465,7 +438,7 @@ def _write_link_crypto_handoff(
             "TRACEGATE_LINK_CRYPTO_SECRET_MATERIAL": "false",
             "TRACEGATE_LINK_CRYPTO_COUNT": 1,
             "TRACEGATE_LINK_CRYPTO_CLASSES": link_class,
-            "TRACEGATE_LINK_CRYPTO_CARRIER": "mieru",
+            "TRACEGATE_LINK_CRYPTO_CARRIER": "shadowsocks2022",
             "TRACEGATE_LINK_CRYPTO_OUTER_CARRIER_ENABLED": "true" if link_class == "entry-transit" else "false",
             "TRACEGATE_LINK_CRYPTO_OUTER_CARRIER_MODE": "wss" if link_class == "entry-transit" else "direct",
             "TRACEGATE_LINK_CRYPTO_OUTER_WSS_SERVER_NAME": "bridge.example.com",
@@ -475,12 +448,12 @@ def _write_link_crypto_handoff(
             "TRACEGATE_LINK_CRYPTO_OUTER_WSS_SPKI_PINNING_REQUIRED": "true" if link_class == "entry-transit" else "false",
             "TRACEGATE_LINK_CRYPTO_OUTER_WSS_ADMISSION_REQUIRED": "true" if link_class == "entry-transit" else "false",
             "TRACEGATE_LINK_CRYPTO_GENERATION": 1,
-            "TRACEGATE_LINK_CRYPTO_ZAPRET2_ENABLED": "true",
-            "TRACEGATE_LINK_CRYPTO_ZAPRET2_REQUIRED": "true",
+            "TRACEGATE_LINK_CRYPTO_ZAPRET2_ENABLED": "false",
+            "TRACEGATE_LINK_CRYPTO_ZAPRET2_REQUIRED": "false",
             "TRACEGATE_LINK_CRYPTO_ZAPRET2_HOST_WIDE_INTERCEPTION": "false",
             "TRACEGATE_LINK_CRYPTO_ZAPRET2_NFQUEUE": "false",
             "TRACEGATE_LINK_CRYPTO_TCP_DPI_RESISTANCE_REQUIRED": "true",
-            "TRACEGATE_LINK_CRYPTO_TCP_TRAFFIC_SHAPING_REQUIRED": "true",
+            "TRACEGATE_LINK_CRYPTO_TCP_TRAFFIC_SHAPING_REQUIRED": "false",
             "TRACEGATE_LINK_CRYPTO_PROMOTION_PREFLIGHT_REQUIRED": "true",
         },
     )
@@ -516,9 +489,9 @@ def _router_route_from_link(row: dict) -> dict:
             "hostWideInterception": False,
             "nfqueue": False,
             "profileRefs": {
-                "mieruClient": {
+                "shadowsocks2022Client": {
                     "kind": "file",
-                    "path": f"/etc/tracegate/private/router/{role_lower}/{link_class}/mieru-client.json",
+                    "path": f"/etc/tracegate/private/router/{role_lower}/{link_class}/shadowsocks2022-client.json",
                     "secretMaterial": True,
                 }
             },
@@ -600,7 +573,7 @@ def _write_router_handoff_bundle(root: Path, *, role: str, contract: dict, contr
                 "listen": row["serverListen"],
                 "auth": row["auth"],
             },
-            "carrier": "mieru",
+            "carrier": "shadowsocks2022",
             "outerCarrier": row["outerCarrier"],
         }
         for row in tcp_routes
@@ -629,7 +602,7 @@ def _write_router_handoff_bundle(root: Path, *, role: str, contract: dict, contr
         },
         "components": [
             {
-                "name": "mieru-client",
+                "name": "sing-box-shadowtls-client",
                 "required": bool(bundle_routes),
                 "transports": ["tcp"],
                 "failClosed": True,
@@ -667,7 +640,7 @@ def _write_router_handoff_bundle(root: Path, *, role: str, contract: dict, contr
             "TRACEGATE_ROUTER_CLIENT_BUNDLE_HANDOFF_JSON": state_path,
             "TRACEGATE_ROUTER_CLIENT_BUNDLE_SECRET_MATERIAL": "false",
             "TRACEGATE_ROUTER_CLIENT_BUNDLE_ENABLED": "true" if bundle_routes else "false",
-            "TRACEGATE_ROUTER_CLIENT_BUNDLE_COMPONENTS": "mieru-client" if bundle_routes else "",
+            "TRACEGATE_ROUTER_CLIENT_BUNDLE_COMPONENTS": "sing-box-shadowtls-client" if bundle_routes else "",
             "TRACEGATE_ROUTER_CLIENT_BUNDLE_TCP_COUNT": len(bundle_routes),
             "TRACEGATE_ROUTER_CLIENT_BUNDLE_UDP_COUNT": 0,
             "TRACEGATE_ROUTER_CLIENT_BUNDLE_REQUIRES_BOTH_SIDES": "true" if bundle_routes else "false",
@@ -811,7 +784,7 @@ def test_k3s_private_reload_validates_link_crypto_and_writes_marker(tmp_path: Pa
     marker = json.loads(Path(str(result["markerPath"])).read_text(encoding="utf-8"))
     assert marker["component"] == "link-crypto"
     assert marker["summary"]["classes"]["entryTransit"] == 1
-    assert marker["summary"]["carriers"] == ["mieru"]
+    assert marker["summary"]["carriers"] == ["shadowsocks2022"]
     assert marker["summary"]["remote"] == {"roles": ["TRANSIT"], "endpointCount": 1}
     assert marker["summary"]["outerCarrier"] == {
         "enabled": 1,
@@ -922,7 +895,7 @@ def test_k3s_private_reload_link_crypto_validates_router_client_bundle(tmp_path:
     assert router["enabled"] is True
     assert router["counts"] == {"total": 1, "tcp": 1, "udp": 0}
     assert router["classes"] == {"tcp": ["router-entry"], "udp": []}
-    assert router["bundle"]["components"]["required"] == ["mieru-client"]
+    assert router["bundle"]["components"]["required"] == ["sing-box-shadowtls-client"]
     assert router["bundle"]["profileDistribution"] == "external-private-files"
     assert router["profileRefs"] == {
         "total": 2,
@@ -930,7 +903,7 @@ def test_k3s_private_reload_link_crypto_validates_router_client_bundle(tmp_path:
         "secretMaterial": 2,
         "missingPath": 0,
     }
-    assert router["env"]["clientComponents"] == ["mieru-client"]
+    assert router["env"]["clientComponents"] == ["sing-box-shadowtls-client"]
     assert router["env"]["clientFailClosed"] is True
     assert router["sources"]["clientBundle"]["sizeBytes"] > 0
     assert router["sources"]["clientEnv"]["mtimeNs"] > 0
@@ -969,10 +942,12 @@ def test_k3s_private_reload_fails_on_invalid_handoff(tmp_path: Path) -> None:
     private_root = tmp_path / "private"
     state_path = _write_link_crypto_handoff(private_root, role="ENTRY", contract=contract, contract_path=contract_path)
     state = json.loads(state_path.read_text(encoding="utf-8"))
-    state["links"][0]["zapret2"]["nfqueue"] = True
+    state["links"][0]["dpiResistance"]["requiredLayers"] = [
+        layer for layer in state["links"][0]["dpiResistance"]["requiredLayers"] if layer != "shadowtls-v3"
+    ]
     _write_json(state_path, state)
 
-    with pytest.raises(K3sPrivateReloadError, match="nfqueue"):
+    with pytest.raises(K3sPrivateReloadError, match="shadowtls-v3"):
         run_private_reload(
             component="link-crypto",
             role="ENTRY",

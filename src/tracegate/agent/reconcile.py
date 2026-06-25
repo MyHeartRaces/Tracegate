@@ -585,17 +585,9 @@ def _build_link_crypto_contract_payload(settings: Settings) -> dict[str, object]
         settings.private_link_crypto_outer_wss_admission_profile,
         fallback="outer-wss-admission.env",
     )
-    tcp_shaping_profile = private_link_crypto_profile(
-        settings.private_link_crypto_tcp_shaping_profile,
-        fallback="tcp-shaping.env",
-    )
     promotion_preflight_profile = private_link_crypto_profile(
         settings.private_link_crypto_promotion_preflight_profile,
         fallback="promotion-preflight.env",
-    )
-    zapret_profile = str(
-        Path(str(settings.private_zapret_profile_dir or "").strip() or "/etc/tracegate/private/zapret")
-        / (str(settings.private_zapret_profile_interconnect or "").strip() or "entry-transit-stealth.env")
     )
     outer_carrier = {
         "enabled": outer_carrier_enabled,
@@ -635,9 +627,10 @@ def _build_link_crypto_contract_payload(settings: Settings) -> dict[str, object]
         },
     }
     tcp_required_layers = [
-        "mieru-private-auth",
-        "scoped-zapret2",
-        "private-zapret2-profile",
+        "shadowsocks2022-aead",
+        "shadowtls-v3",
+        "tls13-camouflage",
+        "sing-box-runtime",
         "loopback-only",
         "generation-drain",
         "no-direct-backhaul",
@@ -647,32 +640,12 @@ def _build_link_crypto_contract_payload(settings: Settings) -> dict[str, object]
     tcp_link_enabled = bool(classes)
     tcp_dpi_resistance = {
         "enabled": tcp_link_enabled,
-        "mode": "mieru-wss-spki-hmac-zapret2-scoped" if outer_carrier_enabled else "mieru-zapret2-scoped",
+        "mode": "shadowsocks2022-wss-spki-hmac" if outer_carrier_enabled else "shadowsocks2022-direct",
         "requiredLayers": tcp_required_layers,
         "outerCarrier": {
             "required": outer_carrier_enabled,
             "spkiPinningRequired": outer_carrier_enabled,
             "hmacAdmissionRequired": outer_carrier_enabled,
-        },
-        "zapret2": {
-            "required": True,
-            "enabled": bool(settings.private_link_crypto_zapret2_enabled),
-            "profileSource": "private-file-reference",
-            "profileRef": private_file_ref(zapret_profile),
-            "packetShaping": "zapret2-scoped",
-            "applyMode": "marked-flow-only",
-            "scope": "link-crypto-flow-only",
-            "hostWideInterception": False,
-            "nfqueue": False,
-        },
-        "trafficShaping": {
-            "required": True,
-            "strategy": "private-zapret2-profile",
-            "profileSource": "private-file-reference",
-            "profileRef": private_file_ref(tcp_shaping_profile),
-            "scope": "marked-flow-only",
-            "target": "tcp/443-outer-wss" if outer_carrier_enabled else "tcp/443-link-crypto",
-            "secretMaterial": False,
         },
         "promotionPreflight": {
             "required": True,
@@ -680,8 +653,8 @@ def _build_link_crypto_contract_payload(settings: Settings) -> dict[str, object]
             "profileSource": "private-file-reference",
             "profileRef": private_file_ref(promotion_preflight_profile),
             "checks": [
-                "mieru-private-auth",
-                "zapret2-scoped-profile",
+                "shadowsocks2022-aead",
+                "shadowtls-v3",
                 "no-direct-backhaul",
             ]
             + (["spki-pin", "hmac-admission"] if outer_carrier_enabled else []),
@@ -689,31 +662,8 @@ def _build_link_crypto_contract_payload(settings: Settings) -> dict[str, object]
         },
     }
     inner_carrier = str(settings.private_link_crypto_inner_carrier or "").strip().lower()
-    if inner_carrier not in {"mieru", "shadowsocks2022"}:
-        inner_carrier = "mieru"
-    if inner_carrier == "shadowsocks2022":
-        tcp_required_layers = ["shadowsocks2022-aead", "loopback-only", "generation-drain", "no-direct-backhaul"]
-        if outer_carrier_enabled:
-            tcp_required_layers.extend(["outer-wss-tls", "spki-sha256-pin", "hmac-admission"])
-        tcp_dpi_resistance = {
-            "enabled": tcp_link_enabled,
-            "mode": "shadowsocks2022-wss-spki-hmac" if outer_carrier_enabled else "shadowsocks2022-direct",
-            "requiredLayers": tcp_required_layers,
-            "outerCarrier": {
-                "required": outer_carrier_enabled,
-                "spkiPinningRequired": outer_carrier_enabled,
-                "hmacAdmissionRequired": outer_carrier_enabled,
-            },
-            "promotionPreflight": {
-                "required": True,
-                "failClosed": True,
-                "profileSource": "private-file-reference",
-                "profileRef": private_file_ref(promotion_preflight_profile),
-                "checks": ["shadowsocks2022-aead", "no-direct-backhaul"]
-                + (["spki-pin", "hmac-admission"] if outer_carrier_enabled else []),
-                "secretMaterial": False,
-            },
-        }
+    if inner_carrier != "shadowsocks2022":
+        inner_carrier = "shadowsocks2022"
     udp_hardening = {
         "enabled": bool(settings.private_udp_link_hardening_enabled),
         "failClosed": True,
@@ -837,18 +787,10 @@ def _build_link_crypto_contract_payload(settings: Settings) -> dict[str, object]
             "selectedProfiles": udp_selected_profiles,
         },
         "zapret2": {
-            "enabled": bool(settings.private_link_crypto_zapret2_enabled),
-            "required": True,
-            "profileFile": zapret_profile,
-            "profileSource": "private-file-reference",
-            "profileRef": private_file_ref(zapret_profile),
-            "packetShaping": "zapret2-scoped",
-            "applyMode": "marked-flow-only",
-            "scope": "link-crypto-flow-only",
-            "targetSurfaces": ["tcp/443", "entry-transit", "router-link-crypto"],
+            "enabled": False,
+            "required": False,
             "hostWideInterception": False,
             "nfqueue": False,
-            "failOpen": True,
         },
     }
     if tcp_link_enabled:

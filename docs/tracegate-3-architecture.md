@@ -9,9 +9,9 @@ Endpoint has four public IPv4 addresses:
 - one service/egress IP with no proxy client listeners;
 - three direct/Backup client-ingress shard IPs.
 
-Every Endpoint data-plane runtime runs in the k3s `gateway-transit`
-compatibility pod, including Telemt and WireGuard-over-WebSocket. Gateway state
-uses a PVC; hostPath data-plane state is forbidden.
+Every Endpoint data-plane runtime runs in the k3s `gateway-endpoint` pod,
+including Telemt and WireGuard-over-WebSocket. Gateway state uses a PVC;
+hostPath data-plane state is forbidden.
 
 Direct VLESS Reality revisions lease exclusive active
 `(Endpoint shard IP, SNI)` pairs. HAProxy binds TCP only to active/draining
@@ -30,19 +30,20 @@ Entry retains the global 65 Mbit/s cap.
 
 ## Entry-to-Endpoint link-crypto interconnect
 
-The secure Entry↔Endpoint interconnect runs an inner encrypted carrier inside
-the mandatory WSS (wstunnel) outer tunnel. Mieru is the current inner carrier;
-an additive migration to Shadowsocks-2022 (sing-box) is implemented behind
-`interconnect.entryTransit.innerCarrier` (default `mieru`), with the carrier
-swap gated on a production soak. The UDP backhaul stays on Hysteria2/Salamander.
+The secure Entry↔Endpoint interconnect runs a sing-box Shadowsocks-2022 AEAD
+inner carrier with ShadowTLS v3 camouflage inside the mandatory WSS
+(wstunnel) outer tunnel. `interconnect.entryTransit.innerCarrier` is locked to
+`shadowsocks2022`; promotion checks require SS2022 AEAD, ShadowTLS v3,
+SPKI-pinned WSS, HMAC admission and no direct backhaul. The UDP backhaul stays
+on Hysteria2/Salamander.
 
 ## Excluded from new production
 
-NaiveProxy (removed in Tracegate 3), MasterDNS, host-wide Zapret2 NFQUEUE,
-legacy Transit, `transitRouter`, host-level LUKS runtime guards and
-experimental profiles are outside the pod-only new-production contract.
-Mieru and scoped zapret2 are **not** excluded — they are the active inner
-link-crypto carrier and its flow-scoped DPI shaping.
+NaiveProxy, MasterDNS, host-wide Zapret2 NFQUEUE, legacy Transit,
+`transitRouter`, host-level LUKS runtime guards and experimental profiles are
+outside the pod-only new-production contract. Scoped zapret2 may still exist
+for non-link-crypto surfaces such as MTProto, but it is not part of the TCP
+link-crypto carrier.
 
 ## Public-safe inputs
 

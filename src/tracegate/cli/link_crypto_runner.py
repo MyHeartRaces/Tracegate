@@ -18,7 +18,7 @@ from tracegate.services.runtime_preflight import RuntimePreflightError
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="tracegate-link-crypto-runner",
-        description="Validate and operate Tracegate private link-crypto Mieru/Hysteria2 runner plans.",
+        description="Validate and operate Tracegate private link-crypto Shadowsocks-2022/ShadowTLS and Hysteria2 runner plans.",
     )
     parser.add_argument("action", choices=["plan", "validate", "start", "reload", "stop"])
     parser.add_argument("--role", required=True, choices=["ENTRY", "TRANSIT", "entry", "transit"])
@@ -26,11 +26,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--runtime-contract", default="", help="runtime-contract.json override")
     parser.add_argument("--runtime-dir", default="/var/lib/tracegate/private/link-crypto/runtime")
     parser.add_argument("--plan-file", default="", help="runner plan output path")
-    parser.add_argument("--mieru-bin", default="mieru")
+    parser.add_argument("--sing-box-bin", default="sing-box")
     parser.add_argument("--hysteria-bin", default="hysteria")
     parser.add_argument("--paired-obfs-runner", default="")
     parser.add_argument("--only-udp", action="store_true", help="operate only UDP Hysteria2/paired-obfs processes")
-    parser.add_argument("--only-mieru", action="store_true", help="operate only Mieru processes")
+    parser.add_argument("--only-tcp", action="store_true", help="operate only TCP Shadowsocks-2022/ShadowTLS processes")
     parser.add_argument("--json", action="store_true", help="print JSON result")
     return parser
 
@@ -38,8 +38,8 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> None:
     parser = build_parser()
     args = parser.parse_args(argv)
-    if args.only_udp and args.only_mieru:
-        raise SystemExit("--only-udp and --only-mieru are mutually exclusive")
+    if args.only_udp and args.only_tcp:
+        raise SystemExit("--only-udp and --only-tcp are mutually exclusive")
     runtime_dir = Path(args.runtime_dir)
     plan_file = Path(args.plan_file) if args.plan_file else runtime_dir / f"{args.role.lower()}-runner-plan.json"
     try:
@@ -52,11 +52,11 @@ def main(argv: list[str] | None = None) -> None:
                 plan_file=plan_file,
                 runtime_contract=Path(args.runtime_contract) if args.runtime_contract else None,
             ),
-            mieru_bin=args.mieru_bin,
+            singbox_bin=args.sing_box_bin,
             hysteria_bin=args.hysteria_bin,
             paired_obfs_runner=args.paired_obfs_runner,
-            include_mieru=not args.only_udp,
-            include_udp=not args.only_mieru,
+            include_tcp=not args.only_udp,
+            include_udp=not args.only_tcp,
         )
         write_link_crypto_runner_plan(plan, plan_file)
         result = apply_link_crypto_runner_plan(plan)

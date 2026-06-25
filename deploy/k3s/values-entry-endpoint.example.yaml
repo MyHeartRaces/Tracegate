@@ -82,6 +82,7 @@ topology:
 controlPlane:
   env:
     defaultEntryHost: edge.example.net
+    defaultEndpointHost: endpoint.example.net
     enabledClientProfiles:
       - reality
       - hysteria
@@ -139,6 +140,9 @@ gateway:
       enabled: true
       canonicalServer: endpoint
       nodeSelector: {tracegate.io/role: endpoint}
+      tls:
+        serverName: endpoint.example.net
+        existingSecretName: tracegate-endpoint-tls
 
 experimentalProfiles:
   enabled: false
@@ -187,6 +191,10 @@ interconnect:
         hMaxRequestTimes: "256-384"
         hMaxReusableSecs: "600-900"
         hKeepAlivePeriod: 45
+  shadowsocks2022:
+    enabled: false
+  zapret2:
+    enabled: false
 
 wireguard:
   enabled: true

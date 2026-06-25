@@ -135,18 +135,8 @@ def _router_profile_path(settings: Settings, *, role_lower: str, link_class: str
     return str(profile_dir / safe_role / safe_class / safe_profile)
 
 
-def _mieru_profile_path(settings: Settings, *, side: str) -> str:
-    profile_dir = Path(str(settings.private_mieru_profile_dir or "").strip() or "/etc/tracegate/private/mieru")
-    if side.strip().lower() == "client":
-        profile_name = str(settings.private_mieru_client_profile or "").strip() or "client.json"
-    else:
-        profile_name = str(settings.private_mieru_server_profile or "").strip() or "server.json"
-    return str(profile_dir / profile_name)
-
-
-def _link_crypto_inner_carrier(settings: Settings) -> str:
-    carrier = str(settings.private_link_crypto_inner_carrier or "").strip().lower()
-    return carrier if carrier in {"mieru", "shadowsocks2022"} else "mieru"
+def _link_crypto_inner_carrier(_settings: Settings) -> str:
+    return "shadowsocks2022"
 
 
 def _shadowsocks2022_link_profile_path(settings: Settings, *, side: str) -> str:
@@ -502,23 +492,6 @@ def _link_crypto_outer_carrier(settings: Settings, *, link_class: str, side: str
     }
 
 
-def _link_crypto_zapret2_policy(settings: Settings, *, profile_file: str) -> dict[str, Any]:
-    return {
-        "enabled": bool(settings.private_link_crypto_zapret2_enabled),
-        "required": True,
-        "profileFile": profile_file,
-        "profileSource": "private-file-reference",
-        "profileRef": _private_file_ref(profile_file),
-        "packetShaping": "zapret2-scoped",
-        "applyMode": "marked-flow-only",
-        "scope": "link-crypto-flow-only",
-        "targetSurfaces": ["tcp/443", "entry-transit", "router-link-crypto"],
-        "hostWideInterception": False,
-        "nfqueue": False,
-        "failOpen": True,
-    }
-
-
 def _link_crypto_tcp_dpi_resistance_shadowsocks2022(
     settings: Settings, *, link_class: str, outer_carrier_enabled: bool
 ) -> dict[str, Any]:
@@ -527,7 +500,15 @@ def _link_crypto_tcp_dpi_resistance_shadowsocks2022(
         settings.private_link_crypto_promotion_preflight_profile,
         fallback="promotion-preflight.env",
     )
-    required_layers = ["shadowsocks2022-aead", "loopback-only", "generation-drain", "no-direct-backhaul"]
+    required_layers = [
+        "shadowsocks2022-aead",
+        "shadowtls-v3",
+        "tls13-camouflage",
+        "sing-box-runtime",
+        "loopback-only",
+        "generation-drain",
+        "no-direct-backhaul",
+    ]
     if outer_carrier_enabled:
         required_layers.extend(["outer-wss-tls", "spki-sha256-pin", "hmac-admission"])
     return {
@@ -544,7 +525,7 @@ def _link_crypto_tcp_dpi_resistance_shadowsocks2022(
             "failClosed": True,
             "profileSource": "private-file-reference",
             "profileRef": _private_file_ref(promotion_profile),
-            "checks": ["shadowsocks2022-aead", "no-direct-backhaul"]
+            "checks": ["shadowsocks2022-aead", "shadowtls-v3", "no-direct-backhaul"]
             + (["spki-pin", "hmac-admission"] if outer_carrier_enabled else []),
             "secretMaterial": False,
         },
@@ -553,83 +534,13 @@ def _link_crypto_tcp_dpi_resistance_shadowsocks2022(
 
 
 def _link_crypto_tcp_dpi_resistance(settings: Settings, *, link_class: str, outer_carrier_enabled: bool) -> dict[str, Any]:
-    if _link_crypto_inner_carrier(settings) == "shadowsocks2022":
-        return _link_crypto_tcp_dpi_resistance_shadowsocks2022(
-            settings, link_class=link_class, outer_carrier_enabled=outer_carrier_enabled
-        )
-    zapret_profile = _interconnect_profile_path(settings)
-    shaping_profile = _link_crypto_private_profile_path(
-        settings,
-        settings.private_link_crypto_tcp_shaping_profile,
-        fallback="tcp-shaping.env",
+    return _link_crypto_tcp_dpi_resistance_shadowsocks2022(
+        settings, link_class=link_class, outer_carrier_enabled=outer_carrier_enabled
     )
-    promotion_profile = _link_crypto_private_profile_path(
-        settings,
-        settings.private_link_crypto_promotion_preflight_profile,
-        fallback="promotion-preflight.env",
-    )
-    required_layers = [
-        "mieru-private-auth",
-        "scoped-zapret2",
-        "private-zapret2-profile",
-        "loopback-only",
-        "generation-drain",
-        "no-direct-backhaul",
-    ]
-    if outer_carrier_enabled:
-        required_layers.extend(["outer-wss-tls", "spki-sha256-pin", "hmac-admission"])
-
-    return {
-        "enabled": True,
-        "mode": "mieru-wss-spki-hmac-zapret2-scoped" if outer_carrier_enabled else "mieru-zapret2-scoped",
-        "requiredLayers": required_layers,
-        "outerCarrier": {
-            "required": bool(outer_carrier_enabled),
-            "spkiPinningRequired": bool(outer_carrier_enabled),
-            "hmacAdmissionRequired": bool(outer_carrier_enabled),
-        },
-        "zapret2": {
-            "required": True,
-            "enabled": bool(settings.private_link_crypto_zapret2_enabled),
-            "profileSource": "private-file-reference",
-            "profileRef": _private_file_ref(zapret_profile),
-            "packetShaping": "zapret2-scoped",
-            "applyMode": "marked-flow-only",
-            "scope": "link-crypto-flow-only",
-            "hostWideInterception": False,
-            "nfqueue": False,
-        },
-        "trafficShaping": {
-            "required": True,
-            "strategy": "private-zapret2-profile",
-            "profileSource": "private-file-reference",
-            "profileRef": _private_file_ref(shaping_profile),
-            "scope": "marked-flow-only",
-            "target": "tcp/443-outer-wss" if outer_carrier_enabled else "tcp/443-link-crypto",
-            "secretMaterial": False,
-        },
-        "promotionPreflight": {
-            "required": True,
-            "failClosed": True,
-            "profileSource": "private-file-reference",
-            "profileRef": _private_file_ref(promotion_profile),
-            "checks": [
-                "mieru-private-auth",
-                "zapret2-scoped-profile",
-                "no-direct-backhaul",
-            ]
-            + (["spki-pin", "hmac-admission"] if outer_carrier_enabled else []),
-            "secretMaterial": False,
-        },
-        "linkClass": link_class,
-    }
 
 
 def _link_crypto_profile_ref(settings: Settings, *, side: str) -> dict[str, Any]:
-    if _link_crypto_inner_carrier(settings) == "shadowsocks2022":
-        path = _shadowsocks2022_link_profile_path(settings, side=side)
-    else:
-        path = _mieru_profile_path(settings, side=side)
+    path = _shadowsocks2022_link_profile_path(settings, side=side)
     return {
         "kind": "file",
         "path": path,
@@ -688,8 +599,6 @@ def _link_crypto_row(
             "dropUnrelatedTraffic": False,
         },
     }
-    if carrier == "mieru":
-        row["zapret2"] = _link_crypto_zapret2_policy(settings, profile_file=_interconnect_profile_path(settings))
     return row
 
 
@@ -1017,11 +926,11 @@ def _write_link_crypto_state(
         f"TRACEGATE_LINK_CRYPTO_OUTER_WSS_SPKI_PINNING_REQUIRED={_shell_quote(_bool_text(outer_carrier_enabled))}",
         f"TRACEGATE_LINK_CRYPTO_OUTER_WSS_ADMISSION_REQUIRED={_shell_quote(_bool_text(outer_carrier_enabled))}",
         f"TRACEGATE_LINK_CRYPTO_TCP_DPI_RESISTANCE_REQUIRED={_shell_quote(_bool_text(bool(link_classes)))}",
-        f"TRACEGATE_LINK_CRYPTO_TCP_TRAFFIC_SHAPING_REQUIRED={_shell_quote(_bool_text(bool(link_classes)))}",
+        f"TRACEGATE_LINK_CRYPTO_TCP_TRAFFIC_SHAPING_REQUIRED={_shell_quote(_bool_text(False))}",
         f"TRACEGATE_LINK_CRYPTO_PROMOTION_PREFLIGHT_REQUIRED={_shell_quote(_bool_text(bool(link_classes)))}",
         f"TRACEGATE_LINK_CRYPTO_GENERATION={_shell_quote(int(settings.private_link_crypto_generation or 1))}",
-        f"TRACEGATE_LINK_CRYPTO_ZAPRET2_ENABLED={_shell_quote(_bool_text(bool(settings.private_link_crypto_zapret2_enabled)))}",
-        f"TRACEGATE_LINK_CRYPTO_ZAPRET2_REQUIRED={_shell_quote(_bool_text(bool(link_classes)))}",
+        f"TRACEGATE_LINK_CRYPTO_ZAPRET2_ENABLED={_shell_quote(_bool_text(False))}",
+        f"TRACEGATE_LINK_CRYPTO_ZAPRET2_REQUIRED={_shell_quote(_bool_text(False))}",
         f"TRACEGATE_LINK_CRYPTO_ZAPRET2_HOST_WIDE_INTERCEPTION={_shell_quote(_bool_text(False))}",
         f"TRACEGATE_LINK_CRYPTO_ZAPRET2_NFQUEUE={_shell_quote(_bool_text(False))}",
     ]
@@ -1077,13 +986,14 @@ def _router_client_profile_refs(
         return refs
 
     return {
-        "mieruClient": {
+        "shadowsocks2022Client": {
             "kind": "file",
             "path": _router_profile_path(
                 settings,
                 role_lower=role_lower,
                 link_class=link_class,
-                profile_name=str(settings.private_router_mieru_client_profile or "").strip() or "mieru-client.json",
+                profile_name=str(settings.private_router_shadowsocks2022_client_profile or "").strip()
+                or "shadowsocks2022-client.json",
             ),
             "secretMaterial": True,
         }
@@ -1221,7 +1131,7 @@ def _router_client_route(row: dict[str, Any], *, transport: str) -> dict[str, An
         },
     }
     if transport == "tcp":
-        route["carrier"] = "mieru"
+        route["carrier"] = "shadowsocks2022"
         route["outerCarrier"] = _mapping(row.get("outerCarrier"))
     else:
         route["carrier"] = "hysteria2"
@@ -1244,7 +1154,7 @@ def _router_client_bundle_payload(
     paired_obfs_enabled = any(bool(_mapping(row.get("pairedObfs")).get("enabled", False)) for row in udp_routes)
     components = [
         {
-            "name": "mieru-client",
+            "name": "sing-box-shadowtls-client",
             "required": bool(tcp_routes),
             "transports": ["tcp"],
             "failClosed": True,

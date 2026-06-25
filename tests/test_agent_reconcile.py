@@ -976,14 +976,14 @@ def test_reconcile_runtime_contract_exposes_private_wrapper_state(tmp_path: Path
     }
     assert runtime_contract["linkCrypto"]["localPorts"] == {"entry-transit": 10882}
     assert runtime_contract["linkCrypto"]["selectedProfiles"] == {"entry-transit": ["V1", "V3"]}
-    assert runtime_contract["linkCrypto"]["dpiResistance"]["mode"] == "mieru-wss-spki-hmac-zapret2-scoped"
+    assert runtime_contract["linkCrypto"]["dpiResistance"]["mode"] == "shadowsocks2022-wss-spki-hmac"
     assert runtime_contract["linkCrypto"]["dpiResistance"]["outerCarrier"] == {
         "required": True,
         "spkiPinningRequired": True,
         "hmacAdmissionRequired": True,
     }
-    assert runtime_contract["linkCrypto"]["zapret2"]["enabled"] is True
-    assert runtime_contract["linkCrypto"]["zapret2"]["required"] is True
+    assert runtime_contract["linkCrypto"]["zapret2"]["enabled"] is False
+    assert runtime_contract["linkCrypto"]["zapret2"]["required"] is False
     assert runtime_contract["linkCrypto"]["zapret2"]["hostWideInterception"] is False
     assert runtime_contract["paths"]["xrayConfig"].endswith("/runtime/xray/config.json")
     assert runtime_contract["paths"]["nginxConfig"].endswith("/runtime/nginx/nginx.conf")
@@ -1678,7 +1678,7 @@ def test_reconcile_materializes_link_crypto_handoff_without_private_secrets(tmp_
     }
     assert state["links"][0]["class"] == "entry-transit"
     assert state["links"][0]["side"] == "client"
-    assert state["links"][0]["carrier"] == "mieru"
+    assert state["links"][0]["carrier"] == "shadowsocks2022"
     assert state["links"][0]["managedBy"] == "link-crypto"
     assert state["links"][0]["xrayBackhaul"] is False
     assert state["links"][0]["generation"] == 7
@@ -1726,17 +1726,14 @@ def test_reconcile_materializes_link_crypto_handoff_without_private_secrets(tmp_
     }
     assert state["links"][0]["profileRef"] == {
         "kind": "file",
-        "path": "/etc/tracegate/private/mieru/client.json",
+        "path": "/etc/tracegate/private/link-crypto-ss2022/client.json",
         "secretMaterial": True,
     }
     assert state["links"][0]["local"]["auth"]["required"] is True
     assert state["links"][0]["local"]["auth"]["mode"] == "private-profile"
-    assert state["links"][0]["dpiResistance"]["mode"] == "mieru-wss-spki-hmac-zapret2-scoped"
-    assert state["links"][0]["dpiResistance"]["trafficShaping"]["required"] is True
-    assert state["links"][0]["zapret2"]["enabled"] is True
-    assert state["links"][0]["zapret2"]["required"] is True
-    assert state["links"][0]["zapret2"]["hostWideInterception"] is False
-    assert state["links"][0]["zapret2"]["nfqueue"] is False
+    assert state["links"][0]["dpiResistance"]["mode"] == "shadowsocks2022-wss-spki-hmac"
+    assert "trafficShaping" not in state["links"][0]["dpiResistance"]
+    assert "zapret2" not in state["links"][0]
     assert state["links"][0]["rotation"]["restartExisting"] is False
     assert state["udpCounts"] == {
         "total": 1,
@@ -1796,9 +1793,9 @@ def test_reconcile_materializes_link_crypto_handoff_without_private_secrets(tmp_
     assert "TRACEGATE_LINK_CRYPTO_OUTER_WSS_SPKI_PINNING_REQUIRED='true'" in env
     assert "TRACEGATE_LINK_CRYPTO_OUTER_WSS_ADMISSION_REQUIRED='true'" in env
     assert "TRACEGATE_LINK_CRYPTO_TCP_DPI_RESISTANCE_REQUIRED='true'" in env
-    assert "TRACEGATE_LINK_CRYPTO_TCP_TRAFFIC_SHAPING_REQUIRED='true'" in env
+    assert "TRACEGATE_LINK_CRYPTO_TCP_TRAFFIC_SHAPING_REQUIRED='false'" in env
     assert "TRACEGATE_LINK_CRYPTO_PROMOTION_PREFLIGHT_REQUIRED='true'" in env
-    assert "TRACEGATE_LINK_CRYPTO_ZAPRET2_REQUIRED='true'" in env
+    assert "TRACEGATE_LINK_CRYPTO_ZAPRET2_REQUIRED='false'" in env
     assert "TRACEGATE_LINK_CRYPTO_UDP_COUNT='1'" in env
     assert "TRACEGATE_LINK_CRYPTO_UDP_CLASSES='entry-transit-udp'" in env
     assert "TRACEGATE_LINK_CRYPTO_UDP_CARRIER='hysteria2'" in env
@@ -1869,8 +1866,8 @@ def test_reconcile_materializes_router_entry_link_crypto_with_server_profile(tmp
         default_entry_host="entry.tracegate.test",
         default_transit_host="transit.tracegate.test",
         private_link_crypto_router_entry_enabled=True,
-        private_mieru_client_profile="client-private.json",
-        private_mieru_server_profile="server-private.json",
+        private_shadowsocks2022_link_client_profile="client-private.json",
+        private_shadowsocks2022_link_server_profile="server-private.json",
     )
 
     changed = reconcile_all(settings)
@@ -1889,9 +1886,9 @@ def test_reconcile_materializes_router_entry_link_crypto_with_server_profile(tmp
     assert by_class["entry-transit"]["side"] == "client"
     assert by_class["entry-transit"]["managedBy"] == "link-crypto"
     assert by_class["entry-transit"]["xrayBackhaul"] is False
-    assert by_class["entry-transit"]["profileRef"]["path"] == "/etc/tracegate/private/mieru/client-private.json"
+    assert by_class["entry-transit"]["profileRef"]["path"] == "/etc/tracegate/private/link-crypto-ss2022/client-private.json"
     assert by_class["router-entry"]["side"] == "server"
-    assert by_class["router-entry"]["profileRef"]["path"] == "/etc/tracegate/private/mieru/server-private.json"
+    assert by_class["router-entry"]["profileRef"]["path"] == "/etc/tracegate/private/link-crypto-ss2022/server-private.json"
     assert by_class["router-entry"]["remote"]["endpoint"] == "entry.tracegate.test:443"
     router_state = json.loads((tmp_path / "private" / "router" / "entry" / "desired-state.json").read_text(encoding="utf-8"))
     router_env = (tmp_path / "private" / "router" / "entry" / "desired-state.env").read_text(encoding="utf-8")
@@ -1913,12 +1910,12 @@ def test_reconcile_materializes_router_entry_link_crypto_with_server_profile(tmp
     assert router_state["counts"] == {"total": 1, "tcp": 1, "udp": 0}
     assert router_state["routes"]["tcp"][0]["class"] == "router-entry"
     assert router_state["routes"]["tcp"][0]["publicEndpoint"] == "entry.tracegate.test:443"
-    assert router_state["routes"]["tcp"][0]["profileRef"]["path"] == "/etc/tracegate/private/mieru/server-private.json"
+    assert router_state["routes"]["tcp"][0]["profileRef"]["path"] == "/etc/tracegate/private/link-crypto-ss2022/server-private.json"
     assert router_state["routes"]["tcp"][0]["routerClient"]["requiresPrivateProfile"] is True
     assert router_state["routes"]["tcp"][0]["routerClient"]["hostWideInterception"] is False
-    assert router_state["routes"]["tcp"][0]["routerClient"]["profileRefs"]["mieruClient"] == {
+    assert router_state["routes"]["tcp"][0]["routerClient"]["profileRefs"]["shadowsocks2022Client"] == {
         "kind": "file",
-        "path": "/etc/tracegate/private/router/entry/router-entry/mieru-client.json",
+        "path": "/etc/tracegate/private/router/entry/router-entry/shadowsocks2022-client.json",
         "secretMaterial": True,
     }
     assert "TRACEGATE_ROUTER_HANDOFF_ENABLED='true'" in router_env
@@ -1939,10 +1936,10 @@ def test_reconcile_materializes_router_entry_link_crypto_with_server_profile(tmp
     }
     assert router_client_bundle["routes"]["tcp"][0]["serverEndpoint"] == "entry.tracegate.test:443"
     assert router_client_bundle["routes"]["tcp"][0]["routerSide"]["failClosed"] is True
-    assert router_client_bundle["routes"]["tcp"][0]["routerSide"]["profileRefs"]["mieruClient"]["path"].endswith(
-        "/entry/router-entry/mieru-client.json"
+    assert router_client_bundle["routes"]["tcp"][0]["routerSide"]["profileRefs"]["shadowsocks2022Client"]["path"].endswith(
+        "/entry/router-entry/shadowsocks2022-client.json"
     )
-    assert "TRACEGATE_ROUTER_CLIENT_BUNDLE_COMPONENTS='mieru-client'" in router_client_env
+    assert "TRACEGATE_ROUTER_CLIENT_BUNDLE_COMPONENTS='sing-box-shadowtls-client'" in router_client_env
     assert "TRACEGATE_ROUTER_CLIENT_BUNDLE_FAIL_CLOSED='true'" in router_client_env
 
 
@@ -1958,7 +1955,7 @@ def test_reconcile_treats_router_handoff_only_change_as_link_crypto_reload(tmp_p
         default_transit_host="transit.tracegate.test",
         private_link_crypto_enabled=False,
         private_link_crypto_router_entry_enabled=True,
-        private_router_mieru_client_profile="mieru-client-a.json",
+        private_router_shadowsocks2022_client_profile="shadowsocks2022-client-a.json",
     )
     assert reconcile_all(initial) == ["link-crypto"]
     assert reconcile_all(initial) == []
@@ -1974,7 +1971,7 @@ def test_reconcile_treats_router_handoff_only_change_as_link_crypto_reload(tmp_p
         default_transit_host="transit.tracegate.test",
         private_link_crypto_enabled=False,
         private_link_crypto_router_entry_enabled=True,
-        private_router_mieru_client_profile="mieru-client-b.json",
+        private_router_shadowsocks2022_client_profile="shadowsocks2022-client-b.json",
     )
 
     assert reconcile_all(changed_router_profile) == ["link-crypto"]
@@ -1992,8 +1989,8 @@ def test_reconcile_materializes_router_entry_link_crypto_without_entry_transit(t
         default_transit_host="transit.tracegate.test",
         private_link_crypto_enabled=False,
         private_link_crypto_router_entry_enabled=True,
-        private_mieru_client_profile="client-private.json",
-        private_mieru_server_profile="server-private.json",
+        private_shadowsocks2022_link_client_profile="client-private.json",
+        private_shadowsocks2022_link_server_profile="server-private.json",
     )
 
     changed = reconcile_all(settings)
@@ -2012,7 +2009,7 @@ def test_reconcile_materializes_router_entry_link_crypto_without_entry_transit(t
     assert [row["class"] for row in state["links"]] == ["router-entry"]
     link = state["links"][0]
     assert link["side"] == "server"
-    assert link["profileRef"]["path"] == "/etc/tracegate/private/mieru/server-private.json"
+    assert link["profileRef"]["path"] == "/etc/tracegate/private/link-crypto-ss2022/server-private.json"
     assert link["remote"]["endpoint"] == "entry.tracegate.test:443"
     assert link["selectedProfiles"] == ["V1", "V3"]
     assert "TRACEGATE_LINK_CRYPTO_COUNT='1'" in env_path.read_text(encoding="utf-8")
@@ -2041,8 +2038,8 @@ def test_reconcile_materializes_router_transit_link_crypto_without_entry_transit
         default_transit_host="transit.tracegate.test",
         private_link_crypto_enabled=False,
         private_link_crypto_router_transit_enabled=True,
-        private_mieru_client_profile="client-private.json",
-        private_mieru_server_profile="server-private.json",
+        private_shadowsocks2022_link_client_profile="client-private.json",
+        private_shadowsocks2022_link_server_profile="server-private.json",
     )
 
     changed = reconcile_all(settings)
@@ -2061,7 +2058,7 @@ def test_reconcile_materializes_router_transit_link_crypto_without_entry_transit
     assert [row["class"] for row in state["links"]] == ["router-transit"]
     link = state["links"][0]
     assert link["side"] == "server"
-    assert link["profileRef"]["path"] == "/etc/tracegate/private/mieru/server-private.json"
+    assert link["profileRef"]["path"] == "/etc/tracegate/private/link-crypto-ss2022/server-private.json"
     assert link["remote"]["endpoint"] == "transit.tracegate.test:443"
     assert link["selectedProfiles"] == ["V0", "V1", "V3"]
     assert "TRACEGATE_LINK_CRYPTO_COUNT='1'" in env_path.read_text(encoding="utf-8")
@@ -2882,7 +2879,7 @@ def test_reconcile_tracegate21_strips_legacy_xray_backhaul_from_runtime(tmp_path
     assert runtime_contract["network"]["egressIsolation"]["mode"] == "dedicated-egress-ip"
     assert runtime_contract["network"]["egressIsolation"]["forbidIngressIpAsEgress"] is True
     assert runtime_contract["network"]["egressIsolation"]["enforcement"]["ingressPublicIpOutbound"] == "forbidden"
-    assert runtime_contract["linkCrypto"]["carrier"] == "mieru"
+    assert runtime_contract["linkCrypto"]["carrier"] == "shadowsocks2022"
     assert runtime_contract["linkCrypto"]["manager"] == "link-crypto"
     assert runtime_contract["linkCrypto"]["profileSource"] == "private-file-reference"
     assert runtime_contract["linkCrypto"]["secretMaterial"] is False
@@ -3226,9 +3223,9 @@ def test_link_crypto_contract_payload_follows_shadowsocks2022_inner_carrier() ->
     from tracegate.agent.reconcile import _build_link_crypto_contract_payload
     from tracegate.settings import Settings
 
-    mieru = _build_link_crypto_contract_payload(Settings(agent_role="ENTRY", private_link_crypto_enabled=True))
-    assert mieru["carrier"] == "mieru"
-    assert str(mieru["dpiResistance"]["mode"]).startswith("mieru")
+    shadowsocks2022 = _build_link_crypto_contract_payload(Settings(agent_role="ENTRY", private_link_crypto_enabled=True))
+    assert shadowsocks2022["carrier"] == "shadowsocks2022"
+    assert str(shadowsocks2022["dpiResistance"]["mode"]).startswith("shadowsocks2022")
 
     ss = _build_link_crypto_contract_payload(
         Settings(
@@ -3241,5 +3238,5 @@ def test_link_crypto_contract_payload_follows_shadowsocks2022_inner_carrier() ->
     dpi = ss["dpiResistance"]
     assert str(dpi["mode"]).startswith("shadowsocks2022")
     assert "shadowsocks2022-aead" in dpi["requiredLayers"]
-    assert "mieru-private-auth" not in dpi["requiredLayers"]
+    assert "shadowtls-v3" in dpi["requiredLayers"]
     assert "zapret2" not in dpi

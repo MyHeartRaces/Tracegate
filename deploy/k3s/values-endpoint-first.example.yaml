@@ -64,6 +64,7 @@ topology:
 
 controlPlane:
   env:
+    defaultEndpointHost: endpoint.example.net
     enabledClientProfiles:
       - reality
       - hysteria
@@ -116,6 +117,9 @@ gateway:
       enabled: true
       canonicalServer: endpoint
       nodeSelector: {tracegate.io/role: endpoint}
+      tls:
+        serverName: endpoint.example.net
+        existingSecretName: tracegate-endpoint-tls
 
 experimentalProfiles:
   enabled: false
@@ -124,6 +128,10 @@ interconnect:
   endpointBackhaul:
     enabled: false
   emergencyXrayChain:
+    enabled: false
+  shadowsocks2022:
+    enabled: false
+  zapret2:
     enabled: false
 
 wireguard:

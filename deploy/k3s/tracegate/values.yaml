@@ -289,8 +289,8 @@ privateProfiles:
     hysteriaStatsTransit: hysteria/transit-stats-secret
     hysteriaEndpointBackhaulAuth: credentials/hysteria-endpoint-backhaul-auth
     xrayChainBridgeClientId: xray/chain-bridge-client-id
-    mieruClient: mieru/client.json
-    mieruServer: mieru/server.json
+    shadowsocks2022LinkClient: link-crypto-ss2022/client.json
+    shadowsocks2022LinkServer: link-crypto-ss2022/server.json
     zapretEntry: zapret/entry.env
     zapretTransit: zapret/transit.env
     zapretInterconnect: zapret/entry-transit.env
@@ -309,7 +309,6 @@ privateProfiles:
     vlessEncryptionDecryptionTransit: credentials/vless-encryption-decryption-transit
     wireguard: wireguard/wg.conf
     mtproto: mtproto/secret.txt
-    labMieruDirect: lab/mieru-direct-server.json
     labRestlsDirect: lab/restls-direct.yaml
     labTuicEntry: lab/tuic-entry.json
     labTuicTransit: lab/tuic-transit.json
@@ -322,8 +321,8 @@ privateProfiles:
     hysteriaStatsTransit: hysteria-transit-stats-secret
     hysteriaEndpointBackhaulAuth: hysteria-endpoint-backhaul-auth
     xrayChainBridgeClientId: xray-chain-bridge-client-id
-    mieruClient: mieru-client-json
-    mieruServer: mieru-server-json
+    shadowsocks2022LinkClient: shadowsocks2022-link-client-json
+    shadowsocks2022LinkServer: shadowsocks2022-link-server-json
     zapretEntry: zapret-entry-env
     zapretTransit: zapret-transit-env
     zapretInterconnect: zapret-entry-transit-env
@@ -342,7 +341,6 @@ privateProfiles:
     vlessEncryptionDecryptionTransit: vless-encryption-decryption-transit
     wireguard: wireguard-wg-conf
     mtproto: mtproto-secret-txt
-    labMieruDirect: lab-mieru-direct-server-json
     labRestlsDirect: lab-restls-direct-yaml
     labTuicEntry: lab-tuic-entry-json
     labTuicTransit: lab-tuic-transit-json
@@ -452,14 +450,8 @@ experimentalProfiles:
   enabled: false
   directTransitObfuscation:
     enabled: false
-    defaultLayer: mieru
-    variants:
-      - V8-Mieru-TCP-Direct
-      - V8-Mieru-RESTLS-Direct
-    mieru:
-      enabled: false
-      role: transit
-      profileSource: external-secret
+    defaultLayer: restls
+    variants: []
     restls:
       enabled: false
       mode: candidate-only
@@ -594,7 +586,7 @@ gateway:
         limits:
           cpu: 180m
           memory: 160Mi
-      mieru:
+      singbox:
         requests:
           cpu: 20m
           memory: 48Mi
@@ -649,7 +641,6 @@ gateway:
       limits:
         cpu: 30m
         memory: 48Mi
-    mieru: {}
     zapret2:
       requests:
         cpu: 10m
@@ -699,10 +690,6 @@ gateway:
       pullPolicy: IfNotPresent
     hysteria:
       repository: tobyxdd/hysteria
-      tag: "latest"
-      pullPolicy: IfNotPresent
-    mieru:
-      repository: ghcr.io/enfein/mieru
       tag: "latest"
       pullPolicy: IfNotPresent
     zapret2:
@@ -884,10 +871,11 @@ interconnect:
       fallbackPort: 443
   entryTransit:
     enabled: true
-    primary: mieru
+    primary: shadowsocks2022
     fallback: none
-    # Inner backhaul carrier inside the mandatory WSS tunnel: mieru (default) or shadowsocks2022.
-    innerCarrier: mieru
+    # Maximum-stealth TCP carrier: sing-box Shadowsocks-2022 AEAD + ShadowTLS v3
+    # inside the mandatory WSS outer tunnel.
+    innerCarrier: shadowsocks2022
     chainBridgeOwner: link-crypto
     xrayBackhaul: false
     generation: 1
@@ -963,7 +951,7 @@ interconnect:
         sourceValidation:
           enabled: true
           mode: profile-bound-remote
-  mieru:
+  shadowsocks2022:
     enabled: true
     localSocks:
       bindHost: 127.0.0.1
@@ -979,9 +967,6 @@ interconnect:
     hostWideInterception: false
     scope: scoped-egress
     applyTo:
-      - entry-transit
-      - router-entry
-      - router-transit
       - mtproto
     cpuBudget:
       entryMaxPercent: 10

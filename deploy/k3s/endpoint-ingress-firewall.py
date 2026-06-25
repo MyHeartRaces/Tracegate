@@ -31,6 +31,14 @@ def _mapping(value: Any) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
 
 
+def _endpoint_role(roles: Mapping[str, Any]) -> dict[str, Any]:
+    transit_role = _mapping(roles.get("transit"))
+    endpoint_override = _mapping(roles.get("endpoint"))
+    if endpoint_override:
+        return _merge(transit_role, endpoint_override)
+    return transit_role
+
+
 def _port(value: Any) -> int:
     try:
         port = int(value)
@@ -55,7 +63,8 @@ def render(values: dict[str, Any]) -> str:
         raise SystemExit("architecture.endpointIngress currently requires IPv4 addresses") from exc
 
     gateway = _mapping(values.get("gateway"))
-    endpoint_role = _mapping(_mapping(gateway.get("roles")).get("transit"))
+    roles = _mapping(gateway.get("roles"))
+    endpoint_role = _endpoint_role(roles)
     ports = _mapping(endpoint_role.get("ports"))
     wireguard = _mapping(values.get("wireguard"))
 

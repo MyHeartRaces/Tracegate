@@ -1,65 +1,71 @@
 {{- range $roleName, $role := .Values.gateway.roles }}
-{{- if and $.Values.gateway.enabled $role.enabled }}
+{{- $architectureMode := toString ($.Values.architecture.mode | default "legacy-three-node") }}
+{{- $endpointRoleConfigured := hasKey $.Values.gateway.roles "endpoint" }}
+{{- $skipLegacyEndpointAlias := and $endpointRoleConfigured (eq $architectureMode "entry-endpoint") (eq $roleName "transit") }}
+{{- if and $endpointRoleConfigured (eq $roleName "endpoint") }}{{- $role = mergeOverwrite (deepCopy $.Values.gateway.roles.transit) $role }}{{- end }}
+{{- if and $.Values.gateway.enabled $role.enabled (not $skipLegacyEndpointAlias) }}
+{{- $roleRuntimeName := ternary "entry" "transit" (eq $roleName "entry") }}
+{{- $roleIsEntry := eq $roleRuntimeName "entry" }}
+{{- $roleIsEndpoint := eq $roleRuntimeName "transit" }}
+{{- $roleAgentRole := $role.role | default (ternary "ENTRY" "TRANSIT" $roleIsEntry) }}
 {{- $mtprotoIngressHosts := list }}
 {{- range $shard := ($.Values.architecture.entryIngress.shards | default (list)) }}
 {{- if $shard.mtprotoHost }}{{- $mtprotoIngressHosts = append $mtprotoIngressHosts $shard.mtprotoHost }}{{- end }}
 {{- end }}
-{{- $roleRealityKey := ternary $.Values.privateProfiles.keys.realityPrivateKeyEntry $.Values.privateProfiles.keys.realityPrivateKeyTransit (eq $roleName "entry") }}
-{{- $roleRealitySecretKey := ternary $.Values.privateProfiles.secretKeys.realityPrivateKeyEntry $.Values.privateProfiles.secretKeys.realityPrivateKeyTransit (eq $roleName "entry") }}
-{{- $roleHysteriaSalamanderKey := ternary $.Values.privateProfiles.keys.hysteriaSalamanderEntry $.Values.privateProfiles.keys.hysteriaSalamanderTransit (eq $roleName "entry") }}
-{{- $roleHysteriaSalamanderSecretKey := ternary $.Values.privateProfiles.secretKeys.hysteriaSalamanderEntry $.Values.privateProfiles.secretKeys.hysteriaSalamanderTransit (eq $roleName "entry") }}
-{{- $roleHysteriaStatsKey := ternary $.Values.privateProfiles.keys.hysteriaStatsEntry $.Values.privateProfiles.keys.hysteriaStatsTransit (eq $roleName "entry") }}
-{{- $roleHysteriaStatsSecretKey := ternary $.Values.privateProfiles.secretKeys.hysteriaStatsEntry $.Values.privateProfiles.secretKeys.hysteriaStatsTransit (eq $roleName "entry") }}
+{{- $roleRealityKey := ternary $.Values.privateProfiles.keys.realityPrivateKeyEntry $.Values.privateProfiles.keys.realityPrivateKeyTransit $roleIsEntry }}
+{{- $roleRealitySecretKey := ternary $.Values.privateProfiles.secretKeys.realityPrivateKeyEntry $.Values.privateProfiles.secretKeys.realityPrivateKeyTransit $roleIsEntry }}
+{{- $roleHysteriaSalamanderKey := ternary $.Values.privateProfiles.keys.hysteriaSalamanderEntry $.Values.privateProfiles.keys.hysteriaSalamanderTransit $roleIsEntry }}
+{{- $roleHysteriaSalamanderSecretKey := ternary $.Values.privateProfiles.secretKeys.hysteriaSalamanderEntry $.Values.privateProfiles.secretKeys.hysteriaSalamanderTransit $roleIsEntry }}
+{{- $roleHysteriaStatsKey := ternary $.Values.privateProfiles.keys.hysteriaStatsEntry $.Values.privateProfiles.keys.hysteriaStatsTransit $roleIsEntry }}
+{{- $roleHysteriaStatsSecretKey := ternary $.Values.privateProfiles.secretKeys.hysteriaStatsEntry $.Values.privateProfiles.secretKeys.hysteriaStatsTransit $roleIsEntry }}
 {{- $endpointBackhaul := $.Values.interconnect.endpointBackhaul | default dict }}
 {{- $endpointBackhaulHysteria := dig "hysteria2" (dict) $endpointBackhaul }}
 {{- $endpointBackhaulHysteriaEnabled := and ($endpointBackhaul.enabled | default false) (dig "enabled" false $endpointBackhaulHysteria) }}
-{{- $roleEndpointBackhaulHysteriaClientEnabled := and (eq $roleName "entry") $endpointBackhaulHysteriaEnabled }}
+{{- $roleEndpointBackhaulHysteriaClientEnabled := and $roleIsEntry $endpointBackhaulHysteriaEnabled }}
 {{- $endpointBackhaulAuthKey := $.Values.privateProfiles.keys.hysteriaEndpointBackhaulAuth }}
 {{- $endpointBackhaulAuthSecretKey := $.Values.privateProfiles.secretKeys.hysteriaEndpointBackhaulAuth }}
-{{- $roleZapretKey := ternary $.Values.privateProfiles.keys.zapretEntry $.Values.privateProfiles.keys.zapretTransit (eq $roleName "entry") }}
-{{- $roleZapretSecretKey := ternary $.Values.privateProfiles.secretKeys.zapretEntry $.Values.privateProfiles.secretKeys.zapretTransit (eq $roleName "entry") }}
-{{- $roleShadowsocks2022Key := ternary $.Values.privateProfiles.keys.shadowsocks2022Entry $.Values.privateProfiles.keys.shadowsocks2022Transit (eq $roleName "entry") }}
-{{- $roleShadowsocks2022SecretKey := ternary $.Values.privateProfiles.secretKeys.shadowsocks2022Entry $.Values.privateProfiles.secretKeys.shadowsocks2022Transit (eq $roleName "entry") }}
-{{- $roleShadowsocks2022PasswordKey := ternary $.Values.privateProfiles.keys.shadowsocks2022PasswordEntry $.Values.privateProfiles.keys.shadowsocks2022PasswordTransit (eq $roleName "entry") }}
-{{- $roleShadowsocks2022PasswordSecretKey := ternary $.Values.privateProfiles.secretKeys.shadowsocks2022PasswordEntry $.Values.privateProfiles.secretKeys.shadowsocks2022PasswordTransit (eq $roleName "entry") }}
-{{- $roleVlessEncryptionDecryptionSecretKey := ternary $.Values.privateProfiles.secretKeys.vlessEncryptionDecryptionEntry $.Values.privateProfiles.secretKeys.vlessEncryptionDecryptionTransit (eq $roleName "entry") }}
-{{- $roleShadowtlsKey := ternary $.Values.privateProfiles.keys.shadowtlsEntry $.Values.privateProfiles.keys.shadowtlsTransit (eq $roleName "entry") }}
-{{- $roleShadowtlsSecretKey := ternary $.Values.privateProfiles.secretKeys.shadowtlsEntry $.Values.privateProfiles.secretKeys.shadowtlsTransit (eq $roleName "entry") }}
-{{- $roleShadowtlsPasswordKey := ternary $.Values.privateProfiles.keys.shadowtlsPasswordEntry $.Values.privateProfiles.keys.shadowtlsPasswordTransit (eq $roleName "entry") }}
-{{- $roleShadowtlsPasswordSecretKey := ternary $.Values.privateProfiles.secretKeys.shadowtlsPasswordEntry $.Values.privateProfiles.secretKeys.shadowtlsPasswordTransit (eq $roleName "entry") }}
-{{- $roleShadowtlsServerName := ternary $.Values.shadowsocks2022.shadowtls.serverNameEntry $.Values.shadowsocks2022.shadowtls.serverNameTransit (eq $roleName "entry") }}
-{{- $roleLabTuicKey := ternary $.Values.privateProfiles.keys.labTuicEntry $.Values.privateProfiles.keys.labTuicTransit (eq $roleName "entry") }}
-{{- $roleLabTuicSecretKey := ternary $.Values.privateProfiles.secretKeys.labTuicEntry $.Values.privateProfiles.secretKeys.labTuicTransit (eq $roleName "entry") }}
-{{- $roleProfileState := printf "/var/lib/tracegate/private/profiles/%s/desired-state.json" $roleName }}
-{{- $roleProfileEnv := printf "/var/lib/tracegate/private/profiles/%s/desired-state.env" $roleName }}
-{{- $roleLinkCryptoState := printf "/var/lib/tracegate/private/link-crypto/%s/desired-state.json" $roleName }}
-{{- $roleLinkCryptoEnv := printf "/var/lib/tracegate/private/link-crypto/%s/desired-state.env" $roleName }}
-{{- $roleRouterState := printf "/var/lib/tracegate/private/router/%s/desired-state.json" $roleName }}
-{{- $roleRouterEnv := printf "/var/lib/tracegate/private/router/%s/desired-state.env" $roleName }}
-{{- $roleRouterClientBundle := printf "/var/lib/tracegate/private/router/%s/client-bundle.json" $roleName }}
-{{- $roleRouterClientEnv := printf "/var/lib/tracegate/private/router/%s/client-bundle.env" $roleName }}
-{{- $roleRouterRequired := or (and (eq $roleName "entry") $.Values.interconnect.entryTransit.routerEntry.enabled) (and (eq $roleName "transit") $.Values.interconnect.entryTransit.routerTransit.enabled) }}
-{{- $roleProfileReloadMarker := printf "/var/lib/tracegate/private/runtime/profiles-%s-last-reload.json" $roleName }}
-{{- $roleLinkCryptoReloadMarker := printf "/var/lib/tracegate/private/runtime/link-crypto-%s-last-reload.json" $roleName }}
-{{- $roleProfileMarkerTest := printf "grep -q '\\\"schema\\\": \\\"tracegate.k3s-private-reload.v1\\\"' %s && grep -q '\\\"summarySchema\\\": \\\"tracegate.k3s-private-reload-summary.v1\\\"' %s && grep -q '\\\"component\\\": \\\"profiles\\\"' %s && grep -q '\\\"role\\\": \\\"%s\\\"' %s && grep -q '\\\"auth\\\": \\\"required\\\"' %s && grep -q '\\\"allowAnonymousLocalhost\\\": false' %s" $roleProfileReloadMarker $roleProfileReloadMarker $roleProfileReloadMarker $role.role $roleProfileReloadMarker $roleProfileReloadMarker $roleProfileReloadMarker }}
-{{- $roleLinkCryptoMarkerTest := printf "grep -q '\\\"schema\\\": \\\"tracegate.k3s-private-reload.v1\\\"' %s && grep -q '\\\"summarySchema\\\": \\\"tracegate.k3s-private-reload-summary.v1\\\"' %s && grep -q '\\\"component\\\": \\\"link-crypto\\\"' %s && grep -q '\\\"role\\\": \\\"%s\\\"' %s && grep -q '\\\"private-profile\\\"' %s" $roleLinkCryptoReloadMarker $roleLinkCryptoReloadMarker $roleLinkCryptoReloadMarker $role.role $roleLinkCryptoReloadMarker $roleLinkCryptoReloadMarker }}
+{{- $roleZapretKey := ternary $.Values.privateProfiles.keys.zapretEntry $.Values.privateProfiles.keys.zapretTransit $roleIsEntry }}
+{{- $roleZapretSecretKey := ternary $.Values.privateProfiles.secretKeys.zapretEntry $.Values.privateProfiles.secretKeys.zapretTransit $roleIsEntry }}
+{{- $roleShadowsocks2022Key := ternary $.Values.privateProfiles.keys.shadowsocks2022Entry $.Values.privateProfiles.keys.shadowsocks2022Transit $roleIsEntry }}
+{{- $roleShadowsocks2022SecretKey := ternary $.Values.privateProfiles.secretKeys.shadowsocks2022Entry $.Values.privateProfiles.secretKeys.shadowsocks2022Transit $roleIsEntry }}
+{{- $roleShadowsocks2022PasswordKey := ternary $.Values.privateProfiles.keys.shadowsocks2022PasswordEntry $.Values.privateProfiles.keys.shadowsocks2022PasswordTransit $roleIsEntry }}
+{{- $roleShadowsocks2022PasswordSecretKey := ternary $.Values.privateProfiles.secretKeys.shadowsocks2022PasswordEntry $.Values.privateProfiles.secretKeys.shadowsocks2022PasswordTransit $roleIsEntry }}
+{{- $roleVlessEncryptionDecryptionSecretKey := ternary $.Values.privateProfiles.secretKeys.vlessEncryptionDecryptionEntry $.Values.privateProfiles.secretKeys.vlessEncryptionDecryptionTransit $roleIsEntry }}
+{{- $roleShadowtlsKey := ternary $.Values.privateProfiles.keys.shadowtlsEntry $.Values.privateProfiles.keys.shadowtlsTransit $roleIsEntry }}
+{{- $roleShadowtlsSecretKey := ternary $.Values.privateProfiles.secretKeys.shadowtlsEntry $.Values.privateProfiles.secretKeys.shadowtlsTransit $roleIsEntry }}
+{{- $roleShadowtlsPasswordKey := ternary $.Values.privateProfiles.keys.shadowtlsPasswordEntry $.Values.privateProfiles.keys.shadowtlsPasswordTransit $roleIsEntry }}
+{{- $roleShadowtlsPasswordSecretKey := ternary $.Values.privateProfiles.secretKeys.shadowtlsPasswordEntry $.Values.privateProfiles.secretKeys.shadowtlsPasswordTransit $roleIsEntry }}
+{{- $endpointShadowtlsServerName := $.Values.shadowsocks2022.shadowtls.serverNameEndpoint | default $.Values.shadowsocks2022.shadowtls.serverNameTransit }}
+{{- $roleShadowtlsServerName := ternary $.Values.shadowsocks2022.shadowtls.serverNameEntry $endpointShadowtlsServerName $roleIsEntry }}
+{{- $roleLabTuicKey := ternary $.Values.privateProfiles.keys.labTuicEntry $.Values.privateProfiles.keys.labTuicTransit $roleIsEntry }}
+{{- $roleLabTuicSecretKey := ternary $.Values.privateProfiles.secretKeys.labTuicEntry $.Values.privateProfiles.secretKeys.labTuicTransit $roleIsEntry }}
+{{- $roleProfileState := printf "/var/lib/tracegate/private/profiles/%s/desired-state.json" $roleRuntimeName }}
+{{- $roleProfileEnv := printf "/var/lib/tracegate/private/profiles/%s/desired-state.env" $roleRuntimeName }}
+{{- $roleLinkCryptoState := printf "/var/lib/tracegate/private/link-crypto/%s/desired-state.json" $roleRuntimeName }}
+{{- $roleLinkCryptoEnv := printf "/var/lib/tracegate/private/link-crypto/%s/desired-state.env" $roleRuntimeName }}
+{{- $roleRouterState := printf "/var/lib/tracegate/private/router/%s/desired-state.json" $roleRuntimeName }}
+{{- $roleRouterEnv := printf "/var/lib/tracegate/private/router/%s/desired-state.env" $roleRuntimeName }}
+{{- $roleRouterClientBundle := printf "/var/lib/tracegate/private/router/%s/client-bundle.json" $roleRuntimeName }}
+{{- $roleRouterClientEnv := printf "/var/lib/tracegate/private/router/%s/client-bundle.env" $roleRuntimeName }}
+{{- $roleRouterRequired := or (and $roleIsEntry $.Values.interconnect.entryTransit.routerEntry.enabled) (and $roleIsEndpoint $.Values.interconnect.entryTransit.routerTransit.enabled) }}
+{{- $roleProfileReloadMarker := printf "/var/lib/tracegate/private/runtime/profiles-%s-last-reload.json" $roleRuntimeName }}
+{{- $roleLinkCryptoReloadMarker := printf "/var/lib/tracegate/private/runtime/link-crypto-%s-last-reload.json" $roleRuntimeName }}
+{{- $roleProfileMarkerTest := printf "grep -q '\\\"schema\\\": \\\"tracegate.k3s-private-reload.v1\\\"' %s && grep -q '\\\"summarySchema\\\": \\\"tracegate.k3s-private-reload-summary.v1\\\"' %s && grep -q '\\\"component\\\": \\\"profiles\\\"' %s && grep -q '\\\"role\\\": \\\"%s\\\"' %s && grep -q '\\\"auth\\\": \\\"required\\\"' %s && grep -q '\\\"allowAnonymousLocalhost\\\": false' %s" $roleProfileReloadMarker $roleProfileReloadMarker $roleProfileReloadMarker $roleAgentRole $roleProfileReloadMarker $roleProfileReloadMarker $roleProfileReloadMarker }}
+{{- $roleLinkCryptoMarkerTest := printf "grep -q '\\\"schema\\\": \\\"tracegate.k3s-private-reload.v1\\\"' %s && grep -q '\\\"summarySchema\\\": \\\"tracegate.k3s-private-reload-summary.v1\\\"' %s && grep -q '\\\"component\\\": \\\"link-crypto\\\"' %s && grep -q '\\\"role\\\": \\\"%s\\\"' %s && grep -q '\\\"private-profile\\\"' %s" $roleLinkCryptoReloadMarker $roleLinkCryptoReloadMarker $roleLinkCryptoReloadMarker $roleAgentRole $roleLinkCryptoReloadMarker $roleLinkCryptoReloadMarker }}
 {{- $roleRouterAbsentTest := printf "[ ! -e %s ] && [ ! -e %s ] && [ ! -e %s ] && [ ! -e %s ]" $roleRouterState $roleRouterEnv $roleRouterClientBundle $roleRouterClientEnv }}
 {{- $roleRouterValidatedTest := printf "[ -s %s ] && [ -s %s ] && [ -s %s ] && [ -s %s ] && [ ! %s -nt %s ] && [ ! %s -nt %s ] && [ ! %s -nt %s ] && [ ! %s -nt %s ] && grep -q '\\\"router\\\"' %s && grep -q '\\\"clientBundle\\\"' %s && grep -q '\\\"clientEnv\\\"' %s" $roleRouterState $roleRouterEnv $roleRouterClientBundle $roleRouterClientEnv $roleRouterState $roleLinkCryptoReloadMarker $roleRouterEnv $roleLinkCryptoReloadMarker $roleRouterClientBundle $roleLinkCryptoReloadMarker $roleRouterClientEnv $roleLinkCryptoReloadMarker $roleLinkCryptoReloadMarker $roleLinkCryptoReloadMarker $roleLinkCryptoReloadMarker }}
 {{- $roleRouterReadyTest := ternary $roleRouterValidatedTest (printf "(%s) || (%s)" $roleRouterAbsentTest $roleRouterValidatedTest) $roleRouterRequired }}
 {{- $roleProfileReadyTest := printf "[ -s %s ] && [ -s %s ] && [ -s %s ] && [ ! %s -nt %s ] && [ ! %s -nt %s ] && %s" $roleProfileState $roleProfileEnv $roleProfileReloadMarker $roleProfileState $roleProfileReloadMarker $roleProfileEnv $roleProfileReloadMarker $roleProfileMarkerTest }}
 {{- $roleLinkCryptoReadyTest := printf "[ -s %s ] && [ -s %s ] && [ -s %s ] && [ ! %s -nt %s ] && [ ! %s -nt %s ] && %s && ( %s )" $roleLinkCryptoState $roleLinkCryptoEnv $roleLinkCryptoReloadMarker $roleLinkCryptoState $roleLinkCryptoReloadMarker $roleLinkCryptoEnv $roleLinkCryptoReloadMarker $roleLinkCryptoMarkerTest $roleRouterReadyTest }}
-{{- $labDirectMieruEnabled := and (eq $roleName "transit") $.Values.experimentalProfiles.enabled $.Values.experimentalProfiles.directTransitObfuscation.enabled $.Values.experimentalProfiles.directTransitObfuscation.mieru.enabled }}
-{{- $labDirectRestlsEnabled := and (eq $roleName "transit") $.Values.experimentalProfiles.enabled $.Values.experimentalProfiles.directTransitObfuscation.enabled $.Values.experimentalProfiles.directTransitObfuscation.restls.enabled }}
-{{- $labTuicRoleEnabled := and $.Values.experimentalProfiles.enabled $.Values.experimentalProfiles.tuicV5.enabled (or (and (eq $roleName "transit") $.Values.experimentalProfiles.tuicV5.directEnabled) $.Values.experimentalProfiles.tuicV5.chainEnabled) }}
+{{- $labDirectRestlsEnabled := and $roleIsEndpoint $.Values.experimentalProfiles.enabled $.Values.experimentalProfiles.directTransitObfuscation.enabled $.Values.experimentalProfiles.directTransitObfuscation.restls.enabled }}
+{{- $labTuicRoleEnabled := and $.Values.experimentalProfiles.enabled $.Values.experimentalProfiles.tuicV5.enabled (or (and $roleIsEndpoint $.Values.experimentalProfiles.tuicV5.directEnabled) $.Values.experimentalProfiles.tuicV5.chainEnabled) }}
 {{- $innerCarrier := toString $.Values.interconnect.entryTransit.innerCarrier }}
-{{- $innerCarrierActive := ternary $.Values.interconnect.mieru.enabled true (eq $innerCarrier "mieru") }}
-{{- $innerCarrierImage := ternary $.Values.gateway.images.singbox $.Values.gateway.images.mieru (eq $innerCarrier "shadowsocks2022") }}
-{{- $innerCarrierBinary := ternary "sing-box" "mieru" (eq $innerCarrier "shadowsocks2022") }}
-{{- $roleLinkCryptoClientEnabled := and $innerCarrierActive $.Values.interconnect.entryTransit.enabled (eq $roleName "entry") }}
-{{- $roleLinkCryptoServerEnabled := and $innerCarrierActive (or (and (eq $roleName "transit") $.Values.interconnect.entryTransit.enabled) (and (eq $roleName "entry") $.Values.interconnect.entryTransit.routerEntry.enabled) (and (eq $roleName "transit") $.Values.interconnect.entryTransit.routerTransit.enabled)) }}
+{{- $innerCarrierActive := and (ne $architectureMode "entry-endpoint") $.Values.interconnect.shadowsocks2022.enabled (eq $innerCarrier "shadowsocks2022") }}
+{{- $roleLinkCryptoClientEnabled := and $innerCarrierActive $.Values.interconnect.entryTransit.enabled $roleIsEntry }}
+{{- $roleLinkCryptoServerEnabled := and $innerCarrierActive (or (and $roleIsEndpoint $.Values.interconnect.entryTransit.enabled) (and $roleIsEntry $.Values.interconnect.entryTransit.routerEntry.enabled) (and $roleIsEndpoint $.Values.interconnect.entryTransit.routerTransit.enabled)) }}
 {{- $roleLinkCryptoEnabled := or $roleLinkCryptoClientEnabled $roleLinkCryptoServerEnabled }}
-{{- $roleEntryTrafficShaperEnabled := and (eq $roleName "entry") $.Values.gateway.trafficShaping.entry.enabled $.Values.gateway.trafficShaping.entry.runtimeSidecar }}
-{{- $roleNodeEncryptionRequired := and $.Values.gateway.nodeEncryption.enabled $.Values.gateway.nodeEncryption.required $.Values.gateway.nodeEncryption.runtimeInitValidation (or (eq $roleName "entry") (eq $roleName "transit")) }}
+{{- $roleEntryTrafficShaperEnabled := and $roleIsEntry $.Values.gateway.trafficShaping.entry.enabled $.Values.gateway.trafficShaping.entry.runtimeSidecar }}
+{{- $roleNodeEncryptionRequired := and $.Values.gateway.nodeEncryption.enabled $.Values.gateway.nodeEncryption.required $.Values.gateway.nodeEncryption.runtimeInitValidation (or $roleIsEntry $roleIsEndpoint) }}
 {{- $mtprotoDomain := $.Values.mtproto.domain | default $.Values.controlPlane.env.mtprotoDomain }}
 {{- $mtprotoTlsDomain := $.Values.mtproto.tlsDomain | default $mtprotoDomain }}
 {{- $mtprotoPublicPort := int $.Values.mtproto.publicPort }}
@@ -67,9 +73,9 @@
 {{- $mtprotoRoute := $.Values.mtproto.route | default dict }}
 {{- $mtprotoRouteMode := toString ($mtprotoRoute.mode | default "endpoint-direct") }}
 {{- $mtprotoEntryTunnelEnabled := and $.Values.mtproto.enabled (eq $mtprotoRouteMode "entry-endpoint-tunnel") }}
-{{- $mtprotoEntryRouteEnabled := and $.Values.mtproto.enabled (eq $roleName "entry") (or (eq $mtprotoRouteMode "entry-transit-endpoint") $mtprotoEntryTunnelEnabled) }}
-{{- $mtprotoEntryLocalEnabled := and $.Values.mtproto.enabled (eq $roleName "entry") (eq $mtprotoRouteMode "entry-local-endpoint-egress") }}
-{{- $mtprotoRuntimeRoleEnabled := and $.Values.mtproto.enabled (or $mtprotoEntryLocalEnabled (and (eq $roleName "transit") (ne $mtprotoRouteMode "entry-local-endpoint-egress"))) }}
+{{- $mtprotoEntryRouteEnabled := and $.Values.mtproto.enabled $roleIsEntry (or (eq $mtprotoRouteMode "entry-transit-endpoint") $mtprotoEntryTunnelEnabled) }}
+{{- $mtprotoEntryLocalEnabled := and $.Values.mtproto.enabled $roleIsEntry (eq $mtprotoRouteMode "entry-local-endpoint-egress") }}
+{{- $mtprotoRuntimeRoleEnabled := and $.Values.mtproto.enabled (or $mtprotoEntryLocalEnabled (and $roleIsEndpoint (ne $mtprotoRouteMode "entry-local-endpoint-egress"))) }}
 {{- $mtprotoRuntimeHandlesPublic := and $mtprotoRuntimeRoleEnabled (not $mtprotoEntryTunnelEnabled) }}
 {{- $mtprotoRoleHandlesPublic := or $mtprotoRuntimeHandlesPublic $mtprotoEntryRouteEnabled }}
 {{- $mtprotoFallbackPublicPort := and $mtprotoRoleHandlesPublic (ne $mtprotoPublicPort (int $role.ports.publicTcp)) }}
@@ -94,7 +100,7 @@
 {{- end }}
 {{- $mtprotoTolerateTimeSkewness := toString ($.Values.mtproto.tolerateTimeSkewness | default "5m") }}
 {{- $mtprotoFallback := $.Values.mtproto.fallback | default dict }}
-{{- $mtprotoOfficialFallbackEnabled := and $mtprotoRuntimeRoleEnabled (eq $mtprotoRuntime "telemt") (eq $roleName "transit") (dig "enabled" false $mtprotoFallback) }}
+{{- $mtprotoOfficialFallbackEnabled := and $mtprotoRuntimeRoleEnabled (eq $mtprotoRuntime "telemt") $roleIsEndpoint (dig "enabled" false $mtprotoFallback) }}
 {{- $mtprotoOfficialBackendPort := int (dig "officialBackendPort" 9444 $mtprotoFallback) }}
 {{- $mtprotoOfficialStatsPort := int (dig "officialStatsPort" 2398 $mtprotoFallback) }}
 {{- $mtprotoOfficialWorkers := int (dig "officialWorkers" 1 $mtprotoFallback) }}
@@ -106,10 +112,9 @@
 {{- $mtprotoOfficialRuntimeArgs := trim (printf "%s %s" $mtprotoOfficialBaseArgs $mtprotoOfficialArgs) }}
 {{- $linkOuterCarrier := $.Values.interconnect.entryTransit.outerCarrier }}
 {{- $linkOuterCarrierPathPrefix := trimPrefix "/" (toString $linkOuterCarrier.publicPath) }}
-{{- $linkWssCarrierEnabled := and $.Values.interconnect.entryTransit.enabled $linkOuterCarrier.enabled (eq (toString $linkOuterCarrier.mode) "wss") }}
-{{- $roleLinkWssCarrierEnabled := and $roleLinkCryptoEnabled $linkWssCarrierEnabled (or (eq $roleName "entry") (eq $roleName "transit")) }}
-{{- $linkZapretProfileEnabled := and $.Values.interconnect.zapret2.enabled $roleLinkCryptoEnabled }}
-{{- $entrySmallRole := and (eq $roleName "entry") $.Values.gateway.entrySmall.enabled }}
+{{- $linkWssCarrierEnabled := and (ne $architectureMode "entry-endpoint") $.Values.interconnect.entryTransit.enabled $linkOuterCarrier.enabled (eq (toString $linkOuterCarrier.mode) "wss") }}
+{{- $roleLinkWssCarrierEnabled := and $roleLinkCryptoEnabled $linkWssCarrierEnabled (or $roleIsEntry $roleIsEndpoint) }}
+{{- $entrySmallRole := and $roleIsEntry $.Values.gateway.entrySmall.enabled }}
 {{- $roleGatewayStrategy := ternary $.Values.gateway.entrySmall.rollout.strategy $.Values.gateway.strategy $entrySmallRole }}
 {{- $roleAllowRecreateStrategy := ternary $.Values.gateway.entrySmall.rollout.allowRecreateStrategy $.Values.gateway.allowRecreateStrategy $entrySmallRole }}
 {{- $roleRollingMaxUnavailable := ternary $.Values.gateway.entrySmall.rollout.maxUnavailable $.Values.gateway.rollingUpdate.maxUnavailable $entrySmallRole }}
@@ -118,7 +123,7 @@
 {{- $roleCanonicalServer := lower (toString ($role.canonicalServer | default $roleName)) }}
 {{- $roleTopology := index ($.Values.topology.servers | default dict) $roleCanonicalServer | default dict }}
 {{- $roleDisplayName := toString ($roleTopology.displayName | default (title $roleCanonicalServer)) }}
-{{- $roleIngress := ternary ($.Values.architecture.entryIngress | default dict) ($.Values.architecture.endpointIngress | default dict) (eq $roleName "entry") }}
+{{- $roleIngress := ternary ($.Values.architecture.entryIngress | default dict) ($.Values.architecture.endpointIngress | default dict) $roleIsEntry }}
 {{- $roleHaproxyReadinessHost := "" }}
 {{- if ($roleIngress.enabled | default false) }}
 {{- range $shard := ($roleIngress.shards | default (list)) }}
@@ -290,21 +295,17 @@ spec:
                 path: {{ $.Values.privateProfiles.keys.xrayChainBridgeClientId }}
 {{- end }}
 {{- if $roleLinkCryptoClientEnabled }}
-              - key: {{ $.Values.privateProfiles.secretKeys.mieruClient }}
-                path: {{ $.Values.privateProfiles.keys.mieruClient }}
+              - key: {{ $.Values.privateProfiles.secretKeys.shadowsocks2022LinkClient }}
+                path: {{ $.Values.privateProfiles.keys.shadowsocks2022LinkClient }}
 {{- end }}
 {{- if $roleLinkCryptoServerEnabled }}
-              - key: {{ $.Values.privateProfiles.secretKeys.mieruServer }}
-                path: {{ $.Values.privateProfiles.keys.mieruServer }}
+              - key: {{ $.Values.privateProfiles.secretKeys.shadowsocks2022LinkServer }}
+                path: {{ $.Values.privateProfiles.keys.shadowsocks2022LinkServer }}
 {{- end }}
 {{- if $.Values.interconnect.zapret2.enabled }}
               - key: {{ $roleZapretSecretKey }}
                 path: {{ $roleZapretKey }}
-{{- if $linkZapretProfileEnabled }}
-              - key: {{ $.Values.privateProfiles.secretKeys.zapretInterconnect }}
-                path: {{ $.Values.privateProfiles.keys.zapretInterconnect }}
-{{- end }}
-{{- if and (eq $roleName "transit") $.Values.mtproto.enabled }}
+{{- if and $roleIsEndpoint $.Values.mtproto.enabled }}
               - key: {{ $.Values.privateProfiles.secretKeys.zapretMtproto }}
                 path: {{ $.Values.privateProfiles.keys.zapretMtproto }}
 {{- end }}
@@ -319,21 +320,17 @@ spec:
               - key: {{ $roleShadowtlsPasswordSecretKey }}
                 path: {{ $roleShadowtlsPasswordKey }}
 {{- end }}
-{{- if and $mtprotoEgressShadowtlsEnabled (or (eq $roleName "entry") (not $.Values.shadowsocks2022.enabled)) }}
+{{- if and $mtprotoEgressShadowtlsEnabled (or $roleIsEntry (not $.Values.shadowsocks2022.enabled)) }}
               - key: {{ $mtprotoEgressShadowtlsPasswordSecretKey }}
                 path: {{ $mtprotoEgressShadowtlsPasswordKey }}
 {{- end }}
-{{- if and (eq $roleName "transit") $.Values.wireguard.enabled }}
+{{- if and $roleIsEndpoint $.Values.wireguard.enabled }}
               - key: {{ $.Values.privateProfiles.secretKeys.wireguard }}
                 path: {{ $.Values.privateProfiles.keys.wireguard }}
 {{- end }}
 {{- if $mtprotoRuntimeRoleEnabled }}
               - key: {{ $.Values.privateProfiles.secretKeys.mtproto }}
                 path: {{ $.Values.privateProfiles.keys.mtproto }}
-{{- end }}
-{{- if $labDirectMieruEnabled }}
-              - key: {{ $.Values.privateProfiles.secretKeys.labMieruDirect }}
-                path: {{ $.Values.privateProfiles.keys.labMieruDirect }}
 {{- end }}
 {{- if $labDirectRestlsEnabled }}
               - key: {{ $.Values.privateProfiles.secretKeys.labRestlsDirect }}
@@ -355,7 +352,7 @@ spec:
           command: ["tracegate-k3s-private-preflight"]
           args:
             - --role
-            - {{ $role.role | quote }}
+            - {{ $roleAgentRole | quote }}
             - --root
             - {{ $.Values.privateProfiles.mountPath | quote }}
             - --required-file
@@ -370,11 +367,11 @@ spec:
 {{- end }}
 {{- if $roleLinkCryptoClientEnabled }}
             - --required-file
-            - {{ $.Values.privateProfiles.keys.mieruClient | quote }}
+            - {{ $.Values.privateProfiles.keys.shadowsocks2022LinkClient | quote }}
 {{- end }}
 {{- if $roleLinkCryptoServerEnabled }}
             - --required-file
-            - {{ $.Values.privateProfiles.keys.mieruServer | quote }}
+            - {{ $.Values.privateProfiles.keys.shadowsocks2022LinkServer | quote }}
 {{- end }}
 {{- if $.Values.shadowsocks2022.enabled }}
             - --required-file
@@ -386,21 +383,17 @@ spec:
             - --required-file
             - {{ $roleShadowtlsPasswordKey | quote }}
 {{- end }}
-{{- if and $mtprotoEgressShadowtlsEnabled (or (eq $roleName "entry") (not $.Values.shadowsocks2022.enabled)) }}
+{{- if and $mtprotoEgressShadowtlsEnabled (or $roleIsEntry (not $.Values.shadowsocks2022.enabled)) }}
             - --required-file
             - {{ $mtprotoEgressShadowtlsPasswordKey | quote }}
 {{- end }}
-{{- if and (eq $roleName "transit") $.Values.wireguard.enabled }}
+{{- if and $roleIsEndpoint $.Values.wireguard.enabled }}
             - --required-file
             - {{ $.Values.privateProfiles.keys.wireguard | quote }}
 {{- end }}
 {{- if $mtprotoRuntimeRoleEnabled }}
             - --required-file
             - {{ $.Values.privateProfiles.keys.mtproto | quote }}
-{{- end }}
-{{- if $labDirectMieruEnabled }}
-            - --required-file
-            - {{ $.Values.privateProfiles.keys.labMieruDirect | quote }}
 {{- end }}
 {{- if $labDirectRestlsEnabled }}
             - --required-file
@@ -413,11 +406,7 @@ spec:
 {{- if $.Values.interconnect.zapret2.enabled }}
             - --zapret-file
             - {{ $roleZapretKey | quote }}
-{{- if $linkZapretProfileEnabled }}
-            - --zapret-file
-            - {{ $.Values.privateProfiles.keys.zapretInterconnect | quote }}
-{{- end }}
-{{- if and (eq $roleName "transit") $.Values.mtproto.enabled }}
+{{- if and $roleIsEndpoint $.Values.mtproto.enabled }}
             - --zapret-file
             - {{ $.Values.privateProfiles.keys.zapretMtproto | quote }}
 {{- end }}
@@ -633,7 +622,7 @@ spec:
               valueFrom:
                 secretKeyRef:
                   name: {{ include "tracegate.privateProfilesSecretName" $ }}
-                  key: {{ ternary $.Values.privateProfiles.secretKeys.realityPrivateKeyEntry $.Values.privateProfiles.secretKeys.realityPrivateKeyTransit (eq $roleName "entry") }}
+                  key: {{ ternary $.Values.privateProfiles.secretKeys.realityPrivateKeyEntry $.Values.privateProfiles.secretKeys.realityPrivateKeyTransit $roleIsEntry }}
 {{- if $.Values.vlessEncryption.enabled }}
             - name: VLESS_ENCRYPTION_DECRYPTION
               valueFrom:
@@ -696,7 +685,7 @@ spec:
 {{- end }}
           env:
             - name: AGENT_ROLE
-              value: {{ $role.role | quote }}
+              value: {{ $roleAgentRole | quote }}
             - name: AGENT_RUNTIME_MODE
               value: "kubernetes"
             - name: AGENT_RUNTIME_PROFILE
@@ -860,16 +849,8 @@ spec:
               value: {{ $.Values.privateProfiles.keys.zapretEntry | quote }}
             - name: PRIVATE_ZAPRET_PROFILE_TRANSIT
               value: {{ $.Values.privateProfiles.keys.zapretTransit | quote }}
-            - name: PRIVATE_ZAPRET_PROFILE_INTERCONNECT
-              value: {{ $.Values.privateProfiles.keys.zapretInterconnect | quote }}
             - name: PRIVATE_ZAPRET_PROFILE_MTPROTO
               value: {{ $.Values.privateProfiles.keys.zapretMtproto | quote }}
-            - name: PRIVATE_MIERU_PROFILE_DIR
-              value: {{ printf "%s/mieru" $.Values.privateProfiles.mountPath | quote }}
-            - name: PRIVATE_MIERU_CLIENT_PROFILE
-              value: "client.json"
-            - name: PRIVATE_MIERU_SERVER_PROFILE
-              value: "server.json"
             - name: PRIVATE_LINK_CRYPTO_INNER_CARRIER
               value: {{ $.Values.interconnect.entryTransit.innerCarrier | quote }}
             - name: PRIVATE_SHADOWSOCKS2022_LINK_PROFILE_DIR
@@ -889,19 +870,19 @@ spec:
             - name: PRIVATE_LINK_CRYPTO_GENERATION
               value: {{ $.Values.interconnect.entryTransit.generation | quote }}
             - name: PRIVATE_LINK_CRYPTO_BIND_HOST
-              value: {{ $.Values.interconnect.mieru.localSocks.bindHost | quote }}
+              value: {{ $.Values.interconnect.shadowsocks2022.localSocks.bindHost | quote }}
             - name: PRIVATE_LINK_CRYPTO_ENTRY_PORT
-              value: {{ $.Values.interconnect.mieru.localSocks.entryPort | quote }}
+              value: {{ $.Values.interconnect.shadowsocks2022.localSocks.entryPort | quote }}
             - name: PRIVATE_LINK_CRYPTO_TRANSIT_PORT
-              value: {{ $.Values.interconnect.mieru.localSocks.transitPort | quote }}
+              value: {{ $.Values.interconnect.shadowsocks2022.localSocks.transitPort | quote }}
             - name: PRIVATE_LINK_CRYPTO_ROUTER_ENTRY_ENABLED
               value: {{ $.Values.interconnect.entryTransit.routerEntry.enabled | quote }}
             - name: PRIVATE_LINK_CRYPTO_ROUTER_ENTRY_PORT
-              value: {{ $.Values.interconnect.mieru.localSocks.routerEntryPort | quote }}
+              value: {{ $.Values.interconnect.shadowsocks2022.localSocks.routerEntryPort | quote }}
             - name: PRIVATE_LINK_CRYPTO_ROUTER_TRANSIT_ENABLED
               value: {{ $.Values.interconnect.entryTransit.routerTransit.enabled | quote }}
             - name: PRIVATE_LINK_CRYPTO_ROUTER_TRANSIT_PORT
-              value: {{ $.Values.interconnect.mieru.localSocks.routerTransitPort | quote }}
+              value: {{ $.Values.interconnect.shadowsocks2022.localSocks.routerTransitPort | quote }}
             - name: PRIVATE_LINK_CRYPTO_REMOTE_PORT
               value: {{ $.Values.interconnect.entryTransit.remotePort | quote }}
             - name: PRIVATE_LINK_CRYPTO_OUTER_CARRIER_ENABLED
@@ -1007,7 +988,7 @@ spec:
           resources:
             {{- toYaml . | nindent 12 }}
 {{- end }}
-          {{- if eq $roleName "transit" }}
+          {{- if $roleIsEndpoint }}
           ports:
             - name: http
               containerPort: {{ int ($role.ports.publicHttp | default 80) }}
@@ -1239,32 +1220,32 @@ spec:
 {{- end }}
 {{- end }}
 {{- if $roleLinkCryptoEnabled }}
-        - name: mieru
-          image: {{ include "tracegate.image" $innerCarrierImage | quote }}
-          imagePullPolicy: {{ $innerCarrierImage.pullPolicy }}
+        - name: sing-box-link-crypto
+          image: {{ include "tracegate.image" $.Values.gateway.images.singbox | quote }}
+          imagePullPolicy: {{ $.Values.gateway.images.singbox.pullPolicy }}
           command:
             - sh
             - -lc
             - |
               set -eu
               until {{ $roleLinkCryptoReadyTest }}; do sleep 2; done
-              status_dir="/tmp/tracegate-mieru-status"
+              status_dir="/tmp/tracegate-sing-box-link-crypto-status"
               rm -rf "${status_dir}"
               mkdir -p "${status_dir}"
               pids=""
               profile_count=0
-              shutdown_mieru_profiles() {
+              shutdown_link_crypto_profiles() {
                 kill ${pids} 2>/dev/null || true
                 wait ${pids} 2>/dev/null || true
               }
-              start_mieru_profile() {
+              start_link_crypto_profile() {
                 profile="$1"
                 [ -s "${profile}" ] || return 0
                 profile_count=$((profile_count + 1))
                 status_file="${status_dir}/${profile_count}.status"
                 (
                   set +e
-                  {{ $innerCarrierBinary }} run -c "${profile}" &
+                  sing-box run -c "${profile}" &
                   child_pid="$!"
                   trap 'kill "${child_pid}" 2>/dev/null || true; wait "${child_pid}" 2>/dev/null || true; exit 143' TERM INT
                   wait "${child_pid}"
@@ -1274,36 +1255,36 @@ spec:
                 ) &
                 pids="${pids} $!"
               }
-              trap 'shutdown_mieru_profiles; exit 143' TERM INT
+              trap 'shutdown_link_crypto_profiles; exit 143' TERM INT
 {{- if $roleLinkCryptoClientEnabled }}
-              start_mieru_profile "{{ ternary (printf "%s/link-crypto-ss2022/client.json" $.Values.privateProfiles.mountPath) (printf "%s/%s" $.Values.privateProfiles.mountPath $.Values.privateProfiles.keys.mieruClient) (eq $innerCarrier "shadowsocks2022") }}"
+              start_link_crypto_profile "{{ printf "%s/%s" $.Values.privateProfiles.mountPath $.Values.privateProfiles.keys.shadowsocks2022LinkClient }}"
 {{- end }}
 {{- if $roleLinkCryptoServerEnabled }}
-              start_mieru_profile "{{ ternary (printf "%s/link-crypto-ss2022/server.json" $.Values.privateProfiles.mountPath) (printf "%s/%s" $.Values.privateProfiles.mountPath $.Values.privateProfiles.keys.mieruServer) (eq $innerCarrier "shadowsocks2022") }}"
+              start_link_crypto_profile "{{ printf "%s/%s" $.Values.privateProfiles.mountPath $.Values.privateProfiles.keys.shadowsocks2022LinkServer }}"
 {{- end }}
               if [ "${profile_count}" -eq 0 ]; then
-                echo "tracegate mieru: no link-crypto profiles started"
+                echo "tracegate link-crypto: no link-crypto profiles started"
                 while :; do sleep 3600; done
               fi
               while :; do
                 for status_file in "${status_dir}"/*.status; do
                   [ -f "${status_file}" ] || continue
                   code="$(cat "${status_file}" 2>/dev/null || echo 1)"
-                  shutdown_mieru_profiles
+                  shutdown_link_crypto_profiles
                   exit "${code:-1}"
                 done
                 sleep 2
               done
           env:
             - name: TRACEGATE_LINK_CRYPTO_ROLE
-              value: {{ $role.role | quote }}
+              value: {{ $roleAgentRole | quote }}
             - name: TRACEGATE_LINK_CRYPTO_STATE_JSON
               value: {{ $roleLinkCryptoState | quote }}
             - name: TRACEGATE_LINK_CRYPTO_STATE_ENV
               value: {{ $roleLinkCryptoEnv | quote }}
             - name: TRACEGATE_LINK_CRYPTO_RELOAD_MARKER
               value: {{ $roleLinkCryptoReloadMarker | quote }}
-{{- with (index $roleContainerResources "mieru") }}
+{{- with (index $roleContainerResources "singbox") }}
           resources:
             {{- toYaml . | nindent 12 }}
 {{- end }}
@@ -1325,14 +1306,14 @@ spec:
             - |
               set -eu
               until {{ $roleLinkCryptoReadyTest }}; do sleep 2; done
-{{- if eq $roleName "entry" }}
-              exec /home/app/wstunnel client --http-upgrade-path-prefix "{{ $linkOuterCarrierPathPrefix }}" -L "tcp://127.0.0.1:{{ int $linkOuterCarrier.clientLocalPort }}:127.0.0.1:{{ int $.Values.interconnect.mieru.localSocks.transitPort }}" "wss://{{ $linkOuterCarrier.serverName }}:{{ int $linkOuterCarrier.publicPort }}"
+{{- if $roleIsEntry }}
+              exec /home/app/wstunnel client --http-upgrade-path-prefix "{{ $linkOuterCarrierPathPrefix }}" -L "tcp://127.0.0.1:{{ int $linkOuterCarrier.clientLocalPort }}:127.0.0.1:{{ int $.Values.interconnect.shadowsocks2022.localSocks.transitPort }}" "wss://{{ $linkOuterCarrier.serverName }}:{{ int $linkOuterCarrier.publicPort }}"
 {{- else }}
-              exec /home/app/wstunnel server "ws://127.0.0.1:{{ int $linkOuterCarrier.serverLocalPort }}" --restrict-to "127.0.0.1:{{ int $.Values.interconnect.mieru.localSocks.transitPort }}"
+              exec /home/app/wstunnel server "ws://127.0.0.1:{{ int $linkOuterCarrier.serverLocalPort }}" --restrict-to "127.0.0.1:{{ int $.Values.interconnect.shadowsocks2022.localSocks.transitPort }}"
 {{- end }}
           env:
             - name: TRACEGATE_LINK_CRYPTO_ROLE
-              value: {{ $role.role | quote }}
+              value: {{ $roleAgentRole | quote }}
             - name: TRACEGATE_LINK_CRYPTO_STATE_JSON
               value: {{ $roleLinkCryptoState | quote }}
             - name: TRACEGATE_LINK_CRYPTO_STATE_ENV
@@ -1353,7 +1334,7 @@ spec:
               readOnly: true
 {{- end }}
 {{- if $.Values.interconnect.zapret2.enabled }}
-{{- $zapretProfileKey := ternary $.Values.privateProfiles.keys.zapretEntry $.Values.privateProfiles.keys.zapretTransit (eq $roleName "entry") }}
+{{- $zapretProfileKey := ternary $.Values.privateProfiles.keys.zapretEntry $.Values.privateProfiles.keys.zapretTransit $roleIsEntry }}
         - name: zapret2
           image: {{ include "tracegate.image" $.Values.gateway.images.zapret2 | quote }}
           imagePullPolicy: {{ $.Values.gateway.images.zapret2.pullPolicy }}
@@ -1394,10 +1375,7 @@ spec:
               }
               trap 'shutdown_zapret_profiles; exit 143' TERM INT
               start_zapret_profile "{{ $.Values.privateProfiles.mountPath }}/{{ $zapretProfileKey }}"
-{{- if $linkZapretProfileEnabled }}
-              start_zapret_profile "{{ $.Values.privateProfiles.mountPath }}/{{ $.Values.privateProfiles.keys.zapretInterconnect }}"
-{{- end }}
-{{- if and (eq $roleName "transit") $.Values.mtproto.enabled }}
+{{- if and $roleIsEndpoint $.Values.mtproto.enabled }}
               start_zapret_profile "{{ $.Values.privateProfiles.mountPath }}/{{ $.Values.privateProfiles.keys.zapretMtproto }}"
 {{- end }}
               if [ "${profile_count}" -eq 0 ]; then
@@ -1506,7 +1484,7 @@ spec:
                 --password "${password}"
           env:
             - name: TRACEGATE_PROFILE_ROLE
-              value: {{ $role.role | quote }}
+              value: {{ $roleAgentRole | quote }}
             - name: TRACEGATE_PROFILE_STATE_JSON
               value: {{ $roleProfileState | quote }}
             - name: TRACEGATE_PROFILE_STATE_ENV
@@ -1537,7 +1515,7 @@ spec:
               password_file="{{ $.Values.privateProfiles.mountPath }}/{{ $mtprotoEgressShadowtlsPasswordKey }}"
               until [ -s "${password_file}" ]; do sleep 2; done
               password="$(tr -d '\r\n' < "${password_file}")"
-{{- if eq $roleName "entry" }}
+{{- if $roleIsEntry }}
               exec shadow-tls --v3 client \
                 --listen "127.0.0.1:{{ $mtprotoEgressSocksPort }}" \
                 --server "{{ required "mtproto.egress.shadowtls.endpointHost or topology.servers.endpoint.publicIp is required" $mtprotoEgressShadowtlsEndpointHost }}:{{ $mtprotoEgressShadowtlsEndpointPort }}" \
@@ -1559,7 +1537,7 @@ spec:
               mountPath: {{ $.Values.privateProfiles.mountPath }}
               readOnly: true
 {{- end }}
-{{- if and (eq $roleName "transit") $.Values.wireguard.enabled $.Values.wireguard.wstunnel.enabled }}
+{{- if and $roleIsEndpoint $.Values.wireguard.enabled $.Values.wireguard.wstunnel.enabled }}
         - name: wireguard
           image: {{ include "tracegate.image" $.Values.gateway.images.wireguard | quote }}
           imagePullPolicy: {{ $.Values.gateway.images.wireguard.pullPolicy }}
@@ -1603,7 +1581,7 @@ spec:
               while :; do sleep 3600 & wait "$!"; done
           env:
             - name: TRACEGATE_PROFILE_ROLE
-              value: {{ $role.role | quote }}
+              value: {{ $roleAgentRole | quote }}
             - name: TRACEGATE_PROFILE_STATE_JSON
               value: {{ $roleProfileState | quote }}
             - name: TRACEGATE_PROFILE_STATE_ENV
@@ -1651,7 +1629,7 @@ spec:
           command: ["sh", "-lc", "until {{ $roleProfileReadyTest }}; do sleep 2; done; /home/app/wstunnel server ws://127.0.0.1:{{ int $.Values.wireguard.wstunnel.websocketPort }} --restrict-to 127.0.0.1:{{ int $.Values.wireguard.wstunnel.localWireguardPort }}"]
           env:
             - name: TRACEGATE_PROFILE_ROLE
-              value: {{ $role.role | quote }}
+              value: {{ $roleAgentRole | quote }}
             - name: TRACEGATE_PROFILE_STATE_JSON
               value: {{ $roleProfileState | quote }}
             - name: TRACEGATE_PROFILE_STATE_ENV
@@ -1670,32 +1648,6 @@ spec:
               mountPath: /var/lib/tracegate
               readOnly: true
 {{- end }}
-{{- if $labDirectMieruEnabled }}
-        - name: mieru-direct-lab
-          image: {{ include "tracegate.image" $.Values.gateway.images.mieru | quote }}
-          imagePullPolicy: {{ $.Values.gateway.images.mieru.pullPolicy }}
-          command: ["sh", "-lc", "until {{ $roleProfileReadyTest }}; do sleep 2; done; mieru run -c {{ $.Values.privateProfiles.mountPath }}/{{ $.Values.privateProfiles.keys.labMieruDirect }}"]
-          env:
-            - name: TRACEGATE_PROFILE_ROLE
-              value: {{ $role.role | quote }}
-            - name: TRACEGATE_PROFILE_STATE_JSON
-              value: {{ $roleProfileState | quote }}
-            - name: TRACEGATE_PROFILE_STATE_ENV
-              value: {{ $roleProfileEnv | quote }}
-            - name: TRACEGATE_PROFILE_RELOAD_MARKER
-              value: {{ $roleProfileReloadMarker | quote }}
-{{- with (index $roleContainerResources "mieru") }}
-          resources:
-            {{- toYaml . | nindent 12 }}
-{{- end }}
-          volumeMounts:
-            - name: private-profiles
-              mountPath: {{ $.Values.privateProfiles.mountPath }}
-              readOnly: true
-            - name: gateway-state
-              mountPath: /var/lib/tracegate
-              readOnly: true
-{{- end }}
 {{- if $labDirectRestlsEnabled }}
         - name: restls-direct-lab
           image: {{ include "tracegate.image" $.Values.gateway.images.singbox | quote }}
@@ -1703,7 +1655,7 @@ spec:
           command: ["sh", "-lc", "until {{ $roleProfileReadyTest }}; do sleep 2; done; sing-box run -c {{ $.Values.privateProfiles.mountPath }}/{{ $.Values.privateProfiles.keys.labRestlsDirect }}"]
           env:
             - name: TRACEGATE_PROFILE_ROLE
-              value: {{ $role.role | quote }}
+              value: {{ $roleAgentRole | quote }}
             - name: TRACEGATE_PROFILE_STATE_JSON
               value: {{ $roleProfileState | quote }}
             - name: TRACEGATE_PROFILE_STATE_ENV
@@ -1729,7 +1681,7 @@ spec:
           command: ["sh", "-lc", "until {{ $roleProfileReadyTest }}; do sleep 2; done; sing-box run -c {{ $.Values.privateProfiles.mountPath }}/{{ $roleLabTuicKey }}"]
           env:
             - name: TRACEGATE_PROFILE_ROLE
-              value: {{ $role.role | quote }}
+              value: {{ $roleAgentRole | quote }}
             - name: TRACEGATE_PROFILE_STATE_JSON
               value: {{ $roleProfileState | quote }}
             - name: TRACEGATE_PROFILE_STATE_ENV

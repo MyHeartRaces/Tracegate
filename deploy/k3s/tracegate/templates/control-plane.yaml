@@ -4,7 +4,12 @@
 {{- $databaseUrl = printf "postgresql+psycopg://%s:%s@%s-postgres:5432/%s" .Values.controlPlane.database.embedded.username .Values.controlPlane.database.embedded.password (include "tracegate.fullname" .) .Values.controlPlane.database.embedded.database -}}
 {{- end }}
 {{- $entryRealityShortId := .Values.controlPlane.env.realityShortIdEntry | default (index .Values.gateway.roles.entry.reality.shortIds 0) -}}
-{{- $transitRealityShortId := .Values.controlPlane.env.realityShortIdTransit | default (index .Values.gateway.roles.transit.reality.shortIds 0) -}}
+{{- $endpointRole := .Values.gateway.roles.transit -}}
+{{- $endpointOverride := index .Values.gateway.roles "endpoint" -}}
+{{- if $endpointOverride }}{{- $endpointRole = mergeOverwrite (deepCopy .Values.gateway.roles.transit) $endpointOverride -}}{{- end -}}
+{{- $endpointRealityShortId := (.Values.controlPlane.env.realityShortIdEndpoint | default .Values.controlPlane.env.realityShortIdTransit) | default (index $endpointRole.reality.shortIds 0) -}}
+{{- $endpointRealityPublicKey := .Values.controlPlane.env.realityPublicKeyEndpoint | default .Values.controlPlane.env.realityPublicKeyTransit -}}
+{{- $endpointShadowtlsServerName := .Values.shadowsocks2022.shadowtls.serverNameEndpoint | default .Values.shadowsocks2022.shadowtls.serverNameTransit -}}
 {{- $mtprotoIngressHosts := list -}}
 {{- range $shard := (.Values.architecture.entryIngress.shards | default (list)) -}}
 {{- if $shard.mtprotoHost -}}{{- $mtprotoIngressHosts = append $mtprotoIngressHosts $shard.mtprotoHost -}}{{- end -}}
@@ -282,9 +287,9 @@ spec:
             - name: REALITY_SHORT_ID_ENTRY
               value: {{ $entryRealityShortId | quote }}
             - name: REALITY_PUBLIC_KEY_TRANSIT
-              value: {{ .Values.controlPlane.env.realityPublicKeyTransit | quote }}
+              value: {{ $endpointRealityPublicKey | quote }}
             - name: REALITY_SHORT_ID_TRANSIT
-              value: {{ $transitRealityShortId | quote }}
+              value: {{ $endpointRealityShortId | quote }}
             - name: WIREGUARD_SERVER_PUBLIC_KEY
               value: {{ .Values.controlPlane.env.wireguardServerPublicKey | quote }}
             - name: WIREGUARD_DNS
@@ -306,11 +311,11 @@ spec:
                   name: {{ include "tracegate.privateProfilesSecretName" . }}
                   key: {{ .Values.privateProfiles.secretKeys.hysteriaSalamanderTransit }}
             - name: HYSTERIA_UDP_PORT
-              value: {{ int .Values.gateway.roles.transit.ports.publicUdp | quote }}
+              value: {{ int $endpointRole.ports.publicUdp | quote }}
             - name: SHADOWTLS_SERVER_NAME_ENTRY
               value: {{ .Values.shadowsocks2022.shadowtls.serverNameEntry | quote }}
             - name: SHADOWTLS_SERVER_NAME_TRANSIT
-              value: {{ .Values.shadowsocks2022.shadowtls.serverNameTransit | quote }}
+              value: {{ $endpointShadowtlsServerName | quote }}
             - name: SHADOWTLS_PASSWORD_ENTRY
               valueFrom:
                 secretKeyRef:
@@ -497,7 +502,7 @@ spec:
             - name: SHADOWTLS_SERVER_NAME_ENTRY
               value: {{ $.Values.shadowsocks2022.shadowtls.serverNameEntry | quote }}
             - name: SHADOWTLS_SERVER_NAME_TRANSIT
-              value: {{ $.Values.shadowsocks2022.shadowtls.serverNameTransit | quote }}
+              value: {{ $endpointShadowtlsServerName | quote }}
             - name: SHADOWTLS_PASSWORD_ENTRY
               valueFrom:
                 secretKeyRef:

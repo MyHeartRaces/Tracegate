@@ -11,7 +11,7 @@ PRIVATE_PREFLIGHT_SECRET_CANARIES = (
     "real-private-key",
     "real-hysteria-auth",
     "server-private-key",
-    "mieru-secret",
+    "shadowsocks2022-secret",
     "ss2022-secret",
     "shadowtls-secret",
     "00112233445566778899aabbccddeeff",
@@ -35,7 +35,11 @@ def _write(root: Path, rel_path: str, content: str) -> None:
 def test_k3s_private_preflight_accepts_role_scoped_secret_files(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     _write(tmp_path, "reality/transit-private-key", "real-private-key\n")
     _write(tmp_path, "hysteria/transit-auth", "real-hysteria-auth\n")
-    _write(tmp_path, "mieru/server.json", '{"profiles": [{"name": "entry-transit", "password": "mieru-secret"}]}\n')
+    _write(
+        tmp_path,
+        "link-crypto-ss2022/server.json",
+        '{"outbounds": [{"type": "shadowsocks", "method": "2022-blake3-aes-128-gcm", "password": "shadowsocks2022-secret"}, {"type": "shadowtls", "version": 3, "password": "shadowtls-secret"}]}\n',
+    )
     _write(
         tmp_path,
         "shadowsocks2022/transit-server.json",
@@ -74,7 +78,7 @@ def test_k3s_private_preflight_accepts_role_scoped_secret_files(tmp_path: Path, 
             "--required-file",
             "hysteria/transit-auth",
             "--required-file",
-            "mieru/server.json",
+            "link-crypto-ss2022/server.json",
             "--required-file",
             "shadowsocks2022/transit-server.json",
             "--required-file",
@@ -95,26 +99,34 @@ def test_k3s_private_preflight_accepts_role_scoped_secret_files(tmp_path: Path, 
     _assert_no_private_canaries(out)
 
 
-def test_k3s_private_preflight_rejects_mieru_without_private_credentials(tmp_path: Path) -> None:
-    _write(tmp_path, "mieru/server.json", '{"profiles": [{"name": "entry-transit"}]}\n')
+def test_k3s_private_preflight_rejects_shadowsocks2022_without_private_credentials(tmp_path: Path) -> None:
+    _write(
+        tmp_path,
+        "link-crypto-ss2022/server.json",
+        '{"outbounds": [{"type": "shadowsocks", "method": "2022-blake3-aes-128-gcm"}, {"type": "shadowtls", "version": 3}]}\n',
+    )
 
-    with pytest.raises(K3sPrivatePreflightError, match="credential material"):
+    with pytest.raises(K3sPrivatePreflightError, match="key/password material"):
         validate_private_mount(
             root=tmp_path,
             role="TRANSIT",
-            required_files=["mieru/server.json"],
+            required_files=["link-crypto-ss2022/server.json"],
             zapret_files=[],
         )
 
 
-def test_k3s_private_preflight_rejects_mieru_anonymous_auth(tmp_path: Path) -> None:
-    _write(tmp_path, "mieru/server.json", '{"profiles": [{"name": "entry-transit", "password": "secret", "auth": "none"}]}\n')
+def test_k3s_private_preflight_rejects_shadowsocks2022_non_2022_method(tmp_path: Path) -> None:
+    _write(
+        tmp_path,
+        "link-crypto-ss2022/server.json",
+        '{"outbounds": [{"type": "shadowsocks", "method": "aes-256-gcm", "password": "secret"}, {"type": "shadowtls", "version": 3, "password": "secret"}]}\n',
+    )
 
-    with pytest.raises(K3sPrivatePreflightError, match="anonymous/no-auth"):
+    with pytest.raises(K3sPrivatePreflightError, match="2022-"):
         validate_private_mount(
             root=tmp_path,
             role="TRANSIT",
-            required_files=["mieru/server.json"],
+            required_files=["link-crypto-ss2022/server.json"],
             zapret_files=[],
         )
 

@@ -51,10 +51,6 @@ _WIREGUARD_FORBIDDEN_HOOK_KEYS = {"preup", "postup", "predown", "postdown"}
 _WIREGUARD_FORBIDDEN_INTERFACE_KEYS = _WIREGUARD_FORBIDDEN_HOOK_KEYS | {"dns", "saveconfig"}
 _SHADOWSOCKS2022_SECRET_KEYS = {"password", "psk", "key", "server_key", "user_key"}
 _MTPROTO_RAW_SECRET_RE = re.compile(r"[0-9a-fA-F]{32}")
-_MIERU_SECRET_KEYS = {"password", "pass", "secret", "token", "credential", "credentials", "key"}
-_MIERU_AUTH_MODE_KEYS = {"auth", "authentication", "authmode", "auth_mode"}
-_MIERU_ANONYMOUS_AUTH_VALUES = {"none", "noauth", "no-auth", "anonymous", "disabled", "off", "false"}
-_MIERU_ANONYMOUS_BOOL_KEYS = {"allowanonymous", "allow_anonymous", "anonymous", "noauth", "no_auth", "disableauth", "disable_auth"}
 _RESTLS_SECRET_KEYS = {"password", "secret", "token", "private_key", "key", "cert", "certificate", "tls_key"}
 _RESTLS_INSECURE_TLS_KEYS = {
     "insecure",
@@ -167,24 +163,6 @@ def _normalized_key(value: object) -> str:
     return str(value or "").strip().lower().replace("-", "").replace("_", "")
 
 
-def _has_forbidden_mieru_auth_mode(value: Any) -> bool:
-    auth_mode_keys = {_normalized_key(key) for key in _MIERU_AUTH_MODE_KEYS}
-    anonymous_bool_keys = {_normalized_key(key) for key in _MIERU_ANONYMOUS_BOOL_KEYS}
-    if isinstance(value, dict):
-        for raw_key, child in value.items():
-            key = _normalized_key(raw_key)
-            if key in auth_mode_keys and not isinstance(child, (dict, list)):
-                if str(child or "").strip().strip("\"'").lower() in _MIERU_ANONYMOUS_AUTH_VALUES:
-                    return True
-            if key in anonymous_bool_keys and _is_true(child):
-                return True
-            if _has_forbidden_mieru_auth_mode(child):
-                return True
-    elif isinstance(value, list):
-        return any(_has_forbidden_mieru_auth_mode(child) for child in value)
-    return False
-
-
 def _has_true_normalized_key(value: Any, keys: set[str]) -> bool:
     normalized_keys = {_normalized_key(key) for key in keys}
     if isinstance(value, dict):
@@ -196,21 +174,6 @@ def _has_true_normalized_key(value: Any, keys: set[str]) -> bool:
     elif isinstance(value, list):
         return any(_has_true_normalized_key(child, normalized_keys) for child in value)
     return False
-
-
-def _looks_mieru_config(path: Path) -> bool:
-    return _path_has_part(path, "mieru") or "mieru" in path.name.lower()
-
-
-def _validate_mieru_config(path: Path, parsed: Any | None, *, label: str) -> None:
-    if not _looks_mieru_config(path):
-        return
-    if not isinstance(parsed, (dict, list)):
-        raise K3sPrivatePreflightError(f"{label} Mieru config must be a JSON/YAML object or list: {path}")
-    if not _has_nonempty_value(parsed, _MIERU_SECRET_KEYS):
-        raise K3sPrivatePreflightError(f"{label} Mieru config is missing private credential material: {path}")
-    if _has_forbidden_mieru_auth_mode(parsed):
-        raise K3sPrivatePreflightError(f"{label} Mieru config must not allow anonymous/no-auth mode: {path}")
 
 
 def _looks_tuic_config(path: Path) -> bool:
@@ -244,7 +207,12 @@ def _validate_tuic_config(path: Path, parsed: Any | None, *, label: str) -> None
 
 
 def _looks_shadowsocks2022_config(path: Path) -> bool:
-    return _path_has_part(path, "shadowsocks2022") or path.name.lower() in {"ss2022.json", "shadowsocks2022.json"}
+    return (
+        _path_has_part(path, "link-crypto-ss2022")
+        or _path_has_part(path, "shadowsocks2022")
+        or "ss2022" in path.name.lower()
+        or path.name.lower() == "shadowsocks2022.json"
+    )
 
 
 def _validate_shadowsocks2022_config(path: Path, parsed: Any | None, *, label: str) -> None:
@@ -261,7 +229,11 @@ def _validate_shadowsocks2022_config(path: Path, parsed: Any | None, *, label: s
 
 
 def _looks_shadowtls_config(path: Path) -> bool:
-    return _path_has_part(path, "shadowtls") or path.name.lower() in {"shadowtls.yaml", "shadowtls.yml", "shadowtls.json"}
+    return (
+        _path_has_part(path, "link-crypto-ss2022")
+        or _path_has_part(path, "shadowtls")
+        or path.name.lower() in {"shadowtls.yaml", "shadowtls.yml", "shadowtls.json"}
+    )
 
 
 def _validate_shadowtls_config(path: Path, parsed: Any | None, *, label: str) -> None:
@@ -485,7 +457,6 @@ def validate_private_mount(
         if forbid_placeholders:
             _reject_placeholders(content, label=normalized, path=path)
         parsed = _validate_structured_file(path, content, label=normalized)
-        _validate_mieru_config(path, parsed, label=normalized)
         _validate_restls_config(path, parsed, label=normalized)
         _validate_tuic_config(path, parsed, label=normalized)
         _validate_shadowsocks2022_config(path, parsed, label=normalized)

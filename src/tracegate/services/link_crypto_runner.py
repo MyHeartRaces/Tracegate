@@ -209,11 +209,10 @@ def build_link_crypto_runner_plan(
     action: str,
     role: str,
     paths: LinkCryptoRunnerPaths,
-    mieru_bin: str = "mieru",
     singbox_bin: str = "sing-box",
     hysteria_bin: str = "hysteria",
     paired_obfs_runner: str = "",
-    include_mieru: bool = True,
+    include_tcp: bool = True,
     include_udp: bool = True,
 ) -> dict[str, Any]:
     action_normalized = str(action or "").strip().lower()
@@ -232,20 +231,16 @@ def build_link_crypto_runner_plan(
     paths.runtime_dir.mkdir(parents=True, exist_ok=True)
     processes: list[dict[str, Any]] = []
 
-    for row in (state.links if include_mieru else ()):
+    for row in (state.links if include_tcp else ()):
         if not _enabled(row):
             continue
         link_class = _row_string(row, "class")
         side = _row_string(row, "side")
-        carrier = _row_string(row, "carrier") or "mieru"
-        if carrier == "shadowsocks2022":
-            profile_path = _profile_path(row, label=f"{link_class} Shadowsocks-2022")
-            command = [_binary_command(singbox_bin, "sing-box"), "run", "-c", profile_path]
-        elif carrier == "mieru":
-            profile_path = _profile_path(row, label=f"{link_class} Mieru")
-            command = [_binary_command(mieru_bin, "mieru"), "run", "-c", profile_path]
-        else:
+        carrier = _row_string(row, "carrier") or "shadowsocks2022"
+        if carrier != "shadowsocks2022":
             raise LinkCryptoRunnerError(f"unsupported inner-carrier: {carrier!r}")
+        profile_path = _profile_path(row, label=f"{link_class} Shadowsocks-2022/ShadowTLS")
+        command = [_binary_command(singbox_bin, "sing-box"), "run", "-c", profile_path]
         processes.append(
             _process_spec(
                 kind=carrier,
@@ -323,13 +318,12 @@ def build_link_crypto_runner_plan(
         "runtimeContract": str(paths.runtime_contract or state.runtime_contract_path),
         "runtimeDir": str(paths.runtime_dir),
         "counts": {
-            "mieru": len([row for row in processes if row["kind"] == "mieru"]),
             "shadowsocks2022": len([row for row in processes if row["kind"] == "shadowsocks2022"]),
             "hysteria2": len([row for row in processes if row["kind"] == "hysteria2"]),
             "pairedUdpObfs": len([row for row in processes if row["kind"] == "paired-udp-obfs"]),
         },
         "scope": {
-            "mieru": include_mieru,
+            "tcp": include_tcp,
             "udp": include_udp,
         },
         "security": {
@@ -339,7 +333,7 @@ def build_link_crypto_runner_plan(
             "udpSalamanderRequired": all(bool(_row_dict(row, "obfs").get("required", False)) for row in state.udp_links),
             "udpDpiResistanceRequired": all(bool(_row_dict(row, "dpiResistance").get("enabled", False)) for row in state.udp_links),
             "tcpDpiResistanceRequired": all(bool(_row_dict(row, "dpiResistance").get("enabled", False)) for row in state.links),
-            "tcpZapret2Required": all(bool(_row_dict(row, "zapret2").get("required", False)) and bool(_row_dict(row, "zapret2").get("enabled", False)) for row in state.links),
+            "tcpZapret2Required": False,
             "tcpPromotionPreflightRequired": all(bool(_row_dict(_row_dict(row, "dpiResistance"), "promotionPreflight").get("required", False)) for row in state.links),
         },
         "processes": processes,

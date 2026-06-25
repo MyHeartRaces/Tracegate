@@ -72,26 +72,19 @@ def _private_file_ref(path: str) -> dict:
 
 def _tcp_zapret2_policy() -> dict:
     return {
-        "enabled": True,
-        "required": True,
-        "profileFile": "/tmp/tracegate-private/zapret/entry-transit.env",
-        "profileSource": "private-file-reference",
-        "profileRef": _private_file_ref("/tmp/tracegate-private/zapret/entry-transit.env"),
-        "packetShaping": "zapret2-scoped",
-        "applyMode": "marked-flow-only",
-        "scope": "link-crypto-flow-only",
-        "targetSurfaces": ["tcp/443", "entry-transit", "router-link-crypto"],
+        "enabled": False,
+        "required": False,
         "hostWideInterception": False,
         "nfqueue": False,
-        "failOpen": True,
     }
 
 
 def _tcp_dpi_resistance(*, require_outer_carrier: bool = True) -> dict:
     required_layers = [
-        "mieru-private-auth",
-        "scoped-zapret2",
-        "private-zapret2-profile",
+        "shadowsocks2022-aead",
+        "shadowtls-v3",
+        "tls13-camouflage",
+        "sing-box-runtime",
         "loopback-only",
         "generation-drain",
         "no-direct-backhaul",
@@ -100,32 +93,12 @@ def _tcp_dpi_resistance(*, require_outer_carrier: bool = True) -> dict:
         required_layers.extend(["outer-wss-tls", "spki-sha256-pin", "hmac-admission"])
     return {
         "enabled": True,
-        "mode": "mieru-wss-spki-hmac-zapret2-scoped" if require_outer_carrier else "mieru-zapret2-scoped",
+        "mode": "shadowsocks2022-wss-spki-hmac" if require_outer_carrier else "shadowsocks2022-direct",
         "requiredLayers": required_layers,
         "outerCarrier": {
             "required": require_outer_carrier,
             "spkiPinningRequired": require_outer_carrier,
             "hmacAdmissionRequired": require_outer_carrier,
-        },
-        "zapret2": {
-            "required": True,
-            "enabled": True,
-            "profileSource": "private-file-reference",
-            "profileRef": _private_file_ref("/tmp/tracegate-private/zapret/entry-transit.env"),
-            "packetShaping": "zapret2-scoped",
-            "applyMode": "marked-flow-only",
-            "scope": "link-crypto-flow-only",
-            "hostWideInterception": False,
-            "nfqueue": False,
-        },
-        "trafficShaping": {
-            "required": True,
-            "strategy": "private-zapret2-profile",
-            "profileSource": "private-file-reference",
-            "profileRef": _private_file_ref("/tmp/tracegate-private/link-crypto/tcp-shaping.env"),
-            "scope": "marked-flow-only",
-            "target": "tcp/443-outer-wss" if require_outer_carrier else "tcp/443-link-crypto",
-            "secretMaterial": False,
         },
         "promotionPreflight": {
             "required": True,
@@ -133,8 +106,8 @@ def _tcp_dpi_resistance(*, require_outer_carrier: bool = True) -> dict:
             "profileSource": "private-file-reference",
             "profileRef": _private_file_ref("/tmp/tracegate-private/link-crypto/promotion-preflight.env"),
             "checks": [
-                "mieru-private-auth",
-                "zapret2-scoped-profile",
+                "shadowsocks2022-aead",
+                "shadowtls-v3",
                 "no-direct-backhaul",
             ]
             + (["spki-pin", "hmac-admission"] if require_outer_carrier else []),
@@ -154,7 +127,7 @@ def _contract(path: Path) -> dict:
         },
         "linkCrypto": {
             "enabled": True,
-            "carrier": "mieru",
+            "carrier": "shadowsocks2022",
             "manager": "link-crypto",
             "profileSource": "private-file-reference",
             "secretMaterial": False,
@@ -263,13 +236,13 @@ def _state(path: Path, *, contract: dict, contract_path: Path, paired_obfs_enabl
                 "enabled": True,
                 "role": "ENTRY",
                 "side": "client",
-                "carrier": "mieru",
+                "carrier": "shadowsocks2022",
                 "managedBy": "link-crypto",
                 "xrayBackhaul": False,
                 "generation": 1,
                 "profileRef": {
                     "kind": "file",
-                    "path": "/tmp/tracegate-private/mieru/client.json",
+                    "path": "/tmp/tracegate-private/link-crypto-ss2022/client.json",
                     "secretMaterial": True,
                 },
                 "local": {"listen": "127.0.0.1:10881", "auth": {"required": True, "mode": "private-profile"}},
@@ -336,7 +309,7 @@ def _state(path: Path, *, contract: dict, contract_path: Path, paired_obfs_enabl
     return payload
 
 
-def test_link_crypto_runner_builds_mieru_and_hysteria_plan(tmp_path: Path) -> None:
+def test_link_crypto_runner_builds_shadowsocks2022_and_hysteria_plan(tmp_path: Path) -> None:
     contract_path = tmp_path / "runtime-contract.json"
     contract = _contract(contract_path)
     state_path = tmp_path / "desired-state.json"
@@ -350,22 +323,22 @@ def test_link_crypto_runner_builds_mieru_and_hysteria_plan(tmp_path: Path) -> No
             runtime_dir=tmp_path / "runtime",
             plan_file=tmp_path / "runner-plan.json",
         ),
-        mieru_bin="/usr/bin/mieru",
+        singbox_bin="/usr/bin/sing-box",
         hysteria_bin="/usr/local/bin/hysteria",
     )
 
     assert plan["schema"] == "tracegate.link-crypto-runner-plan.v1"
-    assert plan["counts"] == {"mieru": 1, "shadowsocks2022": 0, "hysteria2": 1, "pairedUdpObfs": 0}
+    assert plan["counts"] == {"shadowsocks2022": 1, "hysteria2": 1, "pairedUdpObfs": 0}
     assert plan["security"]["secretMaterialInline"] is False
     assert plan["security"]["udpFailClosed"] is True
     assert plan["security"]["udpDpiResistanceRequired"] is True
     assert plan["security"]["tcpDpiResistanceRequired"] is True
-    assert plan["security"]["tcpZapret2Required"] is True
+    assert plan["security"]["tcpZapret2Required"] is False
     assert plan["security"]["tcpPromotionPreflightRequired"] is True
     by_kind = {row["kind"]: row for row in plan["processes"]}
-    assert by_kind["mieru"]["command"] == ["/usr/bin/mieru", "run", "-c", "/tmp/tracegate-private/mieru/client.json"]
-    assert by_kind["mieru"]["hardening"]["scope"] == "link-crypto-flow-only"
-    assert by_kind["mieru"]["dpiResistance"]["mode"] == "mieru-wss-spki-hmac-zapret2-scoped"
+    assert by_kind["shadowsocks2022"]["command"] == ["/usr/bin/sing-box", "run", "-c", "/tmp/tracegate-private/link-crypto-ss2022/client.json"]
+    assert by_kind["shadowsocks2022"]["hardening"]["enabled"] is False
+    assert by_kind["shadowsocks2022"]["dpiResistance"]["mode"] == "shadowsocks2022-wss-spki-hmac"
     assert by_kind["hysteria2"]["command"] == [
         "/usr/local/bin/hysteria",
         "client",
@@ -449,7 +422,7 @@ def test_link_crypto_runner_stops_hysteria_before_paired_obfs(
     result = runner_mod.apply_link_crypto_runner_plan(plan)
 
     assert result["action"] == "stop"
-    assert stopped == ["hysteria2", "paired-udp-obfs", "mieru"]
+    assert stopped == ["hysteria2", "paired-udp-obfs", "shadowsocks2022"]
 
 
 def test_link_crypto_runner_validates_paired_obfs_before_starting_udp_link(
@@ -478,7 +451,7 @@ def test_link_crypto_runner_validates_paired_obfs_before_starting_udp_link(
             plan_file=tmp_path / "runner-plan.json",
         ),
         paired_obfs_runner="/opt/link-crypto-private/udp-obfs-runner",
-        include_mieru=False,
+        include_tcp=False,
     )
 
     def _fake_run(command: list[str], **_: object) -> subprocess.CompletedProcess[str]:
@@ -521,7 +494,7 @@ def test_link_crypto_runner_fails_closed_when_paired_obfs_exits_immediately(
             plan_file=tmp_path / "runner-plan.json",
         ),
         paired_obfs_runner="/opt/link-crypto-private/udp-obfs-runner",
-        include_mieru=False,
+        include_tcp=False,
     )
     spawned: list[list[str]] = []
 
@@ -576,7 +549,7 @@ def test_link_crypto_runner_rolls_back_started_udp_processes_on_later_start_fail
             plan_file=tmp_path / "runner-plan.json",
         ),
         paired_obfs_runner="/opt/link-crypto-private/udp-obfs-runner",
-        include_mieru=False,
+        include_tcp=False,
     )
     spawned: list[list[str]] = []
     stopped: list[str] = []

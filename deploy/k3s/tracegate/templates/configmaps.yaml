@@ -1,5 +1,15 @@
-{{- $linkCryptoEnabled := or .Values.interconnect.entryTransit.enabled .Values.interconnect.entryTransit.routerEntry.enabled .Values.interconnect.entryTransit.routerTransit.enabled -}}
+{{- $architectureMode := toString (.Values.architecture.mode | default "legacy-three-node") -}}
+{{- $linkCryptoEnabled := and (ne $architectureMode "entry-endpoint") (or .Values.interconnect.entryTransit.enabled .Values.interconnect.entryTransit.routerEntry.enabled .Values.interconnect.entryTransit.routerTransit.enabled) -}}
 {{- $linkCryptoUdpEnabled := and .Values.interconnect.entryTransit.udp.enabled $linkCryptoEnabled -}}
+{{- $entryTransitLinkEnabled := and $linkCryptoEnabled .Values.interconnect.entryTransit.enabled -}}
+{{- $routerEntryLinkEnabled := and $linkCryptoEnabled .Values.interconnect.entryTransit.routerEntry.enabled -}}
+{{- $routerTransitLinkEnabled := and $linkCryptoEnabled .Values.interconnect.entryTransit.routerTransit.enabled -}}
+{{- $entryTransitUdpLinkEnabled := and $linkCryptoUdpEnabled .Values.interconnect.entryTransit.enabled -}}
+{{- $routerEntryUdpLinkEnabled := and $linkCryptoUdpEnabled .Values.interconnect.entryTransit.routerEntry.enabled -}}
+{{- $routerTransitUdpLinkEnabled := and $linkCryptoUdpEnabled .Values.interconnect.entryTransit.routerTransit.enabled -}}
+{{- $endpointRole := .Values.gateway.roles.transit -}}
+{{- $endpointOverride := index .Values.gateway.roles "endpoint" -}}
+{{- if $endpointOverride }}{{- $endpointRole = mergeOverwrite (deepCopy .Values.gateway.roles.transit) $endpointOverride -}}{{- end -}}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -46,7 +56,11 @@ data:
     network:
       topology:
         servers:
+{{- if eq $architectureMode "entry-endpoint" }}
+{{ toYaml (dict "entry" .Values.topology.servers.entry "endpoint" .Values.topology.servers.endpoint) | nindent 10 }}
+{{- else }}
 {{ toYaml .Values.topology.servers | nindent 10 }}
+{{- end }}
       egressIsolation:
         required: {{ .Values.network.egressIsolation.required }}
         mode: {{ .Values.network.egressIsolation.mode }}
@@ -108,7 +122,12 @@ data:
       nodeAnnotations:
 {{ toYaml .Values.gateway.nodeEncryption.nodeAnnotations | nindent 8 }}
     interconnect:
+{{- if eq $architectureMode "entry-endpoint" }}
+      enabled: false
+      replacedBy: endpointBackhaul
+{{- else }}
 {{ toYaml .Values.interconnect.entryTransit | nindent 6 }}
+{{- end }}
     endpointBackhaul:
       enabled: {{ .Values.interconnect.endpointBackhaul.enabled }}
       primary: {{ .Values.interconnect.endpointBackhaul.primary }}
@@ -173,14 +192,16 @@ data:
         endpoints:
           entryClientListen: {{ printf "127.0.0.1:%d" (int .Values.interconnect.entryTransit.outerCarrier.clientLocalPort) | quote }}
           transitServerListen: {{ printf "127.0.0.1:%d" (int .Values.interconnect.entryTransit.outerCarrier.serverLocalPort) | quote }}
-          transitTarget: {{ printf "127.0.0.1:%d" (int .Values.interconnect.mieru.localSocks.transitPort) | quote }}
+          transitTarget: {{ printf "127.0.0.1:%d" (int .Values.interconnect.shadowsocks2022.localSocks.transitPort) | quote }}
 {{- if $linkCryptoEnabled }}
-{{- if eq (toString .Values.interconnect.entryTransit.innerCarrier) "shadowsocks2022" }}
       dpiResistance:
         enabled: true
         mode: {{ if and .Values.interconnect.entryTransit.enabled .Values.interconnect.entryTransit.outerCarrier.enabled }}shadowsocks2022-wss-spki-hmac{{ else }}shadowsocks2022-direct{{ end }}
         requiredLayers:
           - shadowsocks2022-aead
+          - shadowtls-v3
+          - tls13-camouflage
+          - sing-box-runtime
           - loopback-only
           - generation-drain
           - no-direct-backhaul
@@ -203,166 +224,105 @@ data:
             secretMaterial: true
           checks:
             - shadowsocks2022-aead
+            - shadowtls-v3
             - no-direct-backhaul
 {{ if and .Values.interconnect.entryTransit.enabled .Values.interconnect.entryTransit.outerCarrier.enabled }}
             - spki-pin
             - hmac-admission
 {{ end }}
           secretMaterial: false
-{{- else }}
-      dpiResistance:
-        enabled: true
-        mode: {{ if and .Values.interconnect.entryTransit.enabled .Values.interconnect.entryTransit.outerCarrier.enabled }}mieru-wss-spki-hmac-zapret2-scoped{{ else }}mieru-zapret2-scoped{{ end }}
-        requiredLayers:
-          - mieru-private-auth
-          - scoped-zapret2
-          - private-zapret2-profile
-          - loopback-only
-          - generation-drain
-          - no-direct-backhaul
-{{ if and .Values.interconnect.entryTransit.enabled .Values.interconnect.entryTransit.outerCarrier.enabled }}
-          - outer-wss-tls
-          - spki-sha256-pin
-          - hmac-admission
-{{ end }}
-        outerCarrier:
-          required: {{ and .Values.interconnect.entryTransit.enabled .Values.interconnect.entryTransit.outerCarrier.enabled }}
-          spkiPinningRequired: {{ and .Values.interconnect.entryTransit.enabled .Values.interconnect.entryTransit.outerCarrier.enabled .Values.interconnect.entryTransit.outerCarrier.spkiPinning.required }}
-          hmacAdmissionRequired: {{ and .Values.interconnect.entryTransit.enabled .Values.interconnect.entryTransit.outerCarrier.enabled .Values.interconnect.entryTransit.outerCarrier.admission.required }}
-        zapret2:
-          required: true
-          enabled: {{ .Values.interconnect.zapret2.enabled }}
-          profileSource: private-file-reference
-          profileRef:
-            kind: file
-            path: {{ printf "%s/%s" .Values.privateProfiles.mountPath .Values.privateProfiles.keys.zapretInterconnect | quote }}
-            secretMaterial: true
-          packetShaping: zapret2-scoped
-          applyMode: marked-flow-only
-          scope: link-crypto-flow-only
-          hostWideInterception: false
-          nfqueue: false
-        trafficShaping:
-          required: true
-          strategy: private-zapret2-profile
-          profileSource: private-file-reference
-          profileRef:
-            kind: file
-            path: {{ .Values.interconnect.entryTransit.outerCarrier.tcpShapingProfileFile | quote }}
-            secretMaterial: true
-          scope: marked-flow-only
-          target: {{ if and .Values.interconnect.entryTransit.enabled .Values.interconnect.entryTransit.outerCarrier.enabled }}tcp/443-outer-wss{{ else }}tcp/443-link-crypto{{ end }}
-          secretMaterial: false
-        promotionPreflight:
-          required: true
-          failClosed: true
-          profileSource: private-file-reference
-          profileRef:
-            kind: file
-            path: {{ .Values.interconnect.entryTransit.outerCarrier.promotionPreflightProfileFile | quote }}
-            secretMaterial: true
-          checks:
-            - mieru-private-auth
-            - zapret2-scoped-profile
-            - no-direct-backhaul
-{{ if and .Values.interconnect.entryTransit.enabled .Values.interconnect.entryTransit.outerCarrier.enabled }}
-            - spki-pin
-            - hmac-admission
-{{ end }}
-          secretMaterial: false
-{{- end }}
 {{- end }}
       classes:
-{{- if .Values.interconnect.entryTransit.enabled }}
+{{- if $entryTransitLinkEnabled }}
         - entry-transit
 {{- end }}
-{{- if .Values.interconnect.entryTransit.routerEntry.enabled }}
+{{- if $routerEntryLinkEnabled }}
         - router-entry
 {{- end }}
-{{- if .Values.interconnect.entryTransit.routerTransit.enabled }}
+{{- if $routerTransitLinkEnabled }}
         - router-transit
 {{- end }}
-{{- if not (or .Values.interconnect.entryTransit.enabled .Values.interconnect.entryTransit.routerEntry.enabled .Values.interconnect.entryTransit.routerTransit.enabled) }}
+{{- if not (or $entryTransitLinkEnabled $routerEntryLinkEnabled $routerTransitLinkEnabled) }}
         []
 {{- end }}
       counts:
-        total: {{ add (ternary 1 0 .Values.interconnect.entryTransit.enabled) (ternary 1 0 .Values.interconnect.entryTransit.routerEntry.enabled) (ternary 1 0 .Values.interconnect.entryTransit.routerTransit.enabled) }}
-        entryTransit: {{ ternary 1 0 .Values.interconnect.entryTransit.enabled }}
-        routerEntry: {{ ternary 1 0 .Values.interconnect.entryTransit.routerEntry.enabled }}
-        routerTransit: {{ ternary 1 0 .Values.interconnect.entryTransit.routerTransit.enabled }}
+        total: {{ add (ternary 1 0 $entryTransitLinkEnabled) (ternary 1 0 $routerEntryLinkEnabled) (ternary 1 0 $routerTransitLinkEnabled) }}
+        entryTransit: {{ ternary 1 0 $entryTransitLinkEnabled }}
+        routerEntry: {{ ternary 1 0 $routerEntryLinkEnabled }}
+        routerTransit: {{ ternary 1 0 $routerTransitLinkEnabled }}
       roles:
         entry:
-          enabled: {{ or .Values.interconnect.entryTransit.enabled .Values.interconnect.entryTransit.routerEntry.enabled }}
+          enabled: {{ or $entryTransitLinkEnabled $routerEntryLinkEnabled }}
           classes:
-{{- if .Values.interconnect.entryTransit.enabled }}
+{{- if $entryTransitLinkEnabled }}
             - entry-transit
 {{- end }}
-{{- if .Values.interconnect.entryTransit.routerEntry.enabled }}
+{{- if $routerEntryLinkEnabled }}
             - router-entry
 {{- end }}
-{{- if not (or .Values.interconnect.entryTransit.enabled .Values.interconnect.entryTransit.routerEntry.enabled) }}
+{{- if not (or $entryTransitLinkEnabled $routerEntryLinkEnabled) }}
             []
 {{- end }}
           counts:
-            total: {{ add (ternary 1 0 .Values.interconnect.entryTransit.enabled) (ternary 1 0 .Values.interconnect.entryTransit.routerEntry.enabled) }}
-            entryTransit: {{ ternary 1 0 .Values.interconnect.entryTransit.enabled }}
-            routerEntry: {{ ternary 1 0 .Values.interconnect.entryTransit.routerEntry.enabled }}
+            total: {{ add (ternary 1 0 $entryTransitLinkEnabled) (ternary 1 0 $routerEntryLinkEnabled) }}
+            entryTransit: {{ ternary 1 0 $entryTransitLinkEnabled }}
+            routerEntry: {{ ternary 1 0 $routerEntryLinkEnabled }}
             routerTransit: 0
           localPorts:
-{{- if .Values.interconnect.entryTransit.enabled }}
-            entry-transit: {{ int .Values.interconnect.mieru.localSocks.entryPort }}
+{{- if $entryTransitLinkEnabled }}
+            entry-transit: {{ int .Values.interconnect.shadowsocks2022.localSocks.entryPort }}
 {{- end }}
-{{- if .Values.interconnect.entryTransit.routerEntry.enabled }}
-            router-entry: {{ int .Values.interconnect.mieru.localSocks.routerEntryPort }}
+{{- if $routerEntryLinkEnabled }}
+            router-entry: {{ int .Values.interconnect.shadowsocks2022.localSocks.routerEntryPort }}
 {{- end }}
-{{- if not (or .Values.interconnect.entryTransit.enabled .Values.interconnect.entryTransit.routerEntry.enabled) }}
+{{- if not (or $entryTransitLinkEnabled $routerEntryLinkEnabled) }}
             {}
 {{- end }}
           selectedProfiles:
-{{- if .Values.interconnect.entryTransit.enabled }}
+{{- if $entryTransitLinkEnabled }}
             entry-transit: ["V1", "V3"]
 {{- end }}
-{{- if .Values.interconnect.entryTransit.routerEntry.enabled }}
+{{- if $routerEntryLinkEnabled }}
             router-entry: ["V1", "V3"]
 {{- end }}
-{{- if not (or .Values.interconnect.entryTransit.enabled .Values.interconnect.entryTransit.routerEntry.enabled) }}
+{{- if not (or $entryTransitLinkEnabled $routerEntryLinkEnabled) }}
             {}
 {{- end }}
         transit:
-          enabled: {{ or .Values.interconnect.entryTransit.enabled .Values.interconnect.entryTransit.routerTransit.enabled }}
+          enabled: {{ or $entryTransitLinkEnabled $routerTransitLinkEnabled }}
           classes:
-{{- if .Values.interconnect.entryTransit.enabled }}
+{{- if $entryTransitLinkEnabled }}
             - entry-transit
 {{- end }}
-{{- if .Values.interconnect.entryTransit.routerTransit.enabled }}
+{{- if $routerTransitLinkEnabled }}
             - router-transit
 {{- end }}
-{{- if not (or .Values.interconnect.entryTransit.enabled .Values.interconnect.entryTransit.routerTransit.enabled) }}
+{{- if not (or $entryTransitLinkEnabled $routerTransitLinkEnabled) }}
             []
 {{- end }}
           counts:
-            total: {{ add (ternary 1 0 .Values.interconnect.entryTransit.enabled) (ternary 1 0 .Values.interconnect.entryTransit.routerTransit.enabled) }}
-            entryTransit: {{ ternary 1 0 .Values.interconnect.entryTransit.enabled }}
+            total: {{ add (ternary 1 0 $entryTransitLinkEnabled) (ternary 1 0 $routerTransitLinkEnabled) }}
+            entryTransit: {{ ternary 1 0 $entryTransitLinkEnabled }}
             routerEntry: 0
-            routerTransit: {{ ternary 1 0 .Values.interconnect.entryTransit.routerTransit.enabled }}
+            routerTransit: {{ ternary 1 0 $routerTransitLinkEnabled }}
           localPorts:
-{{- if .Values.interconnect.entryTransit.enabled }}
-            entry-transit: {{ int .Values.interconnect.mieru.localSocks.transitPort }}
+{{- if $entryTransitLinkEnabled }}
+            entry-transit: {{ int .Values.interconnect.shadowsocks2022.localSocks.transitPort }}
 {{- end }}
-{{- if .Values.interconnect.entryTransit.routerTransit.enabled }}
-            router-transit: {{ int .Values.interconnect.mieru.localSocks.routerTransitPort }}
+{{- if $routerTransitLinkEnabled }}
+            router-transit: {{ int .Values.interconnect.shadowsocks2022.localSocks.routerTransitPort }}
 {{- end }}
-{{- if not (or .Values.interconnect.entryTransit.enabled .Values.interconnect.entryTransit.routerTransit.enabled) }}
+{{- if not (or $entryTransitLinkEnabled $routerTransitLinkEnabled) }}
             {}
 {{- end }}
           selectedProfiles:
-{{- if .Values.interconnect.entryTransit.enabled }}
+{{- if $entryTransitLinkEnabled }}
             entry-transit: ["V1", "V3"]
 {{- end }}
-{{- if .Values.interconnect.entryTransit.routerTransit.enabled }}
+{{- if $routerTransitLinkEnabled }}
             router-transit: ["V0", "V1", "V3"]
 {{- end }}
-{{- if not (or .Values.interconnect.entryTransit.enabled .Values.interconnect.entryTransit.routerTransit.enabled) }}
+{{- if not (or $entryTransitLinkEnabled $routerTransitLinkEnabled) }}
             {}
 {{- end }}
       udp:
@@ -415,7 +375,7 @@ data:
           enabled: {{ $linkCryptoUdpEnabled }}
           mode: salamander-plus-scoped-paired-obfs
           portSplit:
-            publicUdpPort: {{ int .Values.gateway.roles.transit.ports.publicUdp }}
+            publicUdpPort: {{ int $endpointRole.ports.publicUdp }}
             forbidUdp443: false
             forbidTcp8443: {{ not (and .Values.mtproto.enabled (eq (int .Values.mtproto.publicPort) 8443)) }}
           requiredLayers:
@@ -437,116 +397,113 @@ data:
             mtuMode: {{ .Values.interconnect.entryTransit.udp.hardening.mtu.mode }}
             maxPacketSize: {{ int .Values.interconnect.entryTransit.udp.hardening.mtu.maxPacketSize }}
         classes:
-{{- if and .Values.interconnect.entryTransit.enabled .Values.interconnect.entryTransit.udp.enabled }}
+{{- if $entryTransitUdpLinkEnabled }}
           - entry-transit-udp
 {{- end }}
-{{- if and .Values.interconnect.entryTransit.routerEntry.enabled .Values.interconnect.entryTransit.udp.enabled }}
+{{- if $routerEntryUdpLinkEnabled }}
           - router-entry-udp
 {{- end }}
-{{- if and .Values.interconnect.entryTransit.routerTransit.enabled .Values.interconnect.entryTransit.udp.enabled }}
+{{- if $routerTransitUdpLinkEnabled }}
           - router-transit-udp
 {{- end }}
-{{- if not (and .Values.interconnect.entryTransit.udp.enabled (or .Values.interconnect.entryTransit.enabled .Values.interconnect.entryTransit.routerEntry.enabled .Values.interconnect.entryTransit.routerTransit.enabled)) }}
+{{- if not (or $entryTransitUdpLinkEnabled $routerEntryUdpLinkEnabled $routerTransitUdpLinkEnabled) }}
           []
 {{- end }}
         counts:
-          total: {{ add (ternary 1 0 (and .Values.interconnect.entryTransit.enabled .Values.interconnect.entryTransit.udp.enabled)) (ternary 1 0 (and .Values.interconnect.entryTransit.routerEntry.enabled .Values.interconnect.entryTransit.udp.enabled)) (ternary 1 0 (and .Values.interconnect.entryTransit.routerTransit.enabled .Values.interconnect.entryTransit.udp.enabled)) }}
-          entryTransitUdp: {{ ternary 1 0 (and .Values.interconnect.entryTransit.enabled .Values.interconnect.entryTransit.udp.enabled) }}
-          routerEntryUdp: {{ ternary 1 0 (and .Values.interconnect.entryTransit.routerEntry.enabled .Values.interconnect.entryTransit.udp.enabled) }}
-          routerTransitUdp: {{ ternary 1 0 (and .Values.interconnect.entryTransit.routerTransit.enabled .Values.interconnect.entryTransit.udp.enabled) }}
+          total: {{ add (ternary 1 0 $entryTransitUdpLinkEnabled) (ternary 1 0 $routerEntryUdpLinkEnabled) (ternary 1 0 $routerTransitUdpLinkEnabled) }}
+          entryTransitUdp: {{ ternary 1 0 $entryTransitUdpLinkEnabled }}
+          routerEntryUdp: {{ ternary 1 0 $routerEntryUdpLinkEnabled }}
+          routerTransitUdp: {{ ternary 1 0 $routerTransitUdpLinkEnabled }}
         roles:
           entry:
-            enabled: {{ and .Values.interconnect.entryTransit.udp.enabled (or .Values.interconnect.entryTransit.enabled .Values.interconnect.entryTransit.routerEntry.enabled) }}
+            enabled: {{ or $entryTransitUdpLinkEnabled $routerEntryUdpLinkEnabled }}
             classes:
-{{- if and .Values.interconnect.entryTransit.enabled .Values.interconnect.entryTransit.udp.enabled }}
+{{- if $entryTransitUdpLinkEnabled }}
               - entry-transit-udp
 {{- end }}
-{{- if and .Values.interconnect.entryTransit.routerEntry.enabled .Values.interconnect.entryTransit.udp.enabled }}
+{{- if $routerEntryUdpLinkEnabled }}
               - router-entry-udp
 {{- end }}
-{{- if not (and .Values.interconnect.entryTransit.udp.enabled (or .Values.interconnect.entryTransit.enabled .Values.interconnect.entryTransit.routerEntry.enabled)) }}
+{{- if not (or $entryTransitUdpLinkEnabled $routerEntryUdpLinkEnabled) }}
               []
 {{- end }}
             localPorts:
-{{- if and .Values.interconnect.entryTransit.enabled .Values.interconnect.entryTransit.udp.enabled }}
+{{- if $entryTransitUdpLinkEnabled }}
               entry-transit-udp: {{ int .Values.interconnect.entryTransit.udp.entryPort }}
 {{- end }}
-{{- if and .Values.interconnect.entryTransit.routerEntry.enabled .Values.interconnect.entryTransit.udp.enabled }}
+{{- if $routerEntryUdpLinkEnabled }}
               router-entry-udp: {{ int .Values.interconnect.entryTransit.udp.routerEntryPort }}
 {{- end }}
-{{- if not (and .Values.interconnect.entryTransit.udp.enabled (or .Values.interconnect.entryTransit.enabled .Values.interconnect.entryTransit.routerEntry.enabled)) }}
+{{- if not (or $entryTransitUdpLinkEnabled $routerEntryUdpLinkEnabled) }}
               {}
 {{- end }}
             selectedProfiles:
-{{- if and .Values.interconnect.entryTransit.enabled .Values.interconnect.entryTransit.udp.enabled }}
+{{- if $entryTransitUdpLinkEnabled }}
               entry-transit-udp: ["V2"]
 {{- end }}
-{{- if and .Values.interconnect.entryTransit.routerEntry.enabled .Values.interconnect.entryTransit.udp.enabled }}
+{{- if $routerEntryUdpLinkEnabled }}
               router-entry-udp: ["V2"]
 {{- end }}
-{{- if not (and .Values.interconnect.entryTransit.udp.enabled (or .Values.interconnect.entryTransit.enabled .Values.interconnect.entryTransit.routerEntry.enabled)) }}
+{{- if not (or $entryTransitUdpLinkEnabled $routerEntryUdpLinkEnabled) }}
               {}
 {{- end }}
           transit:
-            enabled: {{ and .Values.interconnect.entryTransit.udp.enabled (or .Values.interconnect.entryTransit.enabled .Values.interconnect.entryTransit.routerTransit.enabled) }}
+            enabled: {{ or $entryTransitUdpLinkEnabled $routerTransitUdpLinkEnabled }}
             classes:
-{{- if and .Values.interconnect.entryTransit.enabled .Values.interconnect.entryTransit.udp.enabled }}
+{{- if $entryTransitUdpLinkEnabled }}
               - entry-transit-udp
 {{- end }}
-{{- if and .Values.interconnect.entryTransit.routerTransit.enabled .Values.interconnect.entryTransit.udp.enabled }}
+{{- if $routerTransitUdpLinkEnabled }}
               - router-transit-udp
 {{- end }}
-{{- if not (and .Values.interconnect.entryTransit.udp.enabled (or .Values.interconnect.entryTransit.enabled .Values.interconnect.entryTransit.routerTransit.enabled)) }}
+{{- if not (or $entryTransitUdpLinkEnabled $routerTransitUdpLinkEnabled) }}
               []
 {{- end }}
             localPorts:
-{{- if and .Values.interconnect.entryTransit.enabled .Values.interconnect.entryTransit.udp.enabled }}
+{{- if $entryTransitUdpLinkEnabled }}
               entry-transit-udp: {{ int .Values.interconnect.entryTransit.udp.transitPort }}
 {{- end }}
-{{- if and .Values.interconnect.entryTransit.routerTransit.enabled .Values.interconnect.entryTransit.udp.enabled }}
+{{- if $routerTransitUdpLinkEnabled }}
               router-transit-udp: {{ int .Values.interconnect.entryTransit.udp.routerTransitPort }}
 {{- end }}
-{{- if not (and .Values.interconnect.entryTransit.udp.enabled (or .Values.interconnect.entryTransit.enabled .Values.interconnect.entryTransit.routerTransit.enabled)) }}
+{{- if not (or $entryTransitUdpLinkEnabled $routerTransitUdpLinkEnabled) }}
               {}
 {{- end }}
             selectedProfiles:
-{{- if and .Values.interconnect.entryTransit.enabled .Values.interconnect.entryTransit.udp.enabled }}
+{{- if $entryTransitUdpLinkEnabled }}
               entry-transit-udp: ["V2"]
 {{- end }}
-{{- if and .Values.interconnect.entryTransit.routerTransit.enabled .Values.interconnect.entryTransit.udp.enabled }}
+{{- if $routerTransitUdpLinkEnabled }}
               router-transit-udp: ["V2"]
 {{- end }}
-{{- if not (and .Values.interconnect.entryTransit.udp.enabled (or .Values.interconnect.entryTransit.enabled .Values.interconnect.entryTransit.routerTransit.enabled)) }}
+{{- if not (or $entryTransitUdpLinkEnabled $routerTransitUdpLinkEnabled) }}
               {}
 {{- end }}
       zapret2:
-        enabled: {{ .Values.interconnect.zapret2.enabled }}
-        required: true
-        profileFile: {{ printf "%s/%s" .Values.privateProfiles.mountPath .Values.privateProfiles.keys.zapretInterconnect | quote }}
-        profileSource: private-file-reference
-        profileRef:
-          kind: file
-          path: {{ printf "%s/%s" .Values.privateProfiles.mountPath .Values.privateProfiles.keys.zapretInterconnect | quote }}
-          secretMaterial: true
-        packetShaping: zapret2-scoped
-        applyMode: marked-flow-only
-        scope: link-crypto-flow-only
-        targetSurfaces:
-          - tcp/443
-          - entry-transit
-          - router-link-crypto
-        hostWideInterception: {{ .Values.interconnect.zapret2.hostWideInterception }}
-        nfqueue: {{ .Values.interconnect.zapret2.nfqueue }}
-        failOpen: true
+        enabled: false
+        required: false
+        hostWideInterception: false
+        nfqueue: false
     transports:
 {{ toYaml .Values.transportProfiles.clientNames | nindent 6 }}
     transportProfiles:
       clientExposure:
 {{ toYaml .Values.transportProfiles.clientExposure | nindent 8 }}
     experimentalProfiles:
+{{- if eq $architectureMode "entry-endpoint" }}
+      enabled: false
+{{- else }}
 {{ toYaml .Values.experimentalProfiles | nindent 6 }}
+{{- end }}
 {{- range $roleName, $role := .Values.gateway.roles }}
-{{- if and $.Values.gateway.enabled $role.enabled }}
+{{- $architectureMode := toString ($.Values.architecture.mode | default "legacy-three-node") }}
+{{- $endpointRoleConfigured := hasKey $.Values.gateway.roles "endpoint" }}
+{{- $skipLegacyEndpointAlias := and $endpointRoleConfigured (eq $architectureMode "entry-endpoint") (eq $roleName "transit") }}
+{{- if and $endpointRoleConfigured (eq $roleName "endpoint") }}{{- $role = mergeOverwrite (deepCopy $.Values.gateway.roles.transit) $role }}{{- end }}
+{{- if and $.Values.gateway.enabled $role.enabled (not $skipLegacyEndpointAlias) }}
+{{- $roleRuntimeName := ternary "entry" "transit" (eq $roleName "entry") }}
+{{- $roleIsEntry := eq $roleRuntimeName "entry" }}
+{{- $roleIsEndpoint := eq $roleRuntimeName "transit" }}
 {{- $linkOuterCarrier := $.Values.interconnect.entryTransit.outerCarrier }}
 {{- $linkWssCarrierEnabled := and $.Values.interconnect.entryTransit.enabled $linkOuterCarrier.enabled (eq (toString $linkOuterCarrier.mode) "wss") }}
 {{- $roleTlsServerName := include "tracegate.roleTlsServerName" (dict "root" $ "role" $roleName) }}
@@ -558,9 +515,9 @@ data:
 {{- $mtprotoRoute := $.Values.mtproto.route | default dict }}
 {{- $mtprotoRouteMode := toString ($mtprotoRoute.mode | default "endpoint-direct") }}
 {{- $mtprotoEntryTunnelEnabled := and $.Values.mtproto.enabled (eq $mtprotoRouteMode "entry-endpoint-tunnel") }}
-{{- $mtprotoEntryRouteEnabled := and $.Values.mtproto.enabled (eq $roleName "entry") (or (eq $mtprotoRouteMode "entry-transit-endpoint") $mtprotoEntryTunnelEnabled) }}
-{{- $mtprotoEntryLocalEnabled := and $.Values.mtproto.enabled (eq $roleName "entry") (eq $mtprotoRouteMode "entry-local-endpoint-egress") }}
-{{- $mtprotoRuntimeRoleEnabled := and $.Values.mtproto.enabled (or $mtprotoEntryLocalEnabled (and (eq $roleName "transit") (ne $mtprotoRouteMode "entry-local-endpoint-egress"))) }}
+{{- $mtprotoEntryRouteEnabled := and $.Values.mtproto.enabled $roleIsEntry (or (eq $mtprotoRouteMode "entry-transit-endpoint") $mtprotoEntryTunnelEnabled) }}
+{{- $mtprotoEntryLocalEnabled := and $.Values.mtproto.enabled $roleIsEntry (eq $mtprotoRouteMode "entry-local-endpoint-egress") }}
+{{- $mtprotoRuntimeRoleEnabled := and $.Values.mtproto.enabled (or $mtprotoEntryLocalEnabled (and $roleIsEndpoint (ne $mtprotoRouteMode "entry-local-endpoint-egress"))) }}
 {{- $mtprotoRuntimeHandlesPublic := and $mtprotoRuntimeRoleEnabled (not $mtprotoEntryTunnelEnabled) }}
 {{- $mtprotoSniDomains := compact (uniq (list $mtprotoTlsDomain)) }}
 {{- $mtprotoEgress := $.Values.mtproto.egress | default dict }}
@@ -583,11 +540,11 @@ data:
 {{- $mtprotoEntryFallbackPublicPort := int (dig "entry" "fallbackPublicPort" $mtprotoPublicPort $mtprotoRoute) }}
 {{- $mtprotoEntryTunnelPort := int (dig "entry" "tunnelPort" 11087 $mtprotoRoute) }}
 {{- $mtprotoEndpointAllowedSources := dig "endpoint" "allowedProxySources" (list) $mtprotoRoute }}
-{{- $mtprotoEndpointSourceRestricted := and (eq $roleName "transit") $.Values.mtproto.enabled (gt (len $mtprotoEndpointAllowedSources) 0) }}
+{{- $mtprotoEndpointSourceRestricted := and $roleIsEndpoint $.Values.mtproto.enabled (gt (len $mtprotoEndpointAllowedSources) 0) }}
 {{- $mtprotoRoleHandlesPublic := or $mtprotoRuntimeHandlesPublic $mtprotoEntryRouteEnabled }}
 {{- $mtprotoFallbackPublicPort := and $mtprotoRoleHandlesPublic (ne $mtprotoPublicPort (int $role.ports.publicTcp)) }}
 {{- $mtprotoFallback := $.Values.mtproto.fallback | default dict }}
-{{- $mtprotoOfficialFallbackEnabled := and $mtprotoRuntimeRoleEnabled (eq $mtprotoRuntime "telemt") (eq $roleName "transit") (dig "enabled" false $mtprotoFallback) }}
+{{- $mtprotoOfficialFallbackEnabled := and $mtprotoRuntimeRoleEnabled (eq $mtprotoRuntime "telemt") $roleIsEndpoint (dig "enabled" false $mtprotoFallback) }}
 {{- $mtprotoFallbackMode := lower (toString (dig "mode" "failover" $mtprotoFallback)) }}
 {{- $mtprotoFallbackPrefer := lower (toString (dig "prefer" "telemt" $mtprotoFallback)) }}
 {{- $mtprotoOfficialBackendPort := int (dig "officialBackendPort" 9444 $mtprotoFallback) }}
@@ -622,33 +579,34 @@ data:
 {{- $chainBridgeFallbackPort := int (dig "failover" "fallbackPort" $chainBridgeEndpointPort $chainBridge) }}
 {{- if $chainBridgeFailoverEnabled }}{{- $chainBridgeDialHost = "127.0.0.1" }}{{- $chainBridgeEndpointPort = $chainBridgeFailoverPort }}{{- end }}
 {{- if not $chainBridgeEndpointListenHost }}{{- $chainBridgeEndpointListenHost = "127.0.0.1" }}{{- end }}
-{{- $chainBridgeSni := $chainBridge.serverName | default (first $.Values.gateway.roles.transit.reality.serverNames) }}
+{{- $chainBridgeSni := $chainBridge.serverName | default (first $endpointRole.reality.serverNames) }}
 {{- $chainBridgeAllowedSources := dig "allowedSources" (list) $chainBridge }}
-{{- $chainBridgePublicKey := $.Values.controlPlane.env.realityPublicKeyTransit | default $.Values.controlPlane.env.realityPublicKey }}
-{{- $chainBridgeShortId := $.Values.controlPlane.env.realityShortIdTransit | default (first $.Values.gateway.roles.transit.reality.shortIds) }}
+{{- $chainBridgePublicKey := ($.Values.controlPlane.env.realityPublicKeyEndpoint | default $.Values.controlPlane.env.realityPublicKeyTransit) | default $.Values.controlPlane.env.realityPublicKey }}
+{{- $chainBridgeShortId := ($.Values.controlPlane.env.realityShortIdEndpoint | default $.Values.controlPlane.env.realityShortIdTransit) | default (first $endpointRole.reality.shortIds) }}
 {{- $endpointBackhaulHysteriaHost := trim (toString (dig "endpointHost" "" $endpointBackhaulHysteria)) }}
 {{- if not $endpointBackhaulHysteriaHost }}{{- $endpointBackhaulHysteriaHost = $chainBridgeEndpointHost }}{{- end }}
 {{- if not $endpointBackhaulHysteriaHost }}{{- $endpointBackhaulHysteriaHost = $topologyEndpointHost }}{{- end }}
 {{- if not $endpointBackhaulHysteriaHost }}{{- $endpointBackhaulHysteriaHost = include "tracegate.transitHost" $ }}{{- end }}
 {{- $endpointBackhaulHysteriaPort := int (dig "endpointPort" 443 $endpointBackhaulHysteria) }}
 {{- $endpointBackhaulHysteriaServerName := trim (toString (dig "serverName" "" $endpointBackhaulHysteria)) }}
-{{- if not $endpointBackhaulHysteriaServerName }}{{- $endpointBackhaulHysteriaServerName = toString $.Values.gateway.roles.transit.tls.serverName }}{{- end }}
+{{- if not $endpointBackhaulHysteriaServerName }}{{- $endpointBackhaulHysteriaServerName = toString $endpointRole.tls.serverName }}{{- end }}
 {{- $endpointBackhaulHysteriaSocksPort := int (dig "entrySocksPort" 11086 $endpointBackhaulHysteria) }}
 {{- $realityServerNames := $role.reality.serverNames }}
-{{- if and (eq $roleName "transit") $chainBridge.enabled $chainBridgeSni (eq (len $chainBridgeShards) 0) }}
+{{- if and $roleIsEndpoint $chainBridge.enabled $chainBridgeSni (eq (len $chainBridgeShards) 0) }}
 {{- $realityServerNames = append $realityServerNames $chainBridgeSni | uniq }}
 {{- end }}
 {{- $hysteriaListenHost := toString (dig "hysteria" "listenHost" "" $role) }}
-{{- $roleShadowtlsServerName := ternary $.Values.shadowsocks2022.shadowtls.serverNameEntry $.Values.shadowsocks2022.shadowtls.serverNameTransit (eq $roleName "entry") }}
+{{- $endpointShadowtlsServerName := $.Values.shadowsocks2022.shadowtls.serverNameEndpoint | default $.Values.shadowsocks2022.shadowtls.serverNameTransit }}
+{{- $roleShadowtlsServerName := ternary $.Values.shadowsocks2022.shadowtls.serverNameEntry $endpointShadowtlsServerName $roleIsEntry }}
 {{- $roleCanonicalServer := lower (toString ($role.canonicalServer | default $roleName)) }}
 {{- $roleTopology := index ($.Values.topology.servers | default dict) $roleCanonicalServer | default dict }}
 {{- $roleDisplayName := toString ($roleTopology.displayName | default (title $roleCanonicalServer)) }}
 {{- $entryIngress := $.Values.architecture.entryIngress | default dict }}
 {{- $endpointIngress := $.Values.architecture.endpointIngress | default dict }}
-{{- $roleIngress := ternary $entryIngress $endpointIngress (eq $roleName "entry") }}
+{{- $roleIngress := ternary $entryIngress $endpointIngress $roleIsEntry }}
 {{- $universalEntry := $.Values.architecture.universalEntry | default dict }}
 {{- $entryEndpointMode := eq (toString $.Values.architecture.mode) "entry-endpoint" }}
-{{- $universalEntryEnabled := and (eq $roleName "entry") ($universalEntry.enabled | default false) }}
+{{- $universalEntryEnabled := and $roleIsEntry ($universalEntry.enabled | default false) }}
 {{- $universalGrpcReadTimeout := toString (dig "serverPolicy" "grpcReadTimeout" "1h" $universalEntry) }}
 {{- $universalGrpcSendTimeout := toString (dig "serverPolicy" "grpcSendTimeout" "1h" $universalEntry) }}
 {{- $entryIngressEnabled := $roleIngress.enabled | default false }}
@@ -725,7 +683,7 @@ data:
       default_backend be_mtproto
 
 {{- end }}
-{{- if and (eq $roleName "entry") $chainBridgeFailoverEnabled }}
+{{- if and $roleIsEntry $chainBridgeFailoverEnabled }}
     listen fe_tracegate_entry_chain_bridge_failover
       bind 127.0.0.1:{{ $chainBridgeFailoverPort }}
       option tcp-check
@@ -755,7 +713,7 @@ data:
       tcp-request inspect-delay {{ ternary $entryIngressInspectDelay "5s" $entryIngressEnabled }}
       tcp-request content accept if { req.ssl_sni -m found }
       tcp-request content accept if WAIT_END
-{{- if and (eq $roleName "transit") $mtprotoEgressShadowtlsEnabled }}
+{{- if and $roleIsEndpoint $mtprotoEgressShadowtlsEnabled }}
       acl mtproto_egress_shadowtls_sni req.ssl_sni -i {{ $mtprotoEgressShadowtlsServerName }}
 {{- if $mtprotoEgressShadowtlsAllowedSources }}
       acl mtproto_egress_shadowtls_src src {{ join " " $mtprotoEgressShadowtlsAllowedSources }}
@@ -764,7 +722,7 @@ data:
       use_backend be_mtproto_egress_shadowtls if mtproto_egress_shadowtls_sni
 {{- end }}
 {{- end }}
-{{- if and (eq $roleName "transit") $chainBridge.enabled (gt (len $chainBridgeShards) 0) }}
+{{- if and $roleIsEndpoint $chainBridge.enabled (gt (len $chainBridgeShards) 0) }}
 {{- range $shard := $chainBridgeShards }}
 {{- $shardName := regexReplaceAll "[^a-z0-9_]+" (lower (toString $shard.id)) "_" | trimAll "_" }}
       acl chain_bridge_{{ $shardName }}_sni req.ssl_sni -i {{ required "interconnect.emergencyXrayChain.shards[].serverName is required" $shard.serverName }}
@@ -776,7 +734,7 @@ data:
       use_backend be_chain_bridge_{{ $shardName }} if chain_bridge_{{ $shardName }}_sni
 {{- end }}
 {{- end }}
-{{- else if and (eq $roleName "transit") $chainBridge.enabled $chainBridgeSni }}
+{{- else if and $roleIsEndpoint $chainBridge.enabled $chainBridgeSni }}
       acl chain_bridge_sni req.ssl_sni -i {{ $chainBridgeSni }}
 {{- if $chainBridgeAllowedSources }}
       acl chain_bridge_src src {{ join " " $chainBridgeAllowedSources }}
@@ -787,7 +745,7 @@ data:
 {{- end }}
 {{- end }}
       acl tls_adapter_sni req.ssl_sni -i {{ join " " $tlsAdapterServerNames }}
-{{- if and (eq $roleName "transit") $linkWssCarrierEnabled }}
+{{- if and $roleIsEndpoint $linkWssCarrierEnabled }}
       acl bridge_wss_sni req.ssl_sni -i {{ $linkOuterCarrier.serverName }}
       use_backend be_https_adapter if bridge_wss_sni
 {{- end }}
@@ -827,7 +785,7 @@ data:
 
     backend be_reality
       server xray_reality 127.0.0.1:{{ int $role.ports.reality }} check
-{{- if and (eq $roleName "transit") $chainBridge.enabled (gt (len $chainBridgeShards) 0) }}
+{{- if and $roleIsEndpoint $chainBridge.enabled (gt (len $chainBridgeShards) 0) }}
 {{- range $shard := $chainBridgeShards }}
 {{- $shardName := regexReplaceAll "[^a-z0-9_]+" (lower (toString $shard.id)) "_" | trimAll "_" }}
 
@@ -851,7 +809,7 @@ data:
     backend be_shadowtls
       server shadowtls_v3 127.0.0.1:{{ int $.Values.shadowsocks2022.shadowtls.listenPort }} check
 {{- end }}
-{{- if and (eq $roleName "transit") $mtprotoEgressShadowtlsEnabled }}
+{{- if and $roleIsEndpoint $mtprotoEgressShadowtlsEnabled }}
 
     backend be_mtproto_egress_shadowtls
       server mtproto_egress_shadowtls 127.0.0.1:{{ $mtprotoEgressShadowtlsServerListenPort }} check
@@ -902,7 +860,7 @@ data:
 {{- end }}
 {{- end }}
 {{- end }}
-{{- if and (eq $roleName "entry") $chainBridgeFailoverEnabled }}
+{{- if and $roleIsEntry $chainBridgeFailoverEnabled }}
 
     backend be_chain_bridge_failover
       option tcp-check
@@ -939,7 +897,7 @@ data:
       absolute_redirect off;
       port_in_redirect off;
 
-{{- if eq $roleName "transit" }}
+{{- if $roleIsEndpoint }}
       server {
         listen {{ int ($role.ports.publicHttp | default 80) }};
         server_name _;
@@ -997,7 +955,7 @@ data:
       server {
         listen 127.0.0.1:{{ int $role.ports.httpsAdapter }} ssl;
         http2 on;
-        server_name {{ join " " $tlsAdapterServerNames }}{{ if and (eq $roleName "transit") $linkWssCarrierEnabled }} {{ $linkOuterCarrier.serverName }}{{ end }};
+        server_name {{ join " " $tlsAdapterServerNames }}{{ if and $roleIsEndpoint $linkWssCarrierEnabled }} {{ $linkOuterCarrier.serverName }}{{ end }};
 
         ssl_certificate /etc/tracegate/tls/tls.crt;
         ssl_certificate_key /etc/tracegate/tls/tls.key;
@@ -1058,7 +1016,7 @@ data:
         }
 
 {{- end }}
-{{- if and (eq $roleName "transit") $.Values.wireguard.enabled $.Values.wireguard.wstunnel.enabled }}
+{{- if and $roleIsEndpoint $.Values.wireguard.enabled $.Values.wireguard.wstunnel.enabled }}
         location {{ $.Values.wireguard.wstunnel.publicPath }} {
           proxy_pass http://127.0.0.1:{{ int $.Values.wireguard.wstunnel.websocketPort }};
           proxy_http_version 1.1;
@@ -1073,7 +1031,7 @@ data:
         }
 
 {{- end }}
-{{- if and (eq $roleName "transit") $linkWssCarrierEnabled }}
+{{- if and $roleIsEndpoint $linkWssCarrierEnabled }}
         location {{ $linkOuterCarrier.publicPath }} {
           proxy_pass http://127.0.0.1:{{ int $linkOuterCarrier.serverLocalPort }};
           proxy_http_version 1.1;
@@ -1088,7 +1046,7 @@ data:
         }
 
 {{- end }}
-{{- if eq $roleName "transit" }}
+{{- if $roleIsEndpoint }}
         location = /grafana {
           return 302 /grafana/;
         }
@@ -1135,7 +1093,7 @@ data:
 {{- end }}
 
         location / {
-{{- if eq $roleName "transit" }}
+{{- if $roleIsEndpoint }}
 {{- if $grafanaHost }}
           if ($host = "{{ $grafanaHost }}") {
             return 302 /grafana$request_uri;
@@ -1180,7 +1138,7 @@ data:
     trafficStats:
       listen: 127.0.0.1:9999
       secret: REPLACE_HYSTERIA_STATS_SECRET
-{{- if and (eq $roleName "entry") $chainBridge.enabled }}
+{{- if and $roleIsEntry $chainBridge.enabled }}
     outbounds:
       - name: chain-via-transit
         type: socks5
@@ -1192,7 +1150,7 @@ data:
       disablePathMTUDiscovery: false
     congestion:
       type: bbr
-{{- if and (eq $roleName "entry") $.Values.gateway.trafficShaping.chainClient.enabled }}
+{{- if and $roleIsEntry $.Values.gateway.trafficShaping.chainClient.enabled }}
     bandwidth:
       up: {{ int $.Values.gateway.trafficShaping.chainClient.maxMbit }} mbps
       down: {{ int $.Values.gateway.trafficShaping.chainClient.maxMbit }} mbps
@@ -1205,7 +1163,7 @@ data:
     sniff:
       enable: true
       timeout: 2s
-{{- if and (eq $roleName "entry") $endpointBackhaulHysteriaEnabled }}
+{{- if and $roleIsEntry $endpointBackhaulHysteriaEnabled }}
   backhaul-client.yaml: |
     server: {{ printf "%s:%d" $endpointBackhaulHysteriaHost $endpointBackhaulHysteriaPort | quote }}
     auth: REPLACE_HYSTERIA_ENDPOINT_BACKHAUL_AUTH
@@ -1269,7 +1227,7 @@ data:
       },
       "inbounds": [
         {"tag": "api", "listen": "127.0.0.1", "port": {{ int $role.ports.xrayApi }}, "protocol": "dokodemo-door", "settings": {"address": "127.0.0.1"}},
-{{- if and (eq $roleName "entry") $chainBridge.enabled }}
+{{- if and $roleIsEntry $chainBridge.enabled }}
         {
           "tag": "entry-chain-socks-in",
           "listen": "127.0.0.1",
@@ -1279,7 +1237,7 @@ data:
           "sniffing": {"enabled": true, "destOverride": ["http", "tls", "quic"]}
         },
 {{- end }}
-{{- if and (eq $roleName "entry") $mtprotoEntryTunnelEnabled }}
+{{- if and $roleIsEntry $mtprotoEntryTunnelEnabled }}
         {
           "tag": "mtproto-entry-tunnel-in",
           "listen": "127.0.0.1",
@@ -1303,7 +1261,7 @@ data:
           "sniffing": {"enabled": false}
         },
 {{- end }}
-{{- if and (eq $roleName "transit") $mtprotoEgressShadowtlsEnabled }}
+{{- if and $roleIsEndpoint $mtprotoEgressShadowtlsEnabled }}
         {
           "tag": "mtproto-egress-endpoint-socks-in",
           "listen": "127.0.0.1",
@@ -1328,7 +1286,7 @@ data:
           "sniffing": {"enabled": true, "destOverride": ["http", "tls"]}
         },
 {{- end }}
-{{- if and (eq $roleName "transit") $chainBridge.enabled (gt (len $chainBridgeShards) 0) }}
+{{- if and $roleIsEndpoint $chainBridge.enabled (gt (len $chainBridgeShards) 0) }}
 {{- range $shard := $chainBridgeShards }}
 {{- $shardName := regexReplaceAll "[^a-z0-9_]+" (lower (toString $shard.id)) "_" | trimAll "_" }}
         {
@@ -1363,13 +1321,13 @@ data:
 {{- end }}
 {{- end }}
         {
-          "tag": "{{ ternary "entry-in" "vless-reality-in" (eq $roleName "entry") }}",
-          "listen": {{ ternary $chainBridgeEndpointListenHost "127.0.0.1" (and (eq $roleName "transit") $chainBridge.enabled) | quote }},
+          "tag": "{{ ternary "entry-in" "vless-reality-in" $roleIsEntry }}",
+          "listen": {{ ternary $chainBridgeEndpointListenHost "127.0.0.1" (and $roleIsEndpoint $chainBridge.enabled) | quote }},
           "port": {{ int $role.ports.reality }},
           "protocol": "vless",
           "settings": {
             "clients": [
-{{- if and (eq $roleName "transit") $chainBridge.enabled (eq (len $chainBridgeShards) 0) }}
+{{- if and $roleIsEndpoint $chainBridge.enabled (eq (len $chainBridgeShards) 0) }}
               {"id": "REPLACE_XRAY_CHAIN_BRIDGE_CLIENT_ID", "email": "Tracegate Entry-Transit Chain Bridge"}
 {{- end }}
             ],
@@ -1392,7 +1350,7 @@ data:
         },
 {{- if $.Values.vlessEncryption.enabled }}
         {
-          "tag": "{{ ternary "entry-enc-in" "vless-reality-enc-in" (eq $roleName "entry") }}",
+          "tag": "{{ ternary "entry-enc-in" "vless-reality-enc-in" $roleIsEntry }}",
           "listen": "127.0.0.1",
           "port": {{ int $role.ports.realityEncrypted }},
           "protocol": "vless",
@@ -1459,7 +1417,7 @@ data:
 {{- end }}
       ],
       "outbounds": [
-{{- if and (eq $roleName "entry") $chainBridge.enabled }}
+{{- if and $roleIsEntry $chainBridge.enabled }}
 {{- if gt (len $chainBridgeShards) 0 }}
 {{- range $shard := $chainBridgeShards }}
 {{- $shardName := regexReplaceAll "[^a-z0-9_]+" (lower (toString $shard.id)) "_" | trimAll "_" }}
@@ -1546,7 +1504,7 @@ data:
       ],
       "routing": {
         "domainStrategy": "IPIfNonMatch",
-{{- if and (eq $roleName "entry") $endpointBackhaulEnabled (gt (len $chainBridgeShards) 0) }}
+{{- if and $roleIsEntry $endpointBackhaulEnabled (gt (len $chainBridgeShards) 0) }}
         "balancers": [
           {
             "tag": "endpoint-backhaul",
@@ -1560,14 +1518,14 @@ data:
 {{- end }}
         "rules": [
           {"type": "field", "inboundTag": ["api"], "outboundTag": "api"},
-{{- if and (eq $roleName "entry") $mtprotoEntryTunnelEnabled }}
+{{- if and $roleIsEntry $mtprotoEntryTunnelEnabled }}
 {{- if and $endpointBackhaulEnabled (gt (len $chainBridgeShards) 0) }}
           {"type": "field", "inboundTag": ["mtproto-entry-tunnel-in"], "balancerTag": "endpoint-backhaul"},
 {{- else }}
           {"type": "field", "inboundTag": ["mtproto-entry-tunnel-in"], "outboundTag": "chain-to-transit"},
 {{- end }}
 {{- end }}
-{{- if and (eq $roleName "transit") $mtprotoEntryTunnelEnabled (gt (len $chainBridgeShards) 0) }}
+{{- if and $roleIsEndpoint $mtprotoEntryTunnelEnabled (gt (len $chainBridgeShards) 0) }}
           {"type": "field", "inboundTag": [{{- range $index, $shard := $chainBridgeShards }}{{ if $index }}, {{ end }}{{ printf "chain-bridge-%s-in" (regexReplaceAll "[^a-z0-9_]+" (lower (toString $shard.id)) "_" | trimAll "_") | quote }}{{- end }}], "port": {{ int $.Values.mtproto.backendPort | quote }}, "outboundTag": "direct"},
 {{- end }}
 {{- if and $mtprotoEntryLocalEnabled (not $mtprotoEgressShadowtlsEnabled) }}
@@ -1578,11 +1536,11 @@ data:
 {{- end }}
 {{- end }}
           {"type": "field", "inboundTag": {{ toJson $userTrafficInbounds }}, "protocol": ["bittorrent"], "outboundTag": "block"},
-{{- if and (eq $roleName "entry") (not $entryEndpointMode) }}
+{{- if and $roleIsEntry (not $entryEndpointMode) }}
           {"type": "field", "inboundTag": {{ toJson $userTrafficInbounds }}, "domain": {{ toJson $ruBypassDomains }}, "outboundTag": "direct"},
           {"type": "field", "inboundTag": {{ toJson $userTrafficInbounds }}, "ip": ["geoip:ru"], "outboundTag": "direct"},
 {{- end }}
-{{- if and (eq $roleName "entry") $chainBridge.enabled }}
+{{- if and $roleIsEntry $chainBridge.enabled }}
 {{- if and $endpointBackhaulEnabled (gt (len $chainBridgeShards) 0) }}
           {"type": "field", "inboundTag": {{ toJson $userTrafficInbounds }}, "balancerTag": "endpoint-backhaul"},
 {{- else }}
@@ -1591,7 +1549,7 @@ data:
 {{- end }}
           {"type": "field", "ip": ["geoip:private"], "outboundTag": "block"}
         ]
-      }{{- if and (eq $roleName "entry") $endpointBackhaulEnabled (gt (len $chainBridgeShards) 0) }},
+      }{{- if and $roleIsEntry $endpointBackhaulEnabled (gt (len $chainBridgeShards) 0) }},
       "observatory": {
         "subjectSelector": ["chain-xhttp-"],
         "probeURL": {{ dig "probeUrl" "https://api.front-c.example.net/" $endpointBackhaulHealth | quote }},

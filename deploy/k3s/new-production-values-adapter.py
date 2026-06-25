@@ -63,46 +63,16 @@ def adapt(values: dict[str, Any]) -> dict[str, Any]:
     if not endpoint_topology:
         raise ValueError("new production values require topology.servers.endpoint")
 
-    control_plane = _mapping(adapted.setdefault("controlPlane", {}))
-    env = _mapping(control_plane.setdefault("env", {}))
-    aliases = {
-        "defaultEndpointHost": "defaultTransitHost",
-        "realityPublicKeyEndpoint": "realityPublicKeyTransit",
-        "realityShortIdEndpoint": "realityShortIdTransit",
-    }
-    for endpoint_key, chart_key in aliases.items():
-        if endpoint_key in env:
-            env[chart_key] = env.pop(endpoint_key)
-    env["naiveproxyHost"] = env.get("defaultTransitHost", "")
-
-    shadowsocks2022 = _mapping(adapted.get("shadowsocks2022"))
-    shadowtls = _mapping(shadowsocks2022.get("shadowtls"))
-    if "serverNameEndpoint" in shadowtls:
-        shadowtls["serverNameTransit"] = shadowtls.pop("serverNameEndpoint")
-
     gateway = _mapping(adapted.setdefault("gateway", {}))
     roles = _mapping(gateway.setdefault("roles", {}))
-    endpoint_role = _mapping(roles.pop("endpoint", None))
+    endpoint_role = _mapping(roles.get("endpoint"))
     if not endpoint_role:
         raise ValueError("new production values require gateway.roles.endpoint")
-    roles["transit"] = endpoint_role
 
     state_storage = _mapping(gateway.setdefault("stateStorage", {}))
     claims = _mapping(state_storage.setdefault("existingClaims", {}))
-    if "endpoint" in claims:
-        claims["transit"] = claims.pop("endpoint")
-
-    adapted["naiveproxy"] = {"enabled": False}
-    adapted["vlessEncryption"] = {"enabled": False}
-    adapted["transitRouter"] = {"enabled": False}
-    interconnect = _mapping(adapted.setdefault("interconnect", {}))
-    interconnect["entryTransit"] = {
-        "enabled": False,
-        "routerEntry": {"enabled": False},
-        "routerTransit": {"enabled": False},
-    }
-    interconnect["mieru"] = {"enabled": False}
-    interconnect["zapret2"] = {"enabled": False}
+    if _mapping(state_storage).get("mode") == "pvc" and not claims.get("endpoint"):
+        raise ValueError("new production values require gateway.stateStorage.existingClaims.endpoint with pvc state storage")
     return adapted
 
 

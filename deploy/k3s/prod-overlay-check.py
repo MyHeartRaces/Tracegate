@@ -63,6 +63,46 @@ def _merge_values(base: dict[str, Any], override: Mapping[str, Any]) -> dict[str
     return merged
 
 
+def _endpoint_role_key(roles: Mapping[str, Any]) -> str:
+    return "endpoint" if isinstance(roles.get("endpoint"), Mapping) else "transit"
+
+
+def _endpoint_role(roles: Mapping[str, Any]) -> dict[str, Any]:
+    legacy = _as_dict(roles.get("transit"))
+    endpoint = _as_dict(roles.get("endpoint"))
+    return _merge_values(legacy, endpoint) if endpoint else legacy
+
+
+def _endpoint_shadowtls_server_name(values: Mapping[str, Any]) -> str:
+    shadowtls = _as_dict(_as_dict(values.get("shadowsocks2022")).get("shadowtls"))
+    return _text(shadowtls.get("serverNameEndpoint") or shadowtls.get("serverNameTransit"))
+
+
+def _entry_endpoint_clean_naming_errors(values: Mapping[str, Any]) -> list[str]:
+    architecture = _as_dict(values.get("architecture"))
+    if _text(architecture.get("mode")) != "entry-endpoint":
+        return []
+
+    errors: list[str] = []
+
+    def visit(value: Any, path: str = "") -> None:
+        if isinstance(value, dict):
+            for key, child in value.items():
+                key_text = str(key)
+                child_path = f"{path}.{key_text}" if path else key_text
+                if "transit" in key_text.lower():
+                    errors.append(child_path)
+                visit(child, child_path)
+        elif isinstance(value, list):
+            for index, child in enumerate(value):
+                visit(child, f"{path}[{index}]")
+        elif isinstance(value, str) and "transit" in value.lower():
+            errors.append(path)
+
+    visit(values)
+    return sorted(set(errors))
+
+
 def _as_dict(value: Any) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
 
@@ -129,19 +169,19 @@ def _entry_small_containers(values: Mapping[str, Any]) -> list[str]:
     interconnect = _as_dict(values.get("interconnect"))
     entry_transit = _as_dict(interconnect.get("entryTransit"))
     outer_carrier = _as_dict(entry_transit.get("outerCarrier"))
-    mieru = _as_dict(interconnect.get("mieru"))
+    shadowsocks2022 = _as_dict(interconnect.get("shadowsocks2022"))
     zapret2 = _as_dict(interconnect.get("zapret2"))
     containers = ["agent", "haproxy", "nginx", "xray", "hysteria"]
     endpoint_backhaul = _as_dict(interconnect.get("endpointBackhaul"))
     if bool(endpoint_backhaul.get("enabled", False)) and bool(_as_dict(endpoint_backhaul.get("hysteria2")).get("enabled", False)):
         # The shared Endpoint fallback adds one Hysteria2 client sidecar on Entry.
         containers.append("hysteria")
-    if bool(mieru.get("enabled", False)) and (
+    if bool(shadowsocks2022.get("enabled", False)) and (
         bool(entry_transit.get("enabled", False)) or bool(_as_dict(entry_transit.get("routerEntry")).get("enabled", False))
     ):
-        containers.append("mieru")
+        containers.append("singbox")
     if (
-        bool(mieru.get("enabled", False))
+        bool(shadowsocks2022.get("enabled", False))
         and bool(entry_transit.get("enabled", False))
         and bool(outer_carrier.get("enabled", False))
         and _text(outer_carrier.get("mode")) == "wss"
@@ -166,7 +206,6 @@ def _experimental_requested(values: Mapping[str, Any]) -> bool:
         for value in (
             experimental.get("enabled", False),
             direct.get("enabled", False),
-            _as_dict(direct.get("mieru")).get("enabled", False),
             _as_dict(direct.get("restls")).get("enabled", False),
             tuic.get("enabled", False),
             tuic.get("directEnabled", False),
@@ -247,7 +286,8 @@ def _valid_public_ipv4_networks(values: Any) -> tuple[set[str], list[str]]:
 
 
 def validate_prod_overlay(chart_values: Path, prod_values: Path, *, strict: bool) -> list[str]:
-    merged = _merge_values(_read_yaml(chart_values), _read_yaml(prod_values))
+    raw_prod_values = _read_yaml(prod_values)
+    merged = _merge_values(_read_yaml(chart_values), raw_prod_values)
     errors: list[str] = []
 
     def require(condition: bool, message: str) -> None:
@@ -256,6 +296,13 @@ def validate_prod_overlay(chart_values: Path, prod_values: Path, *, strict: bool
 
     if strict and prod_values.name == "values-prod.example.yaml":
         errors.append("strict production validation must use an ignored private values file, not values-prod.example.yaml")
+    if strict:
+        forbidden_clean_paths = _entry_endpoint_clean_naming_errors(raw_prod_values)
+        if forbidden_clean_paths:
+            errors.append(
+                "entry-endpoint production values must use Entry/Endpoint naming only; forbidden legacy paths: "
+                + ", ".join(forbidden_clean_paths)
+            )
 
     global_values = _as_dict(merged.get("global"))
     global_image = _as_dict(global_values.get("image"))
@@ -283,12 +330,12 @@ def validate_prod_overlay(chart_values: Path, prod_values: Path, *, strict: bool
         require(architecture_mode == "entry-endpoint", "endpoint-first/entry-staged requires architecture.mode=entry-endpoint")
     interconnect_for_images = _as_dict(merged.get("interconnect"))
     entry_transit_for_images = _as_dict(interconnect_for_images.get("entryTransit"))
-    mieru_for_images = _as_dict(interconnect_for_images.get("mieru"))
+    link_crypto_for_images = _as_dict(interconnect_for_images.get("shadowsocks2022"))
     zapret2_for_images = _as_dict(interconnect_for_images.get("zapret2"))
     shadowsocks2022_for_images = _as_dict(merged.get("shadowsocks2022"))
     wireguard_for_images = _as_dict(merged.get("wireguard"))
     mtproto_for_images = _as_dict(merged.get("mtproto"))
-    link_crypto_image_enabled = bool(mieru_for_images.get("enabled", False)) and (
+    link_crypto_image_enabled = bool(link_crypto_for_images.get("enabled", False)) and (
         bool(entry_transit_for_images.get("enabled", False))
         or bool(_as_dict(entry_transit_for_images.get("routerEntry")).get("enabled", False))
         or bool(_as_dict(entry_transit_for_images.get("routerTransit")).get("enabled", False))
@@ -296,8 +343,6 @@ def validate_prod_overlay(chart_values: Path, prod_values: Path, *, strict: bool
     enabled_gateway_images = {"haproxy", "nginx", "xray", "hysteria", "singbox"}
     if bool(mtproto_for_images.get("enabled", False)):
         enabled_gateway_images.add("mtproto")
-    if link_crypto_image_enabled:
-        enabled_gateway_images.add("mieru")
     if link_crypto_image_enabled and bool(_as_dict(entry_transit_for_images.get("outerCarrier")).get("enabled", False)):
         enabled_gateway_images.add("wstunnel")
     if bool(zapret2_for_images.get("enabled", False)):
@@ -336,16 +381,22 @@ def validate_prod_overlay(chart_values: Path, prod_values: Path, *, strict: bool
     env = _as_dict(control_plane.get("env"))
     roles = _as_dict(gateway.get("roles"))
     entry = _as_dict(roles.get("entry"))
-    transit = _as_dict(roles.get("transit"))
+    endpoint_role_key = _endpoint_role_key(roles)
+    transit = _endpoint_role(roles)
     entry_default_host = _effective_public_host(env.get("defaultEntryHost"), _as_dict(entry.get("tls")).get("serverName"))
-    transit_default_host = _effective_public_host(env.get("defaultTransitHost"), _as_dict(transit.get("tls")).get("serverName"))
-    for label, value in (
+    transit_default_host = _effective_public_host(
+        env.get("defaultEndpointHost") or env.get("defaultTransitHost"),
+        _as_dict(transit.get("tls")).get("serverName"),
+    )
+    required_public_hosts = [
         ("global.publicBaseUrl", global_values.get("publicBaseUrl")),
         ("effective Entry host", entry_default_host),
-        ("effective Transit host", transit_default_host),
-        ("controlPlane.env.naiveproxyHost", env.get("naiveproxyHost")),
+        ("effective Endpoint host", transit_default_host),
         ("controlPlane.env.mtprotoDomain", env.get("mtprotoDomain")),
-    ):
+    ]
+    if architecture_mode == "legacy-three-node":
+        required_public_hosts.append(("controlPlane.env.naiveproxyHost", env.get("naiveproxyHost")))
+    for label, value in required_public_hosts:
         require(_has_value(value), f"{label} must be set for production")
         require(not _is_example_host(value), f"{label} must not use example.com")
 
@@ -361,10 +412,10 @@ def validate_prod_overlay(chart_values: Path, prod_values: Path, *, strict: bool
         entry_selector = _as_dict(entry.get("nodeSelector"))
         transit_selector = _as_dict(transit.get("nodeSelector"))
         require(bool(entry_selector), "Entry gateway nodeSelector must be non-empty with hostNetwork")
-        require(bool(transit_selector), "Transit gateway nodeSelector must be non-empty with hostNetwork")
-        require(entry_selector != transit_selector, "Entry and Transit nodeSelector values must be distinct")
+        require(bool(transit_selector), "Endpoint gateway nodeSelector must be non-empty with hostNetwork")
+        require(entry_selector != transit_selector, "Entry and Endpoint nodeSelector values must be distinct")
 
-    for role_name, role in (("entry", entry), ("transit", transit)):
+    for role_name, role in (("entry", entry), (endpoint_role_key, transit)):
         if not bool(role.get("enabled", False)):
             continue
         tls = _as_dict(role.get("tls"))
@@ -468,7 +519,7 @@ def validate_prod_overlay(chart_values: Path, prod_values: Path, *, strict: bool
         "topology.servers.endpoint.nodeSelector must match the endpoint gateway selector",
     )
     require(_text(entry.get("canonicalServer")) == "entry", "gateway.roles.entry.canonicalServer must be entry")
-    require(_text(transit.get("canonicalServer")) == "endpoint", "gateway.roles.transit.canonicalServer must be endpoint")
+    require(_text(transit.get("canonicalServer") or "endpoint") == "endpoint", f"gateway.roles.{endpoint_role_key}.canonicalServer must be endpoint")
 
     rollout = _as_dict(gateway.get("rollingUpdate"))
     private_preflight = _as_dict(gateway.get("privatePreflight"))
@@ -578,9 +629,7 @@ def validate_prod_overlay(chart_values: Path, prod_values: Path, *, strict: bool
             cpu_total_millis += cpu_millis or 0
         require(memory_total_mi <= memory_budget_mi, f"gateway.entrySmall memory limit total {memory_total_mi}Mi exceeds memoryBudgetMi={memory_budget_mi}")
         require(cpu_total_millis <= cpu_budget_millis, f"gateway.entrySmall CPU limit total {cpu_total_millis}m exceeds cpuLimitBudgetMillis={cpu_budget_millis}")
-    roles = _as_dict(gateway.get("roles"))
-    for role_name, role_payload in roles.items():
-        role = _as_dict(role_payload)
+    for role_name, role in (("entry", entry), (endpoint_role_key, transit)):
         if not bool(role.get("enabled", False)):
             continue
         ports = _as_dict(role.get("ports"))
@@ -608,7 +657,7 @@ def validate_prod_overlay(chart_values: Path, prod_values: Path, *, strict: bool
         existing_claims = _as_dict(state_storage.get("existingClaims"))
         require(_text(state_storage.get("mode")) == "pvc", "podRuntimeOnly requires gateway.stateStorage.mode=pvc")
         require(not _has_value(decoy.get("hostPath")), "podRuntimeOnly forbids decoy.hostPath")
-        for role_name, role_enabled in (("entry", entry_enabled), ("transit", transit_enabled)):
+        for role_name, role_enabled in (("entry", entry_enabled), (endpoint_role_key, transit_enabled)):
             if role_enabled:
                 require(_has_value(existing_claims.get(role_name)), f"podRuntimeOnly requires gateway.stateStorage.existingClaims.{role_name}")
 
@@ -629,7 +678,7 @@ def validate_prod_overlay(chart_values: Path, prod_values: Path, *, strict: bool
         transit_router_ports = _as_dict(transit_router.get("ports"))
         require(
             _as_dict(transit_router.get("nodeSelector")) == _as_dict(transit_topology.get("nodeSelector")),
-            "transitRouter.nodeSelector must match topology.servers.transit.nodeSelector",
+            "transitRouter.nodeSelector must match the legacy Transit topology selector",
         )
         require(
             _text(transit_router_endpoint.get("host")) == transit_default_host,
@@ -649,11 +698,18 @@ def validate_prod_overlay(chart_values: Path, prod_values: Path, *, strict: bool
     entry_transit = _as_dict(interconnect.get("entryTransit"))
     outer_carrier = _as_dict(entry_transit.get("outerCarrier"))
     zapret2 = _as_dict(interconnect.get("zapret2"))
-    link_crypto_enabled = bool(entry_transit.get("enabled", False)) or bool(_as_dict(entry_transit.get("routerEntry")).get("enabled", False)) or bool(_as_dict(entry_transit.get("routerTransit")).get("enabled", False))
+    tcp_carrier = _as_dict(interconnect.get("shadowsocks2022"))
+    link_crypto_enabled = architecture_mode != "entry-endpoint" and (
+        bool(entry_transit.get("enabled", False))
+        or bool(_as_dict(entry_transit.get("routerEntry")).get("enabled", False))
+        or bool(_as_dict(entry_transit.get("routerTransit")).get("enabled", False))
+    )
     require(not bool(entry_transit.get("xrayBackhaul", False)), "interconnect.entryTransit.xrayBackhaul must stay false")
     require(_text(entry_transit.get("chainBridgeOwner")) == "link-crypto", "interconnect.entryTransit.chainBridgeOwner must stay link-crypto")
     require(_text(entry_transit.get("fallback")) == "none", "interconnect.entryTransit.fallback must stay none")
     if link_crypto_enabled:
+        require(_text(entry_transit.get("innerCarrier")) == "shadowsocks2022", "interconnect.entryTransit.innerCarrier must stay shadowsocks2022")
+        require(bool(tcp_carrier.get("enabled", False)), "interconnect.shadowsocks2022.enabled must stay true for TCP link-crypto")
         require(bool(outer_carrier.get("enabled", False)), "interconnect.entryTransit.outerCarrier.enabled must stay true")
         require(_text(outer_carrier.get("mode")) == "wss", "interconnect.entryTransit.outerCarrier.mode must stay wss")
         require(_text(outer_carrier.get("protocol") or "websocket-tls") == "websocket-tls", "interconnect.entryTransit.outerCarrier.protocol must stay websocket-tls")
@@ -686,7 +742,11 @@ def validate_prod_overlay(chart_values: Path, prod_values: Path, *, strict: bool
     require(not bool(zapret2.get("hostWideInterception", False)), "interconnect.zapret2.hostWideInterception must stay false")
     require(not bool(zapret2.get("nfqueue", False)), "interconnect.zapret2.nfqueue must stay false")
     if link_crypto_enabled:
-        require(bool(zapret2.get("enabled", False)), "interconnect.zapret2.enabled must stay true for TCP link-crypto DPI resistance")
+        zapret_apply_to = {_text(value).lower() for value in _as_list(zapret2.get("applyTo")) if _text(value)}
+        require(
+            not zapret_apply_to.intersection({"entry-transit", "router-entry", "router-transit", "link-crypto", "link_crypto"}),
+            "interconnect.zapret2.applyTo must not target TCP link-crypto surfaces",
+        )
 
     ingress_rotation = _as_dict(architecture.get("ingressRotation"))
     entry_ingress = _as_dict(architecture.get("entryIngress"))
@@ -792,7 +852,7 @@ def validate_prod_overlay(chart_values: Path, prod_values: Path, *, strict: bool
         endpoint_sni_pool = {
             _text(value).lower().rstrip(".") for value in _as_list(endpoint_exclusive_pairs.get("pool")) if _text(value)
         }
-        shadowtls_sni = _text(_as_dict(_as_dict(merged.get("shadowsocks2022")).get("shadowtls")).get("serverNameTransit")).lower().rstrip(".")
+        shadowtls_sni = _endpoint_shadowtls_server_name(merged).lower().rstrip(".")
         chain_bridge = _as_dict(interconnect.get("emergencyXrayChain"))
         chain_shard_snis = {
             _text(_as_dict(row).get("serverName")).lower().rstrip(".")
@@ -830,7 +890,7 @@ def validate_prod_overlay(chart_values: Path, prod_values: Path, *, strict: bool
         )
         require(
             not (shadowtls_sni and shadowtls_sni in endpoint_sni_pool),
-            "shadowsocks2022.shadowtls.serverNameTransit must not reuse an Endpoint direct SNI",
+            "shadowsocks2022.shadowtls.serverNameEndpoint must not reuse an Endpoint direct SNI",
         )
 
     if deployment_phase == "entry-staged":
@@ -996,7 +1056,7 @@ def validate_prod_overlay(chart_values: Path, prod_values: Path, *, strict: bool
                 require(universal_entry_enabled, "full entry-endpoint deployment requires Universal Entry")
                 require(enabled_profiles == TRACEGATE3_CLIENT_PROFILE_KEYS, "full deployment must expose the complete Tracegate 3 client profile set")
             require(not bool(naiveproxy.get("enabled", False)), "podRuntimeOnly forbids NaiveProxy")
-            require(not bool(_as_dict(interconnect.get("mieru")).get("enabled", False)), "podRuntimeOnly forbids Mieru")
+            require(not bool(_as_dict(interconnect.get("shadowsocks2022")).get("enabled", False)), "podRuntimeOnly forbids Shadowsocks-2022/ShadowTLS")
             require(not bool(zapret2.get("enabled", False)), "podRuntimeOnly forbids Zapret2")
             require(not _experimental_requested(merged), "podRuntimeOnly forbids experimental profiles")
             wireguard_runtime = _as_dict(merged.get("wireguard"))
@@ -1042,7 +1102,7 @@ def validate_prod_overlay(chart_values: Path, prod_values: Path, *, strict: bool
         bridge_server_name = _text(outer_carrier.get("serverName")).lower().rstrip(".")
         transit_tls_server_name = _text(_as_dict(transit.get("tls")).get("serverName")).lower().rstrip(".")
         mtproto_domain = _text(mtproto.get("domain") or env.get("mtprotoDomain")).lower().rstrip(".")
-        require(bridge_server_name != transit_tls_server_name, "bridge WSS serverName must be separate from gateway.roles.transit.tls.serverName")
+        require(bridge_server_name != transit_tls_server_name, f"bridge WSS serverName must be separate from gateway.roles.{endpoint_role_key}.tls.serverName")
         require(bridge_server_name != mtproto_domain, "bridge WSS serverName must be separate from the MTProto domain")
 
     return errors

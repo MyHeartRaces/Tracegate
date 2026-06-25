@@ -281,7 +281,7 @@ class Settings(BaseSettings):
     agent_reload_mtproto_cmd: str = ""
     # Optional private profile adapter reload hook used by sing-box / WSTunnel / WireGuard wrappers.
     agent_reload_profiles_cmd: str = ""
-    # Optional private link-crypto reload hook used by Mieru / router relay wrappers.
+    # Optional private link-crypto reload hook used by sing-box / router relay wrappers.
     agent_reload_link_crypto_cmd: str = ""
     agent_cors_origins: list[str] = Field(default_factory=list)
     # Optional private handoff roots/state used by host-local wrappers.
@@ -296,11 +296,8 @@ class Settings(BaseSettings):
     private_zapret_profile_transit: str = "transit-lite.env"
     private_zapret_profile_interconnect: str = "entry-transit-stealth.env"
     private_zapret_profile_mtproto: str = "mtproto-extra.env"
-    private_mieru_profile_dir: str = "/etc/tracegate/private/mieru"
-    private_mieru_client_profile: str = "client.json"
-    private_mieru_server_profile: str = "server.json"
-    # Inner backhaul carrier selector: "mieru" (default) or "shadowsocks2022".
-    private_link_crypto_inner_carrier: str = "mieru"
+    # The TCP link-crypto carrier is locked to sing-box Shadowsocks-2022 + ShadowTLS.
+    private_link_crypto_inner_carrier: str = "shadowsocks2022"
     private_shadowsocks2022_link_profile_dir: str = "/etc/tracegate/private/link-crypto-ss2022"
     private_shadowsocks2022_link_client_profile: str = "client.json"
     private_shadowsocks2022_link_server_profile: str = "server.json"
@@ -354,7 +351,7 @@ class Settings(BaseSettings):
     private_udp_link_source_validation_enabled: bool = True
     private_udp_link_source_validation_mode: str = "profile-bound-remote"
     private_router_profile_dir: str = "/etc/tracegate/private/router"
-    private_router_mieru_client_profile: str = "mieru-client.json"
+    private_router_shadowsocks2022_client_profile: str = "shadowsocks2022-client.json"
     private_router_udp_client_profile: str = "hysteria-client.yaml"
     private_router_udp_salamander_profile: str = "salamander.env"
     private_router_udp_paired_obfs_profile: str = "paired-obfs.env"

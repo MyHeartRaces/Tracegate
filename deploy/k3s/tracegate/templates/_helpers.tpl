@@ -71,8 +71,11 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end -}}
 
 {{- define "tracegate.transitHost" -}}
-{{- $configured := trim (toString .Values.controlPlane.env.defaultTransitHost) -}}
-{{- $roleHost := trim (toString .Values.gateway.roles.transit.tls.serverName) -}}
+{{- $endpointRole := .Values.gateway.roles.transit -}}
+{{- $endpointOverride := index .Values.gateway.roles "endpoint" -}}
+{{- if $endpointOverride }}{{- $endpointRole = mergeOverwrite (deepCopy .Values.gateway.roles.transit) $endpointOverride -}}{{- end -}}
+{{- $configured := trim (toString (.Values.controlPlane.env.defaultEndpointHost | default .Values.controlPlane.env.defaultTransitHost)) -}}
+{{- $roleHost := trim (toString $endpointRole.tls.serverName) -}}
 {{- if and $roleHost (or (not $configured) (eq (include "tracegate.isExampleHost" $configured) "true")) -}}
 {{- $roleHost -}}
 {{- else -}}
@@ -84,6 +87,9 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- $root := .root -}}
 {{- $roleName := .role -}}
 {{- $role := index $root.Values.gateway.roles $roleName -}}
+{{- if and (eq $roleName "endpoint") (hasKey $root.Values.gateway.roles "endpoint") -}}
+{{- $role = mergeOverwrite (deepCopy $root.Values.gateway.roles.transit) $role -}}
+{{- end -}}
 {{- $configured := trim (toString $role.tls.serverName) -}}
 {{- $defaultHost := ternary (include "tracegate.entryHost" $root) (include "tracegate.transitHost" $root) (eq $roleName "entry") -}}
 {{- if and $defaultHost (eq (include "tracegate.isExampleHost" $configured) "true") (ne (include "tracegate.isExampleHost" $defaultHost) "true") -}}
