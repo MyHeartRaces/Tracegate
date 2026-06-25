@@ -665,6 +665,12 @@ gateway:
   # Keep this table stable: adding/removing rows is structural and requires a
   # one-time gateway reload, while user issuance only changes inbound clients.
   realityMultiInboundGroups: []
+  hysteria:
+    # Optional SNI used in issued Hysteria client profiles. Keep empty to use
+    # the node TLS hostname. Setting this requires the Hysteria certificate to
+    # cover the configured name because server-side sniGuard is dns-san.
+    clientServerNameEntry: ""
+    clientServerNameTransit: ""
   agent:
     port: 8070
     dryRun: false

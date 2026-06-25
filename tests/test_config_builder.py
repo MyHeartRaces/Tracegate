@@ -775,6 +775,40 @@ def test_hysteria_direct_connects_to_endpoint_shard_with_canonical_tls_name() ->
     assert cfg["tls"]["insecure"] is False
 
 
+def test_hysteria_direct_allows_operator_sni_override() -> None:
+    user = _user()
+    device = _device(user.telegram_id)
+    conn = Connection(
+        id=uuid4(),
+        user_id=user.telegram_id,
+        device_id=device.id,
+        protocol=ConnectionProtocol.HYSTERIA2,
+        mode=ConnectionMode.DIRECT,
+        variant=ConnectionVariant.V2,
+        profile_name="v2-direct-quic-hysteria",
+        custom_overrides_json={},
+        status=RecordStatus.ACTIVE,
+    )
+
+    cfg = build_effective_config(
+        user=user,
+        device=device,
+        connection=conn,
+        selected_sni=None,
+        endpoints=EndpointSet(
+            transit_host="token.r1.endpoint.example",
+            transit_server_name="endpoint.example",
+            entry_host="entry.example",
+            hysteria_server_name_transit="hysteria-front.ru",
+            hysteria_salamander_password_transit="salamander-secret",
+        ),
+    )
+
+    assert cfg["server"] == "token.r1.endpoint.example"
+    assert cfg["sni"] == "hysteria-front.ru"
+    assert cfg["tls"]["server_name"] == "hysteria-front.ru"
+
+
 def test_ws_tls_chain_is_rejected() -> None:
     user = _user()
     device = _device(user.telegram_id)

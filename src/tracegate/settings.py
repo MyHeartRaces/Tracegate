@@ -481,6 +481,16 @@ class Settings(BaseSettings):
     vless_encryption_grpc_service_name: str = "tracegate.v1.EdgeEnc"
     # Hysteria2 owns UDP/443. TCP/443 remains the shared L4 fronting surface.
     hysteria_udp_port: int = TRACEGATE_PUBLIC_UDP_PORT
+    # Optional client-facing TLS SNI override. Leave empty unless the Hysteria
+    # server certificate covers the chosen name; dns-san sniGuard will fail closed.
+    hysteria_server_name_entry: str = Field(
+        default="",
+        validation_alias=AliasChoices("HYSTERIA_SERVER_NAME_ENTRY", "HYSTERIA_SERVER_NAME"),
+    )
+    hysteria_server_name_transit: str = Field(
+        default="",
+        validation_alias=AliasChoices("HYSTERIA_SERVER_NAME_TRANSIT", "HYSTERIA_SERVER_NAME"),
+    )
     # Salamander is mandatory for Tracegate Hysteria2. Keep real values in private env/Secrets.
     hysteria_salamander_password_entry: str = Field(
         default="",

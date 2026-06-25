@@ -45,6 +45,8 @@ class EndpointSet:
     entry_server_name: str = ""
     hysteria_auth_mode: str = "userpass"
     hysteria_udp_port: int = TRACEGATE_PUBLIC_UDP_PORT
+    hysteria_server_name_entry: str = ""
+    hysteria_server_name_transit: str = ""
     hysteria_salamander_password_entry: str = ""
     hysteria_salamander_password_transit: str = ""
     # Optional per-role proxy hostname (e.g. Cloudflare orange cloud) used for HTTPS-based transports.
@@ -678,9 +680,9 @@ def build_effective_config(
         is_chain = connection.mode == ConnectionMode.CHAIN
         entry_host = endpoints.entry_host if is_chain else endpoints.transit_host
         server_name = (
-            endpoints.entry_server_name or endpoints.entry_host
+            endpoints.hysteria_server_name_entry or endpoints.entry_server_name or endpoints.entry_host
             if is_chain
-            else endpoints.transit_server_name or endpoints.transit_host
+            else endpoints.hysteria_server_name_transit or endpoints.transit_server_name or endpoints.transit_host
         )
         profile_name = connection_profile_label(connection.protocol, connection.mode, connection.variant)
         ech_config_list = (

@@ -47,6 +47,8 @@ def test_settings_use_less_popular_default_camouflage_domains() -> None:
 
     assert settings.reality_dest == "yandex.ru:443"
     assert settings.sni_seed == ["yandex.ru"]
+    assert settings.hysteria_server_name_entry == ""
+    assert settings.hysteria_server_name_transit == ""
     assert settings.shadowtls_server_name_entry == "ozon.ru"
     assert settings.shadowtls_server_name_transit == "www.ozon.ru"
 

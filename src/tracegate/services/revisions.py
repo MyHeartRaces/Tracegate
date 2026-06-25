@@ -492,6 +492,8 @@ async def _resolve_endpoints(
         entry_server_name=entry_server_name,
         hysteria_auth_mode=runtime_contract.hysteria_auth_mode,
         hysteria_udp_port=settings.hysteria_udp_port,
+        hysteria_server_name_entry=settings.hysteria_server_name_entry,
+        hysteria_server_name_transit=settings.hysteria_server_name_transit,
         hysteria_salamander_password_entry=settings.hysteria_salamander_password_entry,
         hysteria_salamander_password_transit=settings.hysteria_salamander_password_transit,
         transit_proxy_host=(
