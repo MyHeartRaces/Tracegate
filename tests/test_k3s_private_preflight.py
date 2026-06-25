@@ -115,6 +115,19 @@ def test_k3s_private_preflight_rejects_shadowsocks2022_without_private_credentia
         )
 
 
+def test_k3s_private_preflight_allows_ss2022_password_scalar_file(tmp_path: Path) -> None:
+    _write(tmp_path, "credentials/ss2022-transit-password", "ss2022-secret\n")
+
+    report = validate_private_mount(
+        root=tmp_path,
+        role="TRANSIT",
+        required_files=["credentials/ss2022-transit-password"],
+        zapret_files=[],
+    )
+
+    assert report["requiredFiles"] == 1
+
+
 def test_k3s_private_preflight_rejects_shadowsocks2022_non_2022_method(tmp_path: Path) -> None:
     _write(
         tmp_path,

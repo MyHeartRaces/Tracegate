@@ -207,11 +207,14 @@ def _validate_tuic_config(path: Path, parsed: Any | None, *, label: str) -> None
 
 
 def _looks_shadowsocks2022_config(path: Path) -> bool:
+    name = path.name.lower()
+    if _path_has_part(path, "credentials") and any(token in name for token in ("password", "secret", "key")):
+        return False
     return (
         _path_has_part(path, "link-crypto-ss2022")
         or _path_has_part(path, "shadowsocks2022")
-        or "ss2022" in path.name.lower()
-        or path.name.lower() == "shadowsocks2022.json"
+        or "ss2022" in name
+        or name == "shadowsocks2022.json"
     )
 
 
