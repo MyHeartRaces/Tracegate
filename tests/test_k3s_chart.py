@@ -2681,7 +2681,7 @@ def test_mtproto_entry_transit_endpoint_route_renders_entry_proxy_and_endpoint_a
     assert "entry-transit-endpoint" in rendered.stdout
 
 
-def test_mtproto_entry_endpoint_tunnel_keeps_mtg_private_on_endpoint(tmp_path: Path) -> None:
+def test_mtproto_entry_endpoint_tunnel_routes_tls_to_endpoint_public_edge(tmp_path: Path) -> None:
     values = _universal_entry_overlay_values()
     values["mtproto"] = {
         "enabled": True,
@@ -2702,13 +2702,25 @@ def test_mtproto_entry_endpoint_tunnel_keeps_mtg_private_on_endpoint(tmp_path: P
     rendered = _helm_template_with_values(tmp_path, values)
 
     assert rendered.returncode == 0, rendered.stderr
+    configmaps = {
+        doc["metadata"]["name"]: doc
+        for doc in _helm_docs(rendered.stdout)
+        if doc.get("kind") == "ConfigMap" and isinstance(doc.get("data"), dict)
+    }
+    entry_haproxy = configmaps["tracegate-tracegate-gateway-entry-haproxy"]["data"]["haproxy.cfg"]
+    endpoint_haproxy = configmaps["tracegate-tracegate-gateway-endpoint-haproxy"]["data"]["haproxy.cfg"]
     entry = _deployment_by_component(rendered.stdout, "gateway-entry")
     endpoint = _deployment_by_component(rendered.stdout, "gateway-endpoint")
     assert "mtproto" not in _containers_by_name(entry["spec"]["template"])
     endpoint_containers = _containers_by_name(endpoint["spec"]["template"])
     assert endpoint_containers["mtproto"]["command"] == ["/mtg"]
-    assert "acl mtproto_sni req.ssl_sni -i 2gis.ru" in rendered.stdout
-    assert "server mtproto_endpoint_tunnel 127.0.0.1:11087 check" in rendered.stdout
+    assert "acl mtproto_sni req.ssl_sni -i 2gis.ru" in entry_haproxy
+    assert "use_backend be_mtproto_tls if mtproto_sni" in entry_haproxy
+    assert "server mtproto_endpoint_tls 198.51.100.20:443 check" in entry_haproxy
+    assert "server mtproto_endpoint_tunnel 127.0.0.1:11087 check" not in entry_haproxy
+    assert "acl mtproto_sni req.ssl_sni -i 2gis.ru" in endpoint_haproxy
+    assert "use_backend be_mtproto if mtproto_sni" in endpoint_haproxy
+    assert "server mtproto 127.0.0.1:9443 send-proxy-v2" in endpoint_haproxy
     assert '"tag": "mtproto-entry-tunnel-in"' in rendered.stdout
     assert '"inboundTag": ["mtproto-entry-tunnel-in"], "balancerTag": "endpoint-backhaul"' in rendered.stdout
     assert "proxy-protocol-listener = true" in rendered.stdout

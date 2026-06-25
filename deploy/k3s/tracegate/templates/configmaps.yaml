@@ -541,7 +541,8 @@ data:
 {{- $mtprotoEntryTunnelPort := int (dig "entry" "tunnelPort" 11087 $mtprotoRoute) }}
 {{- $mtprotoEndpointAllowedSources := dig "endpoint" "allowedProxySources" (list) $mtprotoRoute }}
 {{- $mtprotoEndpointSourceRestricted := and $roleIsEndpoint $.Values.mtproto.enabled (gt (len $mtprotoEndpointAllowedSources) 0) }}
-{{- $mtprotoRoleHandlesPublic := or $mtprotoRuntimeHandlesPublic $mtprotoEntryRouteEnabled }}
+{{- $mtprotoEndpointTunnelPublicEnabled := and $.Values.mtproto.enabled $roleIsEndpoint $mtprotoEntryTunnelEnabled }}
+{{- $mtprotoRoleHandlesPublic := or $mtprotoRuntimeHandlesPublic $mtprotoEntryRouteEnabled $mtprotoEndpointTunnelPublicEnabled }}
 {{- $mtprotoFallbackPublicPort := and $mtprotoRoleHandlesPublic (ne $mtprotoPublicPort (int $role.ports.publicTcp)) }}
 {{- $mtprotoFallback := $.Values.mtproto.fallback | default dict }}
 {{- $mtprotoOfficialFallbackEnabled := and $mtprotoRuntimeRoleEnabled $roleIsEndpoint (dig "enabled" false $mtprotoFallback) }}
@@ -574,6 +575,11 @@ data:
 {{- $chainBridgeDialHost := $chainBridgeEndpointHost }}
 {{- if not $chainBridgeDialHost }}{{- $chainBridgeDialHost = $topologyEndpointHost }}{{- end }}
 {{- if not $chainBridgeDialHost }}{{- $chainBridgeDialHost = include "tracegate.transitHost" $ }}{{- end }}
+{{- $mtprotoEntryEndpointTunnelHost := trim (toString (dig "entry" "endpointHost" "" $mtprotoRoute)) }}
+{{- if not $mtprotoEntryEndpointTunnelHost }}{{- $mtprotoEntryEndpointTunnelHost = $chainBridgeEndpointHost }}{{- end }}
+{{- if not $mtprotoEntryEndpointTunnelHost }}{{- $mtprotoEntryEndpointTunnelHost = $topologyEndpointHost }}{{- end }}
+{{- if not $mtprotoEntryEndpointTunnelHost }}{{- $mtprotoEntryEndpointTunnelHost = include "tracegate.transitHost" $ }}{{- end }}
+{{- $mtprotoEntryEndpointTunnelPort := int (dig "entry" "endpointPort" (int $role.ports.publicTcp) $mtprotoRoute) }}
 {{- $chainBridgeFallbackHost := trim (toString (dig "failover" "fallbackHost" "" $chainBridge)) }}
 {{- if not $chainBridgeFallbackHost }}{{- $chainBridgeFallbackHost = $chainBridgeDialHost }}{{- end }}
 {{- $chainBridgeFallbackPort := int (dig "failover" "fallbackPort" $chainBridgeEndpointPort $chainBridge) }}
@@ -842,7 +848,7 @@ data:
 
     backend be_mtproto_tls
 {{- if $mtprotoEntryTunnelEnabled }}
-      server mtproto_endpoint_tunnel 127.0.0.1:{{ $mtprotoEntryTunnelPort }} check
+      server mtproto_endpoint_tls {{ required "mtproto.route.entry.endpointHost, interconnect.emergencyXrayChain.endpointHost, or topology.servers.endpoint.publicIp is required when mtproto.route.mode=entry-endpoint-tunnel" $mtprotoEntryEndpointTunnelHost }}:{{ $mtprotoEntryEndpointTunnelPort }} check
 {{- else }}
       server mtproto_transit_tls {{ required "mtproto.route.entry.tlsUpstreamHost or mtproto.route.entry.upstreamHost is required when mtproto.route.mode=entry-transit-endpoint" $mtprotoEntryTlsUpstreamHost }}:{{ int $role.ports.publicTcp }} check
 {{- if $mtprotoEntryTlsFallbackHost }}
@@ -855,7 +861,7 @@ data:
     backend be_mtproto_sni
       server mtproto_official 127.0.0.1:{{ $mtprotoOfficialBackendPort }} check
 {{- end }}
-{{- if or $mtprotoRuntimeHandlesPublic (and $mtprotoEntryRouteEnabled $mtprotoFallbackPublicPort) }}
+{{- if or $mtprotoRuntimeHandlesPublic $mtprotoEndpointTunnelPublicEnabled (and $mtprotoEntryRouteEnabled $mtprotoFallbackPublicPort) }}
 
     backend be_mtproto
 {{- if $mtprotoEntryRouteEnabled }}
