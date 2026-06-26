@@ -694,10 +694,13 @@ data:
       bind :{{ $mtprotoPublicPort }}
 {{- end }}
 {{- if $entryIngressEnabled }}
+{{- if $mtprotoEndpointSourceRestricted }}
+      acl endpoint_trusted_proxy_src src {{ join " " $mtprotoEndpointAllowedSources }}
+{{- end }}
       stick-table type ip size 1m expire 30s store conn_cur,conn_rate(10s)
-      tcp-request connection track-sc0 src
-      tcp-request connection reject if { sc_conn_cur(0) gt {{ $entryIngressMaxConnectionsPerSource }} }
-      tcp-request connection reject if { sc_conn_rate(0) gt {{ $entryIngressNewConnectionsPer10Seconds }} }
+      tcp-request connection track-sc0 src{{ if $mtprotoEndpointSourceRestricted }} unless endpoint_trusted_proxy_src{{ end }}
+      tcp-request connection reject if { sc_conn_cur(0) gt {{ $entryIngressMaxConnectionsPerSource }} }{{ if $mtprotoEndpointSourceRestricted }} !endpoint_trusted_proxy_src{{ end }}
+      tcp-request connection reject if { sc_conn_rate(0) gt {{ $entryIngressNewConnectionsPer10Seconds }} }{{ if $mtprotoEndpointSourceRestricted }} !endpoint_trusted_proxy_src{{ end }}
 {{- end }}
 {{- if $mtprotoEndpointSourceRestricted }}
       acl mtproto_proxy_src src {{ join " " $mtprotoEndpointAllowedSources }}
@@ -728,10 +731,13 @@ data:
       bind {{ $bind }}
 {{- end }}
 {{- if $entryIngressEnabled }}
+{{- if $mtprotoEndpointSourceRestricted }}
+      acl endpoint_trusted_proxy_src src {{ join " " $mtprotoEndpointAllowedSources }}
+{{- end }}
       stick-table type ip size 1m expire 30s store conn_cur,conn_rate(10s)
-      tcp-request connection track-sc0 src
-      tcp-request connection reject if { sc_conn_cur(0) gt {{ $entryIngressMaxConnectionsPerSource }} }
-      tcp-request connection reject if { sc_conn_rate(0) gt {{ $entryIngressNewConnectionsPer10Seconds }} }
+      tcp-request connection track-sc0 src{{ if $mtprotoEndpointSourceRestricted }} unless endpoint_trusted_proxy_src{{ end }}
+      tcp-request connection reject if { sc_conn_cur(0) gt {{ $entryIngressMaxConnectionsPerSource }} }{{ if $mtprotoEndpointSourceRestricted }} !endpoint_trusted_proxy_src{{ end }}
+      tcp-request connection reject if { sc_conn_rate(0) gt {{ $entryIngressNewConnectionsPer10Seconds }} }{{ if $mtprotoEndpointSourceRestricted }} !endpoint_trusted_proxy_src{{ end }}
 {{- end }}
       tcp-request inspect-delay {{ $sharedTcpInspectDelay }}
 {{- if or (and $universalOriginDenyDirect $universalOriginAllowedSources) (and $mtprotoRoleHandlesPublic (not $mtprotoUsesSni)) }}

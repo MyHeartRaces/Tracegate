@@ -2819,6 +2819,52 @@ def test_mtproto_entry_endpoint_tunnel_routes_official_proxy_without_sni(tmp_pat
     assert "alias /tmp/acme-challenge/;" in endpoint_nginx
 
 
+def test_mtproto_entry_endpoint_tunnel_exempts_trusted_entry_from_endpoint_rate_limits(tmp_path: Path) -> None:
+    values = _pod_only_new_prod_overlay_values(phase="full")
+    values["mtproto"] = {
+        "enabled": True,
+        "runtime": "official",
+        "transport": "random_padding",
+        "domain": "entry.prod.test",
+        "tlsDomain": "",
+        "publicPort": 443,
+        "backendPort": 9443,
+        "fallback": {
+            "enabled": False,
+            "officialExternalIp": "203.0.113.10",
+            "officialInternalIp": "198.51.100.20",
+        },
+        "route": {
+            "mode": "entry-endpoint-tunnel",
+            "inspectDelay": "1s",
+            "entry": {"tunnelPort": 11087},
+            "endpoint": {"allowedProxySources": ["8.8.4.4"]},
+        },
+    }
+
+    rendered = _helm_template_with_values(tmp_path, values)
+
+    assert rendered.returncode == 0, rendered.stderr
+    configmaps = {
+        doc["metadata"]["name"]: doc
+        for doc in _helm_docs(rendered.stdout)
+        if doc.get("kind") == "ConfigMap" and isinstance(doc.get("data"), dict)
+    }
+    entry_haproxy = configmaps["tracegate-tracegate-gateway-entry-haproxy"]["data"]["haproxy.cfg"]
+    endpoint_haproxy = configmaps["tracegate-tracegate-gateway-endpoint-haproxy"]["data"]["haproxy.cfg"]
+    assert "acl endpoint_trusted_proxy_src src 8.8.4.4" not in entry_haproxy
+    assert "acl endpoint_trusted_proxy_src src 8.8.4.4" in endpoint_haproxy
+    assert "tcp-request connection track-sc0 src unless endpoint_trusted_proxy_src" in endpoint_haproxy
+    assert (
+        "tcp-request connection reject if { sc_conn_cur(0) gt 8 } !endpoint_trusted_proxy_src"
+        in endpoint_haproxy
+    )
+    assert (
+        "tcp-request connection reject if { sc_conn_rate(0) gt 12 } !endpoint_trusted_proxy_src"
+        in endpoint_haproxy
+    )
+
+
 def test_mtproto_mtg_runs_on_entry_with_fail_closed_endpoint_egress(tmp_path: Path) -> None:
     rendered = _helm_template_with_values(
         tmp_path,

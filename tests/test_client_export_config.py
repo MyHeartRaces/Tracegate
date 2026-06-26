@@ -464,6 +464,16 @@ def test_export_shadowsocks2022_shadowtls_single_line_uri() -> None:
         "plugin": ["shadow-tls;host=www.rbc.ru;password=shadowtls-password;version=3"]
     }
     attachment = json.loads((out.attachment_content or b"").decode("utf-8"))
+    assert attachment["dns"] == {
+        "servers": [{"type": "udp", "tag": "cloudflare", "server": "1.1.1.1", "server_port": 53}],
+        "final": "cloudflare",
+        "strategy": "ipv4_only",
+    }
+    assert attachment["route"] == {
+        "auto_detect_interface": True,
+        "default_domain_resolver": "cloudflare",
+        "final": "proxy",
+    }
     assert attachment["inbounds"][0]["users"] == [{"username": "local-user", "password": "local-pass"}]
     assert attachment["outbounds"][0] == {
         "type": "shadowsocks",

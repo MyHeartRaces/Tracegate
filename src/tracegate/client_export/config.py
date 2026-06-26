@@ -358,6 +358,11 @@ def _build_singbox_client_attachment(
     outbounds = outbound if isinstance(outbound, list) else [outbound]
     config = {
         "log": {"level": "warn"},
+        "dns": {
+            "servers": [{"type": "udp", "tag": "cloudflare", "server": "1.1.1.1", "server_port": 53}],
+            "final": "cloudflare",
+            "strategy": "ipv4_only",
+        },
         "inbounds": [
             {
                 "type": inbound_type,
@@ -370,6 +375,7 @@ def _build_singbox_client_attachment(
         "outbounds": outbounds,
         "route": {
             "auto_detect_interface": True,
+            "default_domain_resolver": "cloudflare",
             "final": "proxy",
         },
     }
