@@ -1247,6 +1247,48 @@ def test_reconcile_materializes_mtg_runtime_on_entry_with_endpoint_egress(tmp_pa
     assert public_profile["secretPolicy"] == "shared"
 
 
+def test_reconcile_materializes_official_mtproto_without_tls_domain(tmp_path: Path) -> None:
+    settings = Settings(
+        agent_data_root=str(tmp_path),
+        agent_runtime_mode="systemd",
+        agent_role="TRANSIT",
+        agent_runtime_profile="xray-centric",
+        default_transit_host="myheartraces.online",
+        mtproto_domain="tracegate.su",
+        mtproto_tls_domain="tracegate.su",
+        mtproto_transport="random_padding",
+        mtproto_public_port=443,
+        private_mtproto_runtime="official",
+        private_mtproto_secret_file=str(tmp_path / "secrets" / "mtproto.txt"),
+    )
+
+    _write(tmp_path / "secrets" / "mtproto.txt", "00112233445566778899aabbccddeeff")
+    _write(
+        tmp_path / "base/xray/config.json",
+        json.dumps({"inbounds": [], "outbounds": [{"tag": "direct", "protocol": "freedom"}], "routing": {"rules": []}}),
+    )
+    _write(tmp_path / "base/nginx/nginx.conf", "events {}\nhttp {}\n")
+    _write(tmp_path / "base/haproxy/haproxy.cfg", "frontend fe\n  bind :443\n")
+
+    reconcile_all(settings)
+
+    private_root = tmp_path / "private"
+    state_payload = json.loads((private_root / "mtproto" / "last-action.json").read_text(encoding="utf-8"))
+    public_profile = json.loads((private_root / "mtproto" / "public-profile.json").read_text(encoding="utf-8"))
+
+    assert state_payload["runtime"] == "official"
+    assert state_payload["transport"] == "random_padding"
+    assert state_payload["domain"] == "tracegate.su"
+    assert state_payload["tlsDomain"] == ""
+    assert not (private_root / "mtproto" / "runtime" / "config.toml").exists()
+    assert public_profile["profile"] == "MTProto-Direct"
+    assert public_profile["transport"] == "random_padding"
+    assert public_profile["domain"] == ""
+    assert public_profile["tlsDomain"] == ""
+    assert public_profile["clientSecretHex"].startswith("dd")
+    assert "secret=dd" in public_profile["httpsUrl"]
+
+
 def test_reconcile_emits_obfuscation_change_only_when_reload_hook_is_configured(tmp_path: Path) -> None:
     settings = Settings(
         agent_data_root=str(tmp_path),

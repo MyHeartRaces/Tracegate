@@ -1449,6 +1449,14 @@ def _write_mtproto_state(
     issued_state_file = Path(effective_mtproto_issued_state_file(settings))
     obfuscation_state_json = _role_state_dir(settings, role_lower=runtime_role.lower()) / "runtime-state.json"
     mtproto_runtime = str(settings.private_mtproto_runtime or "mtg").strip().lower() or "mtg"
+    mtproto_transport = str(settings.mtproto_transport or "tls").strip().lower() or "tls"
+    if mtproto_transport == "plain":
+        mtproto_transport = "raw"
+    if mtproto_transport == "dd":
+        mtproto_transport = "random_padding"
+    mtproto_tls_domain = (
+        str(settings.mtproto_tls_domain or settings.mtproto_domain or "").strip() if mtproto_transport == "tls" else ""
+    )
     mtproto_config_file = runtime_dir / "config.toml"
 
     payload = {
@@ -1456,9 +1464,9 @@ def _write_mtproto_state(
         "role": role_upper,
         "backend": str(settings.private_mtproto_backend or "").strip().lower() or "private",
         "runtime": mtproto_runtime,
-        "transport": str(settings.mtproto_transport or "tls").strip().lower() or "tls",
+        "transport": mtproto_transport,
         "domain": str(settings.mtproto_domain or "").strip(),
-        "tlsDomain": str(settings.mtproto_tls_domain or settings.mtproto_domain or "").strip(),
+        "tlsDomain": mtproto_tls_domain,
         "publicPort": int(settings.mtproto_public_port or 443),
         "upstreamHost": str(settings.private_mtproto_upstream_host or "").strip() or "127.0.0.1",
         "upstreamPort": int(settings.private_mtproto_upstream_port or 9443),
@@ -1479,9 +1487,6 @@ def _write_mtproto_state(
     if secret_file.is_file() and payload["domain"] and payload["publicPort"] > 0:
         try:
             normalized_domain = normalize_mtproto_domain(payload["domain"])
-            mtproto_transport = str(payload["transport"] or "tls").strip().lower()
-            if mtproto_transport == "plain":
-                mtproto_transport = "raw"
             if mtproto_transport not in {"tls", "raw", "random_padding", "dd"}:
                 raise MTProtoConfigError(f"unsupported MTProto transport: {mtproto_transport}")
             normalized_tls_domain = normalize_mtproto_domain(payload["tlsDomain"]) if mtproto_transport == "tls" else ""
