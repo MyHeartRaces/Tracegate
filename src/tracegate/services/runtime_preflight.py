@@ -14,7 +14,7 @@ from tracegate.constants import (
     TRACEGATE_INTERCONNECT_UDP_PORT,
     TRACEGATE_PUBLIC_UDP_PORT,
 )
-from tracegate.services.mtproto import MTPROTO_FAKE_TLS_PROFILE_NAME
+from tracegate.services.mtproto import MTPROTO_DIRECT_PROFILE_NAME, MTPROTO_FAKE_TLS_PROFILE_NAME
 from tracegate.services.runtime_contract import TRACEGATE21_CLIENT_PROFILES
 
 
@@ -190,6 +190,7 @@ class MTProtoGatewayState:
     role: str
     backend: str
     runtime: str
+    transport: str
     domain: str
     public_port: int
     upstream_host: str
@@ -739,6 +740,7 @@ def load_mtproto_gateway_state(path: str | Path) -> MTProtoGatewayState:
         role=str(payload.get("role") or "").strip().upper(),
         backend=str(payload.get("backend") or "").strip().lower(),
         runtime=str(payload.get("runtime") or payload.get("runtimeBackend") or "mtg").strip().lower(),
+        transport=str(payload.get("transport") or "tls").strip().lower(),
         domain=str(payload.get("domain") or "").strip(),
         public_port=public_port,
         upstream_host=str(payload.get("upstreamHost") or "").strip(),
@@ -6310,6 +6312,13 @@ def validate_mtproto_gateway_state(
         findings.append(_finding("warning", "mtproto-backend", "mtproto runtime-state does not advertise a backend"))
     if state.runtime not in {"mtg", "official"}:
         findings.append(_finding("warning", "mtproto-runtime", f"mtproto runtime must be mtg or official, got {state.runtime or 'missing'}"))
+    expected_transport = "raw" if state.transport in {"raw", "plain"} else state.transport or "tls"
+    if expected_transport not in {"tls", "raw"}:
+        findings.append(_finding("warning", "mtproto-transport", f"mtproto runtime-state transport must be tls or raw, got {state.transport or 'missing'}"))
+    if state.runtime == "mtg" and expected_transport != "tls":
+        findings.append(_finding("warning", "mtproto-runtime-transport", "MTG runtime requires tls MTProto transport"))
+    if state.runtime == "official" and expected_transport != "raw":
+        findings.append(_finding("warning", "mtproto-runtime-transport", "official MTProxy runtime should use raw MTProto transport"))
     if state.runtime == "mtg" and not state.mtproto_config_file:
         findings.append(_finding("warning", "mtproto-runtime-config-file", "mtproto runtime-state does not advertise its config file"))
     if not state.issued_state_file:
@@ -6329,16 +6338,17 @@ def validate_mtproto_gateway_state(
             findings.append(_finding("warning", "mtproto-public-profile-server", "MTProto public profile server diverges from mtproto runtime-state domain"))
         if public_profile.port != state.public_port or public_profile.port != expected_port:
             findings.append(_finding("warning", "mtproto-public-profile-port", "MTProto public profile port diverges from mtproto runtime-state publicPort"))
-        if public_profile.domain != expected_tls_domain:
+        if expected_transport == "tls" and public_profile.domain != expected_tls_domain:
             findings.append(_finding("warning", "mtproto-public-profile-domain", "MTProto public profile TLS domain diverges from runtime-contract"))
-        if public_profile.transport != "tls":
-            findings.append(_finding("warning", "mtproto-public-profile-transport", f"MTProto public profile transport is not tls: {public_profile.transport}"))
-        if public_profile.profile_name != MTPROTO_FAKE_TLS_PROFILE_NAME:
+        if public_profile.transport != expected_transport:
+            findings.append(_finding("warning", "mtproto-public-profile-transport", f"MTProto public profile transport is not {expected_transport}: {public_profile.transport}"))
+        expected_profile_name = MTPROTO_FAKE_TLS_PROFILE_NAME if expected_transport == "tls" else MTPROTO_DIRECT_PROFILE_NAME
+        if public_profile.profile_name != expected_profile_name:
             findings.append(
                 _finding(
                     "warning",
                     "mtproto-public-profile-name",
-                    f"MTProto public profile name must be {MTPROTO_FAKE_TLS_PROFILE_NAME}",
+                    f"MTProto public profile name must be {expected_profile_name}",
                 )
             )
         tg_finding = _validate_mtproto_share_url(
@@ -6507,12 +6517,13 @@ def validate_mtproto_env_contract(
             findings.append(_finding("warning", "mtproto-env-public-profile-server", "mtproto env domain diverges from public-profile server"))
         if env.public_port != public_profile.port:
             findings.append(_finding("warning", "mtproto-env-public-profile-port", "mtproto env public port diverges from public-profile port"))
-        if public_profile.profile_name != MTPROTO_FAKE_TLS_PROFILE_NAME:
+        expected_profile_name = MTPROTO_FAKE_TLS_PROFILE_NAME if gateway_state is None or gateway_state.transport in {"", "tls"} else MTPROTO_DIRECT_PROFILE_NAME
+        if public_profile.profile_name != expected_profile_name:
             findings.append(
                 _finding(
                     "warning",
                     "mtproto-env-public-profile-name",
-                    f"MTProto public profile name must be {MTPROTO_FAKE_TLS_PROFILE_NAME}",
+                    f"MTProto public profile name must be {expected_profile_name}",
                 )
             )
 

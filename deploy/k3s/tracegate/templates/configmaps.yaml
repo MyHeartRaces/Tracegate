@@ -510,6 +510,9 @@ data:
 {{- $tlsAdapterServerNames := concat (list $roleTlsServerName) ($role.tls.extraServerNames | default (list)) | uniq }}
 {{- $mtprotoDomain := $.Values.mtproto.domain | default $.Values.controlPlane.env.mtprotoDomain }}
 {{- $mtprotoTlsDomain := $.Values.mtproto.tlsDomain | default $mtprotoDomain }}
+{{- $mtprotoTransport := lower (toString ($.Values.mtproto.transport | default "tls")) }}
+{{- if ne $mtprotoTransport "tls" }}{{- $mtprotoTlsDomain = "" }}{{- end }}
+{{- $mtprotoUsesSni := eq $mtprotoTransport "tls" }}
 {{- $mtprotoPublicPort := int $.Values.mtproto.publicPort }}
 {{- $mtprotoRuntime := lower (toString ($.Values.mtproto.runtime | default "mtg")) }}
 {{- $mtprotoRoute := $.Values.mtproto.route | default dict }}
@@ -518,6 +521,7 @@ data:
 {{- $mtprotoEntryRouteEnabled := and $.Values.mtproto.enabled $roleIsEntry (or (eq $mtprotoRouteMode "entry-transit-endpoint") $mtprotoEntryTunnelEnabled) }}
 {{- $mtprotoEntryLocalEnabled := and $.Values.mtproto.enabled $roleIsEntry (eq $mtprotoRouteMode "entry-local-endpoint-egress") }}
 {{- $mtprotoRuntimeRoleEnabled := and $.Values.mtproto.enabled (or $mtprotoEntryLocalEnabled (and $roleIsEndpoint (ne $mtprotoRouteMode "entry-local-endpoint-egress"))) }}
+{{- $mtprotoOfficialRuntimeEnabled := and $mtprotoRuntimeRoleEnabled (eq $mtprotoRuntime "official") }}
 {{- $mtprotoRuntimeHandlesPublic := and $mtprotoRuntimeRoleEnabled (not $mtprotoEntryTunnelEnabled) }}
 {{- $mtprotoSniDomains := compact (uniq (list $mtprotoTlsDomain)) }}
 {{- $mtprotoEgress := $.Values.mtproto.egress | default dict }}
@@ -546,6 +550,7 @@ data:
 {{- $mtprotoFallbackPublicPort := and $mtprotoRoleHandlesPublic (ne $mtprotoPublicPort (int $role.ports.publicTcp)) }}
 {{- $mtprotoFallback := $.Values.mtproto.fallback | default dict }}
 {{- $mtprotoOfficialFallbackEnabled := and $mtprotoRuntimeRoleEnabled $roleIsEndpoint (dig "enabled" false $mtprotoFallback) }}
+{{- $mtprotoOfficialEnabled := or $mtprotoOfficialFallbackEnabled $mtprotoOfficialRuntimeEnabled }}
 {{- $mtprotoFallbackMode := lower (toString (dig "mode" "failover" $mtprotoFallback)) }}
 {{- $mtprotoFallbackPrefer := lower (toString (dig "prefer" "official" $mtprotoFallback)) }}
 {{- $mtprotoOfficialBackendPort := int (dig "officialBackendPort" 9444 $mtprotoFallback) }}
@@ -635,6 +640,8 @@ data:
 {{- $entryIngressClientTimeout := toString (dig "clientTimeout" "5m" $entryIngressTcp) }}
 {{- $entryIngressServerTimeout := toString (dig "serverTimeout" "5m" $entryIngressTcp) }}
 {{- $entryIngressTunnelTimeout := toString (dig "tunnelTimeout" "1h" $entryIngressTcp) }}
+{{- $sharedTcpInspectDelay := ternary $entryIngressInspectDelay "5s" $entryIngressEnabled }}
+{{- if and $.Values.mtproto.enabled (ne $mtprotoTransport "tls") }}{{- $sharedTcpInspectDelay = toString (dig "inspectDelay" $sharedTcpInspectDelay $mtprotoRoute) }}{{- end }}
 {{- $userTrafficInbounds := list "entry-in" "entry-chain-socks-in" "ss2022-in" "vless-reality-in" "vless-ws-in" "vless-grpc-in" }}
 {{- if $.Values.vlessEncryption.enabled }}
 {{- $userTrafficInbounds = concat $userTrafficInbounds (list "entry-enc-in" "vless-reality-enc-in" "vless-ws-enc-in" "vless-grpc-enc-in") }}
@@ -725,9 +732,11 @@ data:
       tcp-request connection reject if { sc_conn_cur(0) gt {{ $entryIngressMaxConnectionsPerSource }} }
       tcp-request connection reject if { sc_conn_rate(0) gt {{ $entryIngressNewConnectionsPer10Seconds }} }
 {{- end }}
-      tcp-request inspect-delay {{ ternary $entryIngressInspectDelay "5s" $entryIngressEnabled }}
-{{- if and $universalOriginDenyDirect $universalOriginAllowedSources }}
+      tcp-request inspect-delay {{ $sharedTcpInspectDelay }}
+{{- if or (and $universalOriginDenyDirect $universalOriginAllowedSources) (and $mtprotoRoleHandlesPublic (not $mtprotoUsesSni)) }}
       acl request_sni_found req.ssl_sni -m found
+{{- end }}
+{{- if and $universalOriginDenyDirect $universalOriginAllowedSources }}
       acl universal_origin_allowed_src src {{ join " " $universalOriginAllowedSources }}
 {{- if and $mtprotoRoleHandlesPublic $mtprotoSniDomains }}
       acl universal_origin_mtproto_sni req.ssl_sni -i {{ join " " $mtprotoSniDomains }}
@@ -777,7 +786,7 @@ data:
       use_backend be_https_adapter if bridge_wss_sni
 {{- end }}
 {{- if $mtprotoRoleHandlesPublic }}
-{{- if $mtprotoSniDomains }}
+{{- if and $mtprotoUsesSni $mtprotoSniDomains }}
       acl mtproto_sni req.ssl_sni -i {{ join " " $mtprotoSniDomains }}
 {{- if $mtprotoEntryRouteEnabled }}
       use_backend be_mtproto_tls if mtproto_sni
@@ -791,6 +800,20 @@ data:
       use_backend be_mtproto if mtproto_sni mtproto_proxy_src
 {{- else }}
       use_backend be_mtproto if mtproto_sni
+{{- end }}
+{{- else if not $mtprotoUsesSni }}
+{{- if $mtprotoEntryRouteEnabled }}
+      use_backend be_mtproto_tls if !request_sni_found
+{{- else if and $mtprotoSplitPortsEnabled $mtprotoEndpointSourceRestricted }}
+      acl mtproto_proxy_src src {{ join " " $mtprotoEndpointAllowedSources }}
+      use_backend be_mtproto_sni if !request_sni_found mtproto_proxy_src
+{{- else if $mtprotoSplitPortsEnabled }}
+      use_backend be_mtproto_sni if !request_sni_found
+{{- else if $mtprotoEndpointSourceRestricted }}
+      acl mtproto_proxy_src src {{ join " " $mtprotoEndpointAllowedSources }}
+      use_backend be_mtproto if !request_sni_found mtproto_proxy_src
+{{- else }}
+      use_backend be_mtproto if !request_sni_found
 {{- end }}
 {{- end }}
 {{- end }}
@@ -869,6 +892,8 @@ data:
 {{- if $mtprotoEntryPublicFallbackHost }}
       server mtproto_endpoint {{ $mtprotoEntryPublicFallbackHost }}:{{ $mtprotoEntryFallbackPublicPort }} check backup
 {{- end }}
+{{- else if $mtprotoOfficialRuntimeEnabled }}
+      server mtproto_official 127.0.0.1:{{ $mtprotoOfficialBackendPort }} check
 {{- else if $mtprotoSplitPortsEnabled }}
       server mtproto_runtime 127.0.0.1:{{ int $.Values.mtproto.backendPort }} check send-proxy-v2
 {{- else if $mtprotoOfficialFallbackEnabled }}
@@ -933,7 +958,7 @@ data:
 
         location ^~ /.well-known/acme-challenge/ {
           default_type text/plain;
-          try_files $uri =404;
+          alias /tmp/acme-challenge/;
         }
 
         location = /grafana {
@@ -996,7 +1021,7 @@ data:
 
         location ^~ /.well-known/acme-challenge/ {
           default_type text/plain;
-          try_files $uri =404;
+          alias /tmp/acme-challenge/;
         }
 
         location {{ $.Values.controlPlane.env.vlessWsPath }} {

@@ -68,6 +68,8 @@
 {{- $roleNodeEncryptionRequired := and $.Values.gateway.nodeEncryption.enabled $.Values.gateway.nodeEncryption.required $.Values.gateway.nodeEncryption.runtimeInitValidation (or $roleIsEntry $roleIsEndpoint) }}
 {{- $mtprotoDomain := $.Values.mtproto.domain | default $.Values.controlPlane.env.mtprotoDomain }}
 {{- $mtprotoTlsDomain := $.Values.mtproto.tlsDomain | default $mtprotoDomain }}
+{{- $mtprotoTransport := lower (toString ($.Values.mtproto.transport | default "tls")) }}
+{{- if ne $mtprotoTransport "tls" }}{{- $mtprotoTlsDomain = "" }}{{- end }}
 {{- $mtprotoPublicPort := int $.Values.mtproto.publicPort }}
 {{- $mtprotoRuntime := lower (toString ($.Values.mtproto.runtime | default "mtg")) }}
 {{- $mtprotoRoute := $.Values.mtproto.route | default dict }}
@@ -76,6 +78,7 @@
 {{- $mtprotoEntryRouteEnabled := and $.Values.mtproto.enabled $roleIsEntry (or (eq $mtprotoRouteMode "entry-transit-endpoint") $mtprotoEntryTunnelEnabled) }}
 {{- $mtprotoEntryLocalEnabled := and $.Values.mtproto.enabled $roleIsEntry (eq $mtprotoRouteMode "entry-local-endpoint-egress") }}
 {{- $mtprotoRuntimeRoleEnabled := and $.Values.mtproto.enabled (or $mtprotoEntryLocalEnabled (and $roleIsEndpoint (ne $mtprotoRouteMode "entry-local-endpoint-egress"))) }}
+{{- $mtprotoMtgEnabled := and $mtprotoRuntimeRoleEnabled (eq $mtprotoRuntime "mtg") }}
 {{- $mtprotoRuntimeHandlesPublic := and $mtprotoRuntimeRoleEnabled (not $mtprotoEntryTunnelEnabled) }}
 {{- $mtprotoRoleHandlesPublic := or $mtprotoRuntimeHandlesPublic $mtprotoEntryRouteEnabled }}
 {{- $mtprotoFallbackPublicPort := and $mtprotoRoleHandlesPublic (ne $mtprotoPublicPort (int $role.ports.publicTcp)) }}
@@ -101,6 +104,8 @@
 {{- $mtprotoTolerateTimeSkewness := toString ($.Values.mtproto.tolerateTimeSkewness | default "5m") }}
 {{- $mtprotoFallback := $.Values.mtproto.fallback | default dict }}
 {{- $mtprotoOfficialFallbackEnabled := and $mtprotoRuntimeRoleEnabled $roleIsEndpoint (dig "enabled" false $mtprotoFallback) }}
+{{- $mtprotoOfficialRuntimeEnabled := and $mtprotoRuntimeRoleEnabled (eq $mtprotoRuntime "official") }}
+{{- $mtprotoOfficialEnabled := or $mtprotoOfficialFallbackEnabled $mtprotoOfficialRuntimeEnabled }}
 {{- $mtprotoOfficialBackendPort := int (dig "officialBackendPort" 9444 $mtprotoFallback) }}
 {{- $mtprotoOfficialStatsPort := int (dig "officialStatsPort" 2398 $mtprotoFallback) }}
 {{- $mtprotoOfficialWorkers := int (dig "officialWorkers" 1 $mtprotoFallback) }}
@@ -260,7 +265,7 @@ spec:
             path: {{ printf "%s/%s" $.Values.gateway.agent.dataHostPathPrefix $roleName | quote }}
             type: DirectoryOrCreate
 {{- end }}
-{{- if $mtprotoOfficialFallbackEnabled }}
+{{- if $mtprotoOfficialEnabled }}
         - name: mtproxy-work
           emptyDir:
             sizeLimit: 16Mi
@@ -513,7 +518,7 @@ spec:
 {{- end }}
               cp /state/base/haproxy/haproxy.cfg /state/runtime/haproxy/haproxy.cfg
               cp /state/base/nginx/nginx.conf /state/runtime/nginx/nginx.conf
-{{- if $mtprotoRuntimeRoleEnabled }}
+{{- if $mtprotoMtgEnabled }}
               mtproto_config="/state/private/mtproto/runtime/config.toml"
               mkdir -p "$(dirname "${mtproto_config}")"
               mtproto_secret="$(read_secret_file "{{ $.Values.privateProfiles.mountPath }}/{{ $.Values.privateProfiles.keys.mtproto }}")"
@@ -564,11 +569,17 @@ spec:
                 printf '%s\n' 'max-size = "1mib"'
                 printf '%s\n' 'error-rate = 0.001'
               } > "${mtproto_config}"
-{{- if $mtprotoOfficialFallbackEnabled }}
+{{- end }}
+{{- if $mtprotoOfficialEnabled }}
               mkdir -p /mtproxy
+              mtproto_secret="$(read_secret_file "{{ $.Values.privateProfiles.mountPath }}/{{ $.Values.privateProfiles.keys.mtproto }}")"
+              mtproto_secret="$(printf '%s' "${mtproto_secret}" | tr -cd '0123456789abcdefABCDEF' | tr 'A-F' 'a-f')"
+              if [ "${#mtproto_secret}" -ne 32 ]; then
+                echo "MTProto secret must contain exactly 16 bytes in hex" >&2
+                exit 1
+              fi
               printf '%s\n' "${mtproto_secret}" > /mtproxy/secret
               chmod 600 /mtproxy/secret
-{{- end }}
 {{- end }}
           env:
             - name: REALITY_PRIVATE_KEY
@@ -586,7 +597,7 @@ spec:
           volumeMounts:
             - name: gateway-state
               mountPath: /state
-{{- if $mtprotoOfficialFallbackEnabled }}
+{{- if $mtprotoOfficialEnabled }}
             - name: mtproxy-work
               mountPath: /mtproxy
 {{- end }}
@@ -862,6 +873,8 @@ spec:
               value: {{ $mtprotoDomain | quote }}
             - name: MTPROTO_TLS_DOMAIN
               value: {{ $mtprotoTlsDomain | quote }}
+            - name: MTPROTO_TRANSPORT
+              value: {{ $mtprotoTransport | quote }}
             - name: MTPROTO_PUBLIC_PORT
               value: {{ $mtprotoPublicPort | quote }}
             - name: MTPROTO_INGRESS_HOSTS
@@ -1358,7 +1371,7 @@ spec:
               mountPath: /var/lib/tracegate
               readOnly: true
 {{- end }}
-{{- if $mtprotoRuntimeRoleEnabled }}
+{{- if $mtprotoMtgEnabled }}
         - name: mtproto
           image: {{ include "tracegate.image" $.Values.gateway.images.mtproto | quote }}
           imagePullPolicy: {{ $.Values.gateway.images.mtproto.pullPolicy }}
@@ -1379,7 +1392,7 @@ spec:
               mountPath: /var/lib/tracegate
               readOnly: true
 {{- end }}
-{{- if $mtprotoOfficialFallbackEnabled }}
+{{- if $mtprotoOfficialEnabled }}
         - name: mtproto-official
           image: {{ include "tracegate.image" $.Values.gateway.images.mtprotoOfficial | quote }}
           imagePullPolicy: {{ $.Values.gateway.images.mtprotoOfficial.pullPolicy }}

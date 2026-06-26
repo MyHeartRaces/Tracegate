@@ -381,6 +381,7 @@ class Settings(BaseSettings):
     # Keep MTProto on a dedicated real domain and avoid claiming the public UDP/Hysteria surface in the private TCP demux layer.
     mtproto_domain: str = ""
     mtproto_tls_domain: str = ""
+    mtproto_transport: str = "tls"
     mtproto_public_port: int = 443
     mtproto_route_mode: str = "endpoint-direct"
     mtproto_egress_socks_port: int = 11084

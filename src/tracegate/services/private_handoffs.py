@@ -11,6 +11,7 @@ from tracegate.constants import (
     TRACEGATE_PUBLIC_UDP_PORT,
 )
 from tracegate.services.mtproto import (
+    MTPROTO_DIRECT_PROFILE_NAME,
     MTPROTO_FAKE_TLS_PROFILE_NAME,
     MTProtoConfigError,
     build_mtproto_mtg_config,
@@ -1455,6 +1456,7 @@ def _write_mtproto_state(
         "role": role_upper,
         "backend": str(settings.private_mtproto_backend or "").strip().lower() or "private",
         "runtime": mtproto_runtime,
+        "transport": str(settings.mtproto_transport or "tls").strip().lower() or "tls",
         "domain": str(settings.mtproto_domain or "").strip(),
         "tlsDomain": str(settings.mtproto_tls_domain or settings.mtproto_domain or "").strip(),
         "publicPort": int(settings.mtproto_public_port or 443),
@@ -1477,7 +1479,12 @@ def _write_mtproto_state(
     if secret_file.is_file() and payload["domain"] and payload["publicPort"] > 0:
         try:
             normalized_domain = normalize_mtproto_domain(payload["domain"])
-            normalized_tls_domain = normalize_mtproto_domain(payload["tlsDomain"])
+            mtproto_transport = str(payload["transport"] or "tls").strip().lower()
+            if mtproto_transport == "plain":
+                mtproto_transport = "raw"
+            if mtproto_transport not in {"tls", "raw", "random_padding", "dd"}:
+                raise MTProtoConfigError(f"unsupported MTProto transport: {mtproto_transport}")
+            normalized_tls_domain = normalize_mtproto_domain(payload["tlsDomain"]) if mtproto_transport == "tls" else ""
             server_secret_hex = _read_secret_hex(secret_file)
             public_ports = _mtproto_public_ports(int(payload["publicPort"]))
             shares = {
@@ -1485,13 +1492,15 @@ def _write_mtproto_state(
                     server=normalized_domain,
                     port=port,
                     secret_hex=server_secret_hex,
-                    transport="tls",
-                    domain=normalized_tls_domain,
+                    transport=mtproto_transport,
+                    domain=normalized_tls_domain or None,
                 )
                 for port in public_ports
             }
             share = shares[int(payload["publicPort"])]
             if mtproto_runtime == "mtg":
+                if mtproto_transport != "tls":
+                    raise MTProtoConfigError("MTG runtime requires TLS/FakeTLS MTProto transport")
                 egress_proxy = (
                     f"socks5://127.0.0.1:{int(settings.mtproto_egress_socks_port or 11084)}"
                     if mtproto_route_mode == "entry-local-endpoint-egress"
@@ -1506,7 +1515,10 @@ def _write_mtproto_state(
                     domain_fronting_host=settings.mtproto_domain_fronting_host or normalized_tls_domain,
                     domain_fronting_port=int(settings.mtproto_domain_fronting_port or 443),
                     tolerate_time_skewness=settings.mtproto_tolerate_time_skewness,
+                    transport=mtproto_transport,
                 )
+            elif mtproto_runtime == "official":
+                mtg_config = None
             else:
                 raise MTProtoConfigError(f"unsupported MTProto runtime: {mtproto_runtime}")
         except (MTProtoConfigError, OSError, ValueError):
@@ -1515,11 +1527,11 @@ def _write_mtproto_state(
         else:
             profile_payload = {
                 "protocol": "mtproto",
-                "profile": MTPROTO_FAKE_TLS_PROFILE_NAME,
+                "profile": MTPROTO_FAKE_TLS_PROFILE_NAME if mtproto_transport == "tls" else MTPROTO_DIRECT_PROFILE_NAME,
                 "server": normalized_domain,
                 "servers": list(settings.mtproto_ingress_hosts),
                 "port": int(payload["publicPort"]),
-                "transport": "tls",
+                "transport": mtproto_transport,
                 "domain": normalized_tls_domain,
                 "tlsDomain": normalized_tls_domain,
                 "secretPolicy": "shared",
@@ -1537,7 +1549,7 @@ def _write_mtproto_state(
                 ],
             }
             changed = _write_text_if_changed(profile_path, _json_text(profile_payload)) or changed
-            if mtproto_runtime == "mtg":
+            if mtproto_runtime == "mtg" and mtg_config is not None:
                 changed = _write_text_if_changed(mtproto_config_file, mtg_config.config_text) or changed
             else:
                 changed = _remove_if_exists(mtproto_config_file) or changed

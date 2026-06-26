@@ -1021,6 +1021,8 @@ shadowsocks2022:
 mtproto:
   enabled: true
   runtime: mtg
+  # tls = MTG FakeTLS/domain-fronting. raw = official MTProxy without FakeTLS/SNI.
+  transport: tls
   domain: ""
   # FakeTLS SNI. Keep it distinct from the public address hostname and
   # validate DNS/TLS reachability from target networks before production use.
@@ -1052,6 +1054,8 @@ mtproto:
     officialArgs: ""
   route:
     mode: endpoint-direct
+    # Used by no-SNI MTProto transports on shared tcp/443 demux.
+    inspectDelay: 5s
     entry:
       upstreamHost: ""
       tunnelPort: 11087

@@ -361,6 +361,8 @@ spec:
               value: {{ (.Values.mtproto.domain | default .Values.controlPlane.env.mtprotoDomain) | quote }}
             - name: MTPROTO_TLS_DOMAIN
               value: {{ (.Values.mtproto.tlsDomain | default (.Values.mtproto.domain | default .Values.controlPlane.env.mtprotoDomain)) | quote }}
+            - name: MTPROTO_TRANSPORT
+              value: {{ lower (toString (.Values.mtproto.transport | default "tls")) | quote }}
             - name: MTPROTO_PUBLIC_PORT
               value: {{ int .Values.mtproto.publicPort | quote }}
             - name: MTPROTO_ROUTE_MODE

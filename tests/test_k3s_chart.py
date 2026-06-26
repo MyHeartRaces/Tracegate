@@ -2728,6 +2728,53 @@ def test_mtproto_entry_endpoint_tunnel_routes_tls_to_endpoint_public_edge(tmp_pa
     assert "frontend fe_tracegate_transit_mtproto" not in rendered.stdout
 
 
+def test_mtproto_entry_endpoint_tunnel_routes_raw_to_official_proxy_without_sni(tmp_path: Path) -> None:
+    values = _universal_entry_overlay_values()
+    values["mtproto"] = {
+        "enabled": True,
+        "runtime": "official",
+        "transport": "raw",
+        "domain": "entry.prod.test",
+        "tlsDomain": "",
+        "publicPort": 443,
+        "backendPort": 9443,
+        "fallback": {"enabled": False},
+        "route": {
+            "mode": "entry-endpoint-tunnel",
+            "inspectDelay": "1s",
+            "entry": {"tunnelPort": 11087},
+            "endpoint": {"allowedProxySources": ["8.8.4.4"]},
+        },
+    }
+
+    rendered = _helm_template_with_values(tmp_path, values)
+
+    assert rendered.returncode == 0, rendered.stderr
+    configmaps = {
+        doc["metadata"]["name"]: doc
+        for doc in _helm_docs(rendered.stdout)
+        if doc.get("kind") == "ConfigMap" and isinstance(doc.get("data"), dict)
+    }
+    entry_haproxy = configmaps["tracegate-tracegate-gateway-entry-haproxy"]["data"]["haproxy.cfg"]
+    endpoint_haproxy = configmaps["tracegate-tracegate-gateway-endpoint-haproxy"]["data"]["haproxy.cfg"]
+    endpoint_nginx = configmaps["tracegate-tracegate-gateway-endpoint-nginx"]["data"]["nginx.conf"]
+    entry = _deployment_by_component(rendered.stdout, "gateway-entry")
+    endpoint = _deployment_by_component(rendered.stdout, "gateway-endpoint")
+    assert "mtproto" not in _containers_by_name(entry["spec"]["template"])
+    endpoint_containers = _containers_by_name(endpoint["spec"]["template"])
+    assert "mtproto" not in endpoint_containers
+    assert "mtproto-official" in endpoint_containers
+    assert "acl mtproto_sni" not in entry_haproxy
+    assert "acl mtproto_sni" not in endpoint_haproxy
+    assert "tcp-request inspect-delay 1s" in entry_haproxy
+    assert "tcp-request inspect-delay 1s" in endpoint_haproxy
+    assert "use_backend be_mtproto_tls if !request_sni_found" in entry_haproxy
+    assert "use_backend be_mtproto if !request_sni_found mtproto_proxy_src" in endpoint_haproxy
+    assert "server mtproto_official 127.0.0.1:9444 check" in endpoint_haproxy
+    assert "send-proxy-v2" not in endpoint_haproxy.split("backend be_mtproto", 1)[1]
+    assert "alias /tmp/acme-challenge/;" in endpoint_nginx
+
+
 def test_mtproto_mtg_runs_on_entry_with_fail_closed_endpoint_egress(tmp_path: Path) -> None:
     rendered = _helm_template_with_values(
         tmp_path,

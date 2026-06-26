@@ -36,6 +36,19 @@ def test_build_mtproto_client_secret_for_random_padding() -> None:
     assert value == "dd95f0d81f7539ecbe1bd880f48b6a739a"
 
 
+def test_build_mtproto_share_links_supports_raw_secret_without_tls_domain() -> None:
+    links = build_mtproto_share_links(
+        server="tracegate.su",
+        port=443,
+        secret_hex="95f0d81f7539ecbe1bd880f48b6a739a",
+        transport="raw",
+    )
+
+    assert links.client_secret_hex == "95f0d81f7539ecbe1bd880f48b6a739a"
+    assert "server=tracegate.su" in links.tg_uri
+    assert "secret=95f0d81f7539ecbe1bd880f48b6a739a" in links.https_url
+
+
 def test_resolve_mtproto_client_secret_accepts_prebuilt_tls_secret() -> None:
     prebuilt = "ee95f0d81f7539ecbe1bd880f48b6a739a70726f786965642e7472616365676174652e74657374"
     assert resolve_mtproto_client_secret(prebuilt) == prebuilt
@@ -179,6 +192,16 @@ def test_build_mtproto_mtg_config_allows_endpoint_direct_egress() -> None:
     assert 'bind-to = "127.0.0.1:9443"' in config.config_text
     assert "proxies =" not in config.config_text
     assert "[network.timeout]" in config.config_text
+
+
+def test_build_mtproto_mtg_config_rejects_raw_transport() -> None:
+    with pytest.raises(MTProtoConfigError, match="MTG runtime requires TLS/FakeTLS"):
+        build_mtproto_mtg_config(
+            listen_port=9443,
+            tls_domain="",
+            primary_secret_hex="95f0d81f7539ecbe1bd880f48b6a739a",
+            transport="raw",
+        )
 
 
 def test_build_mtproto_mtg_config_rejects_invalid_proxy_scheme() -> None:

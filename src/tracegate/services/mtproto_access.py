@@ -11,7 +11,12 @@ from typing import Any, Iterator
 import fcntl
 
 from tracegate.services.decoy_auth import DecoyAuthConfigError, load_mtproto_public_profile
-from tracegate.services.mtproto import MTPROTO_FAKE_TLS_PROFILE_NAME, MTProtoConfigError, build_mtproto_share_links
+from tracegate.services.mtproto import (
+    MTPROTO_DIRECT_PROFILE_NAME,
+    MTPROTO_FAKE_TLS_PROFILE_NAME,
+    MTProtoConfigError,
+    build_mtproto_share_links,
+)
 from tracegate.settings import Settings, effective_mtproto_issued_state_file
 
 
@@ -39,6 +44,14 @@ def _mtproto_profile_ports(base_profile: dict[str, Any]) -> list[int]:
         if port > 0 and port not in ports:
             ports.append(port)
     return ports
+
+
+def _mtproto_profile_name(base_profile: dict[str, Any]) -> str:
+    configured = str(base_profile.get("profile") or "").strip()
+    if configured:
+        return configured
+    transport = str(base_profile.get("transport") or "tls").strip().lower()
+    return MTPROTO_FAKE_TLS_PROFILE_NAME if transport == "tls" else MTPROTO_DIRECT_PROFILE_NAME
 
 
 def _mtproto_profile_server(
@@ -258,6 +271,8 @@ def issue_mtproto_access_profile(
         next_entries = sorted(by_telegram_id.values(), key=_entry_sort_key)
 
     try:
+        base_transport = str(base_profile.get("transport") or "tls").strip().lower()
+        base_domain = str(base_profile.get("domain") or "").strip()
         secret_hex = str(base_profile["clientSecretHex"]) if secret_policy == "shared" else str(current["secretHex"])
         ports = _mtproto_profile_ports(base_profile)
         selected_server = _mtproto_profile_server(
@@ -274,8 +289,8 @@ def issue_mtproto_access_profile(
                 server=selected_server,
                 port=port,
                 secret_hex=secret_hex,
-                transport=None if secret_policy == "shared" else str(base_profile.get("transport") or "tls"),
-                domain=str(base_profile.get("domain") or base_profile["server"]),
+                transport=None if secret_policy == "shared" else base_transport,
+                domain=base_domain or str(base_profile.get("tlsDomain") or "") or str(base_profile["server"]),
             )
             link_rows.append(
                 {
@@ -293,11 +308,11 @@ def issue_mtproto_access_profile(
 
     profile = {
         "protocol": "mtproto",
-        "profile": str(base_profile.get("profile") or MTPROTO_FAKE_TLS_PROFILE_NAME),
+        "profile": _mtproto_profile_name(base_profile),
         "server": selected_server,
         "port": int(primary_link["port"]),
         "transport": str(base_profile.get("transport") or "tls"),
-        "domain": str(base_profile.get("domain") or base_profile["server"]),
+        "domain": str(base_profile.get("domain") or ""),
         "clientSecretHex": str(primary_link["clientSecretHex"]),
         "tgUri": str(primary_link["tgUri"]),
         "httpsUrl": str(primary_link["httpsUrl"]),
