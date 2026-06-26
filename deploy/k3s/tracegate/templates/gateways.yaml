@@ -111,6 +111,8 @@
 {{- $mtprotoOfficialWorkers := int (dig "officialWorkers" 1 $mtprotoFallback) }}
 {{- $mtprotoOfficialBindAddress := trim (toString (dig "officialBindAddress" "127.0.0.1" $mtprotoFallback)) }}
 {{- $mtprotoOfficialArgs := trim (toString (dig "officialArgs" "" $mtprotoFallback)) }}
+{{- $mtprotoRuntimeBackendPort := int $.Values.mtproto.backendPort }}
+{{- if eq $mtprotoRuntime "official" }}{{- $mtprotoRuntimeBackendPort = $mtprotoOfficialBackendPort }}{{- end }}
 {{- $mtprotoOfficialBaseArgs := "" }}
 {{- if $mtprotoTlsDomain }}{{- $mtprotoOfficialBaseArgs = printf "--domain %s" $mtprotoTlsDomain }}{{- end }}
 {{- if $mtprotoOfficialBindAddress }}{{- $mtprotoOfficialBaseArgs = trim (printf "%s --address %s" $mtprotoOfficialBaseArgs $mtprotoOfficialBindAddress) }}{{- end }}
@@ -883,6 +885,8 @@ spec:
               value: {{ $mtprotoRouteMode | quote }}
             - name: PRIVATE_MTPROTO_RUNTIME
               value: {{ $mtprotoRuntime | quote }}
+            - name: PRIVATE_MTPROTO_UPSTREAM_PORT
+              value: {{ $mtprotoRuntimeBackendPort | quote }}
             - name: MTPROTO_EGRESS_SOCKS_PORT
               value: {{ $mtprotoEgressSocksPort | quote }}
             - name: MTPROTO_DOMAIN_FRONTING_HOST

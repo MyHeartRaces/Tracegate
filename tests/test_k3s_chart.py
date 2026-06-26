@@ -1477,7 +1477,7 @@ def test_tracegate21_chart_disables_hostwide_interception_by_default() -> None:
     assert "gateway.roles.%s.ports.publicUdp must stay 443 for Tracegate 3 Hysteria2" in _chart_text()
     assert "Keep rollout and preflight guards enabled" in Path("deploy/k3s/README.md").read_text(encoding="utf-8")
     assert "endpointBackhaul:" in Path("deploy/k3s/values-prod.example.yaml").read_text(encoding="utf-8")
-    assert "serverNameEndpoint: www.ozon.ru" in Path("deploy/k3s/values-prod.example.yaml").read_text(encoding="utf-8")
+    assert "serverNameEndpoint: 2gis.ru" in Path("deploy/k3s/values-prod.example.yaml").read_text(encoding="utf-8")
     assert "emergencyXrayChain:" in Path("deploy/k3s/values-prod.example.yaml").read_text(encoding="utf-8")
     assert "hysteria2:" in Path("deploy/k3s/values-prod.example.yaml").read_text(encoding="utf-8")
 
@@ -2766,6 +2766,7 @@ def test_mtproto_entry_endpoint_tunnel_routes_official_proxy_without_sni(tmp_pat
     endpoint_containers = _containers_by_name(endpoint["spec"]["template"])
     assert "mtproto" not in endpoint_containers
     assert "mtproto-official" in endpoint_containers
+    assert _env_value(endpoint_containers["agent"], "PRIVATE_MTPROTO_UPSTREAM_PORT") == "9444"
     assert _env_value(api_container, "MTPROTO_DOMAIN") == "entry.prod.test"
     assert _env_value(api_container, "MTPROTO_TLS_DOMAIN") == ""
     assert _env_value(api_container, "MTPROTO_TRANSPORT") == "random_padding"
@@ -2773,6 +2774,7 @@ def test_mtproto_entry_endpoint_tunnel_routes_official_proxy_without_sni(tmp_pat
     assert "acl mtproto_sni" not in endpoint_haproxy
     assert "tcp-request inspect-delay 1s" in entry_haproxy
     assert "tcp-request inspect-delay 1s" in endpoint_haproxy
+    assert "tcp-request content reject if WAIT_END !universal_origin_allowed_src" not in entry_haproxy
     assert "use_backend be_mtproto_tls if !request_sni_found" in entry_haproxy
     assert "use_backend be_mtproto if !request_sni_found mtproto_proxy_src" in endpoint_haproxy
     assert "server mtproto_official 127.0.0.1:9444 check" in endpoint_haproxy
@@ -3157,6 +3159,48 @@ def test_tracegate22_gateway_role_hosts_backfill_client_env(tmp_path: Path) -> N
     api_container = _containers_by_name(api["spec"]["template"])["api"]
     assert _env_value(api_container, "DEFAULT_ENTRY_HOST") == "entry.prod.test"
     assert _env_value(api_container, "DEFAULT_TRANSIT_HOST") == "transit.prod.test"
+
+
+def test_universal_entry_origin_firewall_can_allow_dns_only_tls_adapter_sni(tmp_path: Path) -> None:
+    values = _universal_entry_overlay_values()
+    values["architecture"]["universalEntry"]["originFirewall"]["allowDirectTlsAdapterSni"] = True
+    values["controlPlane"]["env"]["defaultEntryHost"] = "entry.prod.test"
+    values["gateway"]["roles"]["entry"]["tls"]["serverName"] = "entry.prod.test"
+    values["mtproto"] = {
+        "enabled": True,
+        "runtime": "official",
+        "transport": "random_padding",
+        "domain": "entry.prod.test",
+        "tlsDomain": "",
+        "publicPort": 443,
+        "backendPort": 9443,
+        "fallback": {"enabled": False},
+        "route": {
+            "mode": "entry-endpoint-tunnel",
+            "inspectDelay": "1s",
+            "entry": {"tunnelPort": 11087},
+            "endpoint": {"allowedProxySources": ["8.8.4.4"]},
+        },
+    }
+
+    rendered = _helm_template_with_values(tmp_path, values)
+
+    assert rendered.returncode == 0, rendered.stderr
+    docs = _helm_docs(rendered.stdout)
+    entry_haproxy = next(
+        doc["data"]["haproxy.cfg"]
+        for doc in docs
+        if doc.get("kind") == "ConfigMap"
+        and doc.get("metadata", {}).get("name") == "tracegate-tracegate-gateway-entry-haproxy"
+    )
+    assert "acl universal_origin_tls_adapter_sni req.ssl_sni -i entry.prod.test" in entry_haproxy
+    assert (
+        "tcp-request content reject if request_sni_found !universal_origin_allowed_src !universal_origin_tls_adapter_sni"
+        in entry_haproxy
+    )
+    assert "tcp-request content reject if WAIT_END !universal_origin_allowed_src" not in entry_haproxy
+    assert "use_backend be_https_adapter if tls_adapter_sni" in entry_haproxy
+    assert "use_backend be_mtproto_tls if !request_sni_found" in entry_haproxy
 
 
 def test_tracegate22_control_plane_receives_enabled_client_profiles(tmp_path: Path) -> None:

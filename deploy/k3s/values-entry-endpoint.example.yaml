@@ -56,6 +56,7 @@ architecture:
     originFirewall:
       required: true
       denyDirectAccess: true
+      allowDirectTlsAdapterSni: false
       allowedSourceCidrs: [173.245.48.0/20]
     clientPolicy:
       multiplexSingleTls: true

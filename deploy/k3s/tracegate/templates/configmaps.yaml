@@ -620,6 +620,7 @@ data:
 {{- $entryEndpointMode := eq (toString $.Values.architecture.mode) "entry-endpoint" }}
 {{- $universalEntryEnabled := and $roleIsEntry ($universalEntry.enabled | default false) }}
 {{- $universalOriginDenyDirect := and $universalEntryEnabled (dig "originFirewall" "denyDirectAccess" false $universalEntry) }}
+{{- $universalOriginAllowDirectTlsAdapterSni := and $universalOriginDenyDirect (dig "originFirewall" "allowDirectTlsAdapterSni" false $universalEntry) }}
 {{- $universalOriginAllowedSources := list }}
 {{- range $cidr := (dig "originFirewall" "allowedSourceCidrs" (list) $universalEntry) }}
 {{- $universalOriginAllowedSources = append $universalOriginAllowedSources $cidr }}
@@ -738,13 +739,30 @@ data:
 {{- end }}
 {{- if and $universalOriginDenyDirect $universalOriginAllowedSources }}
       acl universal_origin_allowed_src src {{ join " " $universalOriginAllowedSources }}
+{{- if $universalOriginAllowDirectTlsAdapterSni }}
+      acl universal_origin_tls_adapter_sni req.ssl_sni -i {{ join " " $tlsAdapterServerNames }}
+{{- end }}
 {{- if and $mtprotoRoleHandlesPublic $mtprotoSniDomains }}
       acl universal_origin_mtproto_sni req.ssl_sni -i {{ join " " $mtprotoSniDomains }}
+{{- if $universalOriginAllowDirectTlsAdapterSni }}
+      tcp-request content reject if request_sni_found !universal_origin_allowed_src !universal_origin_mtproto_sni !universal_origin_tls_adapter_sni
+      tcp-request content reject if WAIT_END !universal_origin_allowed_src !universal_origin_mtproto_sni !universal_origin_tls_adapter_sni
+{{- else }}
       tcp-request content reject if request_sni_found !universal_origin_allowed_src !universal_origin_mtproto_sni
       tcp-request content reject if WAIT_END !universal_origin_allowed_src !universal_origin_mtproto_sni
+{{- end }}
+{{- else }}
+{{- if $universalOriginAllowDirectTlsAdapterSni }}
+      tcp-request content reject if request_sni_found !universal_origin_allowed_src !universal_origin_tls_adapter_sni
+{{- if not (and $mtprotoRoleHandlesPublic (not $mtprotoUsesSni)) }}
+      tcp-request content reject if WAIT_END !universal_origin_allowed_src !universal_origin_tls_adapter_sni
+{{- end }}
 {{- else }}
       tcp-request content reject if request_sni_found !universal_origin_allowed_src
+{{- if not (and $mtprotoRoleHandlesPublic (not $mtprotoUsesSni)) }}
       tcp-request content reject if WAIT_END !universal_origin_allowed_src
+{{- end }}
+{{- end }}
 {{- end }}
 {{- end }}
       tcp-request content accept if { req.ssl_sni -m found }

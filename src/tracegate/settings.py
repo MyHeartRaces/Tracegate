@@ -374,7 +374,7 @@ class Settings(BaseSettings):
     private_fronting_mtproto_domain_override: str = ""
     private_mtproto_backend: str = "private"
     private_mtproto_upstream_host: str = "127.0.0.1"
-    private_mtproto_upstream_port: int = 9443
+    private_mtproto_upstream_port: int = 0
     private_mtproto_secret_file: str = "/etc/tracegate/private/mtproto/secret.txt"
     private_mtproto_runtime: str = "mtg"
     # Future private MTProto/fronting hints exposed via runtime-contract.json for host-local wrappers.
@@ -524,11 +524,11 @@ class Settings(BaseSettings):
     # Shadowsocks-2022 + ShadowTLS V3 uses static node-side outer credentials,
     # while Shadowsocks user keys remain per connection.
     shadowtls_server_name_entry: str = Field(
-        default="ozon.ru",
+        default="2gis.ru",
         validation_alias=AliasChoices("SHADOWTLS_SERVER_NAME_ENTRY", "SHADOWTLS_SERVER_NAME"),
     )
     shadowtls_server_name_transit: str = Field(
-        default="www.ozon.ru",
+        default="2gis.ru",
         validation_alias=AliasChoices("SHADOWTLS_SERVER_NAME_TRANSIT", "SHADOWTLS_SERVER_NAME"),
     )
     shadowtls_password_entry: str = Field(

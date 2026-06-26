@@ -1280,6 +1280,7 @@ def test_reconcile_materializes_official_mtproto_without_tls_domain(tmp_path: Pa
     assert state_payload["transport"] == "random_padding"
     assert state_payload["domain"] == "tracegate.su"
     assert state_payload["tlsDomain"] == ""
+    assert state_payload["upstreamPort"] == 9444
     assert not (private_root / "mtproto" / "runtime" / "config.toml").exists()
     assert public_profile["profile"] == "MTProto-Direct"
     assert public_profile["transport"] == "random_padding"

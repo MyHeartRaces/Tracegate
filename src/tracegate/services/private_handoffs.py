@@ -1458,6 +1458,11 @@ def _write_mtproto_state(
         str(settings.mtproto_tls_domain or settings.mtproto_domain or "").strip() if mtproto_transport == "tls" else ""
     )
     mtproto_config_file = runtime_dir / "config.toml"
+    try:
+        configured_upstream_port = int(settings.private_mtproto_upstream_port or 0)
+    except (TypeError, ValueError):
+        configured_upstream_port = 0
+    upstream_port = configured_upstream_port if configured_upstream_port > 0 else (9444 if mtproto_runtime == "official" else 9443)
 
     payload = {
         "action": "reconcile",
@@ -1469,7 +1474,7 @@ def _write_mtproto_state(
         "tlsDomain": mtproto_tls_domain,
         "publicPort": int(settings.mtproto_public_port or 443),
         "upstreamHost": str(settings.private_mtproto_upstream_host or "").strip() or "127.0.0.1",
-        "upstreamPort": int(settings.private_mtproto_upstream_port or 9443),
+        "upstreamPort": upstream_port,
         "profileFile": _mtproto_profile_path(settings),
         "runtimeStateJson": str(obfuscation_state_json),
         "publicProfileFile": str(state_dir / "public-profile.json"),

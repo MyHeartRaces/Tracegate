@@ -29,8 +29,9 @@ The chart then requires:
 - one TLS connection per client transport and no parallel handshake burst;
 - an operator-managed origin policy: host nftables passes shared `443` to
   HAProxy, while HAProxy accepts Universal Entry only from current Cloudflare
-  IPv4 source ranges and keeps the DNS-only MTProto SNI as the only direct
-  shared-port exception;
+  IPv4 source ranges and keeps only explicitly declared direct exceptions:
+  raw no-SNI MTProto and, in DNS-only deployments, the controlled TLS adapter
+  SNI;
 - `interconnect.endpointBackhaul.enabled=true` with XHTTP/REALITY as primary
   and Hysteria2/Salamander as the independent fallback;
 - two to eight XHTTP shards with unique SNI, matching REALITY destination,
@@ -59,7 +60,10 @@ python3 deploy/k3s/universal-entry-origin-firewall.py \
 Refresh `architecture.universalEntry.originFirewall.allowedSourceCidrs` from
 Cloudflare's published list before every promotion. In shared MTProto mode the
 generated nftables file must not reject non-Cloudflare `443` packets directly,
-because SNI demux happens in HAProxy.
+because SNI/no-SNI demux happens in HAProxy. If the public Entry hostname is
+DNS-only rather than proxied, set
+`architecture.universalEntry.originFirewall.allowDirectTlsAdapterSni=true` and
+keep all other SNI routes source-restricted.
 
 ## Why This Transport
 

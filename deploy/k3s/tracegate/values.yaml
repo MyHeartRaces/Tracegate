@@ -46,6 +46,10 @@ architecture:
     originFirewall:
       required: true
       denyDirectAccess: true
+      # Set true only for DNS-only controlled hostnames where the public TLS
+      # adapter is intentionally reachable directly. Other SNI routes remain
+      # protected by the origin firewall.
+      allowDirectTlsAdapterSni: false
       # Operator-managed current Cloudflare IPv4 origin source ranges.
       allowedSourceCidrs: []
     clientPolicy:
@@ -1014,8 +1018,8 @@ shadowsocks2022:
     # chart fails closed on a collision) and MUST NOT appear in
     # mtproto.stealth.forbiddenTlsDomains. Operators should repoint these to a
     # reachable, TLS 1.3-verified domain that is outside the Reality lease pool.
-    serverNameEntry: ozon.ru
-    serverNameTransit: www.ozon.ru
+    serverNameEntry: 2gis.ru
+    serverNameTransit: 2gis.ru
     listenPort: 14443
 
 mtproto:

@@ -57,13 +57,13 @@ Production promotion gates run from the operator environment.
 
 ## MTProto
 
-- Confirm MTG runs only in the Endpoint gateway pod.
-- Confirm Entry TCP/443 routes only the validated FakeTLS SNI to the local
-  MTProto tunnel inbound.
-- Confirm Endpoint has no public MTProto frontend in tunnel mode.
-- Confirm MTG renders `proxy-protocol-listener = true` and no SOCKS proxy in
-  tunnel mode.
-- Confirm the public address hostname differs from the FakeTLS SNI.
+- Confirm official MTProxy runs only in the Endpoint gateway pod.
+- Confirm Entry TCP/443 routes no-SNI MTProto to Endpoint TCP/443 and does not
+  reject it with the Universal Entry `WAIT_END` origin rule.
+- Confirm Endpoint TCP/443 accepts no-SNI MTProto only from Entry source
+  addresses.
+- Confirm the public profile uses the DNS-only Entry hostname and has an empty
+  `tlsDomain`.
 - Confirm `front-g.example.net` and `splitter.front-m.example.net` are absent from active SNI fields.
 - Test sustained Telegram traffic through the Endpoint egress path.
 

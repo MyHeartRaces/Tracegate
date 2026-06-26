@@ -48,8 +48,8 @@ def test_private_k3s_values_have_reality_inbound_for_each_bot_sni() -> None:
 
 def test_chart_shadowtls_server_names_avoid_forbidden_faketls_domains() -> None:
     """Default ShadowTLS camouflage SNIs must never reuse a domain the project
-    marks as a forbidden MTProto FakeTLS front, and the Entry/Endpoint fronts
-    must differ so the HAProxy SNI demux stays unambiguous.
+    marks as a forbidden MTProto FakeTLS front or an enabled Reality lease
+    pool domain. They must also stay in .ru zones for production SNI policy.
 
     Regression guard for the audit finding where the chart shipped
     ``serverNameTransit: old-mtproto-a.tracegate-sni.ru`` -- a domain listed in the same file's
@@ -65,8 +65,10 @@ def test_chart_shadowtls_server_names_avoid_forbidden_faketls_domains() -> None:
         str(shadowtls.get("serverNameTransit") or "").strip(),
     }
     forbidden = {str(d).strip() for d in values["mtproto"]["stealth"].get("forbiddenTlsDomains", [])}
+    enabled_reality_snis = {row.fqdn for row in load_catalog() if row.enabled}
 
     for name in server_names:
         assert name, "ShadowTLS serverName defaults must be set"
+        assert name.endswith(".ru"), f"ShadowTLS serverName {name!r} must stay in .ru zones"
         assert name not in forbidden, f"ShadowTLS serverName {name!r} is a forbidden MTProto FakeTLS domain"
-    assert len(server_names) == 2, "Entry and Endpoint ShadowTLS fronts must differ"
+        assert name not in enabled_reality_snis, f"ShadowTLS serverName {name!r} must not reuse an enabled Reality SNI"

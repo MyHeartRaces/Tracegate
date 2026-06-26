@@ -68,6 +68,7 @@ architecture:
     originFirewall:
       required: true
       denyDirectAccess: true
+      allowDirectTlsAdapterSni: false
       allowedSourceCidrs: [173.245.48.0/20]
     clientPolicy:
       multiplexSingleTls: true
@@ -268,7 +269,7 @@ wireguard:
 shadowsocks2022:
   enabled: true
   shadowtls:
-    serverNameEndpoint: www.ozon.ru
+    serverNameEndpoint: 2gis.ru
 
 mtproto:
   enabled: true
