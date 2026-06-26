@@ -696,6 +696,37 @@ def test_k3s_strict_prod_overlay_check_accepts_entry_endpoint_overlay(tmp_path: 
     assert "prod-overlay-check: OK" in result.stdout
 
 
+def test_k3s_strict_prod_overlay_check_accepts_official_entry_endpoint_mtproto_without_sni(tmp_path: Path) -> None:
+    values = _entry_endpoint_overlay_values()
+    values["mtproto"].update(
+        {
+            "runtime": "official",
+            "transport": "random_padding",
+            "tlsDomain": "",
+        }
+    )
+    values_path = tmp_path / "values-entry-endpoint-official.yaml"
+    values_path.write_text(yaml.safe_dump(values, sort_keys=True), encoding="utf-8")
+
+    result = subprocess.run(
+        [
+            "python3",
+            "deploy/k3s/prod-overlay-check.py",
+            "--strict",
+            "--chart-values",
+            str(CHART_ROOT / "values.yaml"),
+            "--values",
+            str(values_path),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "prod-overlay-check: OK" in result.stdout
+
+
 def test_k3s_strict_prod_overlay_check_accepts_universal_entry_overlay(tmp_path: Path) -> None:
     values_path = tmp_path / "values-universal-entry.yaml"
     values_path.write_text(yaml.safe_dump(_universal_entry_overlay_values(), sort_keys=True), encoding="utf-8")

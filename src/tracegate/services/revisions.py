@@ -364,6 +364,11 @@ async def _load_connection(session: AsyncSession, connection_id: UUID) -> Connec
     return connection
 
 
+def _ensure_connection_active(connection: Connection) -> None:
+    if getattr(connection, "status", RecordStatus.ACTIVE) != RecordStatus.ACTIVE:
+        raise RevisionError("Connection is revoked")
+
+
 async def _load_user(session: AsyncSession, user_id: int) -> User:
     user = await session.get(User, user_id)
     if user is None:
@@ -629,6 +634,7 @@ async def create_revision(
     force: bool,
 ) -> ConnectionRevision:
     connection = await _load_connection(session, connection_id)
+    _ensure_connection_active(connection)
     user = await _load_user(session, connection.user_id)
 
     ensure_can_issue_new_config(user, force=force)
@@ -744,6 +750,7 @@ async def activate_revision(session: AsyncSession, revision_id: UUID) -> Connect
         raise RevisionError("Revision not found")
 
     connection = await _load_connection(session, revision.connection_id)
+    _ensure_connection_active(connection)
     await _ensure_ingress_pair_available(session, revision)
     others = [r for r in connection.revisions if r.id != revision.id and r.status == RecordStatus.ACTIVE]
     others.sort(key=lambda r: (r.slot, r.created_at))

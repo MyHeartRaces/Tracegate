@@ -1069,15 +1069,26 @@ def validate_prod_overlay(chart_values: Path, prod_values: Path, *, strict: bool
     mtproto_egress = _as_dict(mtproto.get("egress"))
     if mtproto_route_mode == "entry-endpoint-tunnel":
         mtproto_stealth = _as_dict(mtproto.get("stealth"))
+        mtproto_runtime = _text(mtproto.get("runtime")).lower()
+        mtproto_transport = _text(mtproto.get("transport")).lower()
+        if mtproto_transport == "dd":
+            mtproto_transport = "random_padding"
         tls_domain = _text(mtproto.get("tlsDomain")).lower().rstrip(".")
-        require(_text(mtproto.get("runtime")) == "mtg", "entry-endpoint-tunnel requires mtproto.runtime=mtg")
+        require(mtproto_runtime in {"mtg", "official"}, "entry-endpoint-tunnel requires mtproto.runtime=mtg or official")
         require(_as_int(mtproto.get("publicPort")) == 443, "entry-endpoint-tunnel requires mtproto.publicPort=443")
-        require(tls_domain not in {"front-g.example.net", "splitter.front-m.example.net"}, "entry-endpoint-tunnel forbids common MTProto TLS domains")
-        require(
-            tls_domain in {_text(value).lower().rstrip(".") for value in _as_list(mtproto_stealth.get("validatedTlsDomains"))},
-            "entry-endpoint-tunnel tlsDomain must be prevalidated",
-        )
         require(not bool(_as_dict(mtproto.get("fallback")).get("enabled", False)), "entry-endpoint-tunnel forbids fallback runtimes")
+        if mtproto_runtime == "official":
+            require(
+                mtproto_transport in {"raw", "random_padding"},
+                "entry-endpoint-tunnel official MTProto requires mtproto.transport=raw or random_padding",
+            )
+            require(not tls_domain, "entry-endpoint-tunnel official no-SNI MTProto requires empty mtproto.tlsDomain")
+        else:
+            require(tls_domain not in {"front-g.example.net", "splitter.front-m.example.net"}, "entry-endpoint-tunnel forbids common MTProto TLS domains")
+            require(
+                tls_domain in {_text(value).lower().rstrip(".") for value in _as_list(mtproto_stealth.get("validatedTlsDomains"))},
+                "entry-endpoint-tunnel tlsDomain must be prevalidated",
+            )
     if mtproto_route_mode == "entry-local-endpoint-egress":
         mtproto_egress_shadowtls = _as_dict(mtproto_egress.get("shadowtls"))
         require(_text(mtproto.get("runtime")) == "mtg", "entry-local-endpoint-egress requires mtproto.runtime=mtg")
