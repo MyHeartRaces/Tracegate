@@ -1055,6 +1055,8 @@ mtproto:
     officialStatsPort: 2398
     officialWorkers: 1
     officialBindAddress: 127.0.0.1
+    officialExternalIp: ""
+    officialInternalIp: ""
     officialArgs: ""
   route:
     mode: endpoint-direct

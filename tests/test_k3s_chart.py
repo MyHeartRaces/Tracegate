@@ -2769,7 +2769,11 @@ def test_mtproto_entry_endpoint_tunnel_routes_official_proxy_without_sni(tmp_pat
         "tlsDomain": "",
         "publicPort": 443,
         "backendPort": 9443,
-        "fallback": {"enabled": False},
+        "fallback": {
+            "enabled": False,
+            "officialExternalIp": "203.0.113.10",
+            "officialInternalIp": "198.51.100.20",
+        },
         "route": {
             "mode": "entry-endpoint-tunnel",
             "inspectDelay": "1s",
@@ -2797,6 +2801,8 @@ def test_mtproto_entry_endpoint_tunnel_routes_official_proxy_without_sni(tmp_pat
     endpoint_containers = _containers_by_name(endpoint["spec"]["template"])
     assert "mtproto" not in endpoint_containers
     assert "mtproto-official" in endpoint_containers
+    assert _env_value(endpoint_containers["mtproto-official"], "IP") == "203.0.113.10"
+    assert _env_value(endpoint_containers["mtproto-official"], "INTERNAL_IP") == "198.51.100.20"
     assert _env_value(endpoint_containers["agent"], "PRIVATE_MTPROTO_UPSTREAM_PORT") == "9444"
     assert _env_value(api_container, "MTPROTO_DOMAIN") == "entry.prod.test"
     assert _env_value(api_container, "MTPROTO_TLS_DOMAIN") == ""

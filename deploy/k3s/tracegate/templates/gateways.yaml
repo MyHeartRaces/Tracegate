@@ -110,6 +110,8 @@
 {{- $mtprotoOfficialStatsPort := int (dig "officialStatsPort" 2398 $mtprotoFallback) }}
 {{- $mtprotoOfficialWorkers := int (dig "officialWorkers" 1 $mtprotoFallback) }}
 {{- $mtprotoOfficialBindAddress := trim (toString (dig "officialBindAddress" "127.0.0.1" $mtprotoFallback)) }}
+{{- $mtprotoOfficialExternalIp := trim (toString (dig "officialExternalIp" "" $mtprotoFallback)) }}
+{{- $mtprotoOfficialInternalIp := trim (toString (dig "officialInternalIp" "" $mtprotoFallback)) }}
 {{- $mtprotoOfficialArgs := trim (toString (dig "officialArgs" "" $mtprotoFallback)) }}
 {{- $mtprotoRuntimeBackendPort := int $.Values.mtproto.backendPort }}
 {{- if eq $mtprotoRuntime "official" }}{{- $mtprotoRuntimeBackendPort = $mtprotoOfficialBackendPort }}{{- end }}
@@ -1409,6 +1411,14 @@ spec:
               value: {{ $mtprotoOfficialStatsPort | quote }}
             - name: WORKERS
               value: {{ $mtprotoOfficialWorkers | quote }}
+{{- if $mtprotoOfficialExternalIp }}
+            - name: IP
+              value: {{ $mtprotoOfficialExternalIp | quote }}
+{{- end }}
+{{- if $mtprotoOfficialInternalIp }}
+            - name: INTERNAL_IP
+              value: {{ $mtprotoOfficialInternalIp | quote }}
+{{- end }}
 {{- if $mtprotoOfficialRuntimeArgs }}
             - name: ARGS
               value: {{ $mtprotoOfficialRuntimeArgs | quote }}
