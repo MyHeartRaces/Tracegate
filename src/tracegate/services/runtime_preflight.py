@@ -6313,12 +6313,26 @@ def validate_mtproto_gateway_state(
     if state.runtime not in {"mtg", "official"}:
         findings.append(_finding("warning", "mtproto-runtime", f"mtproto runtime must be mtg or official, got {state.runtime or 'missing'}"))
     expected_transport = "raw" if state.transport in {"raw", "plain"} else state.transport or "tls"
-    if expected_transport not in {"tls", "raw"}:
-        findings.append(_finding("warning", "mtproto-transport", f"mtproto runtime-state transport must be tls or raw, got {state.transport or 'missing'}"))
+    if expected_transport == "dd":
+        expected_transport = "random_padding"
+    if expected_transport not in {"tls", "raw", "random_padding"}:
+        findings.append(
+            _finding(
+                "warning",
+                "mtproto-transport",
+                f"mtproto runtime-state transport must be tls, raw or random_padding, got {state.transport or 'missing'}",
+            )
+        )
     if state.runtime == "mtg" and expected_transport != "tls":
         findings.append(_finding("warning", "mtproto-runtime-transport", "MTG runtime requires tls MTProto transport"))
-    if state.runtime == "official" and expected_transport != "raw":
-        findings.append(_finding("warning", "mtproto-runtime-transport", "official MTProxy runtime should use raw MTProto transport"))
+    if state.runtime == "official" and expected_transport not in {"raw", "random_padding"}:
+        findings.append(
+            _finding(
+                "warning",
+                "mtproto-runtime-transport",
+                "official MTProxy runtime should use raw/random_padding MTProto transport",
+            )
+        )
     if state.runtime == "mtg" and not state.mtproto_config_file:
         findings.append(_finding("warning", "mtproto-runtime-config-file", "mtproto runtime-state does not advertise its config file"))
     if not state.issued_state_file:

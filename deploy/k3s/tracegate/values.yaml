@@ -1021,7 +1021,7 @@ shadowsocks2022:
 mtproto:
   enabled: true
   runtime: mtg
-  # tls = MTG FakeTLS/domain-fronting. raw = official MTProxy without FakeTLS/SNI.
+  # tls = MTG FakeTLS/domain-fronting. raw/random_padding = official MTProxy without FakeTLS/SNI.
   transport: tls
   domain: ""
   # FakeTLS SNI. Keep it distinct from the public address hostname and

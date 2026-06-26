@@ -283,6 +283,9 @@ def issue_mtproto_access_profile(
         )
         if not ports:
             raise ValueError("base MTProto profile does not expose a usable public port")
+        link_domain = base_domain or str(base_profile.get("tlsDomain") or "")
+        if base_transport != "tls":
+            link_domain = ""
         link_rows = []
         for port in ports:
             links = build_mtproto_share_links(
@@ -290,7 +293,7 @@ def issue_mtproto_access_profile(
                 port=port,
                 secret_hex=secret_hex,
                 transport=None if secret_policy == "shared" else base_transport,
-                domain=base_domain or str(base_profile.get("tlsDomain") or "") or str(base_profile["server"]),
+                domain=link_domain or None,
             )
             link_rows.append(
                 {
@@ -313,6 +316,7 @@ def issue_mtproto_access_profile(
         "port": int(primary_link["port"]),
         "transport": str(base_profile.get("transport") or "tls"),
         "domain": str(base_profile.get("domain") or ""),
+        "tlsDomain": str(base_profile.get("tlsDomain") or ""),
         "clientSecretHex": str(primary_link["clientSecretHex"]),
         "tgUri": str(primary_link["tgUri"]),
         "httpsUrl": str(primary_link["httpsUrl"]),

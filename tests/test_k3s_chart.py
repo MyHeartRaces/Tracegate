@@ -2728,12 +2728,12 @@ def test_mtproto_entry_endpoint_tunnel_routes_tls_to_endpoint_public_edge(tmp_pa
     assert "frontend fe_tracegate_transit_mtproto" not in rendered.stdout
 
 
-def test_mtproto_entry_endpoint_tunnel_routes_raw_to_official_proxy_without_sni(tmp_path: Path) -> None:
+def test_mtproto_entry_endpoint_tunnel_routes_official_proxy_without_sni(tmp_path: Path) -> None:
     values = _universal_entry_overlay_values()
     values["mtproto"] = {
         "enabled": True,
         "runtime": "official",
-        "transport": "raw",
+        "transport": "random_padding",
         "domain": "entry.prod.test",
         "tlsDomain": "",
         "publicPort": 443,
@@ -2760,10 +2760,15 @@ def test_mtproto_entry_endpoint_tunnel_routes_raw_to_official_proxy_without_sni(
     endpoint_nginx = configmaps["tracegate-tracegate-gateway-endpoint-nginx"]["data"]["nginx.conf"]
     entry = _deployment_by_component(rendered.stdout, "gateway-entry")
     endpoint = _deployment_by_component(rendered.stdout, "gateway-endpoint")
+    api = _deployment_by_component(rendered.stdout, "api")
+    api_container = _containers_by_name(api["spec"]["template"])["api"]
     assert "mtproto" not in _containers_by_name(entry["spec"]["template"])
     endpoint_containers = _containers_by_name(endpoint["spec"]["template"])
     assert "mtproto" not in endpoint_containers
     assert "mtproto-official" in endpoint_containers
+    assert _env_value(api_container, "MTPROTO_DOMAIN") == "entry.prod.test"
+    assert _env_value(api_container, "MTPROTO_TLS_DOMAIN") == ""
+    assert _env_value(api_container, "MTPROTO_TRANSPORT") == "random_padding"
     assert "acl mtproto_sni" not in entry_haproxy
     assert "acl mtproto_sni" not in endpoint_haproxy
     assert "tcp-request inspect-delay 1s" in entry_haproxy

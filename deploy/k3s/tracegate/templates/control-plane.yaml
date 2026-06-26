@@ -359,10 +359,15 @@ spec:
 {{- end }}
             - name: MTPROTO_DOMAIN
               value: {{ (.Values.mtproto.domain | default .Values.controlPlane.env.mtprotoDomain) | quote }}
+{{- $controlPlaneMtprotoTransport := lower (toString (.Values.mtproto.transport | default "tls")) }}
+{{- $controlPlaneMtprotoTlsDomain := "" }}
+{{- if eq $controlPlaneMtprotoTransport "tls" }}
+{{- $controlPlaneMtprotoTlsDomain = (.Values.mtproto.tlsDomain | default (.Values.mtproto.domain | default .Values.controlPlane.env.mtprotoDomain)) }}
+{{- end }}
             - name: MTPROTO_TLS_DOMAIN
-              value: {{ (.Values.mtproto.tlsDomain | default (.Values.mtproto.domain | default .Values.controlPlane.env.mtprotoDomain)) | quote }}
+              value: {{ $controlPlaneMtprotoTlsDomain | quote }}
             - name: MTPROTO_TRANSPORT
-              value: {{ lower (toString (.Values.mtproto.transport | default "tls")) | quote }}
+              value: {{ $controlPlaneMtprotoTransport | quote }}
             - name: MTPROTO_PUBLIC_PORT
               value: {{ int .Values.mtproto.publicPort | quote }}
             - name: MTPROTO_ROUTE_MODE

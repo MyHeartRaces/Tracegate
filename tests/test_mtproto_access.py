@@ -30,6 +30,29 @@ def _write_profile(path) -> None:
     )
 
 
+def _write_direct_profile(path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(
+            {
+                "protocol": "mtproto",
+                "server": "tracegate.su",
+                "port": 443,
+                "transport": "dd",
+                "domain": "",
+                "tlsDomain": "",
+                "clientSecretHex": "dd00112233445566778899aabbccddeeff",
+                "tgUri": "tg://proxy?server=tracegate.su&port=443&secret=dd0011",
+                "httpsUrl": "https://t.me/proxy?server=tracegate.su&port=443&secret=dd0011",
+            },
+            ensure_ascii=True,
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+
 def test_issue_mtproto_access_profile_persists_user_bound_secret(tmp_path) -> None:
     profile_path = tmp_path / "public-profile.json"
     access_state_path = tmp_path / "issued.json"
@@ -58,6 +81,31 @@ def test_issue_mtproto_access_profile_persists_user_bound_secret(tmp_path) -> No
     assert len(next_entries) == 1
     assert next_entries[0]["telegramId"] == 123456
     assert next_entries[0]["secretHex"]
+
+
+def test_issue_mtproto_access_profile_keeps_direct_mtproxy_secret_without_tls_domain(tmp_path) -> None:
+    profile_path = tmp_path / "public-profile.json"
+    access_state_path = tmp_path / "issued.json"
+    _write_direct_profile(profile_path)
+
+    settings = Settings(
+        mtproto_public_profile_file=str(profile_path),
+        mtproto_issued_state_file=str(access_state_path),
+    )
+
+    profile, _previous_entries, _next_entries, _changed = issue_mtproto_access_profile(
+        settings,
+        telegram_id=123456,
+        label="@operator",
+        issued_by="bot",
+    )
+
+    assert profile["profile"] == "MTProto-Direct"
+    assert profile["transport"] == "dd"
+    assert profile["domain"] == ""
+    assert profile["tlsDomain"] == ""
+    assert profile["clientSecretHex"].startswith("dd")
+    assert "secret=dd" in profile["httpsUrl"]
 
 
 def test_issue_mtproto_access_profile_reuses_existing_secret_without_rotation(tmp_path) -> None:

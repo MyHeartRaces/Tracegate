@@ -14,7 +14,7 @@ from urllib.parse import quote, urlparse
 
 import httpx
 
-from tracegate.services.mtproto import MTPROTO_FAKE_TLS_PROFILE_NAME
+from tracegate.services.mtproto import MTPROTO_DIRECT_PROFILE_NAME, MTPROTO_FAKE_TLS_PROFILE_NAME
 from tracegate.settings import Settings, effective_mtproto_public_profile_file
 
 
@@ -134,7 +134,9 @@ def load_mtproto_public_profile(settings: Settings) -> dict[str, Any]:
     tg_uri = str(raw.get("tgUri") or "").strip()
     https_url = str(raw.get("httpsUrl") or "").strip()
     domain = str(raw.get("domain") or "").strip()
-    profile = str(raw.get("profile") or MTPROTO_FAKE_TLS_PROFILE_NAME).strip() or MTPROTO_FAKE_TLS_PROFILE_NAME
+    tls_domain = str(raw.get("tlsDomain") or "").strip()
+    default_profile = MTPROTO_FAKE_TLS_PROFILE_NAME if transport == "tls" else MTPROTO_DIRECT_PROFILE_NAME
+    profile = str(raw.get("profile") or default_profile).strip() or default_profile
     secret_policy = str(raw.get("secretPolicy") or "").strip()
 
     try:
@@ -176,7 +178,8 @@ def load_mtproto_public_profile(settings: Settings) -> dict[str, Any]:
         "port": port,
         "transport": transport,
         "profile": profile,
-        "domain": domain or server,
+        "domain": domain if transport != "tls" else domain or server,
+        "tlsDomain": tls_domain if transport != "tls" else tls_domain or domain or server,
         "clientSecretHex": client_secret_hex,
         "tgUri": tg_uri,
         "httpsUrl": https_url,
