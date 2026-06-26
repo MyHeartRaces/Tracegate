@@ -943,7 +943,7 @@ def test_ws_tls_direct_connects_to_endpoint_shard_with_canonical_tls_name() -> N
     assert cfg["tls"]["insecure"] is False
 
 
-def test_grpc_tls_direct_ignores_proxy_host_and_uses_endpoint_shard() -> None:
+def test_grpc_tls_direct_prefers_proxied_endpoint_host() -> None:
     user = _user()
     device = _device(user.telegram_id)
     conn = Connection(
@@ -975,17 +975,18 @@ def test_grpc_tls_direct_ignores_proxy_host_and_uses_endpoint_shard() -> None:
     assert cfg["protocol"] == "vless"
     assert cfg["transport"] == "grpc_tls"
     assert cfg["profile"] == "v0-grpc-vless"
-    assert cfg["server"] == "endpoint.example"
-    assert cfg["connect_host"] == "token.r1.endpoint.example"
-    assert cfg["sni"] == "endpoint.example"
+    assert cfg["server"] == "grpc-proxy.example.com"
+    assert cfg["connect_host"] == ""
+    assert cfg["sni"] == "grpc-proxy.example.com"
     assert cfg["grpc"] == {
         "service_name": "tracegate.custom.Edge",
-        "authority": "endpoint.example",
+        "authority": "grpc-proxy.example.com",
     }
     assert cfg["tls"]["alpn"] == ["h2"]
     assert cfg["tls"]["insecure"] is False
     assert cfg["local_socks"]["auth"]["required"] is True
-    assert cfg["design_constraints"]["cloudflare_proxied_ingress_required"] is False
+    assert cfg["design_constraints"]["cloudflare_proxied_ingress_required"] is True
+    assert cfg["design_constraints"]["cloudflare_grpc_enabled_required"] is True
     assert cfg["design_constraints"]["origin_site_tls_certificate_required"] is True
     assert cfg["design_constraints"]["http_version"] == "h2"
 

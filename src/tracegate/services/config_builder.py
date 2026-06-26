@@ -562,14 +562,15 @@ def build_effective_config(
                 if override_value and override_value != default_host:
                     raise ValueError(f"V5 Universal Entry forbids {field_name} override outside the Entry proxy hostname")
         elif is_backup_grpc:
-            default_host = str(endpoints.transit_server_name or "").strip()
+            default_host = str(endpoints.transit_proxy_host or endpoints.transit_server_name or "").strip()
             if not default_host:
                 raise ValueError("VLESS gRPC Backup requires the Endpoint TLS hostname")
         else:
             default_host = str(endpoints.transit_server_name or endpoints.transit_host).strip()
         public_host = str(overrides.get("server") or default_host).strip()
         connect_host = str(overrides.get("connect_host") or "").strip()
-        direct_shard_fallback = not is_universal_entry
+        proxied_backup_grpc = is_backup_grpc and bool(str(endpoints.transit_proxy_host or "").strip())
+        direct_shard_fallback = not is_universal_entry and not proxied_backup_grpc
         if not is_universal_entry and direct_shard_fallback and not connect_host and endpoints.transit_host != public_host:
             connect_host = endpoints.transit_host
         tls_termination_host = public_host
@@ -641,8 +642,15 @@ def build_effective_config(
                 "fixed_port_tcp": int((endpoints.vless_grpc_tls_port if is_grpc else endpoints.vless_ws_tls_port) or 443),
                 "preferred_compat_transport": "grpc" if is_grpc else "ws",
                 "http_version": "h2" if is_grpc else "http/1.1",
-                "cloudflare_proxied_ingress_required": is_universal_entry,
+                "cloudflare_proxied_ingress_required": is_universal_entry or proxied_backup_grpc,
                 "origin_site_tls_certificate_required": not is_universal_entry,
+                **(
+                    {
+                        "cloudflare_grpc_enabled_required": True,
+                    }
+                    if proxied_backup_grpc
+                    else {}
+                ),
                 **(
                     {
                         "http2_single_tls_multiplexing": True,
