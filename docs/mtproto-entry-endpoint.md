@@ -53,6 +53,9 @@ mtproto:
   publicPort: 443
   fallback:
     enabled: false
+    officialBindAddress: ""
+    officialExternalIp: 198.51.100.20
+    officialInternalIp: 198.51.100.20
   route:
     mode: entry-endpoint-tunnel
     endpoint:
@@ -64,6 +67,11 @@ mtproto:
 
 The raw 16-byte MTProto secret remains in an external private profile Secret.
 The bot issues the derived official MTProxy Telegram link.
+
+For official MTProxy, `domain` is the client-facing Entry hostname, but
+`officialExternalIp` must be the Endpoint egress address that reaches Telegram
+DCs. Do not set `officialBindAddress` in hostNetwork mode; `--address
+127.0.0.1` also binds upstream DC sockets to loopback in the upstream image.
 
 ## Verification
 

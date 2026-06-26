@@ -1078,11 +1078,19 @@ def validate_prod_overlay(chart_values: Path, prod_values: Path, *, strict: bool
         require(_as_int(mtproto.get("publicPort")) == 443, "entry-endpoint-tunnel requires mtproto.publicPort=443")
         require(not bool(_as_dict(mtproto.get("fallback")).get("enabled", False)), "entry-endpoint-tunnel forbids fallback runtimes")
         if mtproto_runtime == "official":
+            mtproto_fallback = _as_dict(mtproto.get("fallback"))
+            official_bind_address = _text(mtproto_fallback.get("officialBindAddress"))
+            official_external_ip = _text(mtproto_fallback.get("officialExternalIp"))
             require(
                 mtproto_transport in {"raw", "random_padding"},
                 "entry-endpoint-tunnel official MTProto requires mtproto.transport=raw or random_padding",
             )
             require(not tls_domain, "entry-endpoint-tunnel official no-SNI MTProto requires empty mtproto.tlsDomain")
+            require(not official_bind_address, "entry-endpoint-tunnel official MTProxy must not set officialBindAddress")
+            require(
+                official_external_ip in egress_public_ips,
+                "entry-endpoint-tunnel officialExternalIp must be an Endpoint egress public IP",
+            )
         else:
             require(tls_domain not in {"front-g.example.net", "splitter.front-m.example.net"}, "entry-endpoint-tunnel forbids common MTProto TLS domains")
             require(

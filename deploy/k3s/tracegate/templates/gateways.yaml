@@ -109,7 +109,7 @@
 {{- $mtprotoOfficialBackendPort := int (dig "officialBackendPort" 9444 $mtprotoFallback) }}
 {{- $mtprotoOfficialStatsPort := int (dig "officialStatsPort" 2398 $mtprotoFallback) }}
 {{- $mtprotoOfficialWorkers := int (dig "officialWorkers" 1 $mtprotoFallback) }}
-{{- $mtprotoOfficialBindAddress := trim (toString (dig "officialBindAddress" "127.0.0.1" $mtprotoFallback)) }}
+{{- $mtprotoOfficialBindAddress := trim (toString (dig "officialBindAddress" "" $mtprotoFallback)) }}
 {{- $mtprotoOfficialExternalIp := trim (toString (dig "officialExternalIp" "" $mtprotoFallback)) }}
 {{- $mtprotoOfficialInternalIp := trim (toString (dig "officialInternalIp" "" $mtprotoFallback)) }}
 {{- $mtprotoOfficialArgs := trim (toString (dig "officialArgs" "" $mtprotoFallback)) }}

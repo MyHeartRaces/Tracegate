@@ -703,6 +703,12 @@ def test_k3s_strict_prod_overlay_check_accepts_official_entry_endpoint_mtproto_w
             "runtime": "official",
             "transport": "random_padding",
             "tlsDomain": "",
+            "fallback": {
+                "enabled": False,
+                "officialBindAddress": "",
+                "officialExternalIp": "1.1.1.1",
+                "officialInternalIp": "1.1.1.1",
+            },
         }
     )
     values_path = tmp_path / "values-entry-endpoint-official.yaml"
@@ -2771,7 +2777,7 @@ def test_mtproto_entry_endpoint_tunnel_routes_official_proxy_without_sni(tmp_pat
         "backendPort": 9443,
         "fallback": {
             "enabled": False,
-            "officialExternalIp": "203.0.113.10",
+            "officialExternalIp": "198.51.100.20",
             "officialInternalIp": "198.51.100.20",
         },
         "route": {
@@ -2801,8 +2807,9 @@ def test_mtproto_entry_endpoint_tunnel_routes_official_proxy_without_sni(tmp_pat
     endpoint_containers = _containers_by_name(endpoint["spec"]["template"])
     assert "mtproto" not in endpoint_containers
     assert "mtproto-official" in endpoint_containers
-    assert _env_value(endpoint_containers["mtproto-official"], "IP") == "203.0.113.10"
+    assert _env_value(endpoint_containers["mtproto-official"], "IP") == "198.51.100.20"
     assert _env_value(endpoint_containers["mtproto-official"], "INTERNAL_IP") == "198.51.100.20"
+    assert all(row["name"] != "ARGS" for row in endpoint_containers["mtproto-official"]["env"])
     assert _env_value(endpoint_containers["agent"], "PRIVATE_MTPROTO_UPSTREAM_PORT") == "9444"
     assert _env_value(api_container, "MTPROTO_DOMAIN") == "entry.prod.test"
     assert _env_value(api_container, "MTPROTO_TLS_DOMAIN") == ""
@@ -2831,7 +2838,7 @@ def test_mtproto_entry_endpoint_tunnel_exempts_trusted_entry_from_endpoint_rate_
         "backendPort": 9443,
         "fallback": {
             "enabled": False,
-            "officialExternalIp": "203.0.113.10",
+            "officialExternalIp": "1.1.1.1",
             "officialInternalIp": "198.51.100.20",
         },
         "route": {

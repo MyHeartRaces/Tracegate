@@ -1054,7 +1054,9 @@ mtproto:
     officialBackendPort: 9444
     officialStatsPort: 2398
     officialWorkers: 1
-    officialBindAddress: 127.0.0.1
+    # Keep empty for mtproxy/mtproxy in hostNetwork. Passing --address 127.0.0.1
+    # also binds official MTProxy outbound DC connections to loopback.
+    officialBindAddress: ""
     officialExternalIp: ""
     officialInternalIp: ""
     officialArgs: ""
