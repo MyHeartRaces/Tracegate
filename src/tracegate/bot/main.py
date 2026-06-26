@@ -1132,6 +1132,13 @@ async def _send_client_config(callback: CallbackQuery, revision: dict, *, contex
                 )
             )
         )
+        attachment_only_shadowtls = bool(
+            exported.attachment_content
+            and exported.attachment_filename
+            and exported.attachment_filename.endswith(".singbox.json")
+            and client_profile_name(effective) == "Backup-Shadowsocks"
+        )
+        send_primary_uri = not attachment_only_shadowtls
         summary_msg = await callback.message.answer(
             _format_config_delivery_message(
                 marker=marker,
@@ -1139,7 +1146,8 @@ async def _send_client_config(callback: CallbackQuery, revision: dict, *, contex
                 revision=revision,
                 context=context,
                 has_attachment=bool(exported.attachment_content and exported.attachment_filename),
-                has_alternate_uri=bool(exported.alternate_content),
+                has_primary_uri=send_primary_uri,
+                has_alternate_uri=send_primary_uri and bool(exported.alternate_content),
                 has_extra_messages=bool(visible_extra_messages),
                 prefer_attachment=prefer_attachment,
             ),
@@ -1156,15 +1164,16 @@ async def _send_client_config(callback: CallbackQuery, revision: dict, *, contex
             device_id=device_id or None,
             revision_id=revision_id or None,
         )
-        uri_msg = await callback.message.answer(exported.content, disable_web_page_preview=True)
-        await _register_bot_message_ref(
-            callback,
-            message_id=uri_msg.message_id,
-            connection_id=connection_id or None,
-            device_id=device_id or None,
-            revision_id=revision_id or None,
-        )
-        if exported.alternate_content and exported.alternate_title:
+        if send_primary_uri:
+            uri_msg = await callback.message.answer(exported.content, disable_web_page_preview=True)
+            await _register_bot_message_ref(
+                callback,
+                message_id=uri_msg.message_id,
+                connection_id=connection_id or None,
+                device_id=device_id or None,
+                revision_id=revision_id or None,
+            )
+        if send_primary_uri and exported.alternate_content and exported.alternate_title:
             alt_msg = await callback.message.answer(
                 f"{exported.alternate_title}\n\n{exported.alternate_content}",
                 disable_web_page_preview=True,
@@ -1188,18 +1197,19 @@ async def _send_client_config(callback: CallbackQuery, revision: dict, *, contex
                 device_id=device_id or None,
                 revision_id=revision_id or None,
             )
-        qr_bytes = _build_qr_png(exported.content)
-        qr_msg = await callback.message.answer_photo(
-            BufferedInputFile(qr_bytes, filename="tracegate-config-qr.png"),
-            caption=f"📷 QR для импорта\n\n{marker}\n{exported.title}",
-        )
-        await _register_bot_message_ref(
-            callback,
-            message_id=qr_msg.message_id,
-            connection_id=connection_id or None,
-            device_id=device_id or None,
-            revision_id=revision_id or None,
-        )
+        if send_primary_uri:
+            qr_bytes = _build_qr_png(exported.content)
+            qr_msg = await callback.message.answer_photo(
+                BufferedInputFile(qr_bytes, filename="tracegate-config-qr.png"),
+                caption=f"📷 QR для импорта\n\n{marker}\n{exported.title}",
+            )
+            await _register_bot_message_ref(
+                callback,
+                message_id=qr_msg.message_id,
+                connection_id=connection_id or None,
+                device_id=device_id or None,
+                revision_id=revision_id or None,
+            )
         if exported.attachment_content and exported.attachment_filename:
             document_msg = await callback.message.answer_document(
                 BufferedInputFile(exported.attachment_content, filename=exported.attachment_filename),

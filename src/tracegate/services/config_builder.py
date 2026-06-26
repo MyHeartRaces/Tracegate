@@ -544,8 +544,9 @@ def build_effective_config(
         ):
             raise ValueError("VLESS TLS compatibility profiles support only V0 direct, except V5 Universal Entry gRPC Chain")
 
-        # Direct TLS compatibility surfaces terminate on Transit. Universal Entry
-        # terminates on Entry and forbids overrides that could reveal the origin.
+        # Direct TLS compatibility surfaces terminate on Endpoint shards.
+        # Universal Entry terminates on Entry and forbids overrides that could
+        # reveal the origin.
         tls_server_name = str(overrides.get("tls_server_name") or "").strip()
         if not tls_server_name and selected_sni is not None:
             tls_server_name = selected_sni.fqdn
@@ -561,21 +562,14 @@ def build_effective_config(
                 if override_value and override_value != default_host:
                     raise ValueError(f"V5 Universal Entry forbids {field_name} override outside the Entry proxy hostname")
         elif is_backup_grpc:
-            default_host = str(endpoints.transit_proxy_host or endpoints.transit_server_name or "").strip()
+            default_host = str(endpoints.transit_server_name or "").strip()
             if not default_host:
                 raise ValueError("VLESS gRPC Backup requires the Endpoint TLS hostname")
-            if endpoints.transit_proxy_host:
-                for field_name in ("server", "connect_host", "tls_server_name", "grpc_authority"):
-                    override_value = str(overrides.get(field_name) or "").strip()
-                    if override_value and override_value != default_host:
-                        raise ValueError(
-                            f"VLESS gRPC Backup forbids {field_name} override outside the Endpoint proxy hostname"
-                        )
         else:
             default_host = str(endpoints.transit_server_name or endpoints.transit_host).strip()
         public_host = str(overrides.get("server") or default_host).strip()
         connect_host = str(overrides.get("connect_host") or "").strip()
-        direct_shard_fallback = not is_backup_grpc or not endpoints.transit_proxy_host
+        direct_shard_fallback = not is_universal_entry
         if not is_universal_entry and direct_shard_fallback and not connect_host and endpoints.transit_host != public_host:
             connect_host = endpoints.transit_host
         tls_termination_host = public_host
@@ -598,7 +592,7 @@ def build_effective_config(
             or "tracegate.v1.Edge"
         )
         grpc_authority = str(overrides.get("grpc_authority") or tls_server_name or "").strip()
-        tls_insecure_default = bool(connect_host and connect_host != tls_server_name)
+        tls_insecure_default = False
 
         common = {
             "protocol": "vless",
@@ -647,10 +641,8 @@ def build_effective_config(
                 "fixed_port_tcp": int((endpoints.vless_grpc_tls_port if is_grpc else endpoints.vless_ws_tls_port) or 443),
                 "preferred_compat_transport": "grpc" if is_grpc else "ws",
                 "http_version": "h2" if is_grpc else "http/1.1",
-                "cloudflare_proxied_ingress_required": is_universal_entry
-                or (is_backup_grpc and bool(endpoints.transit_proxy_host)),
-                "origin_site_tls_certificate_required": not is_universal_entry
-                and (not is_backup_grpc or not endpoints.transit_proxy_host),
+                "cloudflare_proxied_ingress_required": is_universal_entry,
+                "origin_site_tls_certificate_required": not is_universal_entry,
                 **(
                     {
                         "http2_single_tls_multiplexing": True,

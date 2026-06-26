@@ -607,9 +607,11 @@ async def test_send_client_config_prefers_shadowsocks_singbox_attachment(
 
     summary = str(callback.message.answer_calls[0][0][0])
     assert "1. Скачайте приложенный `.json` файл" in summary
-    assert "2. Ссылка и QR ниже - запасной вариант" in summary
+    assert "поддерживает sing-box JSON" in summary
+    assert "Ссылка и QR ниже" not in summary
     assert any("Shadowsocks import note" in str(args[0]) for args, _kwargs in callback.message.answer_calls)
-    assert len(callback.message.answer_photo_calls) == 1
+    assert not any(str(args[0]).startswith("ss://") for args, _kwargs in callback.message.answer_calls)
+    assert len(callback.message.answer_photo_calls) == 0
     assert len(callback.message.answer_document_calls) == 1
 
 

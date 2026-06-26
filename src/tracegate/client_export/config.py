@@ -1012,6 +1012,7 @@ def _export_shadowsocks2022_shadowtls(effective: dict[str, Any]) -> ExportResult
                 "tls": {
                     "enabled": True,
                     "server_name": shadowtls_server_name,
+                    "alpn": ["h2", "http/1.1"],
                     "utls": {
                         "enabled": True,
                         "fingerprint": "chrome",

@@ -484,6 +484,7 @@ def test_export_shadowsocks2022_shadowtls_single_line_uri() -> None:
         "tls": {
             "enabled": True,
             "server_name": "www.rbc.ru",
+            "alpn": ["h2", "http/1.1"],
             "utls": {
                 "enabled": True,
                 "fingerprint": "chrome",

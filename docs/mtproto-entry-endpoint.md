@@ -8,7 +8,7 @@ transports.
 
 ```text
 Telegram client
-  -> DNS-only MTProto hostname tracegate.su:443 on Entry
+  -> DNS-only MTProto hostname mtproto.entry.example:443 on Entry
   -> Entry HAProxy no-SNI demux
   -> Endpoint public TCP/443 from the Entry source only
   -> Endpoint HAProxy no-SNI demux
@@ -30,7 +30,7 @@ MTProto flow.
 
 The production public connection has no FakeTLS SNI:
 
-- public hostname: DNS-only `tracegate.su`, pointing to Entry;
+- public hostname: DNS-only `mtproto.entry.example`, pointing to Entry;
 - client secret: official random-padding MTProxy secret;
 - `tlsDomain`: empty.
 
@@ -48,7 +48,7 @@ mtproto:
   enabled: true
   runtime: official
   transport: random_padding
-  domain: tracegate.su
+  domain: mtproto.entry.example
   tlsDomain: ""
   publicPort: 443
   fallback:
@@ -56,9 +56,9 @@ mtproto:
   route:
     mode: entry-endpoint-tunnel
     endpoint:
-      allowedProxySources: [178.250.243.46]
+      allowedProxySources: [203.0.113.10]
     entry:
-      endpointHost: 2.59.219.225
+      endpointHost: 198.51.100.20
       endpointPort: 443
 ```
 
@@ -74,7 +74,7 @@ The bot issues the derived official MTProxy Telegram link.
    `use_backend be_mtproto if !request_sni_found mtproto_proxy_src`.
 4. Confirm `mtproto_proxy_src` contains only Entry source addresses.
 5. Confirm official MTProxy exists only in the Endpoint gateway pod.
-6. Confirm the bot profile has `server=tracegate.su`, `transport=random_padding`
+6. Confirm the bot profile has `server=mtproto.entry.example`, `transport=random_padding`
    and an empty `tlsDomain`.
 7. Test sustained Telegram traffic and reconnection through Endpoint egress.
 
