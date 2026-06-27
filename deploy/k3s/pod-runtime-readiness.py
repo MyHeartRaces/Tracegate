@@ -14,12 +14,12 @@ ENDPOINT_REQUIRED_CONTAINERS = {
     "nginx",
     "xray",
     "hysteria",
-    "mtproto",
     "shadowtls-v3",
     "wireguard",
     "wireguard-sync",
     "wstunnel-wireguard",
 }
+MTPROTO_RUNTIME_CONTAINERS = {"mtproto", "mtproto-official"}
 
 
 def _documents(path: Path) -> list[dict[str, Any]]:
@@ -65,6 +65,11 @@ def validate(path: Path, phase: str) -> list[str]:
         missing = sorted(ENDPOINT_REQUIRED_CONTAINERS - containers)
         if missing:
             errors.append(f"Endpoint gateway pod is missing required containers: {missing}")
+        if not containers.intersection(MTPROTO_RUNTIME_CONTAINERS):
+            errors.append(
+                "Endpoint gateway pod must contain one MTProto runtime: "
+                f"{sorted(MTPROTO_RUNTIME_CONTAINERS)}"
+            )
     return errors
 
 
