@@ -391,6 +391,9 @@ def test_ops_alert_rules_cover_nodes_pods_delivery_and_runtime_health() -> None:
         "tg-ops-root-ssd-free-critical",
         "tg-ops-memory-used-high",
         "tg-ops-memory-used-critical",
+        "tg-ops-swap-used-high",
+        "tg-ops-oom-kill",
+        "tg-ops-gateway-readiness-failed",
         "tg-ops-cpu-used-high",
         "tg-ops-load-high",
         "tg-ops-network-errors",
@@ -455,6 +458,20 @@ def test_ops_alert_rules_cover_nodes_pods_delivery_and_runtime_health() -> None:
         "params"
     ] == [95.0]
     assert "above 95%" in memory_critical["annotations"]["summary"]
+
+    swap = by_uid["tg-ops-swap-used-high"]
+    assert "node_memory_SwapTotal_bytes" in swap["data"][0]["model"]["expr"]
+    assert swap["data"][1]["model"]["conditions"][0]["evaluator"]["params"] == [50.0]
+    assert swap["for"] == "10m"
+
+    oom = by_uid["tg-ops-oom-kill"]
+    assert "node_vmstat_oom_kill" in oom["data"][0]["model"]["expr"]
+    assert oom["labels"]["severity"] == "critical"
+
+    readiness = by_uid["tg-ops-gateway-readiness-failed"]
+    assert "prober_probe_total" in readiness["data"][0]["model"]["expr"]
+    assert 'job="kubernetes-probes"' in readiness["data"][0]["model"]["expr"]
+    assert readiness["for"] == "10m"
 
 
 def test_notification_policy_matchers_are_compared_order_insensitively() -> None:

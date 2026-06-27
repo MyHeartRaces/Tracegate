@@ -1,0 +1,228 @@
+{{- if and .Values.controlPlane.enabled .Values.controlPlane.database.backup.enabled }}
+{{- $backup := .Values.controlPlane.database.backup -}}
+{{- $repositorySecretName := required "controlPlane.database.backup.repositorySecretName is required when backups are enabled" $backup.repositorySecretName -}}
+{{- $postgresImage := $backup.postgresImage -}}
+{{- $resticImage := $backup.resticImage -}}
+{{- $databaseUrl := .Values.controlPlane.database.externalUrl -}}
+{{- if and (not $databaseUrl) .Values.controlPlane.database.embedded.enabled -}}
+{{- $databaseUrl = printf "postgresql+psycopg://%s:%s@%s-postgres:5432/%s" .Values.controlPlane.database.embedded.username .Values.controlPlane.database.embedded.password (include "tracegate.fullname" .) .Values.controlPlane.database.embedded.database -}}
+{{- end -}}
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "tracegate.fullname" . }}-postgres-backup
+  namespace: {{ include "tracegate.namespace" . }}
+  labels:
+    {{- include "tracegate.labels" . | nindent 4 }}
+    app.kubernetes.io/component: postgres-backup
+spec:
+  schedule: {{ required "controlPlane.database.backup.schedule is required" $backup.schedule | quote }}
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: {{ int $backup.startingDeadlineSeconds }}
+  successfulJobsHistoryLimit: {{ int $backup.successfulJobsHistoryLimit }}
+  failedJobsHistoryLimit: {{ int $backup.failedJobsHistoryLimit }}
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      activeDeadlineSeconds: 3600
+      template:
+        metadata:
+          labels:
+            {{- include "tracegate.selectorLabels" . | nindent 12 }}
+            app.kubernetes.io/component: postgres-backup
+        spec:
+          restartPolicy: Never
+          securityContext:
+            fsGroup: 999
+            fsGroupChangePolicy: OnRootMismatch
+{{- if .Values.global.imagePullSecrets }}
+          imagePullSecrets:
+            {{- toYaml .Values.global.imagePullSecrets | nindent 12 }}
+{{- end }}
+{{- with .Values.controlPlane.nodeSelector }}
+          nodeSelector:
+            {{- toYaml . | nindent 12 }}
+{{- end }}
+{{- with .Values.controlPlane.tolerations }}
+          tolerations:
+            {{- toYaml . | nindent 12 }}
+{{- end }}
+          initContainers:
+            - name: pg-dump
+              image: {{ include "tracegate.image" $postgresImage | quote }}
+              imagePullPolicy: {{ $postgresImage.pullPolicy }}
+              command: ["/bin/sh", "-ec"]
+              args:
+                - |
+                  dsn="$(printf '%s' "${DATABASE_URL}" | sed 's#^postgresql+psycopg://#postgresql://#')"
+                  pg_dump --format=custom --compress=9 --no-owner --no-privileges \
+                    --file=/backup/tracegate.dump "${dsn}"
+                  test -s /backup/tracegate.dump
+              env:
+                - name: DATABASE_URL
+{{- if $databaseUrl }}
+                  value: {{ $databaseUrl | quote }}
+{{- else }}
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ required "controlPlane.database.externalUrlSecret.name is required" .Values.controlPlane.database.externalUrlSecret.name }}
+                      key: {{ .Values.controlPlane.database.externalUrlSecret.key | quote }}
+{{- end }}
+              securityContext:
+                runAsNonRoot: true
+                runAsUser: 999
+                runAsGroup: 999
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop: ["ALL"]
+              volumeMounts:
+                - name: backup
+                  mountPath: /backup
+            - name: restic-repository-check
+              image: {{ include "tracegate.image" $resticImage | quote }}
+              imagePullPolicy: {{ $resticImage.pullPolicy }}
+              command: ["restic"]
+              args: ["snapshots", "--latest", "1"]
+              envFrom:
+                - secretRef:
+                    name: {{ $repositorySecretName }}
+              volumeMounts:
+                - name: backup
+                  mountPath: /backup
+            - name: restic-backup
+              image: {{ include "tracegate.image" $resticImage | quote }}
+              imagePullPolicy: {{ $resticImage.pullPolicy }}
+              command: ["restic"]
+              args: ["backup", "--tag", "tracegate-postgres", "/backup/tracegate.dump"]
+              envFrom:
+                - secretRef:
+                    name: {{ $repositorySecretName }}
+              volumeMounts:
+                - name: backup
+                  mountPath: /backup
+          containers:
+            - name: restic-retention
+              image: {{ include "tracegate.image" $resticImage | quote }}
+              imagePullPolicy: {{ $resticImage.pullPolicy }}
+              command: ["restic"]
+              args:
+                - forget
+                - --tag
+                - tracegate-postgres
+                - --keep-daily
+                - {{ int $backup.retention.keepDaily | quote }}
+                - --keep-weekly
+                - {{ int $backup.retention.keepWeekly | quote }}
+                - --keep-monthly
+                - {{ int $backup.retention.keepMonthly | quote }}
+                - --prune
+              envFrom:
+                - secretRef:
+                    name: {{ $repositorySecretName }}
+              volumeMounts:
+                - name: backup
+                  mountPath: /backup
+          volumes:
+            - name: backup
+              emptyDir:
+                sizeLimit: 2Gi
+{{- if $backup.restoreCheck.enabled }}
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "tracegate.fullname" . }}-postgres-restore-check
+  namespace: {{ include "tracegate.namespace" . }}
+  labels:
+    {{- include "tracegate.labels" . | nindent 4 }}
+    app.kubernetes.io/component: postgres-restore-check
+spec:
+  schedule: {{ required "controlPlane.database.backup.restoreCheck.schedule is required" $backup.restoreCheck.schedule | quote }}
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: {{ int $backup.restoreCheck.startingDeadlineSeconds }}
+  successfulJobsHistoryLimit: {{ int $backup.restoreCheck.successfulJobsHistoryLimit }}
+  failedJobsHistoryLimit: {{ int $backup.restoreCheck.failedJobsHistoryLimit }}
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      activeDeadlineSeconds: 3600
+      template:
+        metadata:
+          labels:
+            {{- include "tracegate.selectorLabels" . | nindent 12 }}
+            app.kubernetes.io/component: postgres-restore-check
+        spec:
+          restartPolicy: Never
+          securityContext:
+            fsGroup: 999
+            fsGroupChangePolicy: OnRootMismatch
+{{- if .Values.global.imagePullSecrets }}
+          imagePullSecrets:
+            {{- toYaml .Values.global.imagePullSecrets | nindent 12 }}
+{{- end }}
+{{- with .Values.controlPlane.nodeSelector }}
+          nodeSelector:
+            {{- toYaml . | nindent 12 }}
+{{- end }}
+{{- with .Values.controlPlane.tolerations }}
+          tolerations:
+            {{- toYaml . | nindent 12 }}
+{{- end }}
+          initContainers:
+            - name: restic-restore
+              image: {{ include "tracegate.image" $resticImage | quote }}
+              imagePullPolicy: {{ $resticImage.pullPolicy }}
+              command: ["restic"]
+              args:
+                - restore
+                - latest
+                - --tag
+                - tracegate-postgres
+                - --target
+                - /restore
+                - --include
+                - /backup/tracegate.dump
+              envFrom:
+                - secretRef:
+                    name: {{ $repositorySecretName }}
+              volumeMounts:
+                - name: restore
+                  mountPath: /restore
+          containers:
+            - name: postgres-restore-check
+              image: {{ include "tracegate.image" $postgresImage | quote }}
+              imagePullPolicy: {{ $postgresImage.pullPolicy }}
+              command: ["/bin/sh", "-ec"]
+              args:
+                - |
+                  dump=/restore/backup/tracegate.dump
+                  test -s "${dump}"
+                  initdb -D /restore-check/pgdata -A trust >/dev/null
+                  pg_ctl -D /restore-check/pgdata -o "-k /restore-check -h ''" -w start
+                  trap 'pg_ctl -D /restore-check/pgdata -m fast -w stop' EXIT
+                  createdb -h /restore-check tracegate_restore_check
+                  pg_restore --exit-on-error --no-owner --no-privileges \
+                    -h /restore-check -d tracegate_restore_check "${dump}"
+                  test "$(psql -h /restore-check -d tracegate_restore_check -Atqc \
+                    "SELECT to_regclass('public.alembic_version') IS NOT NULL")" = "t"
+              securityContext:
+                runAsNonRoot: true
+                runAsUser: 999
+                runAsGroup: 999
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop: ["ALL"]
+              volumeMounts:
+                - name: restore
+                  mountPath: /restore
+                - name: restore-check
+                  mountPath: /restore-check
+          volumes:
+            - name: restore
+              emptyDir:
+                sizeLimit: 2Gi
+            - name: restore-check
+              emptyDir:
+                sizeLimit: 2Gi
+{{- end }}
+{{- end }}

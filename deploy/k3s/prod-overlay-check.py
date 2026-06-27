@@ -377,6 +377,32 @@ def validate_prod_overlay(chart_values: Path, prod_values: Path, *, strict: bool
             _has_value(database.get("externalUrl")) or _has_value(external_url_secret.get("name")),
             "production database must use externalUrl, externalUrlSecret.name, or embedded.enabled=true",
         )
+    database_backup = _as_dict(database.get("backup"))
+    if bool(database_backup.get("enabled", False)):
+        require(
+            _has_value(database_backup.get("repositorySecretName")),
+            "controlPlane.database.backup.repositorySecretName must reference an external Secret",
+        )
+        require(
+            bool(_as_dict(database_backup.get("restoreCheck")).get("enabled", False)),
+            "production PostgreSQL backups require restoreCheck.enabled=true",
+        )
+        for name in ("postgresImage", "resticImage"):
+            image = _as_dict(database_backup.get(name))
+            require(
+                not _is_placeholder_repo(image.get("repository")),
+                f"{_image_label(f'controlPlane.database.backup.{name}', image)} must not use the example repository",
+            )
+            if _has_digest(image):
+                require(
+                    _has_valid_digest(image),
+                    f"{_image_label(f'controlPlane.database.backup.{name}', image)} must use a valid OCI digest",
+                )
+            else:
+                require(
+                    not _is_mutable_tag(image.get("tag")),
+                    f"{_image_label(f'controlPlane.database.backup.{name}', image)} must use a pinned tag or digest",
+                )
 
     env = _as_dict(control_plane.get("env"))
     roles = _as_dict(gateway.get("roles"))

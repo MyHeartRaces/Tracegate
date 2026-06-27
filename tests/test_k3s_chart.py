@@ -986,6 +986,37 @@ def test_k3s_strict_prod_overlay_check_rejects_removed_naiveproxy_surface(tmp_pa
     assert "naiveproxy.enabled must stay false in Tracegate 3" in output
 
 
+def test_k3s_strict_prod_overlay_requires_restore_checks_for_enabled_backups(tmp_path: Path) -> None:
+    values = _prod_overlay_values()
+    values["controlPlane"].setdefault("database", {})["backup"] = {
+        "enabled": True,
+        "repositorySecretName": "tracegate-postgres-backup",
+        "postgresImage": {"repository": "postgres", "tag": "16"},
+        "resticImage": {"repository": "restic/restic", "tag": "0.18.0"},
+        "restoreCheck": {"enabled": False},
+    }
+    values_path = tmp_path / "values-prod.yaml"
+    values_path.write_text(yaml.safe_dump(values, sort_keys=True), encoding="utf-8")
+
+    result = subprocess.run(
+        [
+            "python3",
+            "deploy/k3s/prod-overlay-check.py",
+            "--strict",
+            "--chart-values",
+            str(CHART_ROOT / "values.yaml"),
+            "--values",
+            str(values_path),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode != 0
+    assert "production PostgreSQL backups require restoreCheck.enabled=true" in result.stderr
+
+
 def test_tracegate21_image_helper_supports_digest_pins(tmp_path: Path) -> None:
     tracegate_digest = "sha256:" + ("a" * 64)
     xray_digest = "sha256:" + ("b" * 64)
@@ -3716,11 +3747,72 @@ def test_prometheus_scrapes_gateway_agents_when_observability_enabled(tmp_path: 
     assert "job_name: tracegate-agent" in prometheus_config
     assert "regex: gateway-.+" in prometheus_config
     assert "gateway-.+|naiveproxy" not in prometheus_config
+    assert "job_name: kubernetes-probes" in prometheus_config
+    assert "replacement: /api/v1/nodes/${1}/proxy/metrics/probes" in prometheus_config
 
     prometheus = _deployment_by_component(rendered.stdout, "prometheus")
     assert prometheus["spec"]["template"]["spec"]["nodeSelector"] == {
         "tracegate.io/role": "endpoint"
     }
+
+
+def test_postgres_backup_renders_encrypted_off_node_backup_and_restore_check(tmp_path: Path) -> None:
+    rendered = _helm_template_with_values(
+        tmp_path,
+        {
+            "controlPlane": {
+                "database": {
+                    "backup": {
+                        "enabled": True,
+                        "repositorySecretName": "tracegate-postgres-backup-test",
+                    }
+                },
+                "nodeSelector": {"tracegate.io/role": "endpoint"},
+            }
+        },
+    )
+
+    assert rendered.returncode == 0, rendered.stderr
+    docs = _helm_docs(rendered.stdout)
+    cronjobs = {
+        doc["metadata"]["name"]: doc
+        for doc in docs
+        if doc.get("kind") == "CronJob"
+    }
+    backup = cronjobs["tracegate-tracegate-postgres-backup"]
+    restore = cronjobs["tracegate-tracegate-postgres-restore-check"]
+
+    backup_pod = backup["spec"]["jobTemplate"]["spec"]["template"]["spec"]
+    assert backup_pod["nodeSelector"] == {"tracegate.io/role": "endpoint"}
+    init_by_name = {row["name"]: row for row in backup_pod["initContainers"]}
+    assert set(init_by_name) == {"pg-dump", "restic-repository-check", "restic-backup"}
+    database_env = init_by_name["pg-dump"]["env"][0]
+    assert database_env["valueFrom"]["secretKeyRef"] == {
+        "name": "tracegate-database-url",
+        "key": "url",
+    }
+    assert init_by_name["restic-backup"]["envFrom"][0]["secretRef"]["name"] == (
+        "tracegate-postgres-backup-test"
+    )
+    retention = backup_pod["containers"][0]
+    assert retention["name"] == "restic-retention"
+    assert "--prune" in retention["args"]
+
+    restore_pod = restore["spec"]["jobTemplate"]["spec"]["template"]["spec"]
+    assert restore_pod["initContainers"][0]["name"] == "restic-restore"
+    restore_check = restore_pod["containers"][0]
+    restore_script = restore_check["args"][0]
+    assert "pg_restore --exit-on-error" in restore_script
+    assert "public.alembic_version" in restore_script
+    assert "RESTIC_PASSWORD" not in rendered.stdout
+
+
+def test_postgres_backup_is_disabled_by_default(tmp_path: Path) -> None:
+    rendered = _helm_template_with_values(tmp_path, {})
+
+    assert rendered.returncode == 0, rendered.stderr
+    assert "kind: CronJob" not in rendered.stdout
+    assert "postgres-backup" not in rendered.stdout
 
 
 def test_grafana_renders_as_helm_managed_observability_resource(tmp_path: Path) -> None:

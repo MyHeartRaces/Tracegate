@@ -208,6 +208,14 @@ def _node_memory_used_percent_expr() -> str:
     )
 
 
+def _node_swap_used_percent_expr() -> str:
+    return (
+        f"100 * (node_memory_SwapTotal_bytes{{{_NODE_EXPORTER_SELECTOR}}} "
+        f"- node_memory_SwapFree_bytes{{{_NODE_EXPORTER_SELECTOR}}}) "
+        f"/ clamp_min(node_memory_SwapTotal_bytes{{{_NODE_EXPORTER_SELECTOR}}}, 1)"
+    )
+
+
 def _node_root_disk_used_percent_expr() -> str:
     return (
         f"100 - (max by (node) (node_filesystem_avail_bytes{{{_NODE_ROOT_FS_SELECTOR}}}) "
@@ -632,6 +640,11 @@ def _ops_alert_rules(
     hysteria_scrape_ok = (
         "min by (component, node, pod, instance) (tracegate_hysteria_stats_scrape_ok)"
     )
+    gateway_readiness_failures = (
+        "sum by (node, pod, container) "
+        '(rate(prober_probe_total{job="kubernetes-probes",namespace="tracegate",'
+        'pod=~"tracegate-.*gateway.*",probe_type="Readiness",result="failed"}[5m]))'
+    )
 
     return [
         _slo_alert_rule(
@@ -873,6 +886,71 @@ def _ops_alert_rules(
                 "severity": "critical",
             },
             for_duration="10m",
+        ),
+        _slo_alert_rule(
+            uid="tg-ops-swap-used-high",
+            title="OPS: node swap usage high",
+            folder_uid=folder_uid,
+            group=group,
+            ds_uid=ds_uid,
+            expr=_node_swap_used_percent_expr(),
+            evaluator="gt",
+            threshold=50.0,
+            annotations={
+                "summary": "Node swap usage is above 50%",
+                "description": "Sustained swap use can stall gateway traffic before an OOM kill occurs",
+            },
+            labels={
+                **base_labels,
+                "component": "node",
+                "slo_type": "swap_used_percent",
+                "severity": "warning",
+            },
+            for_duration="10m",
+        ),
+        _slo_alert_rule(
+            uid="tg-ops-oom-kill",
+            title="OPS: node OOM kill detected",
+            folder_uid=folder_uid,
+            group=group,
+            ds_uid=ds_uid,
+            expr=f"increase(node_vmstat_oom_kill{{{_NODE_EXPORTER_SELECTOR}}}[15m])",
+            evaluator="gt",
+            threshold=0.0,
+            annotations={
+                "summary": "Kernel OOM kill detected",
+                "description": "At least one process was killed by the kernel OOM handler in the last 15 minutes",
+            },
+            labels={
+                **base_labels,
+                "component": "node",
+                "slo_type": "oom_kill",
+                "severity": "critical",
+            },
+            for_duration="1m",
+            no_data_state="OK",
+        ),
+        _slo_alert_rule(
+            uid="tg-ops-gateway-readiness-failed",
+            title="OPS: gateway readiness probe failures sustained",
+            folder_uid=folder_uid,
+            group=group,
+            ds_uid=ds_uid,
+            expr=gateway_readiness_failures,
+            evaluator="gt",
+            threshold=0.0,
+            annotations={
+                "summary": "Gateway readiness probe keeps failing",
+                "description": "Kubelet has continuously observed readiness probe failures for a gateway container",
+            },
+            labels={
+                **base_labels,
+                "component": "gateway",
+                "slo_type": "gateway_readiness_probe",
+                "severity": "critical",
+            },
+            for_duration="10m",
+            no_data_state="OK",
         ),
         _slo_alert_rule(
             uid="tg-ops-cpu-used-high",

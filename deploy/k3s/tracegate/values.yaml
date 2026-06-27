@@ -179,6 +179,33 @@ controlPlane:
       password: ""
       storage: 10Gi
       storageClassName: ""
+    backup:
+      # Encrypted off-node PostgreSQL backups. The external Secret is expected
+      # to expose RESTIC_REPOSITORY, RESTIC_PASSWORD and backend credentials.
+      enabled: false
+      schedule: "17 */6 * * *"
+      successfulJobsHistoryLimit: 3
+      failedJobsHistoryLimit: 5
+      startingDeadlineSeconds: 1800
+      repositorySecretName: tracegate-postgres-backup
+      postgresImage:
+        repository: postgres
+        tag: "16"
+        pullPolicy: IfNotPresent
+      resticImage:
+        repository: restic/restic
+        tag: "0.18.0"
+        pullPolicy: IfNotPresent
+      retention:
+        keepDaily: 7
+        keepWeekly: 5
+        keepMonthly: 12
+      restoreCheck:
+        enabled: true
+        schedule: "43 4 * * 0"
+        successfulJobsHistoryLimit: 3
+        failedJobsHistoryLimit: 5
+        startingDeadlineSeconds: 3600
   env:
     appEnv: prod
     logLevel: INFO

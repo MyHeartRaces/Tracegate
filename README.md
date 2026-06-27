@@ -84,6 +84,8 @@ alias while older installations migrate.
   two-node migration contract and promotion gates.
 - [docs/ingress-rotation.md](docs/ingress-rotation.md): revision-sticky
   hostname pool behavior and limits.
+- [docs/postgres-backups.md](docs/postgres-backups.md): encrypted off-node
+  database backups and scheduled restore verification.
 - [docs/project-history-summary.md](docs/project-history-summary.md):
   public-safe architectural history.
 

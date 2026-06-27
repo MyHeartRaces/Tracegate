@@ -82,3 +82,11 @@ then produces Python, Helm and generic bundle packages plus `SHA256SUMS`.
 - Any operational notes that reveal live layout stay private.
 - In `entry-endpoint` mode, cluster preflight reports no legacy Transit or
   chain-Transit nodes.
+
+## Recovery
+
+- Confirm the PostgreSQL backup CronJob completed against an off-node encrypted
+  Restic repository.
+- Confirm the latest scheduled restore-check completed in a disposable
+  PostgreSQL instance.
+- Confirm repository credentials exist only in an encrypted external Secret.
