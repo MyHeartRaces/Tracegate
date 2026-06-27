@@ -504,6 +504,10 @@ data:
 {{- $roleRuntimeName := ternary "entry" "transit" (eq $roleName "entry") }}
 {{- $roleIsEntry := eq $roleRuntimeName "entry" }}
 {{- $roleIsEndpoint := eq $roleRuntimeName "transit" }}
+{{- $entryRedirectBaseUrl := trimSuffix "/" (trim ($.Values.decoy.entryRedirectBaseUrl | default "")) }}
+{{- if and $entryRedirectBaseUrl (not (regexMatch `^https://[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?(?::[0-9]{1,5})?$` $entryRedirectBaseUrl)) }}
+{{- fail "decoy.entryRedirectBaseUrl must be an HTTPS origin without a path" }}
+{{- end }}
 {{- $linkOuterCarrier := $.Values.interconnect.entryTransit.outerCarrier }}
 {{- $linkWssCarrierEnabled := and $.Values.interconnect.entryTransit.enabled $linkOuterCarrier.enabled (eq (toString $linkOuterCarrier.mode) "wss") }}
 {{- $roleTlsServerName := include "tracegate.roleTlsServerName" (dict "root" $ "role" $roleName) }}
@@ -974,6 +978,22 @@ data:
       absolute_redirect off;
       port_in_redirect off;
 
+{{- if and $roleIsEntry $entryRedirectBaseUrl }}
+      server {
+        listen {{ int ($role.ports.publicHttp | default 80) }};
+        server_name {{ $roleTlsServerName }};
+
+        location ^~ /.well-known/acme-challenge/ {
+          default_type text/plain;
+          alias /tmp/acme-challenge/;
+        }
+
+        location / {
+          return 302 "{{ $entryRedirectBaseUrl }}$request_uri";
+        }
+      }
+{{- end }}
+
 {{- if $roleIsEndpoint }}
       server {
         listen {{ int ($role.ports.publicHttp | default 80) }};
@@ -1177,7 +1197,11 @@ data:
           }
 {{- end }}
 {{- end }}
+{{- if and $roleIsEntry $entryRedirectBaseUrl }}
+          return 302 "{{ $entryRedirectBaseUrl }}$request_uri";
+{{- else }}
           try_files $uri $uri/ /index.html;
+{{- end }}
         }
       }
     }

@@ -359,7 +359,20 @@ privateProfiles:
 decoy:
   enabled: true
   preserveExisting: true
+  # Optional fixed HTTPS origin used by the Entry web surface. Protocol
+  # locations remain local; only ordinary browser requests are redirected.
+  entryRedirectBaseUrl: ""
   existingConfigMap: ""
+  existingConfigMapItems: []
+  # Role-specific sources prevent the full Endpoint site from being mounted
+  # on Entry. Empty role values fall back to the global source above.
+  roleSources:
+    entry:
+      existingConfigMap: ""
+      existingConfigMapItems: []
+    endpoint:
+      existingConfigMap: ""
+      existingConfigMapItems: []
   existingClaim: ""
   hostPath: /srv/tracegate/decoy
   hostPathType: Directory

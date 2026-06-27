@@ -7,6 +7,11 @@
 {{- $roleRuntimeName := ternary "entry" "transit" (eq $roleName "entry") }}
 {{- $roleIsEntry := eq $roleRuntimeName "entry" }}
 {{- $roleIsEndpoint := eq $roleRuntimeName "transit" }}
+{{- $entryRedirectBaseUrl := trimSuffix "/" (trim ($.Values.decoy.entryRedirectBaseUrl | default "")) }}
+{{- $decoyRoleSources := $.Values.decoy.roleSources | default dict }}
+{{- $roleDecoySource := ternary (get $decoyRoleSources "entry" | default dict) (get $decoyRoleSources "endpoint" | default dict) $roleIsEntry }}
+{{- $roleDecoyConfigMap := get $roleDecoySource "existingConfigMap" | default $.Values.decoy.existingConfigMap }}
+{{- $roleDecoyConfigMapItems := get $roleDecoySource "existingConfigMapItems" | default $.Values.decoy.existingConfigMapItems }}
 {{- $roleAgentRole := $role.role | default (ternary "ENTRY" "TRANSIT" $roleIsEntry) }}
 {{- $mtprotoIngressHosts := list }}
 {{- range $shard := ($.Values.architecture.entryIngress.shards | default (list)) }}
@@ -252,9 +257,13 @@ spec:
 {{- else if $.Values.decoy.existingClaim }}
           persistentVolumeClaim:
             claimName: {{ $.Values.decoy.existingClaim | quote }}
-{{- else if $.Values.decoy.existingConfigMap }}
+{{- else if $roleDecoyConfigMap }}
           configMap:
-            name: {{ $.Values.decoy.existingConfigMap | quote }}
+            name: {{ $roleDecoyConfigMap | quote }}
+{{- with $roleDecoyConfigMapItems }}
+            items:
+{{ toYaml . | indent 14 }}
+{{- end }}
 {{- else }}
           emptyDir: {}
 {{- end }}
@@ -962,7 +971,7 @@ spec:
           resources:
             {{- toYaml . | nindent 12 }}
 {{- end }}
-          {{- if $roleIsEndpoint }}
+          {{- if or $roleIsEndpoint (and $roleIsEntry $entryRedirectBaseUrl) }}
           ports:
             - name: http
               containerPort: {{ int ($role.ports.publicHttp | default 80) }}

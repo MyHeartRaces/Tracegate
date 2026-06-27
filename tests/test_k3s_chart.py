@@ -3178,6 +3178,86 @@ def test_tracegate22_grafana_host_redirect_preserves_requested_path(tmp_path: Pa
     assert "server_name transit.example.com grafana.example.com " in transit_nginx
 
 
+def test_entry_web_surface_redirects_to_endpoint_site_without_replacing_protocol_routes(tmp_path: Path) -> None:
+    rendered = _helm_template_with_values(
+        tmp_path,
+        {"decoy": {"entryRedirectBaseUrl": "https://main.prod.test"}},
+    )
+
+    assert rendered.returncode == 0, rendered.stderr
+    docs = _helm_docs(rendered.stdout)
+    entry_nginx = next(
+        doc["data"]["nginx.conf"]
+        for doc in docs
+        if doc.get("kind") == "ConfigMap"
+        and doc.get("metadata", {}).get("name") == "tracegate-tracegate-gateway-entry-nginx"
+    )
+    transit_nginx = next(
+        doc["data"]["nginx.conf"]
+        for doc in docs
+        if doc.get("kind") == "ConfigMap"
+        and doc.get("metadata", {}).get("name") == "tracegate-tracegate-gateway-transit-nginx"
+    )
+    entry = _deployment_by_component(rendered.stdout, "gateway-entry")["spec"]["template"]
+    entry_nginx_container = _containers_by_name(entry)["nginx"]
+
+    assert entry_nginx.count('return 302 "https://main.prod.test$request_uri";') == 2
+    assert "listen 80;" in entry_nginx
+    assert "location /ws" in entry_nginx
+    assert "location /tracegate.v1.Edge/" in entry_nginx
+    assert "https://main.prod.test" not in transit_nginx
+    assert entry_nginx_container["ports"] == [{"name": "http", "containerPort": 80, "protocol": "TCP"}]
+
+
+def test_entry_web_redirect_rejects_non_origin_values(tmp_path: Path) -> None:
+    rendered = _helm_template_with_values(
+        tmp_path,
+        {"decoy": {"entryRedirectBaseUrl": "https://main.prod.test/path"}},
+    )
+
+    assert rendered.returncode != 0
+    assert "decoy.entryRedirectBaseUrl must be an HTTPS origin without a path" in rendered.stderr
+
+
+def test_gateway_decoy_configmaps_can_be_scoped_by_canonical_role(tmp_path: Path) -> None:
+    rendered = _helm_template_with_values(
+        tmp_path,
+        {
+            "decoy": {
+                "hostPath": "",
+                "existingConfigMap": "fallback-decoy",
+                "roleSources": {
+                    "entry": {"existingConfigMap": "entry-redirect-only"},
+                    "endpoint": {
+                        "existingConfigMap": "endpoint-site",
+                        "existingConfigMapItems": [
+                            {"key": "index.html", "path": "index.html"},
+                            {"key": "vault.html", "path": "vault/mtproto/index.html"},
+                        ],
+                    },
+                },
+            }
+        },
+    )
+
+    assert rendered.returncode == 0, rendered.stderr
+    gateways = _gateway_deployment_templates(rendered.stdout)
+    entry_decoy = next(row for row in gateways["gateway-entry"]["spec"]["volumes"] if row["name"] == "decoy")
+    endpoint_decoy = next(row for row in gateways["gateway-transit"]["spec"]["volumes"] if row["name"] == "decoy")
+
+    assert entry_decoy == {"name": "decoy", "configMap": {"name": "entry-redirect-only"}}
+    assert endpoint_decoy == {
+        "name": "decoy",
+        "configMap": {
+            "name": "endpoint-site",
+            "items": [
+                {"key": "index.html", "path": "index.html"},
+                {"key": "vault.html", "path": "vault/mtproto/index.html"},
+            ],
+        },
+    }
+
+
 def test_tracegate22_control_plane_receives_reality_client_material(tmp_path: Path) -> None:
     values = {
         "controlPlane": {
