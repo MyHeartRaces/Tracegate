@@ -573,10 +573,16 @@ def _pod_only_new_prod_overlay_values(*, phase: str) -> dict:
     }
     values["gateway"]["roles"]["entry"]["enabled"] = entry_deployed
     values["gateway"]["roles"]["endpoint"]["enabled"] = True
-    values["decoy"] = {"hostPath": "", "existingConfigMap": "tracegate-decoy"}
+    values["decoy"] = {
+        "hostPath": "",
+        "existingConfigMap": "",
+        "roleSources": {
+            "entry": {"existingConfigMap": "tracegate-decoy-entry"},
+            "endpoint": {"existingConfigMap": "tracegate-decoy-endpoint"},
+        },
+    }
     values["network"]["egressIsolation"]["egressPublicIPs"] = ["1.1.1.1"]
     values["network"]["egressIsolation"]["ingressPublicIPs"] = ["8.8.8.8", "9.9.9.9", "1.0.0.1"] + (["8.8.4.4"] if entry_deployed else [])
-    values["interconnect"]["shadowsocks2022"] = {"enabled": False}
     values["interconnect"]["zapret2"] = {"enabled": False}
     if phase == "endpoint-first":
         values["interconnect"]["endpointBackhaul"] = {"enabled": False}

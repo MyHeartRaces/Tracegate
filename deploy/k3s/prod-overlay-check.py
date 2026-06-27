@@ -676,8 +676,17 @@ def validate_prod_overlay(chart_values: Path, prod_values: Path, *, strict: bool
     )
 
     decoy = _as_dict(merged.get("decoy"))
-    has_decoy_source = any(_has_value(decoy.get(key)) for key in ("hostPath", "existingClaim", "existingConfigMap"))
-    require(has_decoy_source, "production decoy must use hostPath, existingClaim, or existingConfigMap, not built-in lab files")
+    has_global_decoy_source = any(
+        _has_value(decoy.get(key)) for key in ("hostPath", "existingClaim", "existingConfigMap")
+    )
+    decoy_role_sources = _as_dict(decoy.get("roleSources"))
+    for role_name, role_enabled in (("entry", entry_enabled), ("endpoint", transit_enabled)):
+        if role_enabled:
+            role_source = _as_dict(decoy_role_sources.get(role_name))
+            require(
+                has_global_decoy_source or _has_value(role_source.get("existingConfigMap")),
+                f"production decoy for {role_name} must use a global source or decoy.roleSources.{role_name}.existingConfigMap",
+            )
     if pod_runtime_only:
         state_storage = _as_dict(gateway.get("stateStorage"))
         existing_claims = _as_dict(state_storage.get("existingClaims"))
@@ -1082,7 +1091,6 @@ def validate_prod_overlay(chart_values: Path, prod_values: Path, *, strict: bool
                 require(universal_entry_enabled, "full entry-endpoint deployment requires Universal Entry")
                 require(enabled_profiles == TRACEGATE3_CLIENT_PROFILE_KEYS, "full deployment must expose the complete Tracegate 3 client profile set")
             require(not bool(naiveproxy.get("enabled", False)), "podRuntimeOnly forbids NaiveProxy")
-            require(not bool(_as_dict(interconnect.get("shadowsocks2022")).get("enabled", False)), "podRuntimeOnly forbids Shadowsocks-2022/ShadowTLS")
             require(not bool(zapret2.get("enabled", False)), "podRuntimeOnly forbids Zapret2")
             require(not _experimental_requested(merged), "podRuntimeOnly forbids experimental profiles")
             wireguard_runtime = _as_dict(merged.get("wireguard"))
