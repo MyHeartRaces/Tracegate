@@ -642,6 +642,26 @@ data:
 {{- $entryIngressMaxConnections := int (dig "maxConnections" 20000 $entryIngressTcp) }}
 {{- $entryIngressMaxConnectionsPerSource := int (dig "maxConnectionsPerSource" 8 $entryIngressTcp) }}
 {{- $entryIngressNewConnectionsPer10Seconds := int (dig "newConnectionsPer10Seconds" 12 $entryIngressTcp) }}
+{{- /* The node's own ingress addresses (loopback plus every public IP this gateway
+       binds to) must be exempt from the per-source connection/rate guard. Node-local
+       traffic - the kubelet TCP readiness probe and internal connections to the public
+       TLS adapter names (e.g. Grafana SNI, bot OTP) - originates from these local IPs
+       and would otherwise be tracked and intermittently reset by the abuse limiter,
+       flapping readiness without reflecting real health. These are never remote clients. */ -}}
+{{- $entryIngressLocalTrustedSources := list "127.0.0.1" }}
+{{- range $shard := $entryIngressShards }}
+{{- if or (eq (toString ($shard.state | default "active")) "active") (eq (toString ($shard.state | default "active")) "draining") }}
+{{- $entryIngressLocalTrustedSources = append $entryIngressLocalTrustedSources (toString $shard.publicIp) }}
+{{- end }}
+{{- end }}
+{{- $entryIngressServiceFacingIp := trim (toString (dig "serviceFacing" "publicIp" "" $roleIngress)) }}
+{{- if $entryIngressServiceFacingIp }}{{- $entryIngressLocalTrustedSources = append $entryIngressLocalTrustedSources $entryIngressServiceFacingIp }}{{- end }}
+{{- range $bind := ($role.ports.publicTcpExtraBinds | default (list)) }}
+{{- $bindHost := trim (first (splitList ":" (toString $bind))) }}
+{{- if $bindHost }}{{- $entryIngressLocalTrustedSources = append $entryIngressLocalTrustedSources $bindHost }}{{- end }}
+{{- end }}
+{{- $entryIngressLocalTrustedSources = uniq $entryIngressLocalTrustedSources }}
+{{- $endpointTrustedProxySources := uniq (concat $entryIngressLocalTrustedSources $mtprotoEndpointAllowedSources) }}
 {{- $entryIngressInspectDelay := toString (dig "inspectDelay" "5s" $entryIngressTcp) }}
 {{- $entryIngressConnectTimeout := toString (dig "connectTimeout" "5s" $entryIngressTcp) }}
 {{- $entryIngressClientTimeout := toString (dig "clientTimeout" "5m" $entryIngressTcp) }}
@@ -700,7 +720,7 @@ data:
 {{- end }}
 {{- if $entryIngressEnabled }}
 {{- if $mtprotoEndpointSourceRestricted }}
-      acl endpoint_trusted_proxy_src src {{ join " " $mtprotoEndpointAllowedSources }}
+      acl endpoint_trusted_proxy_src src {{ join " " $endpointTrustedProxySources }}
 {{- end }}
       stick-table type ip size 1m expire 30s store conn_cur,conn_rate(10s)
       tcp-request connection track-sc0 src{{ if $mtprotoEndpointSourceRestricted }} unless endpoint_trusted_proxy_src{{ end }}
@@ -737,7 +757,7 @@ data:
 {{- end }}
 {{- if $entryIngressEnabled }}
 {{- if $mtprotoEndpointSourceRestricted }}
-      acl endpoint_trusted_proxy_src src {{ join " " $mtprotoEndpointAllowedSources }}
+      acl endpoint_trusted_proxy_src src {{ join " " $endpointTrustedProxySources }}
 {{- end }}
       stick-table type ip size 1m expire 30s store conn_cur,conn_rate(10s)
       tcp-request connection track-sc0 src{{ if $mtprotoEndpointSourceRestricted }} unless endpoint_trusted_proxy_src{{ end }}

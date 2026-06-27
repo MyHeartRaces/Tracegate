@@ -2859,8 +2859,19 @@ def test_mtproto_entry_endpoint_tunnel_exempts_trusted_entry_from_endpoint_rate_
     }
     entry_haproxy = configmaps["tracegate-tracegate-gateway-entry-haproxy"]["data"]["haproxy.cfg"]
     endpoint_haproxy = configmaps["tracegate-tracegate-gateway-endpoint-haproxy"]["data"]["haproxy.cfg"]
-    assert "acl endpoint_trusted_proxy_src src 8.8.4.4" not in entry_haproxy
-    assert "acl endpoint_trusted_proxy_src src 8.8.4.4" in endpoint_haproxy
+    assert "acl endpoint_trusted_proxy_src src" not in entry_haproxy
+    endpoint_trusted_line = next(
+        line
+        for line in endpoint_haproxy.splitlines()
+        if "acl endpoint_trusted_proxy_src src" in line
+    )
+    # The configured proxy source plus the node's own loopback and ingress IPs
+    # (shards + service-facing) are exempt from the abuse rate limiter, so the
+    # node-local readiness probe and TLS-adapter traffic are never reset.
+    for trusted_ip in ("8.8.4.4", "127.0.0.1", "8.8.8.8", "9.9.9.9", "1.0.0.1", "1.1.1.1"):
+        assert trusted_ip in endpoint_trusted_line
+    # The mtproto access-control ACL stays scoped to the configured proxy sources only.
+    assert "acl mtproto_proxy_src src 8.8.4.4" in endpoint_haproxy
     assert "tcp-request connection track-sc0 src unless endpoint_trusted_proxy_src" in endpoint_haproxy
     assert (
         "tcp-request connection reject if { sc_conn_cur(0) gt 8 } !endpoint_trusted_proxy_src"
