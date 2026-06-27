@@ -1,4 +1,4 @@
-.PHONY: install lint test helm-check privacy-check release-check release-artifacts build-naiveproxy-caddy run-api run-agent run-dispatcher run-bot init-db
+.PHONY: install lint test helm-check privacy-check release-check release-artifacts run-api run-agent run-dispatcher run-bot init-db
 
 install:
 	pip install -e '.[dev]' -c requirements.lock
@@ -21,13 +21,6 @@ release-check: lint test helm-check privacy-check
 
 release-artifacts: release-check
 	scripts/build_release_artifacts.sh 3.0.0
-
-build-naiveproxy-caddy:
-	docker build \
-		-f deploy/images/naiveproxy-caddy/Dockerfile \
-		--build-arg VCS_REF="$$(git rev-parse HEAD)" \
-		-t tracegate-naiveproxy-caddy:local \
-		.
 
 run-api:
 	tracegate-api
