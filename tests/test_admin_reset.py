@@ -51,7 +51,7 @@ class _FakeSession:
 
 
 def _actor(role: UserRole) -> User:
-    return User(telegram_id=255761416, role=role)
+    return User(telegram_id=123456789, role=role)
 
 
 @pytest.mark.asyncio
@@ -59,7 +59,7 @@ async def test_superadmin_reset_does_not_filter_out_superadmin_connections() -> 
     session = _FakeSession(_actor(UserRole.SUPERADMIN))
 
     result = await admin_router.reset_connections(
-        AdminResetConnectionsRequest(actor_telegram_id=255761416),
+        AdminResetConnectionsRequest(actor_telegram_id=123456789),
         session=session,  # type: ignore[arg-type]
     )
 
@@ -74,7 +74,7 @@ async def test_admin_reset_keeps_superadmin_protection() -> None:
     session = _FakeSession(_actor(UserRole.ADMIN))
 
     await admin_router.reset_connections(
-        AdminResetConnectionsRequest(actor_telegram_id=255761416),
+        AdminResetConnectionsRequest(actor_telegram_id=123456789),
         session=session,  # type: ignore[arg-type]
     )
 

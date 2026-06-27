@@ -1173,11 +1173,11 @@ def test_reconcile_preserves_existing_mtproto_issued_state(tmp_path: Path) -> No
                 "version": 1,
                 "entries": [
                     {
-                        "telegramId": 255761416,
+                        "telegramId": 123456789,
                         "secretHex": "95d7ed79d0ab4494cab81c5f4acba241",
                         "issuedAt": "2026-04-21T08:34:24.303499Z",
                         "updatedAt": "2026-04-21T08:34:24.303499Z",
-                        "label": "@sengokubatsu",
+                        "label": "@example_operator",
                         "issuedBy": "bot",
                     }
                 ],
@@ -1190,16 +1190,16 @@ def test_reconcile_preserves_existing_mtproto_issued_state(tmp_path: Path) -> No
     issued = json.loads(issued_path.read_text(encoding="utf-8"))
     assert issued["entries"] == [
         {
-            "telegramId": 255761416,
+            "telegramId": 123456789,
             "secretHex": "95d7ed79d0ab4494cab81c5f4acba241",
             "issuedAt": "2026-04-21T08:34:24.303499Z",
             "updatedAt": "2026-04-21T08:34:24.303499Z",
-            "label": "@sengokubatsu",
+            "label": "@example_operator",
             "issuedBy": "bot",
         }
     ]
     mtproto_config = (tmp_path / "private" / "mtproto" / "runtime" / "config.toml").read_text(encoding="utf-8")
-    assert "tg_255761416" not in mtproto_config
+    assert "tg_123456789" not in mtproto_config
     assert "95d7ed79d0ab4494cab81c5f4acba241" not in mtproto_config
 
 
@@ -1253,9 +1253,9 @@ def test_reconcile_materializes_official_mtproto_without_tls_domain(tmp_path: Pa
         agent_runtime_mode="systemd",
         agent_role="TRANSIT",
         agent_runtime_profile="xray-centric",
-        default_transit_host="myheartraces.online",
-        mtproto_domain="tracegate.su",
-        mtproto_tls_domain="tracegate.su",
+        default_transit_host="endpoint.example.org",
+        mtproto_domain="mtproto.example.org",
+        mtproto_tls_domain="mtproto.example.org",
         mtproto_transport="random_padding",
         mtproto_public_port=443,
         private_mtproto_runtime="official",
@@ -1278,7 +1278,7 @@ def test_reconcile_materializes_official_mtproto_without_tls_domain(tmp_path: Pa
 
     assert state_payload["runtime"] == "official"
     assert state_payload["transport"] == "random_padding"
-    assert state_payload["domain"] == "tracegate.su"
+    assert state_payload["domain"] == "mtproto.example.org"
     assert state_payload["tlsDomain"] == ""
     assert state_payload["upstreamPort"] == 9444
     assert not (private_root / "mtproto" / "runtime" / "config.toml").exists()

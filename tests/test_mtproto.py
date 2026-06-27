@@ -38,27 +38,27 @@ def test_build_mtproto_client_secret_for_random_padding() -> None:
 
 def test_build_mtproto_share_links_supports_dd_without_tls_domain() -> None:
     links = build_mtproto_share_links(
-        server="tracegate.su",
+        server="mtproto.example.org",
         port=443,
         secret_hex="95f0d81f7539ecbe1bd880f48b6a739a",
         transport="dd",
     )
 
     assert links.client_secret_hex == "dd95f0d81f7539ecbe1bd880f48b6a739a"
-    assert "server=tracegate.su" in links.tg_uri
+    assert "server=mtproto.example.org" in links.tg_uri
     assert "secret=dd95f0d81f7539ecbe1bd880f48b6a739a" in links.https_url
 
 
 def test_build_mtproto_share_links_supports_raw_secret_without_tls_domain() -> None:
     links = build_mtproto_share_links(
-        server="tracegate.su",
+        server="mtproto.example.org",
         port=443,
         secret_hex="95f0d81f7539ecbe1bd880f48b6a739a",
         transport="raw",
     )
 
     assert links.client_secret_hex == "95f0d81f7539ecbe1bd880f48b6a739a"
-    assert "server=tracegate.su" in links.tg_uri
+    assert "server=mtproto.example.org" in links.tg_uri
     assert "secret=95f0d81f7539ecbe1bd880f48b6a739a" in links.https_url
 
 

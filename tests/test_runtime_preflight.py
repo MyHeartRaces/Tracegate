@@ -592,7 +592,7 @@ def _write_mtproto_public_profile(tmp_path: Path, file_name: str, *, overrides: 
         "port": 443,
         "transport": "tls",
         "domain": "proxied.tracegate.test",
-        "clientSecretHex": "ee00112233445566778899aabbccddeeff70726f786965642e7472616365676174652e7375",
+        "clientSecretHex": "ee00112233445566778899aabbccddeeff70726f78792e6578616d706c652e6f7267",
         "tgUri": "tg://proxy?server=proxied.tracegate.test&port=443&secret=ee0011",
         "httpsUrl": "https://t.me/proxy?server=proxied.tracegate.test&port=443&secret=ee0011",
     }

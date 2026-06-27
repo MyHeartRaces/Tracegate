@@ -1,0 +1,17 @@
+apiVersion: tracegate.io/v1
+kind: PublicBundleSet
+metadata:
+  name: tracegate-runtime-bundles
+  version: 3.0.0
+spec:
+  runtimeProfile: tracegate-3
+  materializationRequired: true
+  secretMaterial: forbidden
+  bundles:
+    - name: base-entry
+      canonicalRole: Entry
+      dynamicUsers: users-entry
+    - name: base-transit
+      canonicalRole: Endpoint
+      compatibilityIdentifier: true
+      dynamicUsers: users-transit

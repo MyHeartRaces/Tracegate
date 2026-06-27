@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## v3.0.0 - 2026-06-27
+
 ### Runtime and Deployment
 
 - Aligned the public k3s chart with the current production runtime surface:

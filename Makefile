@@ -1,4 +1,4 @@
-.PHONY: install lint test helm-check release-check build-naiveproxy-caddy run-api run-agent run-dispatcher run-bot init-db
+.PHONY: install lint test helm-check privacy-check release-check release-artifacts build-naiveproxy-caddy run-api run-agent run-dispatcher run-bot init-db
 
 install:
 	pip install -e '.[dev]' -c requirements.lock
@@ -13,8 +13,14 @@ helm-check:
 	helm lint ./deploy/k3s/tracegate
 	helm template tracegate ./deploy/k3s/tracegate >/tmp/tracegate-rendered.yaml
 
-release-check: lint test helm-check
+privacy-check:
+	python3 scripts/check_public_release.py
+
+release-check: lint test helm-check privacy-check
 	git diff --check
+
+release-artifacts: release-check
+	scripts/build_release_artifacts.sh 3.0.0
 
 build-naiveproxy-caddy:
 	docker build \

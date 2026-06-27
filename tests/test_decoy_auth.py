@@ -70,7 +70,7 @@ def test_load_mtproto_public_profile_returns_sanitized_payload(tmp_path) -> None
                 "transport": "tls",
                 "domain": "proxied.tracegate.test",
                 "secret": "00112233445566778899aabbccddeeff",
-                "clientSecretHex": "ee00112233445566778899aabbccddeeff70726f786965642e7472616365676174652e7375",
+                "clientSecretHex": "ee00112233445566778899aabbccddeeff70726f78792e6578616d706c652e6f7267",
                 "tgUri": "tg://proxy?server=proxied.tracegate.test&port=443&secret=ee0011",
                 "httpsUrl": "https://t.me/proxy?server=proxied.tracegate.test&port=443&secret=ee0011",
             },
@@ -91,7 +91,7 @@ def test_load_mtproto_public_profile_returns_sanitized_payload(tmp_path) -> None
         "profile": "MTProto-FakeTLS-Direct",
         "domain": "proxied.tracegate.test",
         "tlsDomain": "proxied.tracegate.test",
-        "clientSecretHex": "ee00112233445566778899aabbccddeeff70726f786965642e7472616365676174652e7375",
+        "clientSecretHex": "ee00112233445566778899aabbccddeeff70726f78792e6578616d706c652e6f7267",
         "tgUri": "tg://proxy?server=proxied.tracegate.test&port=443&secret=ee0011",
         "httpsUrl": "https://t.me/proxy?server=proxied.tracegate.test&port=443&secret=ee0011",
     }

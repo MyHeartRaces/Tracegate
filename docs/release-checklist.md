@@ -17,6 +17,7 @@ Use this checklist before pushing a public Tracegate release.
 python3 -m ruff check .
 pytest -q
 git diff --check
+python3 scripts/check_public_release.py
 ```
 
 For chart changes:
@@ -30,6 +31,10 @@ python3 deploy/k3s/prod-overlay-check.py --strict \
 ```
 
 Production promotion gates run from the operator environment.
+
+Build release assets only through `scripts/build_release_artifacts.sh`. It
+exports a clean tracked tree, scans the source and every unpacked artifact,
+then produces Python, Helm and generic bundle packages plus `SHA256SUMS`.
 
 ## Endpoint First
 

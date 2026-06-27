@@ -19,8 +19,12 @@ def test_release_versions_are_kept_in_sync() -> None:
     chart = yaml.safe_load((repo_root / "deploy/k3s/tracegate/Chart.yaml").read_text(encoding="utf-8"))
     values = yaml.safe_load((repo_root / "deploy/k3s/tracegate/values.yaml").read_text(encoding="utf-8"))
     prod_values = yaml.safe_load((repo_root / "deploy/k3s/values-prod.example.yaml").read_text(encoding="utf-8"))
+    bundle_manifest = yaml.safe_load((repo_root / "bundles/manifest.yaml").read_text(encoding="utf-8"))
 
     assert chart["version"] == package_version
     assert chart["appVersion"] == package_version
     assert values["global"]["image"]["tag"] == package_version
     assert prod_values["global"]["image"]["tag"] == package_version
+    assert bundle_manifest["metadata"]["version"] == package_version
+    assert bundle_manifest["spec"]["runtimeProfile"] == "tracegate-3"
+    assert {row["canonicalRole"] for row in bundle_manifest["spec"]["bundles"]} == {"Entry", "Endpoint"}
