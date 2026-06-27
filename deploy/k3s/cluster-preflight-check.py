@@ -273,7 +273,6 @@ def _private_profile_secret_keys(values: dict[str, Any]) -> set[str]:
             or (role_name == "entry" and _enabled(_as_dict(entry_transit.get("routerEntry")).get("enabled")))
             or (role_name != "entry" and _enabled(_as_dict(entry_transit.get("routerTransit")).get("enabled")))
         )
-        link_crypto_enabled = link_client_enabled or link_server_enabled
         if link_client_enabled:
             required.add(_text(secret_keys.get("shadowsocks2022LinkClient")))
         if link_server_enabled:

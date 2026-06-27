@@ -4,7 +4,7 @@ install:
 	pip install -e '.[dev]' -c requirements.lock
 
 lint:
-	ruff check src tests
+	ruff check src tests deploy
 
 test:
 	pytest -q
