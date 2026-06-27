@@ -8,10 +8,8 @@ version = "3.0.0"
 description = "Tracegate 3 control-plane, node-agent and Telegram bot"
 requires-python = ">=3.11"
 authors = [{name = "Tracegate"}]
-license = {file = "LICENSE"}
-classifiers = [
-  "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
-]
+license = "GPL-3.0-only"
+license-files = ["LICENSE"]
 dependencies = [
   "fastapi>=0.115.0",
   "uvicorn[standard]>=0.34.0",
