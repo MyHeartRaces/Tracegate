@@ -667,10 +667,10 @@ def _ops_alert_rules(
                 '(max_over_time(up{namespace="tracegate",job="tracegate-node-exporter"}[3m])) == 1)'
             ),
             evaluator="lt",
-            threshold=3.0,
+            threshold=2.0,
             annotations={
-                "summary": "Tracegate sees fewer than 3 infrastructure nodes",
-                "description": "Expected entry, transit and endpoint node exporters to be up",
+                "summary": "Tracegate sees fewer than 2 infrastructure nodes",
+                "description": "Expected Entry and Endpoint node exporters to be up",
             },
             labels={
                 **base_labels,

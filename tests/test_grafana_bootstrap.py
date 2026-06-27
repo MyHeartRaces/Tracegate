@@ -413,6 +413,11 @@ def test_ops_alert_rules_cover_nodes_pods_delivery_and_runtime_health() -> None:
     node_count = by_uid["tg-ops-node-count-low"]
     assert "max_over_time" in node_count["data"][0]["model"]["expr"]
     assert 'job="tracegate-node-exporter"' in node_count["data"][0]["model"]["expr"]
+    assert node_count["data"][1]["model"]["conditions"][0]["evaluator"]["params"] == [2.0]
+    assert node_count["annotations"] == {
+        "summary": "Tracegate sees fewer than 2 infrastructure nodes",
+        "description": "Expected Entry and Endpoint node exporters to be up",
+    }
 
     pod_down = by_uid["tg-ops-target-down"]
     assert (
