@@ -3165,9 +3165,17 @@ def test_tracegate22_grafana_host_redirect_preserves_requested_path(tmp_path: Pa
         if doc.get("kind") == "ConfigMap"
         and doc.get("metadata", {}).get("name") == "tracegate-tracegate-gateway-transit-nginx"
     )
+    transit_haproxy = next(
+        doc["data"]["haproxy.cfg"]
+        for doc in docs
+        if doc.get("kind") == "ConfigMap"
+        and doc.get("metadata", {}).get("name") == "tracegate-tracegate-gateway-transit-haproxy"
+    )
 
     assert transit_nginx.count('if ($host = "grafana.example.com")') == 2
     assert transit_nginx.count("return 302 /grafana$request_uri;") == 2
+    assert "acl tls_adapter_sni req.ssl_sni -i transit.example.com grafana.example.com" in transit_haproxy
+    assert "server_name transit.example.com grafana.example.com " in transit_nginx
 
 
 def test_tracegate22_control_plane_receives_reality_client_material(tmp_path: Path) -> None:

@@ -508,6 +508,8 @@ data:
 {{- $linkWssCarrierEnabled := and $.Values.interconnect.entryTransit.enabled $linkOuterCarrier.enabled (eq (toString $linkOuterCarrier.mode) "wss") }}
 {{- $roleTlsServerName := include "tracegate.roleTlsServerName" (dict "root" $ "role" $roleName) }}
 {{- $tlsAdapterServerNames := concat (list $roleTlsServerName) ($role.tls.extraServerNames | default (list)) | uniq }}
+{{- $grafanaHost := toString $.Values.controlPlane.env.grafanaHost }}
+{{- if and $roleIsEndpoint $grafanaHost }}{{- $tlsAdapterServerNames = append $tlsAdapterServerNames $grafanaHost | uniq }}{{- end }}
 {{- $mtprotoDomain := $.Values.mtproto.domain | default $.Values.controlPlane.env.mtprotoDomain }}
 {{- $mtprotoTlsDomain := $.Values.mtproto.tlsDomain | default $mtprotoDomain }}
 {{- $mtprotoTransport := lower (toString ($.Values.mtproto.transport | default "tls")) }}
@@ -647,7 +649,6 @@ data:
 {{- if $.Values.vlessEncryption.enabled }}
 {{- $userTrafficInbounds = concat $userTrafficInbounds (list "entry-enc-in" "vless-reality-enc-in" "vless-ws-enc-in" "vless-grpc-enc-in") }}
 {{- end }}
-{{- $grafanaHost := toString $.Values.controlPlane.env.grafanaHost }}
 {{- $ruBypassDomains := list "geosite:category-ru" "full:cp.cloudflare.com" "regexp:(?i)\\.ru$" "regexp:(?i)\\.su$" "regexp:(?i)\\.xn--p1ai$" "regexp:(?i)\\.рф$" "regexp:(?i)\\.moscow$" "regexp:(?i)\\.xn--80adxhks$" "regexp:(?i)\\.москва$" "regexp:(?i)\\.tatar$" "regexp:(?i)\\.xn--p1acf$" "regexp:(?i)\\.рус$" "regexp:(?i)\\.xn--d1acj3b$" "regexp:(?i)\\.дети$" }}
 {{- range $line := splitList "\n" ($.Files.Get "files/russia-mobile-internet-whitelist.txt") }}
 {{- $domain := trim $line }}
