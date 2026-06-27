@@ -216,6 +216,14 @@ spec:
         app.kubernetes.io/part-of: tracegate
     spec:
       serviceAccountName: {{ $prometheusName }}
+{{- with .Values.observability.prometheus.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+{{- end }}
+{{- with .Values.observability.prometheus.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+{{- end }}
       containers:
         - name: prometheus
           image: {{ include "tracegate.image" .Values.observability.prometheus.image | quote }}
@@ -240,6 +248,8 @@ spec:
               port: http
             initialDelaySeconds: 15
             periodSeconds: 20
+          resources:
+            {{- toYaml .Values.observability.prometheus.resources | nindent 12 }}
           volumeMounts:
             - name: config
               mountPath: /etc/prometheus/prometheus.yml

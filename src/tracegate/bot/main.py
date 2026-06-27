@@ -85,7 +85,7 @@ from tracegate.services.client_config_tokens import (
     build_client_config_token,
     client_config_token_secret,
 )
-from tracegate.settings import get_settings
+from tracegate.settings import Settings, get_settings
 
 settings = get_settings()
 api = TracegateApiClient(settings.bot_api_base_url, settings.bot_api_token)
@@ -414,7 +414,16 @@ def _load_guide_text() -> str:
             return _msg_warn("Гайд пока не настроен.")
         except Exception:
             return _msg_error("Не смог прочитать гайд.")
-    return str(settings.bot_guide_message or "").strip() or "[TRACEGATE_BOT_GUIDE_PLACEHOLDER]"
+    configured = str(settings.bot_guide_message or "").strip()
+    placeholders = {
+        "",
+        "[TRACEGATE_BOT_GUIDE_PLACEHOLDER]",
+        "REPLACE_WITH_PRIVATE_GUIDE_MESSAGE",
+        "Tracegate profile guide.",
+    }
+    if configured in placeholders:
+        return str(Settings.model_fields["bot_guide_message"].default).strip()
+    return configured
 
 
 def _split_telegram_text(text: str, *, limit: int = _TELEGRAM_TEXT_CHUNK_LIMIT) -> tuple[str, ...]:

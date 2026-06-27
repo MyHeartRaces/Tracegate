@@ -359,6 +359,22 @@ def test_guide_text_defaults_to_external_placeholder(monkeypatch: pytest.MonkeyP
     assert main._load_guide_text() == "[test-private-guide-placeholder]"
 
 
+@pytest.mark.parametrize(
+    "placeholder",
+    ["", "[TRACEGATE_BOT_GUIDE_PLACEHOLDER]", "REPLACE_WITH_PRIVATE_GUIDE_MESSAGE", "Tracegate profile guide."],
+)
+def test_guide_text_falls_back_from_deployment_placeholders(
+    monkeypatch: pytest.MonkeyPatch, placeholder: str
+) -> None:
+    monkeypatch.setattr(main.settings, "bot_guide_path", "")
+    monkeypatch.setattr(main.settings, "bot_guide_message", placeholder)
+
+    guide = main._load_guide_text()
+
+    assert "Tracegate 3: гайдлайн" in guide
+    assert "Ссылки на приложения:" in guide
+
+
 def test_default_guide_copy_includes_client_settings_and_desktop_throne() -> None:
     guide = str(Settings.model_fields["bot_guide_message"].default)
 

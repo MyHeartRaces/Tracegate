@@ -101,33 +101,24 @@ def test_shadowsocks_panels_use_per_connection_rate_metrics() -> None:
         assert panel["targets"][0]["legendFormat"] == "{{connection_label}}"
 
 
-def test_naiveproxy_panels_use_runtime_metrics_and_scoped_connection_table() -> None:
-    user_dashboard = _dashboard_user("prom")
-    user_panel = _panel_by_id(user_dashboard, 20)
-    assert user_panel["type"] == "table"
-    user_expr = user_panel["targets"][0]["expr"]
-    assert 'protocol=~"naiveproxy"' in user_expr
-    assert 'user_pid="${__user.login}"' in user_expr
+def test_dashboards_only_reference_current_connection_runtimes() -> None:
+    dashboards = [
+        _dashboard_user("prom"),
+        _dashboard_admin("prom"),
+        _dashboard_admin_metadata("prom"),
+        _dashboard_operator("prom"),
+    ]
 
-    admin_dashboard = _dashboard_admin("prom")
-    network = _panel_by_id(admin_dashboard, 31)
-    assert network["type"] == "timeseries"
-    assert "tracegate_host_network_bytes_total" in network["targets"][0]["expr"]
-    assert 'component="naiveproxy"' in network["targets"][0]["expr"]
+    rendered = repr(dashboards).lower()
 
-    users = _panel_by_id(admin_dashboard, 32)
-    assert users["type"] == "stat"
-    assert "tracegate_naiveproxy_users" in users["targets"][0]["expr"]
-
-    runtime = _panel_by_id(_dashboard_operator("prom"), 30)
-    assert runtime["type"] == "table"
-    assert "tracegate_naiveproxy_runtime_info" in runtime["targets"][0]["expr"]
-    assert "tracegate_naiveproxy_config_present" in runtime["targets"][2]["expr"]
+    assert "naiveproxy" not in rendered
+    assert "transit node" not in rendered
+    assert "endpoint node network rx/tx" in rendered
 
 
 def test_user_panels_scope_queries_by_logged_in_user_pid() -> None:
     dashboard = _dashboard_user("prom")
-    for panel_id in [1, 11, 12, 18, 19, 20]:
+    for panel_id in [1, 11, 12, 18, 19]:
         panel = _panel_by_id(dashboard, panel_id)
         expr = panel["targets"][0]["expr"]
         assert 'user_pid="${__user.login}"' in expr

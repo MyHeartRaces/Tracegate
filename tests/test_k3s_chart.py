@@ -3595,7 +3595,14 @@ def test_tracegate3_k3s_does_not_render_removed_naiveproxy_runtime(tmp_path: Pat
 
 
 def test_prometheus_scrapes_gateway_agents_when_observability_enabled(tmp_path: Path) -> None:
-    values = {"observability": {"prometheus": {"enabled": True}}}
+    values = {
+        "observability": {
+            "prometheus": {
+                "enabled": True,
+                "nodeSelector": {"tracegate.io/role": "endpoint"},
+            }
+        }
+    }
     rendered = _helm_template_with_values(tmp_path, values)
 
     assert rendered.returncode == 0, rendered.stderr
@@ -3610,6 +3617,11 @@ def test_prometheus_scrapes_gateway_agents_when_observability_enabled(tmp_path: 
     assert "job_name: tracegate-agent" in prometheus_config
     assert "regex: gateway-.+" in prometheus_config
     assert "gateway-.+|naiveproxy" not in prometheus_config
+
+    prometheus = _deployment_by_component(rendered.stdout, "prometheus")
+    assert prometheus["spec"]["template"]["spec"]["nodeSelector"] == {
+        "tracegate.io/role": "endpoint"
+    }
 
 
 def test_grafana_renders_as_helm_managed_observability_resource(tmp_path: Path) -> None:

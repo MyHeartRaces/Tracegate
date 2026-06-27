@@ -246,6 +246,9 @@ observability:
     storage:
       size: 10Gi
       storageClassName: ""
+    resources: {}
+    nodeSelector: {}
+    tolerations: []
   nodeExporter:
     enabled: false
     name: tracegate-node-exporter
