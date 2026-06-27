@@ -1267,8 +1267,8 @@ data:
           addr: 127.0.0.1:{{ int $chainBridge.socksPort }}
 {{- end }}
     quic:
-      maxIdleTimeout: 30s
-      disablePathMTUDiscovery: false
+      maxIdleTimeout: {{ dig "quic" "maxIdleTimeout" "2m" $.Values.gateway.hysteria }}
+      disablePathMTUDiscovery: {{ dig "quic" "disablePathMTUDiscovery" false $.Values.gateway.hysteria }}
     congestion:
       type: bbr
 {{- if and $roleIsEntry $.Values.gateway.trafficShaping.chainClient.enabled }}
@@ -1280,7 +1280,7 @@ data:
     ignoreClientBandwidth: {{ $.Values.gateway.trafficShaping.hysteria.ignoreClientBandwidth }}
 {{- end }}
     disableUDP: false
-    udpIdleTimeout: 60s
+    udpIdleTimeout: {{ $.Values.gateway.hysteria.udpIdleTimeout }}
     sniff:
       enable: {{ not (and $roleIsEndpoint $endpointBackhaulEnabled) }}
       timeout: 2s

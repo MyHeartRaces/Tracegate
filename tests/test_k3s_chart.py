@@ -1800,6 +1800,15 @@ def test_tracegate22_k3s_runs_hysteria2_outside_xray(tmp_path: Path) -> None:
     rendered = _helm_template_with_values(tmp_path, {})
 
     assert rendered.returncode == 0, rendered.stderr
+    hysteria_configs = [
+        doc["data"]["server.yaml"]
+        for doc in _helm_docs(rendered.stdout)
+        if doc.get("kind") == "ConfigMap"
+        and doc.get("metadata", {}).get("name", "").endswith("-hysteria")
+    ]
+    assert hysteria_configs
+    assert all("maxIdleTimeout: 2m" in config for config in hysteria_configs)
+    assert all("udpIdleTimeout: 5m" in config for config in hysteria_configs)
     assert '"hy2-in"' not in rendered.stdout
     assert "REPLACE_HYSTERIA_AUTH" not in rendered.stdout
     assert "REPLACE_HYSTERIA_SALAMANDER_PASSWORD" in rendered.stdout
@@ -1813,6 +1822,13 @@ def test_tracegate22_k3s_runs_hysteria2_outside_xray(tmp_path: Path) -> None:
         hysteria_ports = {port["name"]: port for port in containers["hysteria"].get("ports", [])}
         assert hysteria_ports["hy2"]["protocol"] == "UDP", component
         assert containers["hysteria"]["command"] == ["hysteria", "server", "-c", "/etc/hysteria/server.yaml"]
+
+
+def test_quic_host_sysctl_profile_uses_hysteria_recommended_buffers() -> None:
+    profile = Path("deploy/k3s/host-sysctl/90-tracegate-quic.conf").read_text(encoding="utf-8")
+
+    assert "net.core.rmem_max = 16777216" in profile
+    assert "net.core.wmem_max = 16777216" in profile
 
 
 def test_entry_traffic_shaping_and_encrypted_runtime_guards_render(tmp_path: Path) -> None:

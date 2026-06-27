@@ -2276,8 +2276,8 @@ def _validate_hysteria_runtime(contract: dict[str, Any], *, role_prefix: str) ->
     udp = _row_dict(hysteria, "udp")
     if not bool(udp.get("enabled", False)):
         findings.append(_finding("error", f"{role_prefix}-hysteria-udp-disabled", f"{role_prefix} Hysteria disableUDP must stay false"))
-    if _row_string(udp, "idleTimeout") != "60s":
-        findings.append(_finding("error", f"{role_prefix}-hysteria-udp-idle-timeout", f"{role_prefix} Hysteria udpIdleTimeout must stay 60s"))
+    if _row_string(udp, "idleTimeout") != "5m":
+        findings.append(_finding("error", f"{role_prefix}-hysteria-udp-idle-timeout", f"{role_prefix} Hysteria udpIdleTimeout must stay 5m"))
 
     quic = _row_dict(hysteria, "quic")
     if bool(quic.get("disablePathMTUDiscovery", True)):
@@ -2288,12 +2288,12 @@ def _validate_hysteria_runtime(contract: dict[str, Any], *, role_prefix: str) ->
                 f"{role_prefix} Hysteria QUIC path MTU discovery must stay enabled",
             )
         )
-    if _row_string(quic, "maxIdleTimeout") not in {"30s", ""}:
+    if _row_string(quic, "maxIdleTimeout") not in {"2m", ""}:
         findings.append(
             _finding(
                 "error",
                 f"{role_prefix}-hysteria-quic-idle-timeout",
-                f"{role_prefix} Hysteria QUIC maxIdleTimeout must stay 30s",
+                f"{role_prefix} Hysteria QUIC maxIdleTimeout must stay 2m",
             )
         )
 

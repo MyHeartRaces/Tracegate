@@ -718,6 +718,13 @@ gateway:
     # cover the configured name because server-side sniGuard is dns-san.
     clientServerNameEntry: ""
     clientServerNameTransit: ""
+    # Keep long-lived application streams alive across quiet periods. QUIC
+    # receive/send buffers are configured separately on every gateway host by
+    # deploy/k3s/host-sysctl/90-tracegate-quic.conf.
+    quic:
+      maxIdleTimeout: 2m
+      disablePathMTUDiscovery: false
+    udpIdleTimeout: 5m
   agent:
     port: 8070
     dryRun: false

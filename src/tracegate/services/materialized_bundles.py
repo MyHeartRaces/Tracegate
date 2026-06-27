@@ -873,7 +873,7 @@ def _render_hysteria_server_yaml(
         "  salamander:",
         f"    password: {_yaml_scalar(salamander_password)}",
         "quic:",
-        "  maxIdleTimeout: 30s",
+        "  maxIdleTimeout: 2m",
         "  disablePathMTUDiscovery: false",
         "congestion:",
         "  type: bbr",
@@ -892,7 +892,7 @@ def _render_hysteria_server_yaml(
     lines.extend(
         [
             "disableUDP: false",
-            "udpIdleTimeout: 60s",
+            "udpIdleTimeout: 5m",
             "sniff:",
             "  enable: true",
             "  timeout: 2s",
