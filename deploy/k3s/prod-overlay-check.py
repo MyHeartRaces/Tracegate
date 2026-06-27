@@ -947,12 +947,12 @@ def validate_prod_overlay(chart_values: Path, prod_values: Path, *, strict: bool
         entry_tls_server_name = _text(_as_dict(entry.get("tls")).get("serverName")).lower().rstrip(".")
 
         require(entry_enabled, "entry-staged requires the Entry gateway role")
-        require(not universal_entry_enabled, "entry-staged forbids Universal Entry until the Entry domain is configured")
+        require(not universal_entry_enabled, "entry-staged forbids Universal Entry client transport")
         require(not _has_value(universal_entry.get("publicHost")), "entry-staged forbids architecture.universalEntry.publicHost")
-        require(staged_entry_host.endswith(".invalid"), "entry-staged defaultEntryHost must stay a non-routable .invalid sentinel")
+        require(_has_value(staged_entry_host), "entry-staged defaultEntryHost must be configured")
         require(
             entry_tls_server_name == staged_entry_host,
-            "entry-staged gateway.roles.entry.tls.serverName must match the .invalid defaultEntryHost sentinel",
+            "entry-staged gateway.roles.entry.tls.serverName must match defaultEntryHost",
         )
         require(
             enabled_client_profiles == ENDPOINT_FIRST_CLIENT_PROFILE_KEYS,

@@ -678,6 +678,34 @@ def test_k3s_strict_prod_overlay_check_accepts_pod_only_new_prod(tmp_path: Path,
     assert result.returncode == 0, result.stderr
 
 
+def test_k3s_strict_prod_overlay_accepts_active_entry_host_before_universal_entry(tmp_path: Path) -> None:
+    values = _pod_only_new_prod_overlay_values(phase="entry-staged")
+    values["controlPlane"]["env"]["defaultEntryHost"] = "entry.prod.test"
+    values["gateway"]["roles"]["entry"]["tls"] = {
+        "serverName": "entry.prod.test",
+        "existingSecretName": "tracegate-entry-tls",
+    }
+    values_path = tmp_path / "values-entry-staged-active-host.yaml"
+    values_path.write_text(yaml.safe_dump(values, sort_keys=True), encoding="utf-8")
+
+    result = subprocess.run(
+        [
+            "python3",
+            "deploy/k3s/prod-overlay-check.py",
+            "--strict",
+            "--chart-values",
+            str(CHART_ROOT / "values.yaml"),
+            "--values",
+            str(values_path),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+
+
 def test_pod_runtime_readiness_accepts_official_mtproto_runtime(tmp_path: Path) -> None:
     manifest_path = tmp_path / "official-mtproto.yaml"
     manifest_path.write_text(
