@@ -1827,7 +1827,9 @@ def test_tracegate22_k3s_runs_hysteria2_outside_xray(tmp_path: Path) -> None:
 def test_quic_host_sysctl_profile_uses_hysteria_recommended_buffers() -> None:
     profile = Path("deploy/k3s/host-sysctl/90-tracegate-quic.conf").read_text(encoding="utf-8")
 
+    assert "net.core.rmem_default = 16777216" in profile
     assert "net.core.rmem_max = 16777216" in profile
+    assert "net.core.wmem_default = 16777216" in profile
     assert "net.core.wmem_max = 16777216" in profile
 
 

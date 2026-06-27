@@ -114,6 +114,7 @@ Entry-to-Endpoint tunnel. MTG runs only on Endpoint in tunnel mode. See
 - Keep observability endpoints and alert routing in operator-managed values.
 - Install `host-sysctl/90-tracegate-quic.conf` in `/etc/sysctl.d/` on every
   Hysteria gateway node and apply it before starting gateway pods. The 16 MiB
-  UDP buffers are required to prevent QUIC receive-buffer drops under bursts.
+  default and maximum UDP buffers are required for both QUIC listeners and
+  per-destination UDP session sockets under bursts.
 - Keep public examples generic enough that they cannot identify a live
   deployment.
