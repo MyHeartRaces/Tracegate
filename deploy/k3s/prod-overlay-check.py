@@ -1102,6 +1102,8 @@ def validate_prod_overlay(chart_values: Path, prod_values: Path, *, strict: bool
     require(not _is_example_host(mtproto.get("domain")), "mtproto.domain must not use example.com")
     mtproto_egress = _as_dict(mtproto.get("egress"))
     if mtproto_route_mode == "entry-endpoint-tunnel":
+        mtproto_endpoint_route = _as_dict(mtproto_route.get("endpoint"))
+        mtproto_allowed_proxy_sources = _ip_set(mtproto_endpoint_route.get("allowedProxySources"))
         mtproto_stealth = _as_dict(mtproto.get("stealth"))
         mtproto_runtime = _text(mtproto.get("runtime")).lower()
         mtproto_transport = _text(mtproto.get("transport")).lower()
@@ -1111,6 +1113,10 @@ def validate_prod_overlay(chart_values: Path, prod_values: Path, *, strict: bool
         require(mtproto_runtime in {"mtg", "official"}, "entry-endpoint-tunnel requires mtproto.runtime=mtg or official")
         require(_as_int(mtproto.get("publicPort")) == 443, "entry-endpoint-tunnel requires mtproto.publicPort=443")
         require(not bool(_as_dict(mtproto.get("fallback")).get("enabled", False)), "entry-endpoint-tunnel forbids fallback runtimes")
+        require(
+            _text(entry_topology.get("publicIp")) in mtproto_allowed_proxy_sources,
+            "entry-endpoint-tunnel endpoint.allowedProxySources must include the Entry publicIp",
+        )
         if mtproto_runtime == "official":
             mtproto_fallback = _as_dict(mtproto.get("fallback"))
             official_bind_address = _text(mtproto_fallback.get("officialBindAddress"))

@@ -447,7 +447,11 @@ def _entry_endpoint_overlay_values(*, rotation: bool = False) -> dict:
                 "forbiddenTlsDomains": ["old-forbidden.tracegate-sni.ru", "old-mtproto-a.tracegate-sni.ru"],
                 "validatedTlsDomains": ["2gis.ru"],
             },
-            "route": {"mode": "entry-endpoint-tunnel", "entry": {"tunnelPort": 11087}},
+            "route": {
+                "mode": "entry-endpoint-tunnel",
+                "entry": {"tunnelPort": 11087},
+                "endpoint": {"allowedProxySources": ["8.8.4.4"]},
+            },
         }
     )
     return values
