@@ -3844,6 +3844,9 @@ def test_prometheus_scrapes_gateway_agents_when_observability_enabled(tmp_path: 
     assert "replacement: /api/v1/nodes/${1}/proxy/metrics/probes" in prometheus_config
 
     prometheus = _deployment_by_component(rendered.stdout, "prometheus")
+    assert prometheus["spec"]["template"]["metadata"]["annotations"] == {
+        "tracegate.io/release-revision": "1"
+    }
     assert prometheus["spec"]["template"]["spec"]["nodeSelector"] == {
         "tracegate.io/role": "endpoint"
     }

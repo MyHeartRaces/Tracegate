@@ -227,6 +227,8 @@ spec:
       app.kubernetes.io/name: {{ $prometheusName }}
   template:
     metadata:
+      annotations:
+        tracegate.io/release-revision: {{ .Release.Revision | quote }}
       labels:
         app.kubernetes.io/name: {{ $prometheusName }}
         app.kubernetes.io/part-of: tracegate
