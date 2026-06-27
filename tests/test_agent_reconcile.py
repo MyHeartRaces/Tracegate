@@ -1174,7 +1174,7 @@ def test_reconcile_preserves_existing_mtproto_issued_state(tmp_path: Path) -> No
                 "entries": [
                     {
                         "telegramId": 123456789,
-                        "secretHex": "95d7ed79d0ab4494cab81c5f4acba241",
+                        "secretHex": "0123456789abcdef0123456789abcdef",
                         "issuedAt": "2026-04-21T08:34:24.303499Z",
                         "updatedAt": "2026-04-21T08:34:24.303499Z",
                         "label": "@example_operator",
@@ -1191,7 +1191,7 @@ def test_reconcile_preserves_existing_mtproto_issued_state(tmp_path: Path) -> No
     assert issued["entries"] == [
         {
             "telegramId": 123456789,
-            "secretHex": "95d7ed79d0ab4494cab81c5f4acba241",
+            "secretHex": "0123456789abcdef0123456789abcdef",
             "issuedAt": "2026-04-21T08:34:24.303499Z",
             "updatedAt": "2026-04-21T08:34:24.303499Z",
             "label": "@example_operator",
@@ -1200,7 +1200,7 @@ def test_reconcile_preserves_existing_mtproto_issued_state(tmp_path: Path) -> No
     ]
     mtproto_config = (tmp_path / "private" / "mtproto" / "runtime" / "config.toml").read_text(encoding="utf-8")
     assert "tg_123456789" not in mtproto_config
-    assert "95d7ed79d0ab4494cab81c5f4acba241" not in mtproto_config
+    assert "0123456789abcdef0123456789abcdef" not in mtproto_config
 
 
 def test_reconcile_materializes_mtg_runtime_on_entry_with_endpoint_egress(tmp_path: Path) -> None:
