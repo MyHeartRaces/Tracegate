@@ -2895,10 +2895,12 @@ def test_mtproto_entry_endpoint_tunnel_routes_tls_to_endpoint_public_edge(tmp_pa
     assert endpoint_containers["mtproto"]["command"] == ["/mtg"]
     assert "acl mtproto_sni req.ssl_sni -i 2gis.ru" in entry_haproxy
     assert "use_backend be_mtproto_tls if mtproto_sni" in entry_haproxy
+    assert "acl request_payload_prefix_ready req.len gt 1" not in entry_haproxy
     assert "server mtproto_endpoint_tls 198.51.100.20:443 check" in entry_haproxy
     assert "server mtproto_endpoint_tunnel 127.0.0.1:11087 check" not in entry_haproxy
     assert "acl mtproto_sni req.ssl_sni -i 2gis.ru" in endpoint_haproxy
     assert "use_backend be_mtproto if mtproto_sni" in endpoint_haproxy
+    assert "acl request_payload_prefix_ready req.len gt 1" not in endpoint_haproxy
     assert "server mtproto 127.0.0.1:9443 send-proxy-v2" in endpoint_haproxy
     assert '"tag": "mtproto-entry-tunnel-in"' in rendered.stdout
     assert '"inboundTag": ["mtproto-entry-tunnel-in"], "balancerTag": "endpoint-backhaul"' in rendered.stdout
@@ -2960,6 +2962,13 @@ def test_mtproto_entry_endpoint_tunnel_routes_official_proxy_without_sni(tmp_pat
     assert "acl mtproto_sni" not in endpoint_haproxy
     assert "tcp-request inspect-delay 1s" in entry_haproxy
     assert "tcp-request inspect-delay 1s" in endpoint_haproxy
+    assert "acl request_payload_prefix_ready req.len gt 1" in entry_haproxy
+    assert "acl request_tls_record_prefix req.payload(0,2) -m bin 1603" in entry_haproxy
+    assert (
+        "tcp-request content accept if request_payload_prefix_ready !request_tls_record_prefix"
+        in entry_haproxy
+    )
+    assert "acl request_payload_prefix_ready req.len gt 1" in endpoint_haproxy
     assert "tcp-request content reject if WAIT_END !universal_origin_allowed_src" not in entry_haproxy
     assert "use_backend be_mtproto_tls if !request_sni_found" in entry_haproxy
     assert "use_backend be_mtproto if !request_sni_found mtproto_proxy_src" in endpoint_haproxy

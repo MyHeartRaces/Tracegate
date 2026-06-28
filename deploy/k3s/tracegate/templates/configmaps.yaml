@@ -796,6 +796,13 @@ data:
 {{- end }}
 {{- end }}
 {{- end }}
+{{- if and $mtprotoRoleHandlesPublic (not $mtprotoUsesSni) }}
+      # Raw MTProto sends payload immediately. Release non-TLS records without
+      # waiting for the full SNI inspection window; TLS records start 0x16 0x03.
+      acl request_payload_prefix_ready req.len gt 1
+      acl request_tls_record_prefix req.payload(0,2) -m bin 1603
+      tcp-request content accept if request_payload_prefix_ready !request_tls_record_prefix
+{{- end }}
       tcp-request content accept if { req.ssl_sni -m found }
       tcp-request content accept if WAIT_END
 {{- if and $roleIsEndpoint $mtprotoEgressShadowtlsEnabled }}
