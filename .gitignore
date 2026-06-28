@@ -17,6 +17,7 @@ build/
 .tmp/
 .tmp-*/
 local-notes/
+to-do.txt
 docs/client-configs/
 
 # Local disk encryption material. Keep these files on the operator machine only.
