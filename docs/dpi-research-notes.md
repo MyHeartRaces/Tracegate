@@ -46,3 +46,6 @@ permanently effective.
 - [Cloudflare gRPC connections](https://developers.cloudflare.com/network/grpc-connections/)
 - [Cloudflare IPv4 ranges](https://www.cloudflare.com/ips-v4)
 - [Operator-provided Pastebin notes](https://pastebin.com/raw/9gLsyeLp)
+
+Telegram-specific consequences and the whitelist-mode decision tree are kept
+in [telegram-resilience.md](telegram-resilience.md).

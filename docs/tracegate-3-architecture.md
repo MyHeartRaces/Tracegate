@@ -23,7 +23,8 @@ IP and disabled shards.
 Entry adds one public IP after Endpoint validation. Entry Chain uses
 Cloudflare-proxied gRPC/TLS/H2 and a bounded Entry-to-Endpoint backhaul pool:
 VLESS Reality/XHTTP primary and Hysteria2/Salamander secondary. MTProto enters
-through shared Entry TCP/443 and terminates at Endpoint-local MTG.
+through shared Entry TCP/443 and terminates at the Endpoint-local official
+MTProxy using random padding and no FakeTLS SNI.
 
 All client internet traffic exits only through the Endpoint service/egress IP.
 Entry retains the global 65 Mbit/s cap.

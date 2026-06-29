@@ -788,6 +788,10 @@ gateway:
     mtprotoOfficial:
       repository: mtproxy/mtproxy
       tag: "latest"
+      # The upstream Docker image is mutable and substantially older than the
+      # source repository. Keep the known production image reproducible until
+      # Tracegate publishes and validates its own maintained MTProxy image.
+      digest: sha256:03c4b67c093fd88f840ef10b6a4a989d25da01a9edb2daab960fbf442769a2c4
       pullPolicy: IfNotPresent
   roles:
     entry:

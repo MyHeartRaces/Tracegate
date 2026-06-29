@@ -1399,6 +1399,29 @@ spec:
           resources:
             {{- toYaml . | nindent 12 }}
 {{- end }}
+{{- if $.Values.gateway.probes.enabled }}
+          startupProbe:
+            tcpSocket:
+              host: 127.0.0.1
+              port: {{ int $.Values.mtproto.backendPort }}
+            periodSeconds: {{ int $.Values.gateway.probes.startup.periodSeconds }}
+            failureThreshold: {{ int $.Values.gateway.probes.startup.failureThreshold }}
+            timeoutSeconds: {{ int $.Values.gateway.probes.startup.timeoutSeconds }}
+          readinessProbe:
+            tcpSocket:
+              host: 127.0.0.1
+              port: {{ int $.Values.mtproto.backendPort }}
+            periodSeconds: {{ int $.Values.gateway.probes.readiness.periodSeconds }}
+            failureThreshold: {{ int $.Values.gateway.probes.readiness.failureThreshold }}
+            timeoutSeconds: {{ int $.Values.gateway.probes.readiness.timeoutSeconds }}
+          livenessProbe:
+            tcpSocket:
+              host: 127.0.0.1
+              port: {{ int $.Values.mtproto.backendPort }}
+            periodSeconds: {{ int $.Values.gateway.probes.liveness.periodSeconds }}
+            failureThreshold: {{ int $.Values.gateway.probes.liveness.failureThreshold }}
+            timeoutSeconds: {{ int $.Values.gateway.probes.liveness.timeoutSeconds }}
+{{- end }}
           volumeMounts:
             - name: private-profiles
               mountPath: {{ $.Values.privateProfiles.mountPath }}
@@ -1411,6 +1434,80 @@ spec:
         - name: mtproto-official
           image: {{ include "tracegate.image" $.Values.gateway.images.mtprotoOfficial | quote }}
           imagePullPolicy: {{ $.Values.gateway.images.mtprotoOfficial.pullPolicy }}
+          command: ["/bin/bash", "-ec"]
+          args:
+            - |
+              set -o pipefail
+              umask 077
+
+              secret="$(tr -d '\r\n' < "${SECRET_FILE}")"
+              if ! [[ "${secret}" =~ ^[0-9a-fA-F]{32}$ ]]; then
+                echo "MTProxy secret must contain exactly 16 bytes in hex" >&2
+                exit 1
+              fi
+              secret="${secret,,}"
+
+              fetch_runtime_file() {
+                local url="$1"
+                local destination="$2"
+                local temporary="${destination}.tmp"
+                local attempt
+                rm -f "${temporary}"
+                for attempt in 1 2 3 4 5; do
+                  if curl -fsS --connect-timeout 10 --max-time 30 \
+                    "${url}" -o "${temporary}" && [ -s "${temporary}" ]; then
+                    mv -f "${temporary}" "${destination}"
+                    return 0
+                  fi
+                  rm -f "${temporary}"
+                  sleep "$((attempt * 2))"
+                done
+                [ -s "${destination}" ]
+              }
+
+              fetch_runtime_file \
+                "https://core.telegram.org/getProxySecret" \
+                /data/proxy.secret || {
+                  echo "Unable to obtain Telegram proxy secret material" >&2
+                  exit 2
+                }
+              fetch_runtime_file \
+                "https://core.telegram.org/getProxyConfig" \
+                /data/proxy.conf || {
+                  echo "Unable to obtain Telegram DC configuration" >&2
+                  exit 2
+                }
+
+              if [ -z "${IP:-}" ]; then
+                IP="$(curl -fsS --connect-timeout 10 --max-time 30 https://digitalresistance.dog/myIp)"
+              fi
+              if [ -z "${INTERNAL_IP:-}" ]; then
+                INTERNAL_IP="$(ip -4 route get 8.8.8.8 | sed -n 's/.* src \([0-9.]*\).*/\1/p' | head -n1)"
+              fi
+              if [ -z "${IP:-}" ] || [ -z "${INTERNAL_IP:-}" ]; then
+                echo "Unable to determine MTProxy NAT addresses" >&2
+                exit 3
+              fi
+
+              proxy_args=(
+                /bin/mtproto-proxy
+                -u root
+                -p "${INTERNAL_PORT:-2398}"
+                -H "${PORT:-443}"
+                -M "${WORKERS:-1}"
+                -C 60000
+                --aes-pwd /data/proxy.secret
+                --allow-skip-dh
+                --nat-info "${INTERNAL_IP}:${IP}"
+                -S "${secret}"
+              )
+              if [ -n "${ARGS:-}" ]; then
+                read -r -a extra_args <<< "${ARGS}"
+                proxy_args+=("${extra_args[@]}")
+              fi
+
+              echo "Starting pinned official MTProxy runtime"
+              exec "${proxy_args[@]}" /data/proxy.conf
           env:
             - name: SECRET_FILE
               value: /data/secret
@@ -1435,6 +1532,29 @@ spec:
 {{- with (index $roleContainerResources "mtprotoOfficial") }}
           resources:
             {{- toYaml . | nindent 12 }}
+{{- end }}
+{{- if $.Values.gateway.probes.enabled }}
+          startupProbe:
+            tcpSocket:
+              host: 127.0.0.1
+              port: {{ $mtprotoOfficialBackendPort }}
+            periodSeconds: {{ int $.Values.gateway.probes.startup.periodSeconds }}
+            failureThreshold: {{ int $.Values.gateway.probes.startup.failureThreshold }}
+            timeoutSeconds: {{ int $.Values.gateway.probes.startup.timeoutSeconds }}
+          readinessProbe:
+            tcpSocket:
+              host: 127.0.0.1
+              port: {{ $mtprotoOfficialBackendPort }}
+            periodSeconds: {{ int $.Values.gateway.probes.readiness.periodSeconds }}
+            failureThreshold: {{ int $.Values.gateway.probes.readiness.failureThreshold }}
+            timeoutSeconds: {{ int $.Values.gateway.probes.readiness.timeoutSeconds }}
+          livenessProbe:
+            tcpSocket:
+              host: 127.0.0.1
+              port: {{ $mtprotoOfficialBackendPort }}
+            periodSeconds: {{ int $.Values.gateway.probes.liveness.periodSeconds }}
+            failureThreshold: {{ int $.Values.gateway.probes.liveness.failureThreshold }}
+            timeoutSeconds: {{ int $.Values.gateway.probes.liveness.timeoutSeconds }}
 {{- end }}
           volumeMounts:
             - name: mtproxy-work

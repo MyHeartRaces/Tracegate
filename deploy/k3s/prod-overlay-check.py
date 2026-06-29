@@ -342,7 +342,14 @@ def validate_prod_overlay(chart_values: Path, prod_values: Path, *, strict: bool
     )
     enabled_gateway_images = {"haproxy", "nginx", "xray", "hysteria", "singbox"}
     if bool(mtproto_for_images.get("enabled", False)):
-        enabled_gateway_images.add("mtproto")
+        mtproto_runtime = _text(mtproto_for_images.get("runtime")).lower() or "mtg"
+        mtproto_fallback_enabled = bool(_as_dict(mtproto_for_images.get("fallback")).get("enabled", False))
+        if mtproto_runtime == "official":
+            enabled_gateway_images.add("mtprotoOfficial")
+        else:
+            enabled_gateway_images.add("mtproto")
+        if mtproto_fallback_enabled:
+            enabled_gateway_images.update({"mtproto", "mtprotoOfficial"})
     if link_crypto_image_enabled and bool(_as_dict(entry_transit_for_images.get("outerCarrier")).get("enabled", False)):
         enabled_gateway_images.add("wstunnel")
     if bool(zapret2_for_images.get("enabled", False)):

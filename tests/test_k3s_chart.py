@@ -826,6 +826,44 @@ def test_k3s_strict_prod_overlay_check_accepts_official_entry_endpoint_mtproto_w
     assert "prod-overlay-check: OK" in result.stdout
 
 
+def test_k3s_strict_prod_overlay_check_rejects_mutable_official_mtproto_image(tmp_path: Path) -> None:
+    values = _entry_endpoint_overlay_values()
+    values["mtproto"].update(
+        {
+            "runtime": "official",
+            "transport": "random_padding",
+            "tlsDomain": "",
+            "fallback": {"enabled": False},
+        }
+    )
+    values["gateway"]["images"]["mtprotoOfficial"] = {
+        "repository": "mtproxy/mtproxy",
+        "tag": "latest",
+        "digest": "",
+    }
+    values_path = tmp_path / "values-entry-endpoint-official-latest.yaml"
+    values_path.write_text(yaml.safe_dump(values, sort_keys=True), encoding="utf-8")
+
+    result = subprocess.run(
+        [
+            "python3",
+            "deploy/k3s/prod-overlay-check.py",
+            "--strict",
+            "--chart-values",
+            str(CHART_ROOT / "values.yaml"),
+            "--values",
+            str(values_path),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode != 0
+    assert "gateway.images.mtprotoOfficial" in result.stderr
+    assert "pinned tag or digest" in result.stderr
+
+
 def test_k3s_strict_prod_overlay_check_accepts_universal_entry_overlay(tmp_path: Path) -> None:
     values_path = tmp_path / "values-universal-entry.yaml"
     values_path.write_text(yaml.safe_dump(_universal_entry_overlay_values(), sort_keys=True), encoding="utf-8")
@@ -2230,6 +2268,7 @@ def test_tracegate21_chart_declares_lab_only_v8_v9_surfaces() -> None:
     assert values["gateway"]["images"]["mtproto"]["repository"] == "nineseconds/mtg"
     assert values["gateway"]["images"]["mtproto"]["digest"].startswith("sha256:")
     assert values["gateway"]["images"]["mtprotoOfficial"]["repository"] == "mtproxy/mtproxy"
+    assert values["gateway"]["images"]["mtprotoOfficial"]["digest"].startswith("sha256:")
     assert "experimentalProfiles:" in text
     assert "shadowsocks2022-direct-lab" not in gateways
     assert "restls-direct-lab" in gateways
@@ -2671,8 +2710,10 @@ def test_tracegate21_gateway_probes_are_local_only() -> None:
     assert "host: 127.0.0.1" in gateways
     assert "port: reality" in gateways
     assert "http://example" not in gateways
-    assert "curl " not in gateways
-    assert "wget " not in gateways
+    # Runtime bootstrap may download upstream-owned control files, but kubelet
+    # probes themselves stay local tcpSocket/file checks.
+    assert "curl -f http://example" not in gateways
+    assert "wget -q http://example" not in gateways
 
 
 def test_tracegate21_templates_include_grpc_mtproto_and_shadowsocks2022_surfaces() -> None:
@@ -2951,9 +2992,21 @@ def test_mtproto_entry_endpoint_tunnel_routes_official_proxy_without_sni(tmp_pat
     endpoint_containers = _containers_by_name(endpoint["spec"]["template"])
     assert "mtproto" not in endpoint_containers
     assert "mtproto-official" in endpoint_containers
-    assert _env_value(endpoint_containers["mtproto-official"], "IP") == "198.51.100.20"
-    assert _env_value(endpoint_containers["mtproto-official"], "INTERNAL_IP") == "198.51.100.20"
-    assert all(row["name"] != "ARGS" for row in endpoint_containers["mtproto-official"]["env"])
+    official = endpoint_containers["mtproto-official"]
+    assert official["image"].startswith("mtproxy/mtproxy@sha256:")
+    assert official["command"] == ["/bin/bash", "-ec"]
+    official_runner = official["args"][0]
+    assert "exec \"${proxy_args[@]}\" /data/proxy.conf" in official_runner
+    assert "getProxySecret" in official_runner
+    assert "getProxyConfig" in official_runner
+    assert "tg://proxy" not in official_runner
+    assert "t.me/proxy" not in official_runner
+    assert "echo \"${secret}\"" not in official_runner
+    assert _env_value(official, "IP") == "198.51.100.20"
+    assert _env_value(official, "INTERNAL_IP") == "198.51.100.20"
+    assert all(row["name"] != "ARGS" for row in official["env"])
+    for probe_name in ("startupProbe", "readinessProbe", "livenessProbe"):
+        assert official[probe_name]["tcpSocket"] == {"host": "127.0.0.1", "port": 9444}
     assert _env_value(endpoint_containers["agent"], "PRIVATE_MTPROTO_UPSTREAM_PORT") == "9444"
     assert _env_value(api_container, "MTPROTO_DOMAIN") == "entry.prod.test"
     assert _env_value(api_container, "MTPROTO_TLS_DOMAIN") == ""
