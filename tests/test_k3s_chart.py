@@ -2716,6 +2716,25 @@ def test_tracegate21_gateway_probes_are_local_only() -> None:
     assert "wget -q http://example" not in gateways
 
 
+def test_mtg_loopback_listener_does_not_render_node_local_tcp_probe(tmp_path: Path) -> None:
+    values = _values()
+    values["mtproto"]["enabled"] = True
+    values["mtproto"]["runtime"] = "mtg"
+
+    rendered = _helm_template_with_values(tmp_path, values)
+
+    assert rendered.returncode == 0, rendered.stderr
+    deployments = [doc for doc in _helm_docs(rendered.stdout) if doc.get("kind") == "Deployment"]
+    mtg = next(
+        containers["mtproto"]
+        for deployment in deployments
+        if "mtproto" in (containers := _containers_by_name(deployment["spec"]["template"]))
+    )
+    assert "startupProbe" not in mtg
+    assert "readinessProbe" not in mtg
+    assert "livenessProbe" not in mtg
+
+
 def test_tracegate21_templates_include_grpc_mtproto_and_shadowsocks2022_surfaces() -> None:
     text = _chart_text()
 
@@ -3015,7 +3034,11 @@ def test_mtproto_entry_endpoint_tunnel_routes_official_proxy_without_sni(tmp_pat
     } in official["volumeMounts"]
     assert all(row["name"] != "ARGS" for row in official["env"])
     for probe_name in ("startupProbe", "readinessProbe", "livenessProbe"):
-        assert official[probe_name]["tcpSocket"] == {"host": "127.0.0.1", "port": 9444}
+        assert official[probe_name]["exec"]["command"] == [
+            "/bin/bash",
+            "-ec",
+            'exec 3<>"/dev/tcp/127.0.0.1/${PORT:-9444}"',
+        ]
     assert _env_value(endpoint_containers["agent"], "PRIVATE_MTPROTO_UPSTREAM_PORT") == "9444"
     assert _env_value(api_container, "MTPROTO_DOMAIN") == "entry.prod.test"
     assert _env_value(api_container, "MTPROTO_TLS_DOMAIN") == ""

@@ -1403,29 +1403,6 @@ spec:
           resources:
             {{- toYaml . | nindent 12 }}
 {{- end }}
-{{- if $.Values.gateway.probes.enabled }}
-          startupProbe:
-            tcpSocket:
-              host: 127.0.0.1
-              port: {{ int $.Values.mtproto.backendPort }}
-            periodSeconds: {{ int $.Values.gateway.probes.startup.periodSeconds }}
-            failureThreshold: {{ int $.Values.gateway.probes.startup.failureThreshold }}
-            timeoutSeconds: {{ int $.Values.gateway.probes.startup.timeoutSeconds }}
-          readinessProbe:
-            tcpSocket:
-              host: 127.0.0.1
-              port: {{ int $.Values.mtproto.backendPort }}
-            periodSeconds: {{ int $.Values.gateway.probes.readiness.periodSeconds }}
-            failureThreshold: {{ int $.Values.gateway.probes.readiness.failureThreshold }}
-            timeoutSeconds: {{ int $.Values.gateway.probes.readiness.timeoutSeconds }}
-          livenessProbe:
-            tcpSocket:
-              host: 127.0.0.1
-              port: {{ int $.Values.mtproto.backendPort }}
-            periodSeconds: {{ int $.Values.gateway.probes.liveness.periodSeconds }}
-            failureThreshold: {{ int $.Values.gateway.probes.liveness.failureThreshold }}
-            timeoutSeconds: {{ int $.Values.gateway.probes.liveness.timeoutSeconds }}
-{{- end }}
           volumeMounts:
             - name: private-profiles
               mountPath: {{ $.Values.privateProfiles.mountPath }}
@@ -1545,23 +1522,29 @@ spec:
 {{- end }}
 {{- if $.Values.gateway.probes.enabled }}
           startupProbe:
-            tcpSocket:
-              host: 127.0.0.1
-              port: {{ $mtprotoOfficialBackendPort }}
+            exec:
+              command:
+                - /bin/bash
+                - -ec
+                - 'exec 3<>"/dev/tcp/127.0.0.1/${PORT:-{{ $mtprotoOfficialBackendPort }}}"'
             periodSeconds: {{ int $.Values.gateway.probes.startup.periodSeconds }}
             failureThreshold: {{ int $.Values.gateway.probes.startup.failureThreshold }}
             timeoutSeconds: {{ int $.Values.gateway.probes.startup.timeoutSeconds }}
           readinessProbe:
-            tcpSocket:
-              host: 127.0.0.1
-              port: {{ $mtprotoOfficialBackendPort }}
+            exec:
+              command:
+                - /bin/bash
+                - -ec
+                - 'exec 3<>"/dev/tcp/127.0.0.1/${PORT:-{{ $mtprotoOfficialBackendPort }}}"'
             periodSeconds: {{ int $.Values.gateway.probes.readiness.periodSeconds }}
             failureThreshold: {{ int $.Values.gateway.probes.readiness.failureThreshold }}
             timeoutSeconds: {{ int $.Values.gateway.probes.readiness.timeoutSeconds }}
           livenessProbe:
-            tcpSocket:
-              host: 127.0.0.1
-              port: {{ $mtprotoOfficialBackendPort }}
+            exec:
+              command:
+                - /bin/bash
+                - -ec
+                - 'exec 3<>"/dev/tcp/127.0.0.1/${PORT:-{{ $mtprotoOfficialBackendPort }}}"'
             periodSeconds: {{ int $.Values.gateway.probes.liveness.periodSeconds }}
             failureThreshold: {{ int $.Values.gateway.probes.liveness.failureThreshold }}
             timeoutSeconds: {{ int $.Values.gateway.probes.liveness.timeoutSeconds }}

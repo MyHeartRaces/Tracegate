@@ -74,8 +74,10 @@ for a `tg://proxy` link.
   outage must not prevent a replacement pod from using its last known-good
   public runtime metadata. Keep the client/server access secret only in the
   Kubernetes Secret-backed `emptyDir`, not in this cache.
-- Require startup, readiness and liveness TCP probes on the loopback MTProxy
-  backend. HAProxy being alive is not proof that MTProxy is alive.
+- Require startup, readiness and liveness probes executed inside the official
+  MTProxy container against its loopback backend. A kubelet `tcpSocket` with
+  `host: 127.0.0.1` tests the node namespace and is forbidden; HAProxy or a
+  node-local listener being alive is not proof that this MTProxy is alive.
 - Keep the Entry-to-Endpoint source ACL and exempt the trusted Entry address
   from Endpoint per-source abuse limits.
 - Classify non-TLS traffic after the first two bytes so raw MTProto does not
