@@ -81,6 +81,8 @@ def test_issue_mtproto_access_profile_persists_user_bound_secret(tmp_path) -> No
     assert len(next_entries) == 1
     assert next_entries[0]["telegramId"] == 123456
     assert next_entries[0]["secretHex"]
+    assert access_state_path.stat().st_mode & 0o777 == 0o600
+    assert access_state_path.with_suffix(".json.lock").stat().st_mode & 0o777 == 0o600
 
 
 def test_issue_mtproto_access_profile_keeps_direct_mtproxy_secret_without_tls_domain(tmp_path) -> None:

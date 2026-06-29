@@ -2816,7 +2816,7 @@ def test_tracegate21_gateway_probes_are_local_only() -> None:
     assert "path: /v1/health" in gateways
     assert "port: agent" in gateways
     assert "tcpSocket:" in gateways
-    assert "port: https" in gateways
+    assert 'command: ["sh", "-lc", "kill -0 1"]' in gateways
     assert "test -s /usr/local/etc/haproxy/haproxy.cfg" in gateways
     assert "test -s /etc/nginx/nginx.conf" in gateways
     assert "host: 127.0.0.1" in gateways
@@ -3895,6 +3895,10 @@ def test_tracegate22_universal_entry_routes_all_entry_traffic_through_dual_trans
     assert backhaul_client["congestion"] == {"type": "bbr", "bbrProfile": "conservative"}
     assert backhaul_client["socks5"] == {"listen": "127.0.0.1:11086", "disableUDP": False}
     assert "hysteria-backhaul-client" in entry_containers
+    backhaul_runtime = entry_containers["hysteria-backhaul-client"]
+    assert backhaul_runtime["command"] == ["sh", "-lc"]
+    assert "retrying in ${delay}s" in backhaul_runtime["args"][0]
+    assert backhaul_runtime["readinessProbe"]["tcpSocket"] == {"host": "127.0.0.1", "port": 11086}
     assert {row["tag"] for row in endpoint_xray["inbounds"] if str(row.get("tag", "")).startswith("chain-bridge-")} == {
         "chain-bridge-mail-in",
         "chain-bridge-2gis_reviews-in",
@@ -3906,6 +3910,17 @@ def test_tracegate22_universal_entry_routes_all_entry_traffic_through_dual_trans
     )
     endpoint_hysteria_server = yaml.safe_load(endpoint_hysteria["server.yaml"])
     assert endpoint_hysteria_server["sniff"]["enable"] is False
+    assert endpoint_hysteria_server["outbounds"] == [
+        {"name": "direct-v4", "type": "direct", "direct": {"mode": 4}}
+    ]
+    assert next(row for row in entry_xray["outbounds"] if row["tag"] == "direct")["settings"] == {
+        "domainStrategy": "ForceIPv4"
+    }
+    assert next(row for row in endpoint_xray["outbounds"] if row["tag"] == "direct")["settings"] == {
+        "domainStrategy": "ForceIPv4"
+    }
+    assert any(rule.get("ip") == ["::/0"] and rule.get("outboundTag") == "block" for rule in entry_xray["routing"]["rules"])
+    assert any(rule.get("ip") == ["::/0"] and rule.get("outboundTag") == "block" for rule in endpoint_xray["routing"]["rules"])
     assert "use_backend be_chain_bridge_mail if chain_bridge_mail_sni chain_bridge_mail_src" in endpoint_haproxy
     assert (
         "use_backend be_chain_bridge_2gis_reviews if chain_bridge_2gis_reviews_sni chain_bridge_2gis_reviews_src"
@@ -4447,7 +4462,7 @@ def test_new_production_examples_render_as_pod_only_runtime(tmp_path: Path, valu
     if phase == "endpoint-first":
         endpoint = _gateway_deployment_templates(rendered.stdout)["gateway-endpoint"]
         haproxy = _containers_by_name(endpoint)["haproxy"]
-        assert haproxy["readinessProbe"]["tcpSocket"]["host"] == "198.51.100.21"
+        assert haproxy["readinessProbe"]["exec"]["command"] == ["sh", "-lc", "kill -0 1"]
 
 
 def test_new_production_values_adapter_rejects_removed_surfaces(tmp_path: Path) -> None:

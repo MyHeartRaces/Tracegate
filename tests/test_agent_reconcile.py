@@ -1134,6 +1134,9 @@ def test_reconcile_materializes_private_runtime_handoff_surfaces_for_transit(tmp
     assert "tracegate_shared" not in mtproto_config
     issued = json.loads((private_root / "mtproto" / "issued.json").read_text(encoding="utf-8"))
     assert issued == {"version": 1, "entries": []}
+    assert (private_root / "mtproto" / "public-profile.json").stat().st_mode & 0o777 == 0o600
+    assert (private_root / "mtproto" / "issued.json").stat().st_mode & 0o777 == 0o600
+    assert (private_root / "mtproto" / "runtime" / "config.toml").stat().st_mode & 0o777 == 0o600
 
 
 def test_reconcile_preserves_existing_mtproto_issued_state(tmp_path: Path) -> None:
@@ -1288,6 +1291,8 @@ def test_reconcile_materializes_official_mtproto_without_tls_domain(tmp_path: Pa
     assert public_profile["tlsDomain"] == ""
     assert public_profile["clientSecretHex"].startswith("dd")
     assert "secret=dd" in public_profile["httpsUrl"]
+    assert (private_root / "mtproto" / "public-profile.json").stat().st_mode & 0o777 == 0o600
+    assert (private_root / "mtproto" / "issued.json").stat().st_mode & 0o777 == 0o600
 
 
 def test_reconcile_emits_obfuscation_change_only_when_reload_hook_is_configured(tmp_path: Path) -> None:

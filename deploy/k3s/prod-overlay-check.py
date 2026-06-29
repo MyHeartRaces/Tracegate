@@ -671,6 +671,10 @@ def validate_prod_overlay(chart_values: Path, prod_values: Path, *, strict: bool
             _as_int(ports.get("publicUdp")) == 443,
             f"gateway.roles.{role_name}.ports.publicUdp must stay 443 for Tracegate 3 Hysteria2",
         )
+    require(
+        [_text(value) for value in _as_list(env.get("wireguardAllowedIps")) if _text(value)] == ["0.0.0.0/0"],
+        "production WireGuard client routes must stay IPv4-only",
+    )
     profiles_reload = _text(reload_commands.get("profiles"))
     link_crypto_reload = _text(reload_commands.get("linkCrypto"))
     require(

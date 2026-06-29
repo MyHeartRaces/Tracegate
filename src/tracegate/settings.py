@@ -559,7 +559,7 @@ class Settings(BaseSettings):
     )
     wireguard_dns: str = Field(default="1.1.1.1", validation_alias=AliasChoices("WIREGUARD_DNS", "WG_DNS"))
     wireguard_allowed_ips: list[str] = Field(
-        default_factory=lambda: ["0.0.0.0/0", "::/0"],
+        default_factory=lambda: ["0.0.0.0/0"],
         validation_alias=AliasChoices("WIREGUARD_ALLOWED_IPS", "WG_ALLOWED_IPS"),
     )
     wireguard_mtu: int = Field(default=1280, validation_alias=AliasChoices("WIREGUARD_MTU", "WG_MTU"))

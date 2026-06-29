@@ -54,6 +54,7 @@ data:
       serviceFacingPublicIp: {{ .Values.architecture.endpointIngress.serviceFacing.publicIp | quote }}
       shardCount: {{ len (.Values.architecture.endpointIngress.shards | default (list)) }}
     network:
+      ipv6Outbound: disabled
       topology:
         servers:
 {{- if eq $architectureMode "entry-endpoint" }}
@@ -1301,12 +1302,17 @@ data:
     trafficStats:
       listen: 127.0.0.1:9999
       secret: REPLACE_HYSTERIA_STATS_SECRET
-{{- if and $roleIsEntry $chainBridge.enabled }}
     outbounds:
+{{- if and $roleIsEntry $chainBridge.enabled }}
       - name: chain-via-transit
         type: socks5
         socks5:
           addr: 127.0.0.1:{{ int $chainBridge.socksPort }}
+{{- else }}
+      - name: direct-v4
+        type: direct
+        direct:
+          mode: 4
 {{- end }}
     quic:
       maxIdleTimeout: {{ dig "quic" "maxIdleTimeout" "2m" $.Values.gateway.hysteria }}
@@ -1661,7 +1667,7 @@ data:
         },
 {{- end }}
 {{- end }}
-        {"tag": "direct", "protocol": "freedom", "settings": {"domainStrategy": "UseIPv4"}},
+        {"tag": "direct", "protocol": "freedom", "settings": {"domainStrategy": "ForceIPv4"}},
         {"tag": "api", "protocol": "freedom", "settings": {"domainStrategy": "UseIPv4"}},
         {"tag": "block", "protocol": "blackhole"}
       ],
@@ -1681,6 +1687,7 @@ data:
 {{- end }}
         "rules": [
           {"type": "field", "inboundTag": ["api"], "outboundTag": "api"},
+          {"type": "field", "ip": ["::/0"], "outboundTag": "block"},
 {{- if and $roleIsEntry $mtprotoEntryTunnelEnabled }}
 {{- if and $endpointBackhaulEnabled (gt (len $chainBridgeShards) 0) }}
           {"type": "field", "inboundTag": ["mtproto-entry-tunnel-in"], "balancerTag": "endpoint-backhaul"},

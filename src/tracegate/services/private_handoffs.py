@@ -57,7 +57,14 @@ def _write_text_if_changed(path: Path, content: str) -> bool:
 
 
 def _write_secret_text_if_changed(path: Path, content: str) -> bool:
-    changed = _write_text_if_changed(path, content)
+    changed = False
+    if _read_text(path) != content:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(path.suffix + ".tmp")
+        tmp.write_text(content, encoding="utf-8")
+        tmp.chmod(0o600)
+        tmp.replace(path)
+        changed = True
     try:
         current_mode = path.stat().st_mode & 0o777
     except FileNotFoundError:
@@ -1485,7 +1492,15 @@ def _write_mtproto_state(
     changed = False
     changed = _write_text_if_changed(state_dir / "last-action.json", _json_text(payload)) or changed
     if not issued_state_file.exists():
-        changed = _write_text_if_changed(issued_state_file, _json_text({"version": 1, "entries": []})) or changed
+        changed = _write_secret_text_if_changed(
+            issued_state_file,
+            _json_text({"version": 1, "entries": []}),
+        ) or changed
+    else:
+        changed = _write_secret_text_if_changed(
+            issued_state_file,
+            issued_state_file.read_text(encoding="utf-8"),
+        ) or changed
 
     secret_file = Path(str(settings.private_mtproto_secret_file or "").strip() or "/etc/tracegate/private/mtproto/secret.txt")
     profile_path = Path(effective_mtproto_public_profile_file(settings))
@@ -1558,9 +1573,9 @@ def _write_mtproto_state(
                     for port in public_ports
                 ],
             }
-            changed = _write_text_if_changed(profile_path, _json_text(profile_payload)) or changed
+            changed = _write_secret_text_if_changed(profile_path, _json_text(profile_payload)) or changed
             if mtproto_runtime == "mtg" and mtg_config is not None:
-                changed = _write_text_if_changed(mtproto_config_file, mtg_config.config_text) or changed
+                changed = _write_secret_text_if_changed(mtproto_config_file, mtg_config.config_text) or changed
             else:
                 changed = _remove_if_exists(mtproto_config_file) or changed
     else:

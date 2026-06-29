@@ -948,11 +948,8 @@ spec:
             failureThreshold: {{ int $.Values.gateway.probes.startup.failureThreshold }}
             timeoutSeconds: {{ int $.Values.gateway.probes.startup.timeoutSeconds }}
           readinessProbe:
-            tcpSocket:
-{{- if $roleHaproxyReadinessHost }}
-              host: {{ $roleHaproxyReadinessHost | quote }}
-{{- end }}
-              port: https
+            exec:
+              command: ["sh", "-lc", "kill -0 1"]
             periodSeconds: {{ int $.Values.gateway.probes.readiness.periodSeconds }}
             failureThreshold: {{ int $.Values.gateway.probes.readiness.failureThreshold }}
             timeoutSeconds: {{ int $.Values.gateway.probes.readiness.timeoutSeconds }}
@@ -1076,8 +1073,9 @@ spec:
             failureThreshold: {{ int $.Values.gateway.probes.startup.failureThreshold }}
             timeoutSeconds: {{ int $.Values.gateway.probes.startup.timeoutSeconds }}
           readinessProbe:
-            exec:
-              command: ["sh", "-lc", "test -s /etc/hysteria/server.yaml"]
+            tcpSocket:
+              host: 127.0.0.1
+              port: 9999
             periodSeconds: {{ int $.Values.gateway.probes.readiness.periodSeconds }}
             failureThreshold: {{ int $.Values.gateway.probes.readiness.failureThreshold }}
             timeoutSeconds: {{ int $.Values.gateway.probes.readiness.timeoutSeconds }}
@@ -1102,7 +1100,34 @@ spec:
         - name: hysteria-backhaul-client
           image: {{ include "tracegate.image" $.Values.gateway.images.hysteria | quote }}
           imagePullPolicy: {{ $.Values.gateway.images.hysteria.pullPolicy }}
-          command: ["hysteria", "client", "-c", "/etc/hysteria/backhaul-client.yaml"]
+          command: ["sh", "-lc"]
+          args:
+            - |
+              delay=1
+              child_pid=""
+              terminate() {
+                if [ -n "${child_pid}" ]; then
+                  kill "${child_pid}" 2>/dev/null || true
+                  wait "${child_pid}" 2>/dev/null || true
+                fi
+                exit 143
+              }
+              trap terminate TERM INT
+              while :; do
+                hysteria client -c /etc/hysteria/backhaul-client.yaml &
+                child_pid="$!"
+                wait "${child_pid}"
+                code="$?"
+                child_pid=""
+                echo "Hysteria backhaul exited with code ${code}; retrying in ${delay}s" >&2
+                sleep "${delay}"
+                if [ "${delay}" -lt 10 ]; then
+                  delay=$((delay * 2))
+                  if [ "${delay}" -gt 10 ]; then
+                    delay=10
+                  fi
+                fi
+              done
 {{- with (index $roleContainerResources "hysteria") }}
           resources:
             {{- toYaml . | nindent 12 }}

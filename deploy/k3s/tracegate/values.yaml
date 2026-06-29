@@ -242,7 +242,6 @@ controlPlane:
     wireguardDns: "1.1.1.1"
     wireguardAllowedIps:
       - "0.0.0.0/0"
-      - "::/0"
     wireguardMtu: 1280
     vlessWsPath: /ws
     vlessGrpcServiceName: tracegate.v1.Edge

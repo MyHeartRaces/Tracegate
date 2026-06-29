@@ -19,6 +19,7 @@ build/
 local-notes/
 to-do.txt
 docs/client-configs/
+docs/future-hardening.adoc
 
 # Local disk encryption material. Keep these files on the operator machine only.
 .tracegate-secrets/

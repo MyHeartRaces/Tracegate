@@ -296,7 +296,7 @@ spec:
             - name: WIREGUARD_DNS
               value: {{ .Values.controlPlane.env.wireguardDns | quote }}
             - name: WIREGUARD_ALLOWED_IPS
-              value: {{ toJson (.Values.controlPlane.env.wireguardAllowedIps | default (list "0.0.0.0/0" "::/0")) | quote }}
+              value: {{ toJson (.Values.controlPlane.env.wireguardAllowedIps | default (list "0.0.0.0/0")) | quote }}
             - name: WIREGUARD_MTU
               value: {{ int .Values.controlPlane.env.wireguardMtu | quote }}
             - name: WIREGUARD_WSTUNNEL_PATH
@@ -506,7 +506,7 @@ spec:
             - name: WIREGUARD_DNS
               value: {{ $.Values.controlPlane.env.wireguardDns | quote }}
             - name: WIREGUARD_ALLOWED_IPS
-              value: {{ toJson ($.Values.controlPlane.env.wireguardAllowedIps | default (list "0.0.0.0/0" "::/0")) | quote }}
+              value: {{ toJson ($.Values.controlPlane.env.wireguardAllowedIps | default (list "0.0.0.0/0")) | quote }}
             - name: WIREGUARD_MTU
               value: {{ int $.Values.controlPlane.env.wireguardMtu | quote }}
             - name: WIREGUARD_WSTUNNEL_PATH

@@ -172,6 +172,7 @@ def _locked_state(settings: Settings) -> Iterator[Path]:
     path.parent.mkdir(parents=True, exist_ok=True)
     lock_path = _lock_path(path)
     with lock_path.open("a+", encoding="utf-8") as handle:
+        lock_path.chmod(0o600)
         fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
         try:
             yield path
@@ -205,7 +206,9 @@ def _write_entries(path: Path, entries: list[dict[str, Any]]) -> None:
     payload = {"version": 1, "entries": sorted(entries, key=_entry_sort_key)}
     tmp = path.with_suffix(path.suffix + ".tmp")
     tmp.write_text(json.dumps(payload, ensure_ascii=True, indent=2) + "\n", encoding="utf-8")
+    tmp.chmod(0o600)
     tmp.replace(path)
+    path.chmod(0o600)
 
 
 def load_mtproto_access_entries(settings: Settings) -> list[dict[str, Any]]:

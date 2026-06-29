@@ -84,7 +84,7 @@ class EndpointSet:
     wireguard_server_public_key: str = ""
     wireguard_client_address: str = ""
     wireguard_dns: str = "1.1.1.1"
-    wireguard_allowed_ips: tuple[str, ...] = ("0.0.0.0/0", "::/0")
+    wireguard_allowed_ips: tuple[str, ...] = ("0.0.0.0/0",)
     wireguard_mtu: int = 1280
     wstunnel_path: str = "/wgws"
 
@@ -885,7 +885,7 @@ def build_effective_config(
             else [str(allowed_ips_raw).strip()]
         )
         if not allowed_ips or allowed_ips == [""]:
-            allowed_ips = ["0.0.0.0/0", "::/0"]
+            allowed_ips = ["0.0.0.0/0"]
         wstunnel_path = _normalize_http_path(
             overrides.get("wstunnel_path") or endpoints.wstunnel_path,
             field_name="wstunnel.path",
