@@ -66,7 +66,7 @@ where = ["src"]
 "tracegate.staticdata" = ["*.yaml"]
 
 [tool.pytest.ini_options]
-pythonpath = ["src"]
+pythonpath = ["src", "."]
 asyncio_mode = "auto"
 
 [tool.ruff]
