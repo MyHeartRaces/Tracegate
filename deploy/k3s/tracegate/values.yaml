@@ -101,6 +101,27 @@ architecture:
       publicIp: ""
       hostname: ""
     shards: []
+    # Optional direct Endpoint fallback behind a normal Cloudflare proxied DNS
+    # record. The record must target the selected client shard, never the
+    # service/egress address, which intentionally has no public listener.
+    cdnFallback:
+      enabled: false
+      publicHost: ""
+      provider: cloudflare
+      transport: grpc-tls-h2
+      originShardId: ""
+      originFirewall:
+        required: true
+        denyDirectAccess: true
+        allowedSourceCidrs: []
+      clientPolicy:
+        maxParallelHandshakes: 1
+        reconnectBaseSeconds: 5
+        reconnectMaxSeconds: 120
+        jitter: true
+      serverPolicy:
+        grpcReadTimeout: 1h
+        grpcSendTimeout: 1h
     alias:
       tokenLength: 20
     exclusiveSniPairs:

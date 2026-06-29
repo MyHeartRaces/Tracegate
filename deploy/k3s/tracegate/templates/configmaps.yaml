@@ -636,6 +636,29 @@ data:
 {{- end }}
 {{- $universalGrpcReadTimeout := toString (dig "serverPolicy" "grpcReadTimeout" "1h" $universalEntry) }}
 {{- $universalGrpcSendTimeout := toString (dig "serverPolicy" "grpcSendTimeout" "1h" $universalEntry) }}
+{{- $endpointCdnFallback := dig "cdnFallback" (dict) $endpointIngress }}
+{{- $endpointCdnFallbackEnabled := and $roleIsEndpoint ($endpointCdnFallback.enabled | default false) }}
+{{- $endpointCdnFallbackHost := lower (trimSuffix "." (trim (toString ($endpointCdnFallback.publicHost | default "")))) }}
+{{- $endpointCdnFallbackShardId := trim (toString ($endpointCdnFallback.originShardId | default "")) }}
+{{- $endpointCdnFallbackOriginIp := "" }}
+{{- range $shard := ($endpointIngress.shards | default (list)) }}
+{{- if eq (toString ($shard.id | default "")) $endpointCdnFallbackShardId }}
+{{- $endpointCdnFallbackOriginIp = trim (toString ($shard.publicIp | default "")) }}
+{{- end }}
+{{- end }}
+{{- $endpointCdnFallbackAllowedSources := list }}
+{{- range $cidr := (dig "originFirewall" "allowedSourceCidrs" (list) $endpointCdnFallback) }}
+{{- $endpointCdnFallbackAllowedSources = append $endpointCdnFallbackAllowedSources $cidr }}
+{{- end }}
+{{- $roleGrpcReadTimeout := "5m" }}
+{{- $roleGrpcSendTimeout := "5m" }}
+{{- if $universalEntryEnabled }}
+{{- $roleGrpcReadTimeout = $universalGrpcReadTimeout }}
+{{- $roleGrpcSendTimeout = $universalGrpcSendTimeout }}
+{{- else if $endpointCdnFallbackEnabled }}
+{{- $roleGrpcReadTimeout = toString (dig "serverPolicy" "grpcReadTimeout" "1h" $endpointCdnFallback) }}
+{{- $roleGrpcSendTimeout = toString (dig "serverPolicy" "grpcSendTimeout" "1h" $endpointCdnFallback) }}
+{{- end }}
 {{- $entryIngressEnabled := $roleIngress.enabled | default false }}
 {{- $entryIngressShards := $roleIngress.shards | default (list) }}
 {{- $entryIngressTcp := dig "channel" "tcp" (dict) $roleIngress }}
@@ -661,7 +684,9 @@ data:
 {{- if $bindHost }}{{- $entryIngressLocalTrustedSources = append $entryIngressLocalTrustedSources $bindHost }}{{- end }}
 {{- end }}
 {{- $entryIngressLocalTrustedSources = uniq $entryIngressLocalTrustedSources }}
-{{- $endpointTrustedProxySources := uniq (concat $entryIngressLocalTrustedSources $mtprotoEndpointAllowedSources) }}
+{{- $endpointCdnFallbackTrustedSources := uniq (concat $entryIngressLocalTrustedSources $endpointCdnFallbackAllowedSources) }}
+{{- $endpointTrustedProxySources := uniq (concat $entryIngressLocalTrustedSources $mtprotoEndpointAllowedSources $endpointCdnFallbackAllowedSources) }}
+{{- $endpointTrustedProxyEnabled := or $mtprotoEndpointSourceRestricted $endpointCdnFallbackEnabled }}
 {{- $entryIngressInspectDelay := toString (dig "inspectDelay" "5s" $entryIngressTcp) }}
 {{- $entryIngressConnectTimeout := toString (dig "connectTimeout" "5s" $entryIngressTcp) }}
 {{- $entryIngressClientTimeout := toString (dig "clientTimeout" "5m" $entryIngressTcp) }}
@@ -719,13 +744,13 @@ data:
       bind :{{ $mtprotoPublicPort }}
 {{- end }}
 {{- if $entryIngressEnabled }}
-{{- if $mtprotoEndpointSourceRestricted }}
+{{- if $endpointTrustedProxyEnabled }}
       acl endpoint_trusted_proxy_src src {{ join " " $endpointTrustedProxySources }}
 {{- end }}
       stick-table type ip size 1m expire 30s store conn_cur,conn_rate(10s)
-      tcp-request connection track-sc0 src{{ if $mtprotoEndpointSourceRestricted }} unless endpoint_trusted_proxy_src{{ end }}
-      tcp-request connection reject if { sc_conn_cur(0) gt {{ $entryIngressMaxConnectionsPerSource }} }{{ if $mtprotoEndpointSourceRestricted }} !endpoint_trusted_proxy_src{{ end }}
-      tcp-request connection reject if { sc_conn_rate(0) gt {{ $entryIngressNewConnectionsPer10Seconds }} }{{ if $mtprotoEndpointSourceRestricted }} !endpoint_trusted_proxy_src{{ end }}
+      tcp-request connection track-sc0 src{{ if $endpointTrustedProxyEnabled }} unless endpoint_trusted_proxy_src{{ end }}
+      tcp-request connection reject if { sc_conn_cur(0) gt {{ $entryIngressMaxConnectionsPerSource }} }{{ if $endpointTrustedProxyEnabled }} !endpoint_trusted_proxy_src{{ end }}
+      tcp-request connection reject if { sc_conn_rate(0) gt {{ $entryIngressNewConnectionsPer10Seconds }} }{{ if $endpointTrustedProxyEnabled }} !endpoint_trusted_proxy_src{{ end }}
 {{- end }}
 {{- if $mtprotoEndpointSourceRestricted }}
       acl mtproto_proxy_src src {{ join " " $mtprotoEndpointAllowedSources }}
@@ -756,13 +781,13 @@ data:
       bind {{ $bind }}
 {{- end }}
 {{- if $entryIngressEnabled }}
-{{- if $mtprotoEndpointSourceRestricted }}
+{{- if $endpointTrustedProxyEnabled }}
       acl endpoint_trusted_proxy_src src {{ join " " $endpointTrustedProxySources }}
 {{- end }}
       stick-table type ip size 1m expire 30s store conn_cur,conn_rate(10s)
-      tcp-request connection track-sc0 src{{ if $mtprotoEndpointSourceRestricted }} unless endpoint_trusted_proxy_src{{ end }}
-      tcp-request connection reject if { sc_conn_cur(0) gt {{ $entryIngressMaxConnectionsPerSource }} }{{ if $mtprotoEndpointSourceRestricted }} !endpoint_trusted_proxy_src{{ end }}
-      tcp-request connection reject if { sc_conn_rate(0) gt {{ $entryIngressNewConnectionsPer10Seconds }} }{{ if $mtprotoEndpointSourceRestricted }} !endpoint_trusted_proxy_src{{ end }}
+      tcp-request connection track-sc0 src{{ if $endpointTrustedProxyEnabled }} unless endpoint_trusted_proxy_src{{ end }}
+      tcp-request connection reject if { sc_conn_cur(0) gt {{ $entryIngressMaxConnectionsPerSource }} }{{ if $endpointTrustedProxyEnabled }} !endpoint_trusted_proxy_src{{ end }}
+      tcp-request connection reject if { sc_conn_rate(0) gt {{ $entryIngressNewConnectionsPer10Seconds }} }{{ if $endpointTrustedProxyEnabled }} !endpoint_trusted_proxy_src{{ end }}
 {{- end }}
       tcp-request inspect-delay {{ $sharedTcpInspectDelay }}
 {{- if or (and $universalOriginDenyDirect $universalOriginAllowedSources) (and $mtprotoRoleHandlesPublic (not $mtprotoUsesSni)) }}
@@ -795,6 +820,13 @@ data:
 {{- end }}
 {{- end }}
 {{- end }}
+{{- end }}
+{{- if and $endpointCdnFallbackEnabled $endpointCdnFallbackHost $endpointCdnFallbackOriginIp $endpointCdnFallbackTrustedSources }}
+      acl endpoint_cdn_fallback_sni req.ssl_sni -i {{ $endpointCdnFallbackHost }}
+      acl endpoint_cdn_fallback_src src {{ join " " $endpointCdnFallbackTrustedSources }}
+      acl endpoint_cdn_fallback_dst dst {{ $endpointCdnFallbackOriginIp }}
+      tcp-request content reject if endpoint_cdn_fallback_sni !endpoint_cdn_fallback_src
+      tcp-request content reject if endpoint_cdn_fallback_sni !endpoint_cdn_fallback_dst
 {{- end }}
 {{- if and $mtprotoRoleHandlesPublic (not $mtprotoUsesSni) }}
       # Raw MTProto sends payload immediately. Release non-TLS records without
@@ -835,6 +867,9 @@ data:
 {{- else }}
       use_backend be_reality if chain_bridge_sni
 {{- end }}
+{{- end }}
+{{- if and $endpointCdnFallbackEnabled $endpointCdnFallbackHost $endpointCdnFallbackOriginIp $endpointCdnFallbackTrustedSources }}
+      use_backend be_https_adapter if endpoint_cdn_fallback_sni endpoint_cdn_fallback_src endpoint_cdn_fallback_dst
 {{- end }}
       acl tls_adapter_sni req.ssl_sni -i {{ join " " $tlsAdapterServerNames }}
 {{- if and $roleIsEndpoint $linkWssCarrierEnabled }}
@@ -1125,8 +1160,8 @@ data:
 
 {{- end }}
         location {{ $.Values.controlPlane.env.vlessGrpcPath }} {
-          grpc_read_timeout {{ ternary $universalGrpcReadTimeout "5m" $universalEntryEnabled }};
-          grpc_send_timeout {{ ternary $universalGrpcSendTimeout "5m" $universalEntryEnabled }};
+          grpc_read_timeout {{ $roleGrpcReadTimeout }};
+          grpc_send_timeout {{ $roleGrpcSendTimeout }};
           grpc_set_header Host $host;
           grpc_pass grpc://127.0.0.1:{{ int $role.ports.vlessGrpc }};
         }

@@ -636,6 +636,33 @@ def _pod_only_new_prod_overlay_values(*, phase: str) -> dict:
     return values
 
 
+def _endpoint_cdn_fallback_values() -> dict:
+    values = _pod_only_new_prod_overlay_values(phase="entry-staged")
+    endpoint_ingress = values["architecture"]["endpointIngress"]
+    endpoint_host = values["controlPlane"]["env"]["defaultEndpointHost"]
+    endpoint_ingress["serviceFacing"]["hostname"] = endpoint_host
+    endpoint_ingress["cdnFallback"] = {
+        "enabled": True,
+        "publicHost": endpoint_host,
+        "provider": "cloudflare",
+        "transport": "grpc-tls-h2",
+        "originShardId": endpoint_ingress["shards"][0]["id"],
+        "originFirewall": {
+            "required": True,
+            "denyDirectAccess": True,
+            "allowedSourceCidrs": ["173.245.48.0/20", "103.21.244.0/22"],
+        },
+        "clientPolicy": {
+            "maxParallelHandshakes": 1,
+            "reconnectBaseSeconds": 5,
+            "reconnectMaxSeconds": 120,
+            "jitter": True,
+        },
+        "serverPolicy": {"grpcReadTimeout": "1h", "grpcSendTimeout": "1h"},
+    }
+    return values
+
+
 def test_k3s_strict_prod_overlay_check_accepts_private_overlay(tmp_path: Path) -> None:
     values_path = tmp_path / "values-prod.yaml"
     values_path.write_text(yaml.safe_dump(_prod_overlay_values(), sort_keys=True), encoding="utf-8")
@@ -708,6 +735,91 @@ def test_k3s_strict_prod_overlay_accepts_active_entry_host_before_universal_entr
     )
 
     assert result.returncode == 0, result.stderr
+
+
+def test_endpoint_cdn_fallback_is_scoped_to_cloudflare_and_one_endpoint_shard(tmp_path: Path) -> None:
+    values = _endpoint_cdn_fallback_values()
+    rendered = _helm_template_with_values(tmp_path, values)
+
+    assert rendered.returncode == 0, rendered.stderr
+    configmaps = {
+        doc["metadata"]["name"]: doc
+        for doc in _helm_docs(rendered.stdout)
+        if doc.get("kind") == "ConfigMap" and isinstance(doc.get("data"), dict)
+    }
+    endpoint_haproxy = configmaps["tracegate-tracegate-gateway-endpoint-haproxy"]["data"]["haproxy.cfg"]
+    endpoint_nginx = configmaps["tracegate-tracegate-gateway-endpoint-nginx"]["data"]["nginx.conf"]
+    entry_haproxy = configmaps["tracegate-tracegate-gateway-entry-haproxy"]["data"]["haproxy.cfg"]
+
+    assert "acl endpoint_cdn_fallback_sni req.ssl_sni -i endpoint.prod.test" in endpoint_haproxy
+    assert "acl endpoint_cdn_fallback_src src" in endpoint_haproxy
+    assert "173.245.48.0/20" in endpoint_haproxy
+    assert "acl endpoint_cdn_fallback_dst dst 8.8.8.8" in endpoint_haproxy
+    assert "tcp-request content reject if endpoint_cdn_fallback_sni !endpoint_cdn_fallback_src" in endpoint_haproxy
+    assert "tcp-request content reject if endpoint_cdn_fallback_sni !endpoint_cdn_fallback_dst" in endpoint_haproxy
+    assert "use_backend be_https_adapter if endpoint_cdn_fallback_sni endpoint_cdn_fallback_src endpoint_cdn_fallback_dst" in endpoint_haproxy
+    assert "tcp-request connection track-sc0 src unless endpoint_trusted_proxy_src" in endpoint_haproxy
+    assert "grpc_read_timeout 1h;" in endpoint_nginx
+    assert "grpc_send_timeout 1h;" in endpoint_nginx
+    assert "endpoint_cdn_fallback" not in entry_haproxy
+
+
+def test_k3s_strict_prod_overlay_accepts_endpoint_cdn_fallback(tmp_path: Path) -> None:
+    values_path = tmp_path / "values-endpoint-cdn-fallback.yaml"
+    values_path.write_text(yaml.safe_dump(_endpoint_cdn_fallback_values(), sort_keys=True), encoding="utf-8")
+
+    result = subprocess.run(
+        [
+            "python3",
+            "deploy/k3s/prod-overlay-check.py",
+            "--strict",
+            "--chart-values",
+            str(CHART_ROOT / "values.yaml"),
+            "--values",
+            str(values_path),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+
+
+@pytest.mark.parametrize(
+    ("mutation", "expected"),
+    [
+        (lambda cfg: cfg.update({"originShardId": "missing"}), "originShardId"),
+        (lambda cfg: cfg["originFirewall"].update({"denyDirectAccess": False}), "direct origin access"),
+        (lambda cfg: cfg.update({"publicHost": "other.prod.test"}), "publicHost"),
+        (lambda cfg: cfg["originFirewall"].update({"allowedSourceCidrs": []}), "allowedSourceCidrs"),
+    ],
+)
+def test_k3s_strict_prod_overlay_rejects_unsafe_endpoint_cdn_fallback(
+    tmp_path: Path, mutation, expected: str
+) -> None:
+    values = _endpoint_cdn_fallback_values()
+    mutation(values["architecture"]["endpointIngress"]["cdnFallback"])
+    values_path = tmp_path / "values-unsafe-endpoint-cdn-fallback.yaml"
+    values_path.write_text(yaml.safe_dump(values, sort_keys=True), encoding="utf-8")
+
+    result = subprocess.run(
+        [
+            "python3",
+            "deploy/k3s/prod-overlay-check.py",
+            "--strict",
+            "--chart-values",
+            str(CHART_ROOT / "values.yaml"),
+            "--values",
+            str(values_path),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode != 0
+    assert expected in result.stderr
 
 
 def test_pod_runtime_readiness_accepts_official_mtproto_runtime(tmp_path: Path) -> None:

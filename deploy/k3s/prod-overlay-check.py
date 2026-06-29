@@ -894,6 +894,8 @@ def validate_prod_overlay(chart_values: Path, prod_values: Path, *, strict: bool
         endpoint_sni_pool = {
             _text(value).lower().rstrip(".") for value in _as_list(endpoint_exclusive_pairs.get("pool")) if _text(value)
         }
+        cdn_fallback = _as_dict(endpoint_ingress.get("cdnFallback"))
+        cdn_fallback_enabled = bool(cdn_fallback.get("enabled", False))
         shadowtls_sni = _endpoint_shadowtls_server_name(merged).lower().rstrip(".")
         chain_bridge = _as_dict(interconnect.get("emergencyXrayChain"))
         chain_shard_snis = {
@@ -934,6 +936,37 @@ def validate_prod_overlay(chart_values: Path, prod_values: Path, *, strict: bool
             not (shadowtls_sni and shadowtls_sni in endpoint_sni_pool),
             "shadowsocks2022.shadowtls.serverNameEndpoint must not reuse an Endpoint direct SNI",
         )
+        if cdn_fallback_enabled:
+            cdn_host = _text(cdn_fallback.get("publicHost")).lower().rstrip(".")
+            origin_shard_id = _text(cdn_fallback.get("originShardId"))
+            origin_firewall = _as_dict(cdn_fallback.get("originFirewall"))
+            client_policy = _as_dict(cdn_fallback.get("clientPolicy"))
+            allowed_networks, invalid_allowed_networks = _valid_public_ipv4_networks(
+                origin_firewall.get("allowedSourceCidrs")
+            )
+            active_shard_ids = {_text(shard.get("id")) for shard in active_shards}
+            endpoint_tls_server_name = _text(_as_dict(transit.get("tls")).get("serverName")).lower().rstrip(".")
+            service_hostname = _text(service_facing.get("hostname")).lower().rstrip(".")
+            enabled_client_profiles = {
+                _text(value).lower() for value in _as_list(env.get("enabledClientProfiles")) if _text(value)
+            }
+
+            require(_text(cdn_fallback.get("provider")) == "cloudflare", "Endpoint CDN fallback provider must stay cloudflare")
+            require(_text(cdn_fallback.get("transport")) == "grpc-tls-h2", "Endpoint CDN fallback transport must stay grpc-tls-h2")
+            require(bool(cdn_host), "architecture.endpointIngress.cdnFallback.publicHost must be set")
+            require(not _is_example_host(cdn_host), "Endpoint CDN fallback publicHost must not use example.com")
+            require(cdn_host == transit_default_host.lower().rstrip("."), "Endpoint CDN fallback publicHost must match the effective Endpoint host")
+            require(cdn_host == endpoint_tls_server_name, "Endpoint CDN fallback publicHost must match Endpoint TLS serverName")
+            require(cdn_host == service_hostname, "Endpoint CDN fallback publicHost must match serviceFacing.hostname")
+            require(cdn_host not in endpoint_sni_pool, "Endpoint CDN fallback publicHost must not reuse an Endpoint direct SNI")
+            require(origin_shard_id in active_shard_ids, "Endpoint CDN fallback originShardId must identify an active shard")
+            require(bool(origin_firewall.get("required", False)), "Endpoint CDN fallback origin firewall must stay required")
+            require(bool(origin_firewall.get("denyDirectAccess", False)), "Endpoint CDN fallback direct origin access must stay denied")
+            require(bool(allowed_networks), "Endpoint CDN fallback allowedSourceCidrs must contain public IPv4 networks")
+            require(not invalid_allowed_networks, "Endpoint CDN fallback allowedSourceCidrs must contain only public IPv4 networks")
+            require(_as_int(client_policy.get("maxParallelHandshakes")) == 1, "Endpoint CDN fallback maxParallelHandshakes must stay 1")
+            require(bool(client_policy.get("jitter", False)), "Endpoint CDN fallback reconnect jitter must stay enabled")
+            require("backup-grpc" in enabled_client_profiles, "Endpoint CDN fallback requires the backup-grpc client profile")
 
     if deployment_phase == "entry-staged":
         endpoint_backhaul = _as_dict(interconnect.get("endpointBackhaul"))
