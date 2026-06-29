@@ -474,6 +474,10 @@ spec:
             - |
               set -eu
               mkdir -p /state/base/xray /state/base/haproxy /state/base/nginx /state/base/hysteria /state/runtime/xray /state/runtime/haproxy /state/runtime/nginx /state/runtime/hysteria
+{{- if $mtprotoOfficialEnabled }}
+              mkdir -p /state/mtproxy-official
+              chmod 700 /state/mtproxy-official
+{{- end }}
               cp /base/xray/config.json /state/base/xray/config.json
               cp /base/hysteria/server.yaml /state/base/hysteria/server.yaml
 {{- if $roleEndpointBackhaulHysteriaClientEnabled }}
@@ -1440,6 +1444,10 @@ spec:
               set -o pipefail
               umask 077
 
+              runtime_dir="${RUNTIME_DIR:-/data}"
+              mkdir -p "${runtime_dir}"
+              chmod 700 "${runtime_dir}"
+
               secret="$(tr -d '\r\n' < "${SECRET_FILE}")"
               if ! [[ "${secret}" =~ ^[0-9a-fA-F]{32}$ ]]; then
                 echo "MTProxy secret must contain exactly 16 bytes in hex" >&2
@@ -1450,7 +1458,7 @@ spec:
               fetch_runtime_file() {
                 local url="$1"
                 local destination="$2"
-                local temporary="${destination}.tmp"
+                local temporary="${destination}.tmp.${HOSTNAME:-pod}.$$"
                 local attempt
                 rm -f "${temporary}"
                 for attempt in 1 2 3 4 5; do
@@ -1467,13 +1475,13 @@ spec:
 
               fetch_runtime_file \
                 "https://core.telegram.org/getProxySecret" \
-                /data/proxy.secret || {
+                "${runtime_dir}/proxy.secret" || {
                   echo "Unable to obtain Telegram proxy secret material" >&2
                   exit 2
                 }
               fetch_runtime_file \
                 "https://core.telegram.org/getProxyConfig" \
-                /data/proxy.conf || {
+                "${runtime_dir}/proxy.conf" || {
                   echo "Unable to obtain Telegram DC configuration" >&2
                   exit 2
                 }
@@ -1496,7 +1504,7 @@ spec:
                 -H "${PORT:-443}"
                 -M "${WORKERS:-1}"
                 -C 60000
-                --aes-pwd /data/proxy.secret
+                --aes-pwd "${runtime_dir}/proxy.secret"
                 --allow-skip-dh
                 --nat-info "${INTERNAL_IP}:${IP}"
                 -S "${secret}"
@@ -1507,10 +1515,12 @@ spec:
               fi
 
               echo "Starting pinned official MTProxy runtime"
-              exec "${proxy_args[@]}" /data/proxy.conf
+              exec "${proxy_args[@]}" "${runtime_dir}/proxy.conf"
           env:
             - name: SECRET_FILE
               value: /data/secret
+            - name: RUNTIME_DIR
+              value: /var/lib/tracegate/mtproxy-official
             - name: PORT
               value: {{ $mtprotoOfficialBackendPort | quote }}
             - name: INTERNAL_PORT
@@ -1559,6 +1569,9 @@ spec:
           volumeMounts:
             - name: mtproxy-work
               mountPath: /data
+            - name: gateway-state
+              mountPath: /var/lib/tracegate/mtproxy-official
+              subPath: mtproxy-official
 {{- end }}
 {{- if $.Values.shadowsocks2022.enabled }}
         - name: shadowtls-v3

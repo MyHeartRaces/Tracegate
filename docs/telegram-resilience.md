@@ -69,6 +69,11 @@ for a `tg://proxy` link.
   remain compatible. Rotate only after a staged overlap plan.
 - Pin the MTProxy image by digest. A mutable `latest` image is forbidden by the
   production overlay check.
+- Persist the upstream-owned `proxy.secret` and Telegram DC configuration in
+  gateway state and update them atomically. A temporary `core.telegram.org`
+  outage must not prevent a replacement pod from using its last known-good
+  public runtime metadata. Keep the client/server access secret only in the
+  Kubernetes Secret-backed `emptyDir`, not in this cache.
 - Require startup, readiness and liveness TCP probes on the loopback MTProxy
   backend. HAProxy being alive is not proof that MTProxy is alive.
 - Keep the Entry-to-Endpoint source ACL and exempt the trusted Entry address

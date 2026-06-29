@@ -2996,7 +2996,10 @@ def test_mtproto_entry_endpoint_tunnel_routes_official_proxy_without_sni(tmp_pat
     assert official["image"].startswith("mtproxy/mtproxy@sha256:")
     assert official["command"] == ["/bin/bash", "-ec"]
     official_runner = official["args"][0]
-    assert "exec \"${proxy_args[@]}\" /data/proxy.conf" in official_runner
+    assert 'runtime_dir="${RUNTIME_DIR:-/data}"' in official_runner
+    assert '"${runtime_dir}/proxy.secret"' in official_runner
+    assert 'exec "${proxy_args[@]}" "${runtime_dir}/proxy.conf"' in official_runner
+    assert '${destination}.tmp.${HOSTNAME:-pod}.$$' in official_runner
     assert "getProxySecret" in official_runner
     assert "getProxyConfig" in official_runner
     assert "tg://proxy" not in official_runner
@@ -3004,6 +3007,12 @@ def test_mtproto_entry_endpoint_tunnel_routes_official_proxy_without_sni(tmp_pat
     assert "echo \"${secret}\"" not in official_runner
     assert _env_value(official, "IP") == "198.51.100.20"
     assert _env_value(official, "INTERNAL_IP") == "198.51.100.20"
+    assert _env_value(official, "RUNTIME_DIR") == "/var/lib/tracegate/mtproxy-official"
+    assert {
+        "name": "gateway-state",
+        "mountPath": "/var/lib/tracegate/mtproxy-official",
+        "subPath": "mtproxy-official",
+    } in official["volumeMounts"]
     assert all(row["name"] != "ARGS" for row in official["env"])
     for probe_name in ("startupProbe", "readinessProbe", "livenessProbe"):
         assert official[probe_name]["tcpSocket"] == {"host": "127.0.0.1", "port": 9444}
