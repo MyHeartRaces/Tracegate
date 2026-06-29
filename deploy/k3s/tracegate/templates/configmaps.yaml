@@ -733,6 +733,11 @@ data:
       timeout server {{ ternary $entryIngressServerTimeout "5m" $entryIngressEnabled }}
       timeout tunnel {{ ternary $entryIngressTunnelTimeout "1h" $entryIngressEnabled }}
 
+    frontend fe_tracegate_{{ $roleName }}_health
+      bind 127.0.0.1:8404
+      mode http
+      http-request return status 200
+
 {{- if $mtprotoFallbackPublicPort }}
     frontend fe_tracegate_{{ $roleName }}_mtproto_{{ $mtprotoPublicPort }}
 {{- if $entryIngressEnabled }}

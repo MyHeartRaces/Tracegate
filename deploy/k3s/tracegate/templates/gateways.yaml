@@ -138,15 +138,6 @@
 {{- $roleTopology := index ($.Values.topology.servers | default dict) $roleCanonicalServer | default dict }}
 {{- $roleDisplayName := toString ($roleTopology.displayName | default (title $roleCanonicalServer)) }}
 {{- $roleIngress := ternary ($.Values.architecture.entryIngress | default dict) ($.Values.architecture.endpointIngress | default dict) $roleIsEntry }}
-{{- $roleHaproxyReadinessHost := "" }}
-{{- if ($roleIngress.enabled | default false) }}
-{{- range $shard := ($roleIngress.shards | default (list)) }}
-{{- $state := lower (toString ($shard.state | default "active")) }}
-{{- if and (not $roleHaproxyReadinessHost) (or (eq $state "active") (eq $state "draining")) }}
-{{- $roleHaproxyReadinessHost = toString $shard.publicIp }}
-{{- end }}
-{{- end }}
-{{- end }}
 {{- if $entrySmallRole }}
 {{- $roleContainerResources = mergeOverwrite (deepCopy $.Values.gateway.containerResources) $.Values.gateway.entrySmall.containerResources }}
 {{- end }}
@@ -948,8 +939,9 @@ spec:
             failureThreshold: {{ int $.Values.gateway.probes.startup.failureThreshold }}
             timeoutSeconds: {{ int $.Values.gateway.probes.startup.timeoutSeconds }}
           readinessProbe:
-            exec:
-              command: ["sh", "-lc", "kill -0 1"]
+            tcpSocket:
+              host: 127.0.0.1
+              port: 8404
             periodSeconds: {{ int $.Values.gateway.probes.readiness.periodSeconds }}
             failureThreshold: {{ int $.Values.gateway.probes.readiness.failureThreshold }}
             timeoutSeconds: {{ int $.Values.gateway.probes.readiness.timeoutSeconds }}
@@ -1073,9 +1065,8 @@ spec:
             failureThreshold: {{ int $.Values.gateway.probes.startup.failureThreshold }}
             timeoutSeconds: {{ int $.Values.gateway.probes.startup.timeoutSeconds }}
           readinessProbe:
-            tcpSocket:
-              host: 127.0.0.1
-              port: 9999
+            exec:
+              command: ["sh", "-lc", "nc -z -w 1 127.0.0.1 9999"]
             periodSeconds: {{ int $.Values.gateway.probes.readiness.periodSeconds }}
             failureThreshold: {{ int $.Values.gateway.probes.readiness.failureThreshold }}
             timeoutSeconds: {{ int $.Values.gateway.probes.readiness.timeoutSeconds }}

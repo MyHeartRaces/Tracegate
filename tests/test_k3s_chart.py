@@ -2816,7 +2816,9 @@ def test_tracegate21_gateway_probes_are_local_only() -> None:
     assert "path: /v1/health" in gateways
     assert "port: agent" in gateways
     assert "tcpSocket:" in gateways
-    assert 'command: ["sh", "-lc", "kill -0 1"]' in gateways
+    assert "host: 127.0.0.1" in gateways
+    assert "port: 8404" in gateways
+    assert 'command: ["sh", "-lc", "nc -z -w 1 127.0.0.1 9999"]' in gateways
     assert "test -s /usr/local/etc/haproxy/haproxy.cfg" in gateways
     assert "test -s /etc/nginx/nginx.conf" in gateways
     assert "host: 127.0.0.1" in gateways
@@ -4462,7 +4464,7 @@ def test_new_production_examples_render_as_pod_only_runtime(tmp_path: Path, valu
     if phase == "endpoint-first":
         endpoint = _gateway_deployment_templates(rendered.stdout)["gateway-endpoint"]
         haproxy = _containers_by_name(endpoint)["haproxy"]
-        assert haproxy["readinessProbe"]["exec"]["command"] == ["sh", "-lc", "kill -0 1"]
+        assert haproxy["readinessProbe"]["tcpSocket"] == {"host": "127.0.0.1", "port": 8404}
 
 
 def test_new_production_values_adapter_rejects_removed_surfaces(tmp_path: Path) -> None:
