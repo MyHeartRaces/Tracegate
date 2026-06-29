@@ -1692,7 +1692,6 @@ data:
 {{- end }}
         "rules": [
           {"type": "field", "inboundTag": ["api"], "outboundTag": "api"},
-          {"type": "field", "ip": ["::/0"], "outboundTag": "block"},
 {{- if and $roleIsEntry $mtprotoEntryTunnelEnabled }}
 {{- if and $endpointBackhaulEnabled (gt (len $chainBridgeShards) 0) }}
           {"type": "field", "inboundTag": ["mtproto-entry-tunnel-in"], "balancerTag": "endpoint-backhaul"},

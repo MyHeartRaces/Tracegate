@@ -3921,8 +3921,8 @@ def test_tracegate22_universal_entry_routes_all_entry_traffic_through_dual_trans
     assert next(row for row in endpoint_xray["outbounds"] if row["tag"] == "direct")["settings"] == {
         "domainStrategy": "ForceIPv4"
     }
-    assert any(rule.get("ip") == ["::/0"] and rule.get("outboundTag") == "block" for rule in entry_xray["routing"]["rules"])
-    assert any(rule.get("ip") == ["::/0"] and rule.get("outboundTag") == "block" for rule in endpoint_xray["routing"]["rules"])
+    assert not any(rule.get("ip") == ["::/0"] for rule in entry_xray["routing"]["rules"])
+    assert not any(rule.get("ip") == ["::/0"] for rule in endpoint_xray["routing"]["rules"])
     assert "use_backend be_chain_bridge_mail if chain_bridge_mail_sni chain_bridge_mail_src" in endpoint_haproxy
     assert (
         "use_backend be_chain_bridge_2gis_reviews if chain_bridge_2gis_reviews_sni chain_bridge_2gis_reviews_src"
