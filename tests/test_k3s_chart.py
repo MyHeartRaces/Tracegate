@@ -3812,7 +3812,7 @@ def test_tracegate22_k3s_renders_reality_sni_demux_groups(tmp_path: Path) -> Non
 
 def test_tracegate22_exclusive_entry_sni_pairs_render_control_plane_contract(tmp_path: Path) -> None:
     values = _four_ip_entry_overlay_values()
-    pool = [f"camouflage-{idx}.prod.test" for idx in range(12)]
+    pool = [f"camouflage-{idx}.root-{idx}.test" for idx in range(12)]
     values["architecture"]["entryIngress"]["exclusiveSniPairs"] = {"enabled": True, "pool": pool}
     values["gateway"]["realityMultiInboundGroups"] = [
         {"id": f"sni-{idx}", "port": 2500 + idx, "dest": sni, "snis": [sni]}
@@ -3830,7 +3830,7 @@ def test_tracegate22_exclusive_entry_sni_pairs_render_control_plane_contract(tmp
 
 def test_tracegate22_exclusive_entry_sni_pairs_reject_mismatched_inbounds(tmp_path: Path) -> None:
     values = _four_ip_entry_overlay_values()
-    pool = [f"camouflage-{idx}.prod.test" for idx in range(12)]
+    pool = [f"camouflage-{idx}.root-{idx}.test" for idx in range(12)]
     values["architecture"]["entryIngress"]["exclusiveSniPairs"] = {"enabled": True, "pool": pool}
     values["gateway"]["realityMultiInboundGroups"] = [
         {"id": "only-one", "port": 2501, "dest": pool[0], "snis": [pool[0]]}
@@ -3840,6 +3840,40 @@ def test_tracegate22_exclusive_entry_sni_pairs_reject_mismatched_inbounds(tmp_pa
 
     assert rendered.returncode != 0
     assert "exactly one realityMultiInboundGroups row per pool domain" in rendered.stderr
+
+
+def test_tracegate22_exclusive_sni_pairs_reject_max_ru_domains(tmp_path: Path) -> None:
+    values = _four_ip_entry_overlay_values()
+    pool = ["api.max.ru", *[f"camouflage-{idx}.root-{idx}.ru" for idx in range(2, 13)]]
+    values["architecture"]["entryIngress"]["exclusiveSniPairs"] = {"enabled": True, "pool": pool}
+    values["gateway"]["realityMultiInboundGroups"] = [
+        {"id": f"sni-{idx}", "port": 2500 + idx, "dest": sni, "snis": [sni]}
+        for idx, sni in enumerate(pool, start=1)
+    ]
+
+    rendered = _helm_template_with_values(tmp_path, values)
+
+    assert rendered.returncode != 0
+    assert "must not contain max.ru domains" in rendered.stderr
+
+
+def test_tracegate22_exclusive_sni_pairs_reject_repeated_root_domains(tmp_path: Path) -> None:
+    values = _four_ip_entry_overlay_values()
+    pool = [
+        "cdn.mail.ru",
+        "static.mail.ru",
+        *[f"camouflage-{idx}.root-{idx}.ru" for idx in range(3, 13)],
+    ]
+    values["architecture"]["entryIngress"]["exclusiveSniPairs"] = {"enabled": True, "pool": pool}
+    values["gateway"]["realityMultiInboundGroups"] = [
+        {"id": f"sni-{idx}", "port": 2500 + idx, "dest": sni, "snis": [sni]}
+        for idx, sni in enumerate(pool, start=1)
+    ]
+
+    rendered = _helm_template_with_values(tmp_path, values)
+
+    assert rendered.returncode != 0
+    assert "must contain only one domain per root" in rendered.stderr
 
 
 def test_tracegate22_entry_ingress_rejects_duplicate_client_ip(tmp_path: Path) -> None:
@@ -4038,7 +4072,8 @@ def test_tracegate3_entry_staged_rejects_removed_xhttp_shard(tmp_path: Path) -> 
 
 def test_tracegate3_entry_staged_rejects_endpoint_direct_sni_reused_by_shadowtls(tmp_path: Path) -> None:
     values = _pod_only_new_prod_overlay_values(phase="entry-staged")
-    values["shadowsocks2022"]["shadowtls"] = {"serverNameTransit": "yandex.ru"}
+    reused_sni = values["architecture"]["endpointIngress"]["exclusiveSniPairs"]["pool"][0]
+    values["shadowsocks2022"]["shadowtls"] = {"serverNameTransit": reused_sni}
 
     rendered = _helm_template_with_values(tmp_path, values)
 

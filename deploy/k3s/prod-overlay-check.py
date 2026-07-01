@@ -117,6 +117,11 @@ def _text(value: Any) -> str:
     return str(value).strip()
 
 
+def _sni_root_domain(value: Any) -> str:
+    labels = [label for label in _text(value).lower().rstrip(".").split(".") if label]
+    return ".".join(labels[-2:]) if len(labels) >= 2 else ".".join(labels)
+
+
 def _is_example_host(value: Any) -> bool:
     raw = _text(value).lower().rstrip(".")
     return any(marker in raw for marker in EXAMPLE_HOST_MARKERS)
@@ -876,6 +881,13 @@ def validate_prod_overlay(chart_values: Path, prod_values: Path, *, strict: bool
         channel = _as_dict(entry_ingress.get("channel"))
         tcp_channel = _as_dict(channel.get("tcp"))
         udp_channel = _as_dict(channel.get("udp"))
+        entry_exclusive_pairs = _as_dict(entry_ingress.get("exclusiveSniPairs"))
+        entry_sni_values = [
+            _text(value).lower().rstrip(".")
+            for value in _as_list(entry_exclusive_pairs.get("pool"))
+            if _text(value)
+        ]
+        entry_sni_roots = [_sni_root_domain(value) for value in entry_sni_values]
         four_ip_contract = {service_ip, *shard_ips}
         normalized_four_ips, invalid_four_ips = _valid_public_ip_set({value for value in four_ip_contract if value})
 
@@ -901,6 +913,15 @@ def validate_prod_overlay(chart_values: Path, prod_values: Path, *, strict: bool
         require(_as_int(tcp_channel.get("maxConnectionsPerSource")) >= 1, "Entry TCP maxConnectionsPerSource must be at least 1")
         require(_as_int(tcp_channel.get("newConnectionsPer10Seconds")) >= 1, "Entry TCP newConnectionsPer10Seconds must be at least 1")
         require(bool(udp_channel.get("serviceIpRejectRequired", False)), "Entry UDP service-facing IP rejection must stay required")
+        if bool(entry_exclusive_pairs.get("enabled", False)):
+            require(
+                all(root != "max.ru" for root in entry_sni_roots),
+                "Entry exclusive SNI pool must not contain max.ru domains",
+            )
+            require(
+                len(entry_sni_roots) == len(set(entry_sni_roots)),
+                "Entry exclusive SNI pool must contain only one domain per root",
+            )
 
     if endpoint_ingress_enabled:
         service_facing = _as_dict(endpoint_ingress.get("serviceFacing"))
@@ -916,9 +937,13 @@ def validate_prod_overlay(chart_values: Path, prod_values: Path, *, strict: bool
         tcp_channel = _as_dict(channel.get("tcp"))
         udp_channel = _as_dict(channel.get("udp"))
         endpoint_exclusive_pairs = _as_dict(endpoint_ingress.get("exclusiveSniPairs"))
-        endpoint_sni_pool = {
-            _text(value).lower().rstrip(".") for value in _as_list(endpoint_exclusive_pairs.get("pool")) if _text(value)
-        }
+        endpoint_sni_values = [
+            _text(value).lower().rstrip(".")
+            for value in _as_list(endpoint_exclusive_pairs.get("pool"))
+            if _text(value)
+        ]
+        endpoint_sni_pool = set(endpoint_sni_values)
+        endpoint_sni_roots = [_sni_root_domain(value) for value in endpoint_sni_values]
         cdn_fallback = _as_dict(endpoint_ingress.get("cdnFallback"))
         cdn_fallback_enabled = bool(cdn_fallback.get("enabled", False))
         shadowtls_sni = _endpoint_shadowtls_server_name(merged).lower().rstrip(".")
@@ -947,6 +972,15 @@ def validate_prod_overlay(chart_values: Path, prod_values: Path, *, strict: bool
         require(bool(firewall.get("required", False)), "architecture.endpointIngress.firewall.required must stay true")
         require(bool(tcp_channel.get("bindShardIpsOnly", False)), "Endpoint TCP listeners must bind shard IPs only")
         require(bool(udp_channel.get("serviceIpRejectRequired", False)), "Endpoint UDP service-facing IP rejection must stay required")
+        if bool(endpoint_exclusive_pairs.get("enabled", False)):
+            require(
+                all(root != "max.ru" for root in endpoint_sni_roots),
+                "Endpoint exclusive SNI pool must not contain max.ru domains",
+            )
+            require(
+                len(endpoint_sni_roots) == len(set(endpoint_sni_roots)),
+                "Endpoint exclusive SNI pool must contain only one domain per root",
+            )
         require(
             not (shadowtls_sni and shadowtls_sni in endpoint_sni_pool),
             "shadowsocks2022.shadowtls.serverNameEndpoint must not reuse an Endpoint direct SNI",

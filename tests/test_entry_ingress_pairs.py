@@ -10,6 +10,7 @@ from tracegate.services.revisions import (
     RevisionError,
     _allocate_entry_ingress_pair,
     _entry_ingress_pair_key,
+    _exclusive_sni_pool,
     _infer_legacy_entry_pair,
     _uses_exclusive_entry_pair,
     _uses_exclusive_endpoint_pair,
@@ -129,6 +130,23 @@ def test_exclusive_entry_pair_scope_is_v1_reality_chain_only() -> None:
         SimpleNamespace(protocol=ConnectionProtocol.VLESS_REALITY, mode=ConnectionMode.CHAIN),
         settings,
     )
+
+
+def test_exclusive_sni_pool_rejects_max_ru_domains() -> None:
+    settings = _settings()
+    settings.endpoint_ingress_sni_pool[0] = "api.max.ru"
+
+    with pytest.raises(RevisionError, match="contains forbidden domains: api.max.ru"):
+        _exclusive_sni_pool(settings, role="endpoint")
+
+
+def test_exclusive_sni_pool_rejects_multiple_subdomains_of_one_root() -> None:
+    settings = _settings()
+    settings.endpoint_ingress_sni_pool[0] = "cdn.mail.ru"
+    settings.endpoint_ingress_sni_pool[1] = "static.mail.ru"
+
+    with pytest.raises(RevisionError, match="only one domain per root: mail.ru"):
+        _exclusive_sni_pool(settings, role="endpoint")
 
 
 @pytest.mark.asyncio

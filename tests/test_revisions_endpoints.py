@@ -15,6 +15,7 @@ from tracegate.services.revisions import (
     _resolve_sni,
     _select_revision_sticky_host,
 )
+from tracegate.services.sni_catalog import load_catalog
 
 
 def test_is_placeholder_host_detects_example_domain_variants() -> None:
@@ -102,7 +103,7 @@ def test_resolve_sni_defaults_v1_reality_to_less_popular_pool_target() -> None:
     selected = asyncio.run(_resolve_sni(None, ConnectionProtocol.VLESS_REALITY, None, {}))  # type: ignore[arg-type]
 
     assert selected is not None
-    assert selected.fqdn == "yandex.ru"
+    assert selected.fqdn == next(row.fqdn for row in load_catalog() if row.enabled)
 
 
 def test_chain_endpoint_readiness_rejects_placeholder_entry_host() -> None:

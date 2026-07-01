@@ -3,7 +3,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from tracegate.services.sni_catalog import load_catalog
+from tracegate.services.sni_catalog import is_blocked_sni, load_catalog, sni_root_domain
 
 
 def test_sni_catalog_integrity() -> None:
@@ -27,6 +27,8 @@ def test_sni_catalog_integrity() -> None:
     assert len(enabled) == 10
     assert all(row.fqdn.endswith(".ru") for row in enabled)
     assert all(not row.providers for row in enabled)
+    assert all(not is_blocked_sni(row.fqdn) for row in enabled)
+    assert len({sni_root_domain(row.fqdn) for row in enabled}) == len(enabled)
     assert not {"old-forbidden.tracegate-sni.ru", "old-mtproto-a.tracegate-sni.ru", "reserved-86.tracegate-sni.ru", "reserved-50.tracegate-sni.ru", "reserved-97.tracegate-sni.ru"} & {
         row.fqdn for row in enabled
     }

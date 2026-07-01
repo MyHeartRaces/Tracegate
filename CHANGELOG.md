@@ -11,6 +11,8 @@
   to Gecko, with minimum client/runtime version checks.
 - Fixed the Entry ShadowTLS backhaul probes to check their loopback-only
   listener instead of the pod address.
+- Hardened exclusive SNI pools to reject `max.ru` and sibling subdomains from
+  the same root, and kept private catalog overrides explicit in production.
 
 ## v3.0.0 - 2026-06-27
 

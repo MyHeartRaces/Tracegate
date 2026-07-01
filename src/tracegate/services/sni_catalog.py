@@ -14,6 +14,7 @@ import yaml
 # variable at a readable YAML file (e.g. a mounted private Secret/ConfigMap) to
 # override the bundled placeholder catalog at runtime.
 SNI_CATALOG_FILE_ENV = "TRACEGATE_SNI_CATALOG_FILE"
+BLOCKED_SNI_ROOTS = frozenset({"max.ru"})
 
 
 @dataclass(frozen=True)
@@ -31,6 +32,24 @@ class SniCatalogEntry:
     is_test: bool
     providers: list[str]
     note: str | None
+
+
+def sni_root_domain(fqdn: str) -> str:
+    """Return the operational root used to prevent sibling-subdomain reuse.
+
+    Production camouflage domains currently use ordinary two-label ``.ru`` or
+    ``.net`` roots. Keeping this deliberately strict avoids silently treating
+    multiple subdomains of the same provider as independent SNI diversity.
+    """
+
+    labels = [label for label in str(fqdn or "").strip().lower().rstrip(".").split(".") if label]
+    if len(labels) < 2:
+        return ".".join(labels)
+    return ".".join(labels[-2:])
+
+
+def is_blocked_sni(fqdn: str) -> bool:
+    return sni_root_domain(fqdn) in BLOCKED_SNI_ROOTS
 
 
 def _catalog_yaml_text() -> str:
@@ -82,4 +101,3 @@ def get_by_id(sni_id: int) -> SniCatalogEntry | None:
         if row.id == sni_id:
             return row
     return None
-

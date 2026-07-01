@@ -95,13 +95,13 @@
   note: Placeholder camouflage SNI; production catalog is supplied privately.
   providers: []
 - id: 102
-  fqdn: yandex.ru
+  fqdn: reserved-102.tracegate-sni-102.ru
   enabled: true
   is_test: false
   note: Placeholder camouflage SNI; production catalog is supplied privately.
   providers: []
 - id: 103
-  fqdn: www.yandex.ru
+  fqdn: reserved-103.tracegate-sni-103.ru
   enabled: true
   is_test: false
   note: Placeholder camouflage SNI; production catalog is supplied privately.
@@ -131,37 +131,37 @@
   note: Placeholder camouflage SNI; production catalog is supplied privately.
   providers: []
 - id: 108
-  fqdn: dzen.ru
+  fqdn: reserved-108.tracegate-sni-108.ru
   enabled: true
   is_test: false
   note: Placeholder camouflage SNI; production catalog is supplied privately.
   providers: []
 - id: 109
-  fqdn: www.dzen.ru
+  fqdn: reserved-109.tracegate-sni-109.ru
   enabled: true
   is_test: false
   note: Placeholder camouflage SNI; production catalog is supplied privately.
   providers: []
 - id: 110
-  fqdn: vk.ru
+  fqdn: reserved-110.tracegate-sni-110.ru
   enabled: true
   is_test: false
   note: Placeholder camouflage SNI; production catalog is supplied privately.
   providers: []
 - id: 111
-  fqdn: www.vk.ru
+  fqdn: reserved-111.tracegate-sni-111.ru
   enabled: true
   is_test: false
   note: Placeholder camouflage SNI; production catalog is supplied privately.
   providers: []
 - id: 112
-  fqdn: mail.ru
+  fqdn: reserved-112.tracegate-sni-112.ru
   enabled: true
   is_test: false
   note: Placeholder camouflage SNI; production catalog is supplied privately.
   providers: []
 - id: 113
-  fqdn: go.mail.ru
+  fqdn: reserved-113.tracegate-sni-113.ru
   enabled: true
   is_test: false
   note: Placeholder camouflage SNI; production catalog is supplied privately.
@@ -173,13 +173,13 @@
   note: Placeholder camouflage SNI; production catalog is supplied privately.
   providers: []
 - id: 115
-  fqdn: sber.ru
+  fqdn: reserved-115.tracegate-sni-115.ru
   enabled: true
   is_test: false
   note: Placeholder camouflage SNI; production catalog is supplied privately.
   providers: []
 - id: 116
-  fqdn: www.sber.ru
+  fqdn: reserved-116.tracegate-sni-116.ru
   enabled: true
   is_test: false
   note: Placeholder camouflage SNI; production catalog is supplied privately.

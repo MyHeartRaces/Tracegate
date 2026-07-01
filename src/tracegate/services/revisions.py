@@ -20,7 +20,7 @@ from tracegate.services.overrides import validate_overrides
 from tracegate.services.pseudonym import PseudonymError, pseudo_id
 from tracegate.services.role_targeting import target_roles_for_connection
 from tracegate.services.runtime_contract import resolve_runtime_contract
-from tracegate.services.sni_catalog import SniCatalogEntry, get_by_id, load_catalog
+from tracegate.services.sni_catalog import SniCatalogEntry, get_by_id, is_blocked_sni, load_catalog, sni_root_domain
 from tracegate.settings import get_settings
 
 
@@ -166,6 +166,20 @@ def _exclusive_sni_pool(settings, *, role: str = "entry") -> list[SniCatalogEntr
     requested = list(dict.fromkeys(value for value in requested if value))
     if len(requested) < 10 or len(requested) > 15:
         raise RevisionError(f"Exclusive {role.title()} SNI pool must contain 10 to 15 unique domains")
+
+    blocked = [fqdn for fqdn in requested if is_blocked_sni(fqdn)]
+    if blocked:
+        raise RevisionError(f"Exclusive {role.title()} SNI pool contains forbidden domains: {', '.join(blocked)}")
+
+    roots: dict[str, list[str]] = {}
+    for fqdn in requested:
+        roots.setdefault(sni_root_domain(fqdn), []).append(fqdn)
+    repeated_roots = {root: values for root, values in roots.items() if len(values) > 1}
+    if repeated_roots:
+        details = "; ".join(f"{root}: {', '.join(values)}" for root, values in repeated_roots.items())
+        raise RevisionError(
+            f"Exclusive {role.title()} SNI pool must contain only one domain per root: {details}"
+        )
 
     by_fqdn = {row.fqdn.lower(): row for row in load_catalog() if row.enabled}
     missing = [fqdn for fqdn in requested if fqdn not in by_fqdn]
