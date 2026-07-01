@@ -9,8 +9,8 @@ Karing/sing-box client
   -> Cloudflare-proxied hostname, TCP/443, real TLS, HTTP/2, VLESS gRPC
   -> Entry origin
   -> shared fail-closed backhaul pool
-       -> primary: VLESS/REALITY/XHTTP connect/SNI shards
-       -> fallback: Hysteria2/Salamander
+       -> primary: Shadowsocks-2022 over ShadowTLS v3 (TCP)
+       -> fallback: Hysteria2/Gecko (UDP/QUIC)
   -> Endpoint egress
 ```
 
@@ -32,12 +32,12 @@ The chart then requires:
   IPv4 source ranges and keeps only explicitly declared direct exceptions:
   raw no-SNI MTProto and, in DNS-only deployments, the controlled TLS adapter
   SNI;
-- `interconnect.endpointBackhaul.enabled=true` with XHTTP/REALITY as primary
-  and Hysteria2/Salamander as the independent fallback;
-- two to eight XHTTP shards with unique SNI, matching REALITY destination,
-  loopback Endpoint inbound port and HTTP path;
-- `roundRobin` connect-level shard selection, one dial at a time and payload
-  probes that remove unhealthy XHTTP shards;
+- `interconnect.endpointBackhaul.enabled=true` with Shadowsocks-2022 over
+  ShadowTLS v3 as primary and Hysteria2/Gecko as the independent fallback;
+- one authenticated TCP primary through a local ShadowTLS client and the
+  Endpoint SS2022 inbound;
+- `roundRobin` connection selection, one dial at a time and authenticated
+  payload probes;
 - one shared Hysteria2 client process on Entry, authenticated to the existing
   Endpoint Hysteria2 listener with a private backhaul token;
 - fail-closed Endpoint-only egress for all Entry user-traffic inbounds;
@@ -74,16 +74,17 @@ HTTPS and makes the single origin address the obvious block target. Merely
 changing REALITY fingerprints, fragmenting ClientHello or changing TTL does not
 address destination IP/ASN classification.
 
-XHTTP is retained because it multiplexes logical streams over a bounded set of
-HTTP connections and works with REALITY. Entry uses `stream-one`, one reusable
-connection per shard and bounded reuse. Endpoint inbounds use `auto` for
-compatibility. This reduces repeated ClientHello bursts without turning the
-whole service into one immortal TCP flow.
+ShadowTLS v3 is used for the backhaul TCP primary because it is independent of
+the client-facing Cloudflare gRPC path and does not depend on Xray transport
+framing. XHTTP is removed and its legacy values are rejected by Helm and the
+production overlay checker.
 
-Hysteria2/Salamander is deliberately a different UDP/QUIC failure domain. It
+Hysteria2/Gecko is deliberately a different UDP/QUIC failure domain. It
 uses conservative BBR, keepalive, path MTU discovery and private authentication.
-Salamander does not make the flow ordinary HTTP/3; it removes the standard QUIC
-signature and remains a fallback, not a permanent-reachability claim.
+Gecko fragments and pads packets but does not make the flow ordinary HTTP/3;
+it remains a fallback, not a permanent-reachability claim.
+Gecko clients require Hysteria 2.9.2+ or sing-box 1.14.0+; older issued
+Salamander profiles are not wire-compatible and must be reissued.
 
 Standard Cloudflare reverse proxy supports proxied gRPC endpoints when the
 origin listens on `443`, uses TLS and HTTP/2, and advertises HTTP/2 through ALPN.
@@ -99,10 +100,10 @@ Tracegate client transport or Endpoint egress path.
 - Apply the generated origin firewall and verify HAProxy contains the
   Cloudflare source ACL before publishing the profile.
 - Probe sustained authenticated payload, not only TLS handshake success.
-- Alert on reconnect rate, gRPC duration, per-shard XHTTP payload health,
+- Alert on reconnect rate, gRPC duration, ShadowTLS payload health,
   Hysteria2 fallback use and unexpected direct Entry egress.
 - Keep Endpoint Hysteria2 public for direct clients; private backhaul auth and
-  Salamander separate Entry backhaul use from direct client credentials.
+  a separate backhaul token distinguish Entry backhaul use from direct clients.
 - Do not enable host-wide NFQUEUE, speculative TTL rewriting or unconditional
   ClientHello fragmentation. Promote packet changes only after carrier-specific
   sustained-payload tests.

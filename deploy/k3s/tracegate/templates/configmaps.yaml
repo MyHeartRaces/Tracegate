@@ -139,12 +139,8 @@ data:
 {{ toYaml .Values.interconnect.endpointBackhaul.selection | nindent 8 }}
       health:
 {{ toYaml .Values.interconnect.endpointBackhaul.health | nindent 8 }}
-      xhttp:
-        shardCount: {{ len (.Values.interconnect.emergencyXrayChain.shards | default (list)) }}
-        shards:
-{{ toYaml (.Values.interconnect.emergencyXrayChain.shards | default (list)) | nindent 10 }}
-        policy:
-{{ toYaml (.Values.interconnect.emergencyXrayChain.xhttp | default dict) | nindent 10 }}
+      shadowtls:
+{{ toYaml .Values.interconnect.endpointBackhaul.shadowtls | nindent 8 }}
       hysteria2:
 {{ toYaml .Values.interconnect.endpointBackhaul.hysteria2 | nindent 8 }}
     linkCrypto:
@@ -336,8 +332,8 @@ data:
         xrayBackhaul: false
         remotePort: {{ int .Values.interconnect.entryTransit.udp.remotePort }}
         obfs:
-          type: salamander
-          required: {{ .Values.interconnect.entryTransit.udp.salamanderRequired }}
+          type: {{ .Values.interconnect.entryTransit.udp.obfs }}
+          required: true
         pairedObfs:
           enabled: {{ .Values.interconnect.entryTransit.udp.pairedObfs.enabled }}
           backend: {{ .Values.interconnect.entryTransit.udp.pairedObfs.backend }}
@@ -374,14 +370,14 @@ data:
             mode: {{ .Values.interconnect.entryTransit.udp.hardening.sourceValidation.mode }}
         dpiResistance:
           enabled: {{ $linkCryptoUdpEnabled }}
-          mode: salamander-plus-scoped-paired-obfs
+          mode: gecko-plus-scoped-paired-obfs
           portSplit:
             publicUdpPort: {{ int $endpointRole.ports.publicUdp }}
             forbidUdp443: false
             forbidTcp8443: {{ not (and .Values.mtproto.enabled (eq (int .Values.mtproto.publicPort) 8443)) }}
           requiredLayers:
             - hysteria2-quic
-            - salamander
+            - gecko
             - private-auth
             - anti-replay
             - anti-amplification
@@ -565,14 +561,14 @@ data:
 {{- $realityMultiInboundGroups := $.Values.gateway.realityMultiInboundGroups | default (list) }}
 {{- $chainBridge := $.Values.interconnect.emergencyXrayChain }}
 {{- $endpointBackhaul := $.Values.interconnect.endpointBackhaul | default dict }}
-{{- $endpointBackhaulEnabled := and ($endpointBackhaul.enabled | default false) $chainBridge.enabled }}
+{{- $endpointBackhaulEnabled := $endpointBackhaul.enabled | default false }}
+{{- $endpointBackhaulShadowtls := dig "shadowtls" (dict) $endpointBackhaul }}
+{{- $endpointBackhaulShadowtlsEnabled := and $endpointBackhaulEnabled (dig "enabled" false $endpointBackhaulShadowtls) }}
 {{- $endpointBackhaulHysteria := dig "hysteria2" (dict) $endpointBackhaul }}
 {{- $endpointBackhaulHysteriaEnabled := and $endpointBackhaulEnabled (dig "enabled" false $endpointBackhaulHysteria) }}
 {{- $endpointBackhaulHealth := dig "health" (dict) $endpointBackhaul }}
 {{- $endpointBackhaulSelection := dig "selection" (dict) $endpointBackhaul }}
 {{- $chainBridgeShards := $chainBridge.shards | default (list) }}
-{{- $chainBridgeXhttp := $chainBridge.xhttp | default dict }}
-{{- $chainBridgeXmux := dig "xmux" (dict) $chainBridgeXhttp }}
 {{- $chainBridgeFailoverEnabled := and $chainBridge.enabled (dig "failover" "enabled" false $chainBridge) }}
 {{- $chainBridgeFailoverPort := int (dig "failover" "localPort" 11083 $chainBridge) }}
 {{- $chainBridgePrimaryHost := trim (toString (dig "failover" "primaryHost" "" $chainBridge)) }}
@@ -602,7 +598,6 @@ data:
 {{- $chainBridgePublicKey := ($.Values.controlPlane.env.realityPublicKeyEndpoint | default $.Values.controlPlane.env.realityPublicKeyTransit) | default $.Values.controlPlane.env.realityPublicKey }}
 {{- $chainBridgeShortId := ($.Values.controlPlane.env.realityShortIdEndpoint | default $.Values.controlPlane.env.realityShortIdTransit) | default (first $endpointRole.reality.shortIds) }}
 {{- $endpointBackhaulHysteriaHost := trim (toString (dig "endpointHost" "" $endpointBackhaulHysteria)) }}
-{{- if not $endpointBackhaulHysteriaHost }}{{- $endpointBackhaulHysteriaHost = $chainBridgeEndpointHost }}{{- end }}
 {{- if not $endpointBackhaulHysteriaHost }}{{- $endpointBackhaulHysteriaHost = $topologyEndpointHost }}{{- end }}
 {{- if not $endpointBackhaulHysteriaHost }}{{- $endpointBackhaulHysteriaHost = include "tracegate.transitHost" $ }}{{- end }}
 {{- $endpointBackhaulHysteriaPort := int (dig "endpointPort" 443 $endpointBackhaulHysteria) }}
@@ -610,10 +605,14 @@ data:
 {{- if not $endpointBackhaulHysteriaServerName }}{{- $endpointBackhaulHysteriaServerName = toString $endpointRole.tls.serverName }}{{- end }}
 {{- $endpointBackhaulHysteriaTls := dig "tls" (dict) $endpointBackhaulHysteria }}
 {{- $endpointBackhaulHysteriaSocksPort := int (dig "entrySocksPort" 11086 $endpointBackhaulHysteria) }}
+{{- $endpointBackhaulShadowtlsHost := trim (toString (dig "endpointHost" "" $endpointBackhaulShadowtls)) }}
+{{- if not $endpointBackhaulShadowtlsHost }}{{- $endpointBackhaulShadowtlsHost = $topologyEndpointHost }}{{- end }}
+{{- if not $endpointBackhaulShadowtlsHost }}{{- $endpointBackhaulShadowtlsHost = include "tracegate.transitHost" $ }}{{- end }}
+{{- $endpointBackhaulShadowtlsPort := int (dig "endpointPort" 443 $endpointBackhaulShadowtls) }}
+{{- $endpointBackhaulShadowtlsServerName := trim (toString (dig "serverName" "" $endpointBackhaulShadowtls)) }}
+{{- if not $endpointBackhaulShadowtlsServerName }}{{- $endpointBackhaulShadowtlsServerName = toString ($.Values.shadowsocks2022.shadowtls.serverNameEndpoint | default $.Values.shadowsocks2022.shadowtls.serverNameTransit) }}{{- end }}
+{{- $endpointBackhaulShadowtlsLocalPort := int (dig "entryLocalPort" 11088 $endpointBackhaulShadowtls) }}
 {{- $realityServerNames := $role.reality.serverNames }}
-{{- if and $roleIsEndpoint $chainBridge.enabled $chainBridgeSni (eq (len $chainBridgeShards) 0) }}
-{{- $realityServerNames = append $realityServerNames $chainBridgeSni | uniq }}
-{{- end }}
 {{- $hysteriaListenHost := toString (dig "hysteria" "listenHost" "" $role) }}
 {{- $endpointShadowtlsServerName := $.Values.shadowsocks2022.shadowtls.serverNameEndpoint | default $.Values.shadowsocks2022.shadowtls.serverNameTransit }}
 {{- $roleShadowtlsServerName := ternary $.Values.shadowsocks2022.shadowtls.serverNameEntry $endpointShadowtlsServerName $roleIsEntry }}
@@ -1297,9 +1296,11 @@ data:
         url: {{ printf "http://127.0.0.1:%d/v1/hysteria/auth" (int $.Values.gateway.agent.port) | quote }}
         insecure: false
     obfs:
-      type: salamander
-      salamander:
-        password: REPLACE_HYSTERIA_SALAMANDER_PASSWORD
+      type: gecko
+      gecko:
+        password: REPLACE_HYSTERIA_GECKO_PASSWORD
+        minPacketSize: {{ int (dig "obfs" "gecko" "minPacketSize" 512 $.Values.gateway.hysteria) }}
+        maxPacketSize: {{ int (dig "obfs" "gecko" "maxPacketSize" 1200 $.Values.gateway.hysteria) }}
     masquerade:
       type: file
       file:
@@ -1308,7 +1309,7 @@ data:
       listen: 127.0.0.1:9999
       secret: REPLACE_HYSTERIA_STATS_SECRET
     outbounds:
-{{- if and $roleIsEntry $chainBridge.enabled }}
+{{- if and $roleIsEntry $endpointBackhaulEnabled }}
       - name: chain-via-transit
         type: socks5
         socks5:
@@ -1345,9 +1346,11 @@ data:
       sni: {{ $endpointBackhaulHysteriaServerName | quote }}
       insecure: {{ dig "insecure" false $endpointBackhaulHysteriaTls }}
     obfs:
-      type: salamander
-      salamander:
-        password: REPLACE_HYSTERIA_ENDPOINT_BACKHAUL_SALAMANDER_PASSWORD
+      type: gecko
+      gecko:
+        password: REPLACE_HYSTERIA_ENDPOINT_BACKHAUL_GECKO_PASSWORD
+        minPacketSize: {{ int (dig "gecko" "minPacketSize" 512 $endpointBackhaulHysteria) }}
+        maxPacketSize: {{ int (dig "gecko" "maxPacketSize" 1200 $endpointBackhaulHysteria) }}
     transport:
       type: udp
       udp: {}
@@ -1401,7 +1404,7 @@ data:
       },
       "inbounds": [
         {"tag": "api", "listen": "127.0.0.1", "port": {{ int $role.ports.xrayApi }}, "protocol": "dokodemo-door", "settings": {"address": "127.0.0.1"}},
-{{- if and $roleIsEntry $chainBridge.enabled }}
+{{- if and $roleIsEntry $endpointBackhaulEnabled }}
         {
           "tag": "entry-chain-socks-in",
           "listen": "127.0.0.1",
@@ -1470,12 +1473,12 @@ data:
           "protocol": "vless",
           "settings": {
             "clients": [
-              {"id": "REPLACE_XRAY_CHAIN_BRIDGE_CLIENT_ID", "email": "Tracegate Entry-Endpoint XHTTP shard {{ $shardName }}"}
+              {"id": "REPLACE_XRAY_CHAIN_BRIDGE_CLIENT_ID", "email": "Tracegate removed Entry-Endpoint shard {{ $shardName }}"}
             ],
             "decryption": "none"
           },
           "streamSettings": {
-            "network": "xhttp",
+            "network": "raw",
             "security": "reality",
             "realitySettings": {
               "show": false,
@@ -1484,10 +1487,6 @@ data:
               "serverNames": [{{ required "interconnect.emergencyXrayChain.shards[].serverName is required" $shard.serverName | quote }}],
               "privateKey": "REPLACE_REALITY_PRIVATE_KEY",
               "shortIds": {{ toJson $role.reality.shortIds }}
-            },
-            "xhttpSettings": {
-              "mode": {{ dig "serverMode" "auto" $chainBridgeXhttp | quote }},
-              "path": {{ required "interconnect.emergencyXrayChain.shards[].path is required" $shard.path | quote }}
             }
           },
           "sniffing": {"enabled": false}
@@ -1508,7 +1507,7 @@ data:
             "decryption": "none"
           },
           "streamSettings": {
-            "network": "xhttp",
+            "network": "raw",
             "security": "reality",
             "realitySettings": {
               "show": false,
@@ -1517,8 +1516,7 @@ data:
               "serverNames": {{ toJson $realityServerNames }},
               "privateKey": "REPLACE_REALITY_PRIVATE_KEY",
               "shortIds": {{ toJson $role.reality.shortIds }}
-            },
-            "xhttpSettings": {"mode": "auto", "path": "/api/v1/update"}
+            }
           },
           "sniffing": {"enabled": true, "destOverride": ["http", "tls", "quic"]}
         },
@@ -1533,7 +1531,7 @@ data:
             "decryption": "REPLACE_VLESS_ENCRYPTION_DECRYPTION"
           },
           "streamSettings": {
-            "network": "xhttp",
+            "network": "raw",
             "security": "reality",
             "realitySettings": {
               "show": false,
@@ -1542,8 +1540,7 @@ data:
               "serverNames": [{{ $.Values.vlessEncryption.realitySni | quote }}],
               "privateKey": "REPLACE_REALITY_PRIVATE_KEY",
               "shortIds": {{ toJson $role.reality.shortIds }}
-            },
-            "xhttpSettings": {"mode": "auto", "path": "/api/v1/update"}
+            }
           },
           "sniffing": {"enabled": true, "destOverride": ["http", "tls", "quic"]}
         },
@@ -1591,75 +1588,21 @@ data:
 {{- end }}
       ],
       "outbounds": [
-{{- if and $roleIsEntry $chainBridge.enabled }}
-{{- if gt (len $chainBridgeShards) 0 }}
-{{- range $shard := $chainBridgeShards }}
-{{- $shardName := regexReplaceAll "[^a-z0-9_]+" (lower (toString $shard.id)) "_" | trimAll "_" }}
+{{- if and $roleIsEntry $endpointBackhaulShadowtlsEnabled }}
         {
-          "tag": "chain-xhttp-{{ $shardName }}",
-          "protocol": "vless",
+          "tag": "chain-shadowtls",
+          "protocol": "shadowsocks",
           "settings": {
-            "vnext": [
+            "servers": [
               {
-                "address": {{ $chainBridgeDialHost | quote }},
-                "port": {{ $chainBridgeEndpointPort }},
-                "users": [{"id": "REPLACE_XRAY_CHAIN_BRIDGE_CLIENT_ID", "encryption": "none"}]
+                "address": "127.0.0.1",
+                "port": {{ $endpointBackhaulShadowtlsLocalPort }},
+                "method": {{ $.Values.shadowsocks2022.method | quote }},
+                "password": "REPLACE_ENDPOINT_BACKHAUL_SHADOWSOCKS2022_PASSWORD"
               }
             ]
-          },
-          "streamSettings": {
-            "network": "xhttp",
-            "security": "reality",
-            "realitySettings": {
-              "serverName": {{ required "interconnect.emergencyXrayChain.shards[].serverName is required" $shard.serverName | quote }},
-              "fingerprint": "chrome",
-              "publicKey": {{ $chainBridgePublicKey | quote }},
-              "shortId": {{ $chainBridgeShortId | quote }},
-              "spiderX": "/"
-            },
-            "xhttpSettings": {
-              "mode": {{ dig "clientMode" "stream-one" $chainBridgeXhttp | quote }},
-              "path": {{ required "interconnect.emergencyXrayChain.shards[].path is required" $shard.path | quote }},
-              "extra": {
-                "xmux": {
-                  "maxConnections": {{ int (dig "maxConnections" 1 $chainBridgeXmux) }},
-                  "cMaxReuseTimes": {{ dig "cMaxReuseTimes" "32-64" $chainBridgeXmux | quote }},
-                  "hMaxRequestTimes": {{ dig "hMaxRequestTimes" "256-384" $chainBridgeXmux | quote }},
-                  "hMaxReusableSecs": {{ dig "hMaxReusableSecs" "600-900" $chainBridgeXmux | quote }},
-                  "hKeepAlivePeriod": {{ int (dig "hKeepAlivePeriod" 45 $chainBridgeXmux) }}
-                }
-              }
-            }
           }
         },
-{{- end }}
-{{- else }}
-        {
-          "tag": "chain-to-transit",
-          "protocol": "vless",
-          "settings": {
-            "vnext": [
-              {
-                "address": {{ $chainBridgeDialHost | quote }},
-                "port": {{ $chainBridgeEndpointPort }},
-                "users": [{"id": "REPLACE_XRAY_CHAIN_BRIDGE_CLIENT_ID", "encryption": "none"}]
-              }
-            ]
-          },
-          "streamSettings": {
-            "network": "xhttp",
-            "security": "reality",
-            "realitySettings": {
-              "serverName": {{ $chainBridgeSni | quote }},
-              "fingerprint": "chrome",
-              "publicKey": {{ $chainBridgePublicKey | quote }},
-              "shortId": {{ $chainBridgeShortId | quote }},
-              "spiderX": "/"
-            },
-            "xhttpSettings": {"mode": "auto", "path": "/api/v1/update"}
-          }
-        },
-{{- end }}
 {{- if $endpointBackhaulHysteriaEnabled }}
         {
           "tag": "chain-hysteria2",
@@ -1678,11 +1621,11 @@ data:
       ],
       "routing": {
         "domainStrategy": "IPIfNonMatch",
-{{- if and $roleIsEntry $endpointBackhaulEnabled (gt (len $chainBridgeShards) 0) }}
+{{- if and $roleIsEntry $endpointBackhaulShadowtlsEnabled }}
         "balancers": [
           {
             "tag": "endpoint-backhaul",
-            "selector": ["chain-xhttp-"],
+            "selector": ["chain-shadowtls"],
 {{- if $endpointBackhaulHysteriaEnabled }}
             "fallbackTag": "chain-hysteria2",
 {{- end }}
@@ -1693,20 +1636,13 @@ data:
         "rules": [
           {"type": "field", "inboundTag": ["api"], "outboundTag": "api"},
 {{- if and $roleIsEntry $mtprotoEntryTunnelEnabled }}
-{{- if and $endpointBackhaulEnabled (gt (len $chainBridgeShards) 0) }}
+{{- if $endpointBackhaulShadowtlsEnabled }}
           {"type": "field", "inboundTag": ["mtproto-entry-tunnel-in"], "balancerTag": "endpoint-backhaul"},
-{{- else }}
-          {"type": "field", "inboundTag": ["mtproto-entry-tunnel-in"], "outboundTag": "chain-to-transit"},
 {{- end }}
-{{- end }}
-{{- if and $roleIsEndpoint $mtprotoEntryTunnelEnabled (gt (len $chainBridgeShards) 0) }}
-          {"type": "field", "inboundTag": [{{- range $index, $shard := $chainBridgeShards }}{{ if $index }}, {{ end }}{{ printf "chain-bridge-%s-in" (regexReplaceAll "[^a-z0-9_]+" (lower (toString $shard.id)) "_" | trimAll "_") | quote }}{{- end }}], "port": {{ int $.Values.mtproto.backendPort | quote }}, "outboundTag": "direct"},
 {{- end }}
 {{- if and $mtprotoEntryLocalEnabled (not $mtprotoEgressShadowtlsEnabled) }}
-{{- if and $endpointBackhaulEnabled (gt (len $chainBridgeShards) 0) }}
+{{- if $endpointBackhaulEnabled }}
           {"type": "field", "inboundTag": ["mtproto-egress-socks-in"], "balancerTag": "endpoint-backhaul"},
-{{- else }}
-          {"type": "field", "inboundTag": ["mtproto-egress-socks-in"], "outboundTag": "chain-to-transit"},
 {{- end }}
 {{- end }}
           {"type": "field", "inboundTag": {{ toJson $userTrafficInbounds }}, "protocol": ["bittorrent"], "outboundTag": "block"},
@@ -1714,18 +1650,14 @@ data:
           {"type": "field", "inboundTag": {{ toJson $userTrafficInbounds }}, "domain": {{ toJson $ruBypassDomains }}, "outboundTag": "direct"},
           {"type": "field", "inboundTag": {{ toJson $userTrafficInbounds }}, "ip": ["geoip:ru"], "outboundTag": "direct"},
 {{- end }}
-{{- if and $roleIsEntry $chainBridge.enabled }}
-{{- if and $endpointBackhaulEnabled (gt (len $chainBridgeShards) 0) }}
+{{- if and $roleIsEntry $endpointBackhaulShadowtlsEnabled }}
           {"type": "field", "inboundTag": {{ toJson $userTrafficInbounds }}, "balancerTag": "endpoint-backhaul"},
-{{- else }}
-          {"type": "field", "inboundTag": {{ toJson $userTrafficInbounds }}, "outboundTag": "chain-to-transit"},
-{{- end }}
 {{- end }}
           {"type": "field", "ip": ["geoip:private"], "outboundTag": "block"}
         ]
-      }{{- if and $roleIsEntry $endpointBackhaulEnabled (gt (len $chainBridgeShards) 0) }},
+      }{{- if and $roleIsEntry $endpointBackhaulShadowtlsEnabled }},
       "observatory": {
-        "subjectSelector": ["chain-xhttp-"],
+        "subjectSelector": ["chain-shadowtls"],
         "probeURL": {{ dig "probeUrl" "https://rbc.ru/" $endpointBackhaulHealth | quote }},
         "probeInterval": {{ dig "probeInterval" "30s" $endpointBackhaulHealth | quote }}
       }

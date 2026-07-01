@@ -20,8 +20,8 @@ def _base_env(tmp_path: Path) -> dict[str, str]:
         "DEFAULT_TRANSIT_HOST": "transit.tracegate.test",
         "VLESS_WS_PATH": "/stealth/ws",
         "HYSTERIA_BOOTSTRAP_PASSWORD": "bootstrap-secret",
-        "HYSTERIA_SALAMANDER_PASSWORD_ENTRY": "entry-salamander-secret",
-        "HYSTERIA_SALAMANDER_PASSWORD_TRANSIT": "transit-salamander-secret",
+        "HYSTERIA_GECKO_PASSWORD_ENTRY": "entry-gecko-secret",
+        "HYSTERIA_GECKO_PASSWORD_TRANSIT": "transit-gecko-secret",
         "HYSTERIA_STATS_SECRET_ENTRY": "entry-stats-secret",
         "HYSTERIA_STATS_SECRET_TRANSIT": "transit-stats-secret",
         "REALITY_PUBLIC_KEY_TRANSIT": "transit-public-key",
@@ -75,8 +75,8 @@ def test_context_uses_shared_defaults_and_fallback_values(tmp_path: Path) -> Non
     assert ctx.ws_path == "/ws"
     assert ctx.runtime_profile == "tracegate-3"
     assert ctx.hysteria_udp_port == 443
-    assert ctx.entry_hysteria_salamander_password == "entry-salamander-secret"
-    assert ctx.transit_hysteria_salamander_password == "transit-salamander-secret"
+    assert ctx.entry_hysteria_salamander_password == "entry-gecko-secret"
+    assert ctx.transit_hysteria_salamander_password == "transit-gecko-secret"
     assert ctx.entry_hysteria_stats_secret == "entry-stats-secret"
     assert ctx.transit_hysteria_stats_secret == "transit-stats-secret"
     assert ctx.entry_hysteria_auth_url == "http://127.0.0.1:8070/v1/hysteria/auth"
@@ -199,13 +199,16 @@ def test_render_materialized_bundles_rewrites_runtime_files(tmp_path: Path) -> N
     assert "hy2-in" not in {inbound["tag"] for inbound in entry_xray["inbounds"]}
     assert "hy2-in" not in {inbound["tag"] for inbound in transit_xray["inbounds"]}
     assert "listen: :443" in entry_hysteria
+    assert "type: gecko" in entry_hysteria
+    assert "minPacketSize: 512" in entry_hysteria
+    assert "maxPacketSize: 1200" in entry_hysteria
     assert "url: \"http://127.0.0.1:8070/v1/hysteria/auth\"" in entry_hysteria
-    assert "password: \"entry-salamander-secret\"" in entry_hysteria
+    assert "password: \"entry-gecko-secret\"" in entry_hysteria
     assert "secret: \"entry-stats-secret\"" in entry_hysteria
     assert "dir: \"/srv/decoy\"" in entry_hysteria
     assert "bandwidth:\n  up: 10 mbps\n  down: 10 mbps" in entry_hysteria
     assert "ignoreClientBandwidth: false" in entry_hysteria
-    assert "password: \"transit-salamander-secret\"" in transit_hysteria
+    assert "password: \"transit-gecko-secret\"" in transit_hysteria
     assert "secret: \"transit-stats-secret\"" in transit_hysteria
     assert "server transit_mtproto 127.0.0.1:9443 check send-proxy-v2" in transit_haproxy
     assert "bandwidth:" not in transit_hysteria
@@ -267,7 +270,7 @@ def test_render_materialized_bundles_rewrites_runtime_files(tmp_path: Path) -> N
     ]
     assert bundles["ENTRY"]["privateCompanions"] == ["tracegate-obfuscation@entry"]
     assert bundles["ENTRY"]["features"]["standaloneHysteriaEnabled"] is True
-    assert bundles["ENTRY"]["features"]["hysteriaSalamanderEnabled"] is True
+    assert bundles["ENTRY"]["features"]["hysteriaGeckoEnabled"] is True
     assert bundles["ENTRY"]["features"]["finalMaskEnabled"] is False
     assert bundles["ENTRY"]["features"]["echEnabled"] is False
     assert bundles["TRANSIT"]["features"]["mtprotoFrontingEnabled"] is True

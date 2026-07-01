@@ -231,10 +231,10 @@ def load_paired_udp_obfs_profile(
     dpi_mode = _env_string(
         payload,
         "TRACEGATE_UDP_OBFS_DPI_MODE",
-        default="salamander-plus-scoped-paired-obfs",
+        default="gecko-plus-scoped-paired-obfs",
     ).lower()
-    if dpi_mode != "salamander-plus-scoped-paired-obfs":
-        raise PairedUdpObfsRunnerError("TRACEGATE_UDP_OBFS_DPI_MODE must stay salamander-plus-scoped-paired-obfs")
+    if dpi_mode != "gecko-plus-scoped-paired-obfs":
+        raise PairedUdpObfsRunnerError("TRACEGATE_UDP_OBFS_DPI_MODE must stay gecko-plus-scoped-paired-obfs")
 
     packet_shape = _env_string(payload, "TRACEGATE_UDP_OBFS_PACKET_SHAPE", default="bounded-profile").lower()
     if packet_shape != "bounded-profile":

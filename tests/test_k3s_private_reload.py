@@ -149,17 +149,17 @@ def _shadowtls_profile(*, mode: str) -> dict:
     outer = "shadowtls-v3"
     if is_chain:
         stage = "transit-private-terminator"
-        outer = "reality-xhttp"
+        outer = "shadowtls-v3"
         chain = {
             "type": "entry_transit_private_relay",
             "entry": "entry.example.com",
             "transit": "transit.example.com",
             "linkClass": "entry-transit",
-            "carrier": "xray-vless-reality",
-            "preferredOuter": "reality-xhttp",
-            "outerCarrier": "tcp-reality-xhttp",
+            "carrier": "shadowsocks2022-shadowtls-v3",
+            "preferredOuter": "shadowtls-v3",
+            "outerCarrier": "tcp-shadowtls-v3",
             "optionalPacketShaping": "",
-            "managedBy": "xray-chain",
+            "managedBy": "link-crypto",
             "selectedProfiles": ["V1", "V3"],
             "innerTransport": "shadowsocks2022-shadowtls-v3",
             "xrayBackhaul": False,
@@ -613,7 +613,7 @@ def _write_router_handoff_bundle(root: Path, *, role: str, contract: dict, contr
                 "name": "hysteria2-client",
                 "required": False,
                 "transports": ["udp-quic"],
-                "obfs": "salamander",
+                "obfs": "gecko",
                 "failClosed": True,
                 "noHostWideInterception": True,
                 "noNfqueue": True,
@@ -702,8 +702,8 @@ def test_k3s_private_reload_profile_marker_summarizes_without_profile_secrets(tm
     assert summary["transportProfiles"]["localSocks"]["auth"] == "required"
     assert summary["localSocks"]["authRequired"] == 3
     assert summary["localSocks"]["anonymous"] == 0
-    assert summary["chain"]["managedBy"] == ["xray-chain"]
-    assert summary["obfuscation"]["outers"] == ["reality-xhttp", "shadowtls-v3", "wstunnel"]
+    assert summary["chain"]["managedBy"] == ["link-crypto"]
+    assert summary["obfuscation"]["outers"] == ["shadowtls-v3", "wstunnel"]
     assert summary["shadowtlsOuter"] == {
         "total": 2,
         "credentialScopes": ["node-static"],

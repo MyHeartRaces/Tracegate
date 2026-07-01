@@ -103,6 +103,12 @@ decoy:
   existingConfigMap: tracegate-decoy
 
 gateway:
+  hysteria:
+    obfs:
+      type: gecko
+      gecko:
+        minPacketSize: 512
+        maxPacketSize: 1200
   realityMultiInboundGroups:
     - {id: sni-102, port: 2501, dest: yandex.ru, snis: [yandex.ru]}
     - {id: sni-103, port: 2502, dest: www.yandex.ru, snis: [www.yandex.ru]}
@@ -151,8 +157,8 @@ experimentalProfiles:
 interconnect:
   endpointBackhaul:
     enabled: true
-    primary: vless-reality-xhttp
-    secondary: hysteria2-salamander
+    primary: shadowsocks2022-shadowtls-v3
+    secondary: hysteria2-gecko
     selection:
       strategy: roundRobin
       stickyScope: connection
@@ -161,6 +167,12 @@ interconnect:
       payloadProbeRequired: true
       probeUrl: https://rbc.ru/
       probeInterval: 30s
+    shadowtls:
+      enabled: true
+      endpointHost: 198.51.100.21
+      endpointPort: 443
+      serverName: 2gis.ru
+      entryLocalPort: 11088
     hysteria2:
       enabled: true
       endpointHost: 198.51.100.21
@@ -175,23 +187,12 @@ interconnect:
       congestion:
         type: bbr
         profile: conservative
+      gecko:
+        minPacketSize: 512
+        maxPacketSize: 1200
   emergencyXrayChain:
-    enabled: true
-    endpointHost: 198.51.100.21
-    endpointPort: 443
-    allowedSources: [203.0.113.10]
-    shards:
-      - {id: mail, serverName: rbc.ru, dest: "rbc.ru:443", endpointListenPort: 2451, path: /api/v1/backhaul/mail}
-      - {id: 2gis-reviews, serverName: www.rbc.ru, dest: "www.rbc.ru:443", endpointListenPort: 2452, path: /api/v1/backhaul/2gis-reviews}
-    xhttp:
-      clientMode: stream-one
-      serverMode: auto
-      xmux:
-        maxConnections: 1
-        cMaxReuseTimes: "32-64"
-        hMaxRequestTimes: "256-384"
-        hMaxReusableSecs: "600-900"
-        hKeepAlivePeriod: 45
+    enabled: false
+    shards: []
   shadowsocks2022:
     enabled: false
   zapret2:

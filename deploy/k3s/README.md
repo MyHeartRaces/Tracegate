@@ -80,8 +80,8 @@ domains provide 45 active revision slots, including overlap revisions.
 The full phase adds one-address `architecture.universalEntry`. It exposes one
 `V5-Universal-Entry` profile via
 a Cloudflare-proxied gRPC/TLS/H2 hostname and routes it through a shared
-Entry-to-Endpoint backhaul pool: connect-level VLESS/REALITY/XHTTP SNI shards
-with Hysteria2/Salamander fallback. It disables direct Entry user egress and
+Entry-to-Endpoint backhaul pool: Shadowsocks-2022 over ShadowTLS v3 with an
+independent Hysteria2/Gecko fallback. It disables direct Entry user egress and
 uses the same four-address Endpoint. Start from
 `values-endpoint-first.example.yaml`, then promote with
 `values-entry-endpoint.example.yaml` and persist Entry's mandatory

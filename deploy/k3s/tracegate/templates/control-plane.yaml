@@ -301,12 +301,12 @@ spec:
               value: {{ int .Values.controlPlane.env.wireguardMtu | quote }}
             - name: WIREGUARD_WSTUNNEL_PATH
               value: {{ .Values.wireguard.wstunnel.publicPath | quote }}
-            - name: HYSTERIA_SALAMANDER_PASSWORD_ENTRY
+            - name: HYSTERIA_GECKO_PASSWORD_ENTRY
               valueFrom:
                 secretKeyRef:
                   name: {{ include "tracegate.privateProfilesSecretName" . }}
                   key: {{ .Values.privateProfiles.secretKeys.hysteriaSalamanderEntry }}
-            - name: HYSTERIA_SALAMANDER_PASSWORD_TRANSIT
+            - name: HYSTERIA_GECKO_PASSWORD_TRANSIT
               valueFrom:
                 secretKeyRef:
                   name: {{ include "tracegate.privateProfilesSecretName" . }}

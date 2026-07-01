@@ -21,16 +21,16 @@ def test_export_vless_reality_uri() -> None:
         "uuid": "11111111-2222-3333-4444-555555555555",
         "sni": "yandex.ru",
         "reality": {"public_key": "PUBKEY", "short_id": "abcd"},
-        "xhttp": {"mode": "auto", "path": "/api/v1/update"},
+        "transport": "reality_raw",
+        "flow": "xtls-rprx-vision",
         "profile": "V1-VLESS-Reality-Direct",
     }
     out = export_client_config(effective)
     assert out.kind == "uri"
     assert out.content.startswith("vless://11111111-2222-3333-4444-555555555555@t.example.com:443?")
     assert "security=reality" in out.content
-    assert "type=xhttp" in out.content
-    assert "mode=auto" in out.content
-    assert "path=/api/v1/update" in out.content
+    assert "type=tcp" in out.content
+    assert "flow=xtls-rprx-vision" in out.content
     assert "sni=yandex.ru" in out.content
     assert "pbk=PUBKEY" in out.content
     assert "sid=abcd" in out.content
@@ -44,7 +44,8 @@ def test_export_vless_reality_uri() -> None:
     assert attachment["inbounds"][0]["settings"]["auth"] == "password"
     assert attachment["inbounds"][0]["settings"]["accounts"][0]["user"].startswith("tg_")
     assert attachment["inbounds"][0]["settings"]["accounts"][0]["pass"]
-    assert attachment["outbounds"][0]["streamSettings"]["network"] == "xhttp"
+    assert attachment["outbounds"][0]["streamSettings"]["network"] == "raw"
+    assert attachment["outbounds"][0]["settings"]["vnext"][0]["users"][0]["flow"] == "xtls-rprx-vision"
     assert attachment["outbounds"][0]["streamSettings"]["realitySettings"]["serverName"] == "yandex.ru"
 
 
@@ -73,14 +74,14 @@ def test_export_hysteria2_uri() -> None:
         "server": "t.example.com",
         "port": 4443,
         "auth": {"type": "userpass", "username": "u", "password": "p"},
-        "obfs": {"type": "salamander", "password": "obfs-secret"},
+        "obfs": {"type": "gecko", "password": "obfs-secret"},
         "profile": "V3-Hysteria2-QUIC-Direct",
     }
     out = export_client_config(effective)
     assert out.kind == "uri"
     assert out.content.startswith("hysteria2://u%3Ap@t.example.com:4443/")
     assert "insecure=0" not in out.content
-    assert "obfs=salamander" in out.content
+    assert "obfs=gecko" in out.content
     assert "obfs-password=obfs-secret" in out.content
     assert "alpn=" not in out.content
     assert "sni=t.example.com" in out.content
@@ -89,6 +90,7 @@ def test_export_hysteria2_uri() -> None:
     assert out.alternate_title is None
     assert out.alternate_content is None
     assert "Local SOCKS5 credentials" in dict(out.extra_messages)
+    assert "sing-box 1.14.0+" in dict(out.extra_messages)["Client compatibility"]
     attachment = json.loads((out.attachment_content or b"").decode("utf-8"))
     assert out.attachment_filename == "direct-hysteria.singbox.json"
     assert attachment["inbounds"][0]["users"][0]["username"].startswith("tg_")
@@ -97,7 +99,12 @@ def test_export_hysteria2_uri() -> None:
     assert attachment["outbounds"][0]["up_mbps"] == 100
     assert attachment["outbounds"][0]["down_mbps"] == 100
     assert attachment["outbounds"][0]["password"] == "u:p"
-    assert attachment["outbounds"][0]["obfs"] == {"type": "salamander", "password": "obfs-secret"}
+    assert attachment["outbounds"][0]["obfs"] == {
+        "type": "gecko",
+        "password": "obfs-secret",
+        "min_packet_size": 512,
+        "max_packet_size": 1200,
+    }
     assert attachment["outbounds"][0]["tls"]["alpn"] == ["h3"]
 
 
@@ -107,7 +114,7 @@ def test_export_hysteria2_chain_caps_stale_bandwidth_to_chain_limit() -> None:
         "server": "entry.example.com",
         "port": 4443,
         "auth": {"type": "userpass", "username": "u", "password": "p"},
-        "obfs": {"type": "salamander", "password": "obfs-secret"},
+        "obfs": {"type": "gecko", "password": "obfs-secret"},
         "profile": "V2-Chain-QUIC-Hysteria",
         "up_mbps": 100,
         "down_mbps": 100,
@@ -129,7 +136,7 @@ def test_export_hysteria2_direct_keeps_explicit_bandwidth_override() -> None:
         "server": "endpoint.example.com",
         "port": 4443,
         "auth": {"type": "userpass", "username": "u", "password": "p"},
-        "obfs": {"type": "salamander", "password": "obfs-secret"},
+        "obfs": {"type": "gecko", "password": "obfs-secret"},
         "profile": "V2-Direct-QUIC-Hysteria",
         "up_mbps": 200,
         "down_mbps": 200,
@@ -143,7 +150,7 @@ def test_export_hysteria2_direct_keeps_explicit_bandwidth_override() -> None:
     assert attachment["outbounds"][0]["down_mbps"] == 200
 
 
-def test_export_hysteria2_rejects_missing_salamander() -> None:
+def test_export_hysteria2_rejects_missing_gecko() -> None:
     effective = {
         "protocol": "hysteria2",
         "server": "t.example.com",
@@ -152,7 +159,7 @@ def test_export_hysteria2_rejects_missing_salamander() -> None:
         "profile": "V3-Hysteria2-QUIC-Direct",
     }
 
-    with pytest.raises(ClientConfigExportError, match="Salamander"):
+    with pytest.raises(ClientConfigExportError, match="Gecko"):
         export_client_config(effective)
 
 
@@ -166,7 +173,7 @@ def test_export_hysteria2_token_uri() -> None:
             "token": "client-token:device-token",
             "client_id": "client-token",
         },
-        "obfs": {"type": "salamander", "password": "obfs-secret"},
+        "obfs": {"type": "gecko", "password": "obfs-secret"},
         "profile": "V3-Hysteria2-QUIC-Direct",
     }
     out = export_client_config(effective)
@@ -192,7 +199,7 @@ def test_export_hysteria2_token_uri_falls_back_to_raw_token_when_it_is_not_split
         "server": "t.example.com",
         "port": 4443,
         "auth": {"type": "token", "token": "opaque-token", "client_id": "client-token"},
-        "obfs": {"type": "salamander", "password": "obfs-secret"},
+        "obfs": {"type": "gecko", "password": "obfs-secret"},
         "profile": "V3-Hysteria2-QUIC-Direct",
     }
     out = export_client_config(effective)
@@ -207,7 +214,7 @@ def test_export_hysteria2_ip_sni_forces_insecure_tls() -> None:
         "sni": "198.51.100.105",
         "tls": {"server_name": "198.51.100.105", "insecure": False},
         "auth": {"type": "token", "token": "opaque-token", "client_id": "client-token"},
-        "obfs": {"type": "salamander", "password": "obfs-secret"},
+        "obfs": {"type": "gecko", "password": "obfs-secret"},
         "profile": "V3-Hysteria2-QUIC-Direct",
     }
 
@@ -394,7 +401,7 @@ def test_export_rejects_disabled_local_socks_auth() -> None:
         "server": "t.example.com",
         "port": 4443,
         "auth": {"type": "userpass", "username": "u", "password": "p"},
-        "obfs": {"type": "salamander", "password": "obfs-secret"},
+        "obfs": {"type": "gecko", "password": "obfs-secret"},
         "profile": "V3-Hysteria2-QUIC-Direct",
         "local_socks": {
             "listen": "127.0.0.1:1080",
@@ -737,7 +744,7 @@ def test_export_wireguard_wstunnel_rejects_unsafe_mtu() -> None:
             "server": "t.example.com",
             "port": 4443,
             "auth": {"type": "userpass", "username": "u", "password": "p"},
-            "obfs": {"type": "salamander", "password": "obfs-secret"},
+            "obfs": {"type": "gecko", "password": "obfs-secret"},
             "profile": "V3-Hysteria2-QUIC-Direct",
         },
         {
@@ -779,7 +786,7 @@ def test_export_rejects_unsupported_protocol() -> None:
         export_client_config(effective)
 
 
-def test_export_vless_reality_uri_defaults_to_xhttp_without_xhttp_block() -> None:
+def test_export_vless_reality_uri_defaults_to_raw_vision() -> None:
     effective = {
         "protocol": "vless",
         "server": "t.example.com",
@@ -792,6 +799,5 @@ def test_export_vless_reality_uri_defaults_to_xhttp_without_xhttp_block() -> Non
     out = export_client_config(effective)
     assert out.kind == "uri"
     assert "security=reality" in out.content
-    assert "type=xhttp" in out.content
-    assert "mode=auto" in out.content
-    assert "path=/api/v1/update" in out.content
+    assert "type=tcp" in out.content
+    assert "flow=xtls-rprx-vision" in out.content

@@ -620,14 +620,14 @@ def test_handle_apply_bundle_tracegate22_syncs_standalone_hysteria_base(
         {
             "bundle_name": "base-transit",
             "files": {
-                "hysteria/server.yaml": "listen: :4443\nobfs:\n  type: salamander\n",
+                "hysteria/server.yaml": "listen: :4443\nobfs:\n  type: gecko\n",
             },
             "commands": [],
         },
     )
 
     assert (tmp_path / "base/hysteria/server.yaml").read_text(encoding="utf-8") == (
-        "listen: :4443\nobfs:\n  type: salamander\n"
+        "listen: :4443\nobfs:\n  type: gecko\n"
     )
     assert reload_calls == [["reload-hysteria"]]
     assert "base_sync=hysteria" in msg

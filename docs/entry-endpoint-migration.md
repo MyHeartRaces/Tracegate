@@ -16,7 +16,7 @@ New production is promoted in two phases.
 
 - provision one-IP Entry;
 - set `architecture.deploymentPhase=full`;
-- enable Universal Entry, XHTTP/REALITY primary and Hysteria2 secondary
+- enable Universal Entry, SS2022/ShadowTLS v3 primary and Hysteria2/Gecko secondary
   backhauls;
 - enable MTProto client ingress through Entry while MTG remains in the
   Endpoint pod;

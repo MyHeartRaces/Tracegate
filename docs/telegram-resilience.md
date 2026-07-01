@@ -50,7 +50,7 @@ fingerprint property as provider-specific and expiring.
 | Cloudflare Spectrum TCP | Yes | Potentially | Custom TCP requires the Enterprise Spectrum add-on |
 | Cloudflare-proxied gRPC/H2 Tracegate tunnel | No; requires TUN/router | Often, when the proxied hostname is allowed | Own hostname or Cloudflare can still be filtered |
 | WSS/HTTPS Tracegate fallback | No; requires TUN/router | Same as above | More overhead and reconnect sensitivity |
-| Hysteria2/Salamander | No; requires TUN/router | Only when UDP path is allowed | UDP/QUIC is commonly throttled or disabled |
+| Hysteria2/Gecko | No; requires TUN/router | Only when UDP path is allowed | UDP/QUIC is commonly throttled or disabled |
 | DNS tunnel | No; requires a local client/router | Sometimes | Low bandwidth, resolver interference, high operational cost |
 
 Ordinary Cloudflare proxying and a public Cloudflare Tunnel hostname do not
@@ -100,7 +100,7 @@ an unmodified native client.
 - Finish Universal Entry on a dedicated Cloudflare-proxied hostname using real
   TLS, HTTP/2 and one multiplexed gRPC connection.
 - Keep reconnect jitter and `maxParallelHandshakes=1`; do not race all shards.
-- Use the XHTTP/REALITY backhaul as primary and Hysteria2/Salamander as an
+- Use SS2022/ShadowTLS v3 as primary and Hysteria2/Gecko as an
   independent UDP failure domain.
 - Route Telegram service traffic through this lane in Tracegate-Router TUN
   mode. Do not simultaneously force the MTProxy bearer through the same tunnel
@@ -123,7 +123,7 @@ destabilizes clients.
 2. If the MTProxy address is blocked but the proxied Universal Entry hostname
    works, disable Telegram's internal proxy and use the system/router tunnel.
 3. If the HTTPS carrier fails but an independent UDP path works, use the
-   Hysteria2/Salamander tunnel.
+   Hysteria2/Gecko tunnel.
 4. If only recursive DNS is usable, offer an explicitly low-bandwidth DNS
    tunnel profile for messaging and control traffic.
 5. If none of the controlled or relay destinations is reachable, report the

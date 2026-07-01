@@ -52,12 +52,11 @@ then produces Python, Helm and generic bundle packages plus `SHA256SUMS`.
 ## Full Backhaul
 
 - Render and apply both Universal Entry nftables policies.
-- Verify every XHTTP shard transfers sustained authenticated payload through
-  its own SNI, REALITY destination and path.
-- Verify Xray observatory removes a failed XHTTP shard without parallel dial
-  bursts.
-- Verify Hysteria2/Salamander fallback transfers TCP and UDP after all XHTTP
-  shards are unavailable.
+- Verify sustained authenticated payload through the SS2022/ShadowTLS primary.
+- Verify the Xray observatory switches away from a failed ShadowTLS primary
+  without parallel dial bursts.
+- Verify Hysteria2/Gecko fallback transfers TCP and UDP after the ShadowTLS
+  primary is unavailable.
 - Confirm Entry has no direct user-traffic egress during every failure test.
 
 ## MTProto

@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### Transport Architecture
+
+- Replaced VLESS/REALITY XHTTP with RAW/TCP + XTLS Vision.
+- Replaced the Entry-to-Endpoint XHTTP pool with an SS2022/ShadowTLS v3 TCP
+  primary and an independent Hysteria2/Gecko fallback.
+- Migrated Direct Hysteria2 and internal Hysteria2 contracts from Salamander
+  to Gecko, with minimum client/runtime version checks.
+
 ## v3.0.0 - 2026-06-27
 
 ### Runtime and Deployment

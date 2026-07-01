@@ -255,7 +255,7 @@ class Settings(BaseSettings):
     agent_xray_api_server: str = "127.0.0.1:8080"
     agent_xray_api_timeout_seconds: int = 3
     # Run Entry REALITY inbounds on a dedicated in-pod Xray sidecar built from
-    # the Tracegate image when the upstream Xray image misbehaves on xhttp+REALITY.
+    # the Tracegate image when the upstream Xray image misbehaves.
     agent_entry_v2_split_backend_enabled: bool = Field(
         default=False,
         validation_alias=AliasChoices(
@@ -332,7 +332,7 @@ class Settings(BaseSettings):
     private_udp_link_profile_dir: str = "/etc/tracegate/private/udp-link"
     private_udp_link_client_profile: str = "client.yaml"
     private_udp_link_server_profile: str = "server.yaml"
-    private_udp_link_obfs_profile: str = "salamander.env"
+    private_udp_link_obfs_profile: str = "gecko.env"
     private_udp_link_paired_obfs_enabled: bool = False
     private_udp_link_paired_obfs_mode: str = "udp2raw-faketcp"
     private_udp_link_paired_obfs_profile: str = "paired-obfs.env"
@@ -354,7 +354,7 @@ class Settings(BaseSettings):
     private_router_profile_dir: str = "/etc/tracegate/private/router"
     private_router_shadowsocks2022_client_profile: str = "shadowsocks2022-client.json"
     private_router_udp_client_profile: str = "hysteria-client.yaml"
-    private_router_udp_salamander_profile: str = "salamander.env"
+    private_router_udp_salamander_profile: str = "gecko.env"
     private_router_udp_paired_obfs_profile: str = "paired-obfs.env"
     private_link_crypto_outer_carrier_enabled: bool = True
     private_link_crypto_outer_carrier_mode: str = "wss"
@@ -492,14 +492,25 @@ class Settings(BaseSettings):
         default="",
         validation_alias=AliasChoices("HYSTERIA_SERVER_NAME_TRANSIT", "HYSTERIA_SERVER_NAME"),
     )
-    # Salamander is mandatory for Tracegate Hysteria2. Keep real values in private env/Secrets.
+    # Gecko is mandatory for Tracegate Hysteria2. Legacy Salamander variable names
+    # remain fallback aliases during the credential-name migration.
     hysteria_salamander_password_entry: str = Field(
         default="",
-        validation_alias=AliasChoices("HYSTERIA_SALAMANDER_PASSWORD_ENTRY", "HYSTERIA_SALAMANDER_PASSWORD"),
+        validation_alias=AliasChoices(
+            "HYSTERIA_GECKO_PASSWORD_ENTRY",
+            "HYSTERIA_GECKO_PASSWORD",
+            "HYSTERIA_SALAMANDER_PASSWORD_ENTRY",
+            "HYSTERIA_SALAMANDER_PASSWORD",
+        ),
     )
     hysteria_salamander_password_transit: str = Field(
         default="",
-        validation_alias=AliasChoices("HYSTERIA_SALAMANDER_PASSWORD_TRANSIT", "HYSTERIA_SALAMANDER_PASSWORD"),
+        validation_alias=AliasChoices(
+            "HYSTERIA_GECKO_PASSWORD_TRANSIT",
+            "HYSTERIA_GECKO_PASSWORD",
+            "HYSTERIA_SALAMANDER_PASSWORD_TRANSIT",
+            "HYSTERIA_SALAMANDER_PASSWORD",
+        ),
     )
     # Shared Entry -> Endpoint Hysteria2 fallback credential. It is accepted
     # only by the Endpoint-role agent and must remain in the private Secret.

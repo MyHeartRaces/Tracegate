@@ -32,7 +32,7 @@ def _write_profile(path: Path, **overrides: object) -> Path:
         "TRACEGATE_UDP_OBFS_PUBLIC_UDP_PORT": "4443",
         "TRACEGATE_UDP_OBFS_FORBID_UDP_443": "true",
         "TRACEGATE_UDP_OBFS_FORBID_TCP_8443": "true",
-        "TRACEGATE_UDP_OBFS_DPI_MODE": "salamander-plus-scoped-paired-obfs",
+        "TRACEGATE_UDP_OBFS_DPI_MODE": "gecko-plus-scoped-paired-obfs",
         "TRACEGATE_UDP_OBFS_PACKET_SHAPE": "bounded-profile",
         "TRACEGATE_UDP_OBFS_MTU_MODE": "clamp",
         "TRACEGATE_UDP_OBFS_MAX_PACKET_SIZE": "1252",
@@ -60,7 +60,7 @@ def test_paired_udp_obfs_runner_builds_redacted_udp2raw_client_plan(tmp_path: Pa
     ]
     assert plan["dpiResistance"] == {
         "enabled": True,
-        "mode": "salamander-plus-scoped-paired-obfs",
+        "mode": "gecko-plus-scoped-paired-obfs",
         "portSplit": {
             "publicUdpPort": 4443,
             "forbidUdp443": True,

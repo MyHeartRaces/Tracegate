@@ -382,8 +382,8 @@ def _collect_hysteria_runtime_state(runtime_hysteria: dict[str, object], *, conf
     auth_http_block = auth_http if isinstance(auth_http, dict) else {}
     obfs = runtime_hysteria.get("obfs")
     obfs_block = obfs if isinstance(obfs, dict) else {}
-    salamander = obfs_block.get("salamander")
-    salamander_block = salamander if isinstance(salamander, dict) else {}
+    gecko = obfs_block.get("gecko")
+    gecko_block = gecko if isinstance(gecko, dict) else {}
     traffic_stats = runtime_hysteria.get("trafficStats")
     traffic_stats_block = traffic_stats if isinstance(traffic_stats, dict) else {}
     tls = runtime_hysteria.get("tls")
@@ -402,7 +402,7 @@ def _collect_hysteria_runtime_state(runtime_hysteria: dict[str, object], *, conf
     auth_url = str(auth_http_block.get("url") or "").strip()
     auth_insecure = bool(auth_http_block.get("insecure", False))
     obfs_type = str(obfs_block.get("type") or "").strip().lower()
-    salamander_password_configured = _hysteria_secret_configured(salamander_block.get("password"))
+    gecko_password_configured = _hysteria_secret_configured(gecko_block.get("password"))
     stats_listen = str(traffic_stats_block.get("listen") or "").strip()
     stats_secret_configured = _hysteria_secret_configured(traffic_stats_block.get("secret"))
     sni_guard = str(tls_block.get("sniGuard") or "").strip().lower()
@@ -419,7 +419,7 @@ def _collect_hysteria_runtime_state(runtime_hysteria: dict[str, object], *, conf
         "http_auth_loopback": auth_type == "http" and _hysteria_http_loopback_url(auth_url),
         "auth_insecure_disabled": not auth_insecure,
         "reject_anonymous": auth_type == "http",
-        "salamander": obfs_type == "salamander" and salamander_password_configured,
+        "gecko": obfs_type == "gecko" and gecko_password_configured,
         "file_masquerade": masquerade_type == "file" and bool(masquerade_dirs),
         "traffic_stats_loopback": _hysteria_loopback_endpoint(stats_listen) and stats_secret_configured,
         "sni_guard_dns_san": sni_guard == "dns-san",
@@ -442,7 +442,9 @@ def _collect_hysteria_runtime_state(runtime_hysteria: dict[str, object], *, conf
         },
         "obfs": {
             "type": obfs_type,
-            "salamanderPasswordConfigured": salamander_password_configured,
+            "geckoPasswordConfigured": gecko_password_configured,
+            "minPacketSize": int(gecko_block.get("minPacketSize") or 0),
+            "maxPacketSize": int(gecko_block.get("maxPacketSize") or 0),
         },
         "trafficStats": {
             "listen": stats_listen,
@@ -480,7 +482,7 @@ def _collect_hysteria_runtime_state(runtime_hysteria: dict[str, object], *, conf
             "checks": hygiene_checks,
             "requiredLayers": [
                 "hysteria2",
-                "salamander",
+                "gecko",
                 "file-masquerade",
                 "dns-san-sni-guard",
                 "http-auth-loopback",
@@ -700,7 +702,7 @@ def _build_link_crypto_contract_payload(settings: Settings) -> dict[str, object]
     udp_link_enabled = bool(udp_classes)
     udp_dpi_resistance = {
         "enabled": udp_link_enabled,
-        "mode": "salamander-plus-scoped-paired-obfs",
+        "mode": "gecko-plus-scoped-paired-obfs",
         "portSplit": {
             "publicUdpPort": TRACEGATE_PUBLIC_UDP_PORT,
             "forbidUdp443": False,
@@ -708,7 +710,7 @@ def _build_link_crypto_contract_payload(settings: Settings) -> dict[str, object]
         },
         "requiredLayers": [
             "hysteria2-quic",
-            "salamander",
+            "gecko",
             "private-auth",
             "anti-replay",
             "anti-amplification",
@@ -762,7 +764,7 @@ def _build_link_crypto_contract_payload(settings: Settings) -> dict[str, object]
             "xrayBackhaul": False,
             "remotePort": int(settings.private_udp_link_remote_port or TRACEGATE_INTERCONNECT_UDP_PORT),
             "obfs": {
-                "type": "salamander",
+                "type": "gecko",
                 "required": True,
             },
             "pairedObfs": {
@@ -1900,8 +1902,10 @@ def reconcile_xray(settings: Settings) -> ReconcileXrayResult:
             client_row = {
                 "id": uuid,
                 "email": _connection_marker(row),
+                "flow": "xtls-rprx-vision",
             }
             if encrypted:
+                client_row.pop("flow", None)
                 if sni:
                     server_names_encrypted.add(sni)
                 clients_reality_encrypted.append(client_row)

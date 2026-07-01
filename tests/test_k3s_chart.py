@@ -328,6 +328,7 @@ def _prod_overlay_values() -> dict:
                         "mtproto",
                     )
                 },
+                "hysteria": {"tag": "v2.9.3"},
                 "naiveproxy": {"repository": "ghcr.io/acme/tracegate-naiveproxy-caddy", "tag": "pinned-test"},
             },
             "roles": {
@@ -418,24 +419,31 @@ def _entry_endpoint_overlay_values(*, rotation: bool = False) -> dict:
     }
     values["interconnect"] = {
         "emergencyXrayChain": {
-            "enabled": True,
-            "endpointHost": "198.51.100.20",
-            "allowedSources": ["8.8.4.4"],
-            "shards": [
-                {
-                    "id": "mail",
-                    "serverName": "rbc.ru",
-                    "dest": "rbc.ru:443",
-                    "endpointListenPort": 2451,
-                    "path": "/api/v1/backhaul/mail",
-                }
-            ],
+            "enabled": False,
+            "shards": [],
         },
         "endpointBackhaul": _values()["interconnect"]["endpointBackhaul"],
         "shadowsocks2022": {"enabled": False},
         "zapret2": {"enabled": False},
     }
     values["interconnect"]["endpointBackhaul"]["enabled"] = True
+    values["interconnect"]["endpointBackhaul"]["shadowtls"] = {
+        "enabled": True,
+        "endpointHost": "198.51.100.20",
+        "endpointPort": 443,
+        "serverName": "2gis.ru",
+        "entryLocalPort": 11088,
+    }
+    values["interconnect"]["endpointBackhaul"]["hysteria2"].update(
+        {
+            "enabled": True,
+            "endpointHost": "198.51.100.20",
+            "endpointPort": 443,
+            "serverName": "endpoint.prod.test",
+            "allowedSources": ["8.8.4.4"],
+            "gecko": {"minPacketSize": 512, "maxPacketSize": 1200},
+        }
+    )
     values["mtproto"].update(
         {
             "runtime": "mtg",
@@ -454,6 +462,10 @@ def _entry_endpoint_overlay_values(*, rotation: bool = False) -> dict:
             },
         }
     )
+    values["shadowsocks2022"] = {
+        "enabled": True,
+        "shadowtls": {"serverNameEntry": "2gis.ru", "serverNameEndpoint": "2gis.ru"},
+    }
     return values
 
 
@@ -524,30 +536,47 @@ def _universal_entry_overlay_values() -> dict:
         "backup-shadowtls",
         "backup-wgws",
     ]
-    values["interconnect"]["emergencyXrayChain"]["allowedSources"] = ["8.8.4.4"]
-    values["interconnect"]["emergencyXrayChain"]["shards"] = [
-        {
-            "id": "mail",
-            "serverName": "rbc.ru",
-            "dest": "rbc.ru:443",
-            "endpointListenPort": 2451,
-            "path": "/api/v1/backhaul/mail",
-        },
-        {
-            "id": "2gis-reviews",
-            "serverName": "www.rbc.ru",
-            "dest": "www.rbc.ru:443",
-            "endpointListenPort": 2452,
-            "path": "/api/v1/backhaul/2gis-reviews",
-        },
-    ]
     values["interconnect"]["endpointBackhaul"] = _values()["interconnect"]["endpointBackhaul"]
     values["interconnect"]["endpointBackhaul"]["enabled"] = True
+    values["interconnect"]["endpointBackhaul"]["shadowtls"] = {
+        "enabled": True,
+        "endpointHost": "198.51.100.20",
+        "endpointPort": 443,
+        "serverName": "2gis.ru",
+        "entryLocalPort": 11088,
+    }
     values["interconnect"]["endpointBackhaul"]["hysteria2"]["enabled"] = True
     values["interconnect"]["endpointBackhaul"]["hysteria2"]["endpointHost"] = "198.51.100.20"
     values["interconnect"]["endpointBackhaul"]["hysteria2"]["serverName"] = "endpoint.prod.test"
     values["interconnect"]["endpointBackhaul"]["hysteria2"]["allowedSources"] = ["8.8.4.4"]
+    values["interconnect"]["endpointBackhaul"]["hysteria2"]["gecko"] = {
+        "minPacketSize": 512,
+        "maxPacketSize": 1200,
+    }
     return values
+
+
+def _enabled_endpoint_backhaul() -> dict:
+    backhaul = _values()["interconnect"]["endpointBackhaul"]
+    backhaul["enabled"] = True
+    backhaul["shadowtls"].update(
+        {
+            "enabled": True,
+            "endpointHost": "198.51.100.20",
+            "endpointPort": 443,
+            "serverName": "2gis.ru",
+        }
+    )
+    backhaul["hysteria2"].update(
+        {
+            "enabled": True,
+            "endpointHost": "198.51.100.20",
+            "endpointPort": 443,
+            "serverName": "transit.example.com",
+            "allowedSources": ["203.0.113.10"],
+        }
+    )
+    return backhaul
 
 
 def _pod_only_new_prod_overlay_values(*, phase: str) -> dict:
@@ -610,22 +639,6 @@ def _pod_only_new_prod_overlay_values(*, phase: str) -> dict:
             "backup-wgws",
         ]
         values["gateway"]["roles"]["entry"]["tls"]["serverName"] = "entry-disabled.invalid"
-        values["interconnect"]["emergencyXrayChain"]["shards"] = [
-            {
-                "id": "mail",
-                "serverName": "rbc.ru",
-                "dest": "rbc.ru:443",
-                "endpointListenPort": 2451,
-                "path": "/api/v1/backhaul/mail",
-            },
-            {
-                "id": "2gis-reviews",
-                "serverName": "www.rbc.ru",
-                "dest": "www.rbc.ru:443",
-                "endpointListenPort": 2452,
-                "path": "/api/v1/backhaul/2gis-reviews",
-            },
-        ]
         values["interconnect"]["endpointBackhaul"]["hysteria2"]["enabled"] = True
         values["interconnect"]["endpointBackhaul"]["hysteria2"]["endpointHost"] = "198.51.100.20"
         values["interconnect"]["endpointBackhaul"]["hysteria2"]["serverName"] = "endpoint.prod.test"
@@ -1016,7 +1029,7 @@ def test_k3s_strict_prod_overlay_check_accepts_universal_entry_overlay(tmp_path:
     assert "reject with tcp reset" not in firewall.stdout
 
 
-def test_k3s_strict_prod_overlay_check_rejects_conflicting_xhttp_xmux_limits(tmp_path: Path) -> None:
+def test_k3s_strict_prod_overlay_check_rejects_removed_xhttp_settings(tmp_path: Path) -> None:
     values = _universal_entry_overlay_values()
     values["interconnect"]["emergencyXrayChain"]["xhttp"] = {"xmux": {"maxConcurrency": "8-16"}}
     values_path = tmp_path / "values-universal-entry.yaml"
@@ -1038,7 +1051,7 @@ def test_k3s_strict_prod_overlay_check_rejects_conflicting_xhttp_xmux_limits(tmp
     )
 
     assert validation.returncode != 0
-    assert "XHTTP xmux.maxConcurrency conflicts with maxConnections" in validation.stderr
+    assert "interconnect.emergencyXrayChain.xhttp must stay empty" in validation.stderr
 
 
 def test_k3s_four_ip_entry_overlay_binds_only_shards_and_renders_firewall(tmp_path: Path) -> None:
@@ -1613,7 +1626,7 @@ def test_tracegate21_chart_externalizes_private_profiles() -> None:
     assert "interconnect.entryTransit.enabled=true requires both Entry and Endpoint gateway roles" in _chart_text()
     assert "wireguard.enabled=true requires the Endpoint gateway role" in _chart_text()
     assert "mtproto.enabled=true requires the Endpoint gateway role" in _chart_text()
-    assert "shadowsocks2022.enabled=true requires both Entry and Endpoint gateway roles with entryTransit or emergencyXrayChain enabled" in _chart_text()
+    assert "shadowsocks2022.enabled=true requires both Entry and Endpoint gateway roles with entryTransit or endpointBackhaul enabled" in _chart_text()
     assert "interconnect.entryTransit.routerEntry.enabled=true requires the Entry gateway role" in _chart_text()
     assert "interconnect.entryTransit.routerTransit.enabled=true requires the Endpoint gateway role" in _chart_text()
     assert "router link-crypto profiles require interconnect.shadowsocks2022.enabled=true" in _chart_text()
@@ -1961,7 +1974,7 @@ def test_tracegate22_k3s_runs_hysteria2_outside_xray(tmp_path: Path) -> None:
     assert all("udpIdleTimeout: 5m" in config for config in hysteria_configs)
     assert '"hy2-in"' not in rendered.stdout
     assert "REPLACE_HYSTERIA_AUTH" not in rendered.stdout
-    assert "REPLACE_HYSTERIA_SALAMANDER_PASSWORD" in rendered.stdout
+    assert "REPLACE_HYSTERIA_GECKO_PASSWORD" in rendered.stdout
     assert "REPLACE_HYSTERIA_STATS_SECRET" in rendered.stdout
 
     for component, template in _gateway_deployment_templates(rendered.stdout).items():
@@ -2185,7 +2198,7 @@ def test_tracegate21_runtime_contract_renders_role_link_crypto_metadata(tmp_path
     assert link_crypto["udp"]["secretMaterial"] is False
     assert link_crypto["udp"]["xrayBackhaul"] is False
     assert link_crypto["udp"]["remotePort"] == 4443
-    assert link_crypto["udp"]["obfs"] == {"type": "salamander", "required": True}
+    assert link_crypto["udp"]["obfs"] == {"type": "gecko", "required": True}
     assert link_crypto["udp"]["pairedObfs"] == {
         "enabled": False,
         "backend": "udp2raw",
@@ -2213,13 +2226,13 @@ def test_tracegate21_runtime_contract_renders_role_link_crypto_metadata(tmp_path
         "sourceValidation": {"enabled": True, "mode": "profile-bound-remote"},
     }
     assert link_crypto["udp"]["dpiResistance"]["enabled"] is True
-    assert link_crypto["udp"]["dpiResistance"]["mode"] == "salamander-plus-scoped-paired-obfs"
+    assert link_crypto["udp"]["dpiResistance"]["mode"] == "gecko-plus-scoped-paired-obfs"
     assert link_crypto["udp"]["dpiResistance"]["portSplit"] == {
             "publicUdpPort": 443,
         "forbidUdp443": False,
         "forbidTcp8443": True,
     }
-    assert "salamander" in link_crypto["udp"]["dpiResistance"]["requiredLayers"]
+    assert "gecko" in link_crypto["udp"]["dpiResistance"]["requiredLayers"]
     assert link_crypto["udp"]["classes"] == ["entry-transit-udp", "router-entry-udp", "router-transit-udp"]
     assert link_crypto["udp"]["counts"] == {
         "total": 3,
@@ -2591,7 +2604,7 @@ def test_tracegate21_wireguard_sidecar_uses_portable_lifecycle_script(tmp_path: 
         ),
         (
             {"interconnect": {"entryTransit": {"enabled": False}}, "shadowsocks2022": {"enabled": True}},
-            "shadowsocks2022.enabled=true requires both Entry and Endpoint gateway roles with entryTransit or emergencyXrayChain enabled",
+            "shadowsocks2022.enabled=true requires both Entry and Endpoint gateway roles with entryTransit or endpointBackhaul enabled",
         ),
         (
             {
@@ -2905,7 +2918,7 @@ def test_vless_encryption_rejects_legacy_reality_sni_collision(tmp_path: Path) -
     assert "vlessEncryption.realitySni must not reuse legacy REALITY demux SNI old-forbidden.tracegate-sni.ru" in result.stderr
 
 
-def test_vless_encryption_rejects_emergency_xray_chain_sni_collision(tmp_path: Path) -> None:
+def test_vless_encryption_rejects_removed_emergency_xray_chain(tmp_path: Path) -> None:
     values = _values()
     values["vlessEncryption"]["enabled"] = True
     values["vlessEncryption"]["encryption"] = "mlkem768x25519plus.native.0rtt.CLIENT"
@@ -2915,7 +2928,7 @@ def test_vless_encryption_rejects_emergency_xray_chain_sni_collision(tmp_path: P
 
     result = _helm_template_with_values(tmp_path, values)
     assert result.returncode != 0
-    assert "vlessEncryption.realitySni must not reuse emergency Xray chain SNI avito.ru" in result.stderr
+    assert "interconnect.emergencyXrayChain.enabled=true is forbidden" in result.stderr
 
 
 def test_vless_encryption_rejects_tls_demux_sni_collision(tmp_path: Path) -> None:
@@ -3070,7 +3083,7 @@ def test_mtproto_entry_endpoint_tunnel_routes_tls_to_endpoint_public_edge(tmp_pa
     assert "acl mtproto_sni req.ssl_sni -i 2gis.ru" in entry_haproxy
     assert "use_backend be_mtproto_tls if mtproto_sni" in entry_haproxy
     assert "acl request_payload_prefix_ready req.len gt 1" not in entry_haproxy
-    assert "server mtproto_endpoint_tls 198.51.100.20:443 check" in entry_haproxy
+    assert "server mtproto_endpoint_tls 1.1.1.1:443 check" in entry_haproxy
     assert "server mtproto_endpoint_tunnel 127.0.0.1:11087 check" not in entry_haproxy
     assert "acl mtproto_sni req.ssl_sni -i 2gis.ru" in endpoint_haproxy
     assert "use_backend be_mtproto if mtproto_sni" in endpoint_haproxy
@@ -3253,7 +3266,8 @@ def test_mtproto_mtg_runs_on_entry_with_fail_closed_endpoint_egress(tmp_path: Pa
                 },
                 "route": {"mode": "entry-local-endpoint-egress"},
             },
-            "interconnect": {"emergencyXrayChain": {"enabled": True}},
+            "interconnect": {"endpointBackhaul": _enabled_endpoint_backhaul()},
+            "shadowsocks2022": {"enabled": True},
         },
     )
 
@@ -3277,7 +3291,7 @@ def test_mtproto_mtg_runs_on_entry_with_fail_closed_endpoint_egress(tmp_path: Pa
     assert "acl mtproto_sni req.ssl_sni -i tracegate.test proto.tracegate.test" not in rendered.stdout
     assert '"tag": "mtproto-egress-socks-in"' in rendered.stdout
     assert '"port": 11084' in rendered.stdout
-    assert '"inboundTag": ["mtproto-egress-socks-in"], "outboundTag": "chain-to-transit"' in rendered.stdout
+    assert '"inboundTag": ["mtproto-egress-socks-in"], "balancerTag": "endpoint-backhaul"' in rendered.stdout
     assert 'proxies = ["socks5://127.0.0.1:11084"]' in rendered.stdout
     assert {"name": "MTPROTO_DOMAIN_FRONTING_HOST", "value": "tracegate.test"} in entry_containers["agent"]["env"]
     assert {"name": "MTPROTO_DOMAIN_FRONTING_PORT", "value": "443"} in entry_containers["agent"]["env"]
@@ -3313,7 +3327,8 @@ def test_mtproto_mtg_can_use_source_restricted_shadowtls_endpoint_egress(tmp_pat
                 },
                 "route": {"mode": "entry-local-endpoint-egress"},
             },
-            "interconnect": {"emergencyXrayChain": {"enabled": True}},
+            "interconnect": {"endpointBackhaul": _enabled_endpoint_backhaul()},
+            "shadowsocks2022": {"enabled": True},
         },
     )
 
@@ -3366,7 +3381,8 @@ def test_mtproto_mtg_seed_runtime_pins_legacy_fronting_ip(tmp_path: Path) -> Non
                 },
                 "route": {"mode": "entry-local-endpoint-egress"},
             },
-            "interconnect": {"emergencyXrayChain": {"enabled": True}},
+            "interconnect": {"endpointBackhaul": _enabled_endpoint_backhaul()},
+            "shadowsocks2022": {"enabled": True},
         },
     )
 
@@ -3869,47 +3885,42 @@ def test_tracegate22_universal_entry_routes_all_entry_traffic_through_dual_trans
 
     assert any(rule.get("balancerTag") == "endpoint-backhaul" for rule in user_rules)
     assert not any(rule.get("outboundTag") == "direct" for rule in user_rules)
-    xhttp_outbounds = [row for row in entry_xray["outbounds"] if str(row.get("tag", "")).startswith("chain-xhttp-")]
-    assert len(xhttp_outbounds) == 2
-    assert {row["streamSettings"]["realitySettings"]["serverName"] for row in xhttp_outbounds} == {
-        "rbc.ru",
-        "www.rbc.ru",
-    }
-    assert all(row["streamSettings"]["xhttpSettings"]["mode"] == "stream-one" for row in xhttp_outbounds)
-    assert all(row["streamSettings"]["xhttpSettings"]["extra"]["xmux"]["maxConnections"] == 1 for row in xhttp_outbounds)
+    shadowtls_outbound = next(row for row in entry_xray["outbounds"] if row.get("tag") == "chain-shadowtls")
+    assert shadowtls_outbound["protocol"] == "shadowsocks"
+    assert shadowtls_outbound["settings"]["servers"][0]["address"] == "127.0.0.1"
+    assert shadowtls_outbound["settings"]["servers"][0]["port"] == 11088
     assert any(row.get("tag") == "chain-hysteria2" for row in entry_xray["outbounds"])
     assert entry_xray["routing"]["balancers"] == [
         {
             "tag": "endpoint-backhaul",
-            "selector": ["chain-xhttp-"],
+            "selector": ["chain-shadowtls"],
             "fallbackTag": "chain-hysteria2",
             "strategy": {"type": "roundRobin"},
         }
     ]
-    assert entry_xray["observatory"]["subjectSelector"] == ["chain-xhttp-"]
+    assert entry_xray["observatory"]["subjectSelector"] == ["chain-shadowtls"]
     assert entry_xray["observatory"]["probeURL"] == "https://rbc.ru/"
     assert "backhaul-client.yaml" in entry_hysteria
     assert "REPLACE_HYSTERIA_ENDPOINT_BACKHAUL_AUTH" in entry_hysteria["backhaul-client.yaml"]
     backhaul_client = yaml.safe_load(entry_hysteria["backhaul-client.yaml"])
     assert backhaul_client["server"] == "198.51.100.20:443"
-    assert backhaul_client["obfs"]["type"] == "salamander"
+    assert backhaul_client["obfs"]["type"] == "gecko"
+    assert backhaul_client["obfs"]["gecko"] == {
+        "password": "REPLACE_HYSTERIA_ENDPOINT_BACKHAUL_GECKO_PASSWORD",
+        "minPacketSize": 512,
+        "maxPacketSize": 1200,
+    }
     assert backhaul_client["quic"]["keepAlivePeriod"] == "10s"
     assert backhaul_client["congestion"] == {"type": "bbr", "bbrProfile": "conservative"}
     assert backhaul_client["socks5"] == {"listen": "127.0.0.1:11086", "disableUDP": False}
     assert "hysteria-backhaul-client" in entry_containers
+    assert "endpoint-backhaul-shadowtls-client" in entry_containers
     backhaul_runtime = entry_containers["hysteria-backhaul-client"]
     assert backhaul_runtime["command"] == ["sh", "-lc"]
     assert "retrying in ${delay}s" in backhaul_runtime["args"][0]
     assert backhaul_runtime["readinessProbe"]["tcpSocket"] == {"host": "127.0.0.1", "port": 11086}
-    assert {row["tag"] for row in endpoint_xray["inbounds"] if str(row.get("tag", "")).startswith("chain-bridge-")} == {
-        "chain-bridge-mail-in",
-        "chain-bridge-2gis_reviews-in",
-    }
-    assert all(
-        row.get("sniffing") == {"enabled": False}
-        for row in endpoint_xray["inbounds"]
-        if str(row.get("tag", "")).startswith("chain-bridge-")
-    )
+    assert not any(str(row.get("tag", "")).startswith("chain-bridge-") for row in endpoint_xray["inbounds"])
+    assert any(row.get("tag") == "ss2022-in" for row in endpoint_xray["inbounds"])
     endpoint_hysteria_server = yaml.safe_load(endpoint_hysteria["server.yaml"])
     assert endpoint_hysteria_server["sniff"]["enable"] is False
     assert endpoint_hysteria_server["outbounds"] == [
@@ -3923,11 +3934,8 @@ def test_tracegate22_universal_entry_routes_all_entry_traffic_through_dual_trans
     }
     assert not any(rule.get("ip") == ["::/0"] for rule in entry_xray["routing"]["rules"])
     assert not any(rule.get("ip") == ["::/0"] for rule in endpoint_xray["routing"]["rules"])
-    assert "use_backend be_chain_bridge_mail if chain_bridge_mail_sni chain_bridge_mail_src" in endpoint_haproxy
-    assert (
-        "use_backend be_chain_bridge_2gis_reviews if chain_bridge_2gis_reviews_sni chain_bridge_2gis_reviews_src"
-        in endpoint_haproxy
-    )
+    assert "chain_bridge" not in endpoint_haproxy
+    assert "use_backend be_shadowtls if shadowtls_sni" in endpoint_haproxy
     assert "grpc_read_timeout 1h;" in entry_nginx
     assert "grpc_send_timeout 1h;" in entry_nginx
 
@@ -3985,35 +3993,38 @@ def test_tracegate22_universal_entry_rejects_parallel_backhaul_dials(tmp_path: P
     assert "interconnect.endpointBackhaul.selection.maxParallelDials must stay 1" in rendered.stderr
 
 
-def test_tracegate22_universal_entry_rejects_conflicting_xhttp_xmux_limits(tmp_path: Path) -> None:
+def test_tracegate22_universal_entry_rejects_removed_xhttp_settings(tmp_path: Path) -> None:
     values = _universal_entry_overlay_values()
     values["interconnect"]["emergencyXrayChain"]["xhttp"] = {"xmux": {"maxConcurrency": "8-16"}}
 
     rendered = _helm_template_with_values(tmp_path, values)
 
     assert rendered.returncode != 0
-    assert "xhttp.xmux.maxConnections and maxConcurrency cannot be set together" in rendered.stderr
+    assert "interconnect.emergencyXrayChain.xhttp must stay empty" in rendered.stderr
 
 
-def test_tracegate22_universal_entry_rejects_duplicate_xhttp_shard_sni(tmp_path: Path) -> None:
+def test_tracegate22_universal_entry_rejects_removed_xhttp_shards(tmp_path: Path) -> None:
     values = _universal_entry_overlay_values()
-    values["interconnect"]["emergencyXrayChain"]["shards"][1]["serverName"] = "rbc.ru"
+    values["interconnect"]["emergencyXrayChain"]["shards"] = [
+        {"id": "removed", "serverName": "rbc.ru", "dest": "rbc.ru:443", "endpointListenPort": 2451, "path": "/removed"}
+    ]
 
     rendered = _helm_template_with_values(tmp_path, values)
 
     assert rendered.returncode != 0
-    assert "interconnect.emergencyXrayChain.shards[].serverName values must be unique" in rendered.stderr
+    assert "interconnect.emergencyXrayChain.shards must stay empty" in rendered.stderr
 
 
-def test_tracegate3_entry_staged_rejects_endpoint_direct_sni_reused_by_xhttp_shard(tmp_path: Path) -> None:
+def test_tracegate3_entry_staged_rejects_removed_xhttp_shard(tmp_path: Path) -> None:
     values = _pod_only_new_prod_overlay_values(phase="entry-staged")
-    values["interconnect"]["emergencyXrayChain"]["shards"][0]["serverName"] = "yandex.ru"
-    values["interconnect"]["emergencyXrayChain"]["shards"][0]["dest"] = "yandex.ru:443"
+    values["interconnect"]["emergencyXrayChain"]["shards"] = [
+        {"id": "removed", "serverName": "yandex.ru", "dest": "yandex.ru:443", "endpointListenPort": 2451, "path": "/removed"}
+    ]
 
     rendered = _helm_template_with_values(tmp_path, values)
 
     assert rendered.returncode != 0
-    assert "Endpoint direct SNI pool must not overlap Entry-to-Endpoint XHTTP shard SNI values" in rendered.stderr
+    assert "interconnect.emergencyXrayChain.shards must stay empty" in rendered.stderr
 
 
 def test_tracegate3_entry_staged_rejects_endpoint_direct_sni_reused_by_shadowtls(tmp_path: Path) -> None:
@@ -4214,7 +4225,7 @@ def test_tracegate22_xray_defaults_client_traffic_to_direct(tmp_path: Path) -> N
         )
 
 
-def test_tracegate22_emergency_chain_bridge_routes_entry_via_transit(tmp_path: Path) -> None:
+def test_tracegate22_emergency_chain_bridge_is_rejected(tmp_path: Path) -> None:
     rendered = _helm_template_with_values(
         tmp_path,
         {
@@ -4247,7 +4258,9 @@ def test_tracegate22_emergency_chain_bridge_routes_entry_via_transit(tmp_path: P
         },
     )
 
-    assert rendered.returncode == 0, rendered.stderr
+    assert rendered.returncode != 0
+    assert "interconnect.emergencyXrayChain.enabled=true is forbidden" in rendered.stderr
+    return
     configmaps = {
         doc["metadata"]["name"]: doc
         for doc in _helm_docs(rendered.stdout)
@@ -4404,14 +4417,14 @@ def test_tracegate21_gateway_projects_private_profile_secret_paths() -> None:
     assert "readOnly: true" in gateways
     assert "REALITY_PRIVATE_KEY" in gateways
     assert "AGENT_STATS_SECRET" in gateways
-    assert "HYSTERIA_SALAMANDER_PASSWORD_ENTRY" in (CHART_ROOT / "templates" / "control-plane.yaml").read_text(encoding="utf-8")
+    assert "HYSTERIA_GECKO_PASSWORD_ENTRY" in (CHART_ROOT / "templates" / "control-plane.yaml").read_text(encoding="utf-8")
     assert "escape_sed_replacement()" in gateways
     assert "replace_xray_literal REPLACE_REALITY_PRIVATE_KEY" in gateways
-    assert "replace_hysteria_literal REPLACE_HYSTERIA_SALAMANDER_PASSWORD" in gateways
+    assert "replace_hysteria_literal REPLACE_HYSTERIA_GECKO_PASSWORD" in gateways
     assert "replace_hysteria_literal REPLACE_HYSTERIA_STATS_SECRET" in gateways
     assert "REPLACE_REALITY_PRIVATE_KEY" in configmaps
     assert "REPLACE_HYSTERIA_AUTH" not in configmaps
-    assert "REPLACE_HYSTERIA_SALAMANDER_PASSWORD" in configmaps
+    assert "REPLACE_HYSTERIA_GECKO_PASSWORD" in configmaps
     assert "REPLACE_HYSTERIA_STATS_SECRET" in configmaps
     assert '"hy2-in"' not in configmaps
     assert 'protocol": "hysteria"' not in configmaps

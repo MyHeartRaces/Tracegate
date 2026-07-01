@@ -2231,14 +2231,24 @@ def _validate_hysteria_runtime(contract: dict[str, Any], *, role_prefix: str) ->
         findings.append(_finding("error", f"{role_prefix}-hysteria-auth-insecure", f"{role_prefix} Hysteria auth.http.insecure must stay false"))
 
     obfs = _row_dict(hysteria, "obfs")
-    if _row_string(obfs, "type").lower() != "salamander":
-        findings.append(_finding("error", f"{role_prefix}-hysteria-obfs", f"{role_prefix} Hysteria obfs.type must stay salamander"))
-    if not bool(obfs.get("salamanderPasswordConfigured", False)):
+    if _row_string(obfs, "type").lower() != "gecko":
+        findings.append(_finding("error", f"{role_prefix}-hysteria-obfs", f"{role_prefix} Hysteria obfs.type must stay gecko"))
+    if not bool(obfs.get("geckoPasswordConfigured", False)):
         findings.append(
             _finding(
                 "error",
-                f"{role_prefix}-hysteria-salamander-password",
-                f"{role_prefix} Hysteria Salamander password must be configured and non-placeholder",
+                f"{role_prefix}-hysteria-gecko-password",
+                f"{role_prefix} Hysteria Gecko password must be configured and non-placeholder",
+            )
+        )
+    min_packet_size = int(obfs.get("minPacketSize") or 0)
+    max_packet_size = int(obfs.get("maxPacketSize") or 0)
+    if min_packet_size < 512 or max_packet_size > 2048 or min_packet_size > max_packet_size:
+        findings.append(
+            _finding(
+                "error",
+                f"{role_prefix}-hysteria-gecko-packet-size",
+                f"{role_prefix} Hysteria Gecko packet sizes must satisfy 512 <= min <= max <= 2048",
             )
         )
 
@@ -2324,7 +2334,7 @@ def _validate_hysteria_runtime(contract: dict[str, Any], *, role_prefix: str) ->
         required_layers = set(_string_list(hygiene.get("requiredLayers") or hygiene.get("required_layers")))
         for layer in (
             "hysteria2",
-            "salamander",
+            "gecko",
             "file-masquerade",
             "dns-san-sni-guard",
             "http-auth-loopback",
@@ -3608,7 +3618,7 @@ def _validate_private_obfuscation(
     outer = str(obfuscation.get("outer") or "").strip().lower()
     if expected_outer and outer != expected_outer:
         findings.append(_finding("error", f"{code_prefix}-outer", f"{label} obfuscation outer must be {expected_outer}"))
-    expected_packet_shaping = "none" if expected_outer in {"wstunnel", "reality-xhttp", "shadowtls-v3"} else "zapret2-scoped"
+    expected_packet_shaping = "none" if expected_outer in {"wstunnel", "shadowtls-v3"} else "zapret2-scoped"
     if packet_shaping != expected_packet_shaping:
         findings.append(
             _finding(
@@ -3714,7 +3724,7 @@ def _validate_private_shadowtls_profile(
         findings.append(_finding("error", f"{code_prefix}-shadowtls-restart-on-user-change", f"{label} ShadowTLS must not restart on user change"))
 
     findings.extend(_validate_private_local_socks(row=row, code_prefix=code_prefix, label=label))
-    expected_outer = "reality-xhttp" if is_chain else "shadowtls-v3"
+    expected_outer = "shadowtls-v3"
     findings.extend(_validate_private_obfuscation(row=row, code_prefix=code_prefix, label=label, expected_outer=expected_outer))
 
     if is_chain:
@@ -3725,16 +3735,16 @@ def _validate_private_shadowtls_profile(
                 findings.append(_finding("error", f"{code_prefix}-chain-type", f"{label} chain type must be entry_transit_private_relay"))
             if str(chain.get("linkClass") or "").strip() != "entry-transit":
                 findings.append(_finding("error", f"{code_prefix}-chain-class", f"{label} chain linkClass must be entry-transit"))
-            if str(chain.get("carrier") or "").strip().lower() != "xray-vless-reality":
-                findings.append(_finding("error", f"{code_prefix}-chain-carrier", f"{label} chain carrier must be xray-vless-reality"))
-            if str(chain.get("preferredOuter") or "").strip().lower() != "reality-xhttp":
-                findings.append(_finding("error", f"{code_prefix}-chain-outer", f"{label} chain preferredOuter must be reality-xhttp"))
-            if str(chain.get("outerCarrier") or "").strip().lower() != "tcp-reality-xhttp":
-                findings.append(_finding("error", f"{code_prefix}-chain-outer-carrier", f"{label} chain outerCarrier must be tcp-reality-xhttp"))
+            if str(chain.get("carrier") or "").strip().lower() != "shadowsocks2022-shadowtls-v3":
+                findings.append(_finding("error", f"{code_prefix}-chain-carrier", f"{label} chain carrier must be shadowsocks2022-shadowtls-v3"))
+            if str(chain.get("preferredOuter") or "").strip().lower() != "shadowtls-v3":
+                findings.append(_finding("error", f"{code_prefix}-chain-outer", f"{label} chain preferredOuter must be shadowtls-v3"))
+            if str(chain.get("outerCarrier") or "").strip().lower() != "tcp-shadowtls-v3":
+                findings.append(_finding("error", f"{code_prefix}-chain-outer-carrier", f"{label} chain outerCarrier must be tcp-shadowtls-v3"))
             if str(chain.get("optionalPacketShaping") or "").strip().lower():
                 findings.append(_finding("error", f"{code_prefix}-chain-packet-shaping", f"{label} chain packet shaping must be empty"))
-            if str(chain.get("managedBy") or "").strip() != "xray-chain":
-                findings.append(_finding("error", f"{code_prefix}-chain-managed-by", f"{label} chain must be managed by xray-chain"))
+            if str(chain.get("managedBy") or "").strip() != "link-crypto":
+                findings.append(_finding("error", f"{code_prefix}-chain-managed-by", f"{label} chain must be managed by link-crypto"))
             selected_profiles = chain.get("selectedProfiles")
             if not isinstance(selected_profiles, list) or not {"V1", "V3"}.issubset(
                 {str(item).strip() for item in selected_profiles}
@@ -4534,8 +4544,8 @@ def _validate_link_crypto_contract_alignment(
                 )
             )
         udp_obfs = _row_dict(udp_contract, "obfs")
-        if udp_obfs and (_row_string(udp_obfs, "type").lower() != "salamander" or not bool(udp_obfs.get("required", False))):
-            findings.append(_finding("error", f"{prefix}-udp-contract-salamander", f"{prefix.replace('-', ' ')} UDP contract must require Salamander"))
+        if udp_obfs and (_row_string(udp_obfs, "type").lower() != "gecko" or not bool(udp_obfs.get("required", False))):
+            findings.append(_finding("error", f"{prefix}-udp-contract-gecko", f"{prefix.replace('-', ' ')} UDP contract must require Gecko"))
         udp_paired_obfs = _row_dict(udp_contract, "pairedObfs")
         if bool(udp_paired_obfs.get("enabled", False)):
             if _row_string(udp_paired_obfs, "backend") != "udp2raw":
@@ -4968,12 +4978,12 @@ def _validate_link_crypto_udp_dpi_resistance(
         return findings
     if not bool(dpi.get("enabled", False)):
         findings.append(_finding("error", f"{code_prefix}-dpi-resistance-enabled", f"{label} DPI resistance must stay enabled"))
-    if _row_string(dpi, "mode") != "salamander-plus-scoped-paired-obfs":
+    if _row_string(dpi, "mode") != "gecko-plus-scoped-paired-obfs":
         findings.append(
             _finding(
                 "error",
                 f"{code_prefix}-dpi-resistance-mode",
-                f"{label} DPI resistance mode must stay salamander-plus-scoped-paired-obfs",
+                f"{label} DPI resistance mode must stay gecko-plus-scoped-paired-obfs",
             )
         )
 
@@ -5006,7 +5016,7 @@ def _validate_link_crypto_udp_dpi_resistance(
     missing_layers = sorted(
         {
             "hysteria2-quic",
-            "salamander",
+            "gecko",
             "private-auth",
             "anti-replay",
             "anti-amplification",
@@ -5136,13 +5146,13 @@ def _validate_link_crypto_udp_row(
         findings.append(_finding("error", f"{code_prefix}-udp-capable", f"{label} must declare udpCapable=true"))
 
     obfs = _row_dict(row, "obfs")
-    if _row_string(obfs, "type").lower() != "salamander" or not bool(obfs.get("required", False)):
-        findings.append(_finding("error", f"{code_prefix}-salamander", f"{label} must require Salamander obfs"))
+    if _row_string(obfs, "type").lower() != "gecko" or not bool(obfs.get("required", False)):
+        findings.append(_finding("error", f"{code_prefix}-gecko", f"{label} must require Gecko obfs"))
     obfs_ref = _row_dict(obfs, "profileRef")
     if _row_string(obfs_ref, "kind") != "file" or not _row_string(obfs_ref, "path"):
-        findings.append(_finding("error", f"{code_prefix}-salamander-profile", f"{label} Salamander profileRef must be a private file"))
+        findings.append(_finding("error", f"{code_prefix}-gecko-profile", f"{label} Gecko profileRef must be a private file"))
     if not bool(obfs_ref.get("secretMaterial", False)):
-        findings.append(_finding("error", f"{code_prefix}-salamander-secret", f"{label} Salamander profileRef must point at secret material"))
+        findings.append(_finding("error", f"{code_prefix}-gecko-secret", f"{label} Gecko profileRef must point at secret material"))
 
     paired_obfs = _row_dict(row, "pairedObfs")
     if bool(paired_obfs.get("enabled", False)):
@@ -5477,7 +5487,7 @@ def _validate_router_route(
             )
         )
     else:
-        for key in ("hysteriaClient", "salamander"):
+        for key in ("hysteriaClient", "gecko"):
             findings.extend(
                 _validate_router_client_profile_ref(
                     refs=router_client_profile_refs,
@@ -5517,8 +5527,8 @@ def _validate_router_route(
         if _row_string(row, "transport") != "udp-quic":
             findings.append(_finding("error", f"{code_prefix}-transport", f"{label} UDP transport must be udp-quic"))
         obfs = _row_dict(row, "obfs")
-        if _row_string(obfs, "type") != "salamander" or not bool(obfs.get("required", False)):
-            findings.append(_finding("error", f"{code_prefix}-salamander", f"{label} must require Salamander"))
+        if _row_string(obfs, "type") != "gecko" or not bool(obfs.get("required", False)):
+            findings.append(_finding("error", f"{code_prefix}-gecko", f"{label} must require Gecko"))
         paired_obfs = _row_dict(row, "pairedObfs")
         if bool(paired_obfs.get("enabled", False)):
             if _row_string(paired_obfs, "backend") != "udp2raw":
@@ -5708,8 +5718,8 @@ def _validate_router_client_component(
     transports = set(_string_list(component.get("transports")))
     if transport and transport not in transports:
         findings.append(_finding("error", f"{prefix}-component-{name}-transport", f"{label} must declare {transport} transport"))
-    if name == "hysteria2-client" and _row_string(component, "obfs") != "salamander":
-        findings.append(_finding("error", f"{prefix}-component-{name}-salamander", f"{label} must require Salamander"))
+    if name == "hysteria2-client" and _row_string(component, "obfs") != "gecko":
+        findings.append(_finding("error", f"{prefix}-component-{name}-gecko", f"{label} must require Gecko"))
     if name == "paired-udp-obfs":
         if bool(component.get("required", False)) != paired_obfs:
             findings.append(_finding("error", f"{prefix}-component-{name}-paired", f"{label} required flag must follow UDP paired-obfs routes"))
@@ -5799,7 +5809,7 @@ def _validate_router_client_route(
             )
         )
     else:
-        for key in ("hysteriaClient", "salamander"):
+        for key in ("hysteriaClient", "gecko"):
             findings.extend(
                 _validate_router_client_profile_ref(
                     refs=profile_refs,
@@ -5850,8 +5860,8 @@ def _validate_router_client_route(
         if _row_string(row, "carrier") != "hysteria2":
             findings.append(_finding("error", f"{code_prefix}-carrier", f"{label} carrier must be hysteria2"))
         obfs = _row_dict(row, "obfs")
-        if _row_string(obfs, "type") != "salamander" or not bool(obfs.get("required", False)):
-            findings.append(_finding("error", f"{code_prefix}-salamander", f"{label} must require Salamander"))
+        if _row_string(obfs, "type") != "gecko" or not bool(obfs.get("required", False)):
+            findings.append(_finding("error", f"{code_prefix}-gecko", f"{label} must require Gecko"))
         paired_obfs = _row_dict(row, "pairedObfs")
         if bool(paired_obfs.get("enabled", False)):
             if _row_string(paired_obfs, "backend") != "udp2raw":

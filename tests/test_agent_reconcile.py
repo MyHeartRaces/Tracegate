@@ -528,7 +528,7 @@ def test_reconcile_tracegate22_passthroughs_standalone_hysteria_and_strips_xray_
             }
         ),
     )
-    _write(tmp_path / "base/hysteria/server.yaml", "listen: :443\nobfs:\n  type: salamander\n")
+    _write(tmp_path / "base/hysteria/server.yaml", "listen: :443\nobfs:\n  type: gecko\n")
 
     changed = reconcile_all(settings)
 
@@ -538,7 +538,7 @@ def test_reconcile_tracegate22_passthroughs_standalone_hysteria_and_strips_xray_
     assert [row["tag"] for row in rendered_xray["inbounds"]] == ["vless-reality-in"]
     assert rendered_xray["routing"]["rules"][0]["inboundTag"] == ["vless-reality-in"]
     assert (tmp_path / "runtime/hysteria/server.yaml").read_text(encoding="utf-8") == (
-        "listen: :443\nobfs:\n  type: salamander\n"
+        "listen: :443\nobfs:\n  type: gecko\n"
     )
 
 
@@ -1462,11 +1462,11 @@ def _write_tracegate21_profile_artifacts(root: Path) -> None:
                         "entry": "entry.tracegate.test",
                         "transit": "transit.tracegate.test",
                         "link_class": "entry-transit",
-                        "carrier": "xray-vless-reality",
-                        "preferred_outer": "reality-xhttp",
-                        "outer_carrier": "tcp-reality-xhttp",
+                        "carrier": "shadowsocks2022-shadowtls-v3",
+                        "preferred_outer": "shadowtls-v3",
+                        "outer_carrier": "tcp-shadowtls-v3",
                         "optional_packet_shaping": None,
-                        "managed_by": "xray-chain",
+                        "managed_by": "link-crypto",
                         "selected_profiles": ["V1", "V3"],
                         "inner_transport": "shadowsocks2022-shadowtls-v3",
                         "xray_backhaul": False,
@@ -1557,9 +1557,9 @@ def test_reconcile_materializes_private_profile_handoff_for_transit(tmp_path: Pa
     ]
     assert shadowtls_by_mode["direct"]["stage"] == "direct-transit-public"
     assert shadowtls_by_mode["chain"]["stage"] == "transit-private-terminator"
-    assert shadowtls_by_mode["chain"]["chain"]["preferredOuter"] == "reality-xhttp"
-    assert shadowtls_by_mode["chain"]["chain"]["outerCarrier"] == "tcp-reality-xhttp"
-    assert shadowtls_by_mode["chain"]["chain"]["managedBy"] == "xray-chain"
+    assert shadowtls_by_mode["chain"]["chain"]["preferredOuter"] == "shadowtls-v3"
+    assert shadowtls_by_mode["chain"]["chain"]["outerCarrier"] == "tcp-shadowtls-v3"
+    assert shadowtls_by_mode["chain"]["chain"]["managedBy"] == "link-crypto"
     assert shadowtls_by_mode["chain"]["chain"]["selectedProfiles"] == ["V1", "V3"]
     assert shadowtls_by_mode["chain"]["chain"]["xrayBackhaul"] is False
     assert "password" not in shadowtls_by_mode["direct"]["shadowtls"]
@@ -1656,7 +1656,7 @@ def test_reconcile_materializes_only_chain_profile_handoff_for_entry(tmp_path: P
     assert state["shadowsocks2022ShadowTLS"][0]["shadowtls"]["restartOnUserChange"] is False
     assert state["shadowsocks2022ShadowTLS"][0]["obfuscation"] == {
         "scope": "entry-transit-private-relay",
-        "outer": "reality-xhttp",
+        "outer": "shadowtls-v3",
         "packetShaping": "none",
         "hostWideInterception": False,
     }
@@ -1803,11 +1803,11 @@ def test_reconcile_materializes_link_crypto_handoff_without_private_secrets(tmp_
     }
     assert state["udpLinks"][0]["local"]["protocol"] == "udp"
     assert state["udpLinks"][0]["obfs"] == {
-        "type": "salamander",
+        "type": "gecko",
         "required": True,
         "profileRef": {
             "kind": "file",
-            "path": "/etc/tracegate/private/udp-link/salamander.env",
+            "path": "/etc/tracegate/private/udp-link/gecko.env",
             "secretMaterial": True,
         },
     }
@@ -1849,7 +1849,7 @@ def test_reconcile_materializes_link_crypto_handoff_without_private_secrets(tmp_
     assert "TRACEGATE_LINK_CRYPTO_UDP_CLASSES='entry-transit-udp'" in env
     assert "TRACEGATE_LINK_CRYPTO_UDP_CARRIER='hysteria2'" in env
     assert "TRACEGATE_LINK_CRYPTO_UDP_REMOTE_PORT='4443'" in env
-    assert "TRACEGATE_LINK_CRYPTO_UDP_SALAMANDER_REQUIRED='true'" in env
+    assert "TRACEGATE_LINK_CRYPTO_UDP_GECKO_REQUIRED='true'" in env
     assert "TRACEGATE_LINK_CRYPTO_UDP_HARDENING_ENABLED='true'" in env
     assert "TRACEGATE_LINK_CRYPTO_UDP_ANTI_REPLAY_ENABLED='true'" in env
     assert "TRACEGATE_LINK_CRYPTO_UDP_MTU_MODE='clamp'" in env
@@ -2202,7 +2202,7 @@ def test_reconcile_materializes_router_udp_link_without_entry_transit(
         "protocol": "udp",
         "auth": {"required": True, "mode": "private-profile"},
     }
-    assert udp_link["obfs"]["type"] == "salamander"
+    assert udp_link["obfs"]["type"] == "gecko"
     assert udp_link["obfs"]["required"] is True
     assert udp_link["pairedObfs"] == {
         "enabled": True,
@@ -2246,8 +2246,8 @@ def test_reconcile_materializes_router_udp_link_without_entry_transit(
     assert router_state["routes"]["udp"][0]["routerClient"]["profileRefs"]["hysteriaClient"]["path"].endswith(
         f"/{role_lower}/{expected_class}/hysteria-client.yaml"
     )
-    assert router_state["routes"]["udp"][0]["routerClient"]["profileRefs"]["salamander"]["path"].endswith(
-        f"/{role_lower}/{expected_class}/salamander.env"
+    assert router_state["routes"]["udp"][0]["routerClient"]["profileRefs"]["gecko"]["path"].endswith(
+        f"/{role_lower}/{expected_class}/gecko.env"
     )
     assert router_state["routes"]["udp"][0]["routerClient"]["profileRefs"]["pairedObfs"]["path"].endswith(
         f"/{role_lower}/{expected_class}/paired-obfs.env"
@@ -2276,7 +2276,7 @@ def test_reconcile_materializes_router_udp_link_without_entry_transit(
     assert runtime_contract["linkCrypto"]["udp"]["classes"] == [expected_class]
     assert runtime_contract["linkCrypto"]["udp"]["localPorts"] == {expected_class: local_port}
     assert runtime_contract["linkCrypto"]["udp"]["selectedProfiles"] == {expected_class: selected_profiles}
-    assert runtime_contract["linkCrypto"]["udp"]["obfs"] == {"type": "salamander", "required": True}
+    assert runtime_contract["linkCrypto"]["udp"]["obfs"] == {"type": "gecko", "required": True}
     assert runtime_contract["linkCrypto"]["udp"]["pairedObfs"] == {
         "enabled": True,
         "backend": "udp2raw",

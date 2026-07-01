@@ -744,6 +744,11 @@ gateway:
     quic:
       maxIdleTimeout: 2m
       disablePathMTUDiscovery: false
+    obfs:
+      type: gecko
+      gecko:
+        minPacketSize: 512
+        maxPacketSize: 1200
     udpIdleTimeout: 5m
   agent:
     port: 8070
@@ -892,12 +897,13 @@ gateway:
       resources: {}
 
 interconnect:
-  # Shared Entry -> Endpoint client-traffic backhaul. XHTTP/REALITY remains the
-  # primary carrier; Hysteria2/Salamander is an independent fail-closed fallback.
+  # Shared Entry -> Endpoint client-traffic backhaul. Shadowsocks-2022 over
+  # ShadowTLS v3 is the TCP primary; Hysteria2/Gecko is the independent UDP
+  # fail-closed fallback. XHTTP is forbidden in Tracegate 3 production.
   endpointBackhaul:
     enabled: false
-    primary: vless-reality-xhttp
-    secondary: hysteria2-salamander
+    primary: shadowsocks2022-shadowtls-v3
+    secondary: hysteria2-gecko
     selection:
       strategy: roundRobin
       stickyScope: connection
@@ -906,6 +912,12 @@ interconnect:
       payloadProbeRequired: true
       probeUrl: https://rbc.ru/
       probeInterval: 30s
+    shadowtls:
+      enabled: false
+      endpointHost: ""
+      endpointPort: 443
+      serverName: ""
+      entryLocalPort: 11088
     hysteria2:
       enabled: false
       endpointHost: ""
@@ -924,7 +936,12 @@ interconnect:
       congestion:
         type: bbr
         profile: conservative
+      gecko:
+        minPacketSize: 512
+        maxPacketSize: 1200
   emergencyXrayChain:
+    # Removed transport retained only as a migration tombstone. Enabling it is
+    # rejected because Tracegate 3 production is XHTTP-free.
     enabled: false
     socksPort: 11082
     # Optional Entry -> Endpoint dial target for the emergency Xray chain.
@@ -935,19 +952,8 @@ interconnect:
     # this on a restricted interconnect port when public TLS demux is unhealthy.
     endpointListenHost: "127.0.0.1"
     serverName: rbc.ru
-    # Optional connect-level SNI shard pool. Each row creates a dedicated
-    # Endpoint REALITY inbound and Entry XHTTP outbound in the same Xray
-    # processes. Keep destinations and SNI values aligned.
+    # Legacy fields must stay empty.
     shards: []
-    xhttp:
-      clientMode: stream-one
-      serverMode: auto
-      xmux:
-        maxConnections: 1
-        cMaxReuseTimes: "32-64"
-        hMaxRequestTimes: "256-384"
-        hMaxReusableSecs: "600-900"
-        hKeepAlivePeriod: 45
     # Optional source allowlist for the Endpoint-side chain bridge SNI.
     # When set, the Endpoint TLS mux rejects this SNI unless the source matches.
     allowedSources: []
@@ -1007,7 +1013,7 @@ interconnect:
       transitPort: 14482
       routerEntryPort: 14483
       routerTransitPort: 14484
-      salamanderRequired: true
+      obfs: gecko
       pairedObfs:
         enabled: false
         backend: udp2raw

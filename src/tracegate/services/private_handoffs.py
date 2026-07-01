@@ -167,7 +167,7 @@ def _udp_link_profile_path(settings: Settings, *, side: str) -> str:
 
 def _udp_link_obfs_profile_path(settings: Settings) -> str:
     profile_dir = Path(str(settings.private_udp_link_profile_dir or "").strip() or "/etc/tracegate/private/udp-link")
-    profile_name = str(settings.private_udp_link_obfs_profile or "").strip() or "salamander.env"
+    profile_name = str(settings.private_udp_link_obfs_profile or "").strip() or "gecko.env"
     return str(profile_dir / profile_name)
 
 
@@ -391,7 +391,7 @@ def _mtproto_uses_tcp8443(settings: Settings, *, role_upper: str) -> bool:
 def _udp_link_dpi_resistance(settings: Settings, *, role_upper: str) -> dict[str, Any]:
     return {
         "enabled": True,
-        "mode": "salamander-plus-scoped-paired-obfs",
+        "mode": "gecko-plus-scoped-paired-obfs",
         "portSplit": {
             "publicUdpPort": TRACEGATE_INTERCONNECT_UDP_PORT,
             "forbidUdp443": True,
@@ -399,7 +399,7 @@ def _udp_link_dpi_resistance(settings: Settings, *, role_upper: str) -> dict[str
         },
         "requiredLayers": [
             "hysteria2-quic",
-            "salamander",
+            "gecko",
             "private-auth",
             "anti-replay",
             "anti-amplification",
@@ -653,7 +653,7 @@ def _udp_link_row(
             "preferredForProfiles": selected_profiles,
         },
         "obfs": {
-            "type": "salamander",
+            "type": "gecko",
             "required": True,
             "profileRef": {
                 "kind": "file",
@@ -908,7 +908,7 @@ def _write_link_crypto_state(
         f"TRACEGATE_LINK_CRYPTO_UDP_CLASSES={_shell_quote(':'.join(udp_link_classes))}",
         f"TRACEGATE_LINK_CRYPTO_UDP_CARRIER={_shell_quote('hysteria2')}",
         f"TRACEGATE_LINK_CRYPTO_UDP_REMOTE_PORT={_shell_quote(int(settings.private_udp_link_remote_port or TRACEGATE_INTERCONNECT_UDP_PORT))}",
-        f"TRACEGATE_LINK_CRYPTO_UDP_SALAMANDER_REQUIRED={_shell_quote(_bool_text(True))}",
+        f"TRACEGATE_LINK_CRYPTO_UDP_GECKO_REQUIRED={_shell_quote(_bool_text(True))}",
         f"TRACEGATE_LINK_CRYPTO_UDP_PAIRED_OBFS_ENABLED={_shell_quote(_bool_text(bool(settings.private_udp_link_paired_obfs_enabled)))}",
         f"TRACEGATE_LINK_CRYPTO_UDP_PAIRED_OBFS_MODE={_shell_quote(str(settings.private_udp_link_paired_obfs_mode or '').strip() or 'udp2raw-faketcp')}",
         f"TRACEGATE_LINK_CRYPTO_UDP_HARDENING_ENABLED={_shell_quote(_bool_text(bool(settings.private_udp_link_hardening_enabled)))}",
@@ -967,13 +967,13 @@ def _router_client_profile_refs(
                 ),
                 "secretMaterial": True,
             },
-            "salamander": {
+            "gecko": {
                 "kind": "file",
                 "path": _router_profile_path(
                     settings,
                     role_lower=role_lower,
                     link_class=link_class,
-                    profile_name=str(settings.private_router_udp_salamander_profile or "").strip() or "salamander.env",
+                    profile_name=str(settings.private_router_udp_salamander_profile or "").strip() or "gecko.env",
                 ),
                 "secretMaterial": True,
             },
@@ -1171,7 +1171,7 @@ def _router_client_bundle_payload(
             "name": "hysteria2-client",
             "required": bool(udp_routes),
             "transports": ["udp-quic"],
-            "obfs": "salamander",
+            "obfs": "gecko",
             "failClosed": True,
             "noHostWideInterception": True,
             "noNfqueue": True,
@@ -1717,19 +1717,10 @@ def _shadowsocks2022_profile_password(
 
 def _obfuscation_policy(*, protocol: str, mode: str, chain: dict[str, Any] | None) -> dict[str, Any]:
     if str(mode or "").strip().lower() == "chain" or chain is not None:
-        managed_by = str((chain or {}).get("managedBy") or "").strip().lower()
-        preferred_outer = str((chain or {}).get("preferredOuter") or "").strip().lower()
-        if managed_by == "xray-chain" or preferred_outer == "reality-xhttp":
-            return {
-                "scope": "entry-transit-private-relay",
-                "outer": "reality-xhttp",
-                "packetShaping": "none",
-                "hostWideInterception": False,
-            }
         return {
             "scope": "entry-transit-private-relay",
-            "outer": "wss-carrier",
-            "packetShaping": "zapret2-scoped",
+            "outer": "shadowtls-v3",
+            "packetShaping": "none",
             "hostWideInterception": False,
         }
     if protocol == "wireguard_wstunnel":

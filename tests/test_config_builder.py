@@ -66,19 +66,19 @@ def test_chain_reality_enters_via_entry_and_points_to_transit() -> None:
     assert cfg["server"] == "entry.example.com"
     assert cfg["reality"]["public_key"] == "pub-e"
     assert cfg["reality"]["short_id"] == "sid-e"
-    assert cfg["xhttp"]["mode"] == "auto"
-    assert cfg["xhttp"]["path"] == "/api/v1/update"
+    assert cfg["transport"] == "reality_raw"
+    assert cfg["flow"] == "xtls-rprx-vision"
     assert cfg["chain"]["type"] == "entry_transit_private_relay"
     assert cfg["chain"]["entry"] == "entry.example.com"
     assert cfg["chain"]["transit"] == "transit.example.com"
-    assert cfg["chain"]["carrier"] == "xray-vless-reality"
+    assert cfg["chain"]["carrier"] == "shadowsocks2022-shadowtls-v3"
     assert cfg["chain"]["optional_packet_shaping"] is None
-    assert cfg["chain"]["managed_by"] == "xray-chain"
+    assert cfg["chain"]["managed_by"] == "link-crypto"
     assert cfg["chain"]["selected_profiles"] == ["V1", "V3"]
-    assert cfg["chain"]["inner_transport"] == "vless-reality-xhttp"
+    assert cfg["chain"]["inner_transport"] == "shadowsocks2022-shadowtls-v3"
     assert cfg["chain"]["xray_backhaul"] is False
-    assert cfg["design_constraints"]["private_interconnect"] == "xray-vless-reality"
-    assert cfg["design_constraints"]["backhaul_outside_xray"] is False
+    assert cfg["design_constraints"]["private_interconnect"] == "shadowsocks2022-shadowtls-v3"
+    assert cfg["design_constraints"]["backhaul_outside_xray"] is True
     assert cfg["local_socks"]["auth"]["required"] is True
     assert cfg["local_socks"]["auth"]["mode"] == "username_password"
     assert cfg["local_socks"]["auth"]["username"].startswith("tg_v1_")
@@ -337,7 +337,7 @@ def test_default_local_socks_port_is_stable_high_port() -> None:
     assert port != 1080
 
 
-def test_hysteria_uses_fixed_public_udp_port_and_salamander() -> None:
+def test_hysteria_uses_fixed_public_udp_port_and_gecko() -> None:
     user = _user()
     device = _device(user.telegram_id)
     conn = Connection(
@@ -367,12 +367,19 @@ def test_hysteria_uses_fixed_public_udp_port_and_salamander() -> None:
     assert cfg["rate_limit"]["enabled"] is False
     assert cfg["tls"]["insecure"] is False
     assert cfg["obfs"] == {
-        "type": "salamander",
-        "password": "REPLACE_HYSTERIA2_SALAMANDER_PASSWORD",
+        "type": "gecko",
+        "password": "REPLACE_HYSTERIA2_GECKO_PASSWORD",
         "required": True,
+        "min_packet_size": 512,
+        "max_packet_size": 1200,
+    }
+    assert cfg["client_requirements"] == {
+        "hysteria": ">=2.9.2",
+        "sing_box": ">=1.14.0",
+        "reason": "gecko-obfs",
     }
     assert cfg["design_constraints"]["fixed_port_udp"] == TRACEGATE_PUBLIC_UDP_PORT
-    assert cfg["design_constraints"]["salamander_required"] is True
+    assert cfg["design_constraints"]["gecko_required"] is True
     assert cfg["design_constraints"]["masquerade_required"] is True
     assert cfg["design_constraints"]["hygiene_required"] is True
     assert cfg["design_constraints"]["server_sni_guard"] == "dns-san"
@@ -387,7 +394,7 @@ def test_hysteria_uses_fixed_public_udp_port_and_salamander() -> None:
     assert cfg["hygiene"]["required"] is True
     assert cfg["hygiene"]["required_layers"] == [
         "hysteria2",
-        "salamander",
+        "gecko",
         "file-masquerade",
         "dns-san-sni-guard",
         "http-auth-loopback",
@@ -579,12 +586,12 @@ def test_hysteria_chain_v4_enters_via_entry_and_marks_backhaul() -> None:
     assert " " not in cfg["auth"]["username"]
     assert cfg["auth"]["token"].startswith(cfg["auth"]["username"] + ":")
     assert cfg["port"] == TRACEGATE_PUBLIC_UDP_PORT
-    assert cfg["obfs"]["type"] == "salamander"
+    assert cfg["obfs"]["type"] == "gecko"
     assert cfg["obfs"]["required"] is True
     assert cfg["chain"]["type"] == "entry_transit_private_relay"
     assert cfg["chain"]["link_class"] == "entry-transit-udp"
-    assert cfg["chain"]["carrier"] == "hysteria2-salamander"
-    assert cfg["chain"]["preferred_outer"] == "udp-quic-salamander"
+    assert cfg["chain"]["carrier"] == "hysteria2-gecko"
+    assert cfg["chain"]["preferred_outer"] == "udp-quic-gecko"
     assert cfg["chain"]["outer_carrier"] == "udp-quic"
     assert cfg["chain"]["optional_packet_shaping"] == "paired-udp-obfs"
     assert cfg["chain"]["managed_by"] == "link-crypto"
@@ -592,7 +599,7 @@ def test_hysteria_chain_v4_enters_via_entry_and_marks_backhaul() -> None:
     assert cfg["chain"]["inner_transport"] == "hysteria2-quic"
     assert cfg["chain"]["xray_backhaul"] is False
     assert cfg["chain"]["udp_capable"] is True
-    assert cfg["chain"]["salamander_required"] is True
+    assert cfg["chain"]["gecko_required"] is True
     assert cfg["chain"]["paired_obfs_supported"] is True
     assert cfg["chain"]["client_rate_limit"] == {
         "enabled": True,
@@ -605,14 +612,14 @@ def test_hysteria_chain_v4_enters_via_entry_and_marks_backhaul() -> None:
     }
     assert cfg["chain"]["dpi_resistance"] == {
         "required": True,
-        "mode": "salamander-plus-scoped-paired-obfs",
+        "mode": "gecko-fragmented-quic",
         "forbid_udp_443": False,
         "forbid_tcp_8443": True,
     }
     assert cfg["chain"]["hygiene"] == {
         "required": True,
         "carrier": "hysteria2",
-        "obfs": "salamander",
+        "obfs": "gecko",
         "anti_replay": True,
         "anti_amplification": True,
         "source_validation": "profile-bound-remote",
@@ -630,7 +637,7 @@ def test_hysteria_chain_v4_enters_via_entry_and_marks_backhaul() -> None:
         "server_cap_required": True,
     }
     assert cfg["design_constraints"]["entry_role_required"] is True
-    assert cfg["design_constraints"]["private_interconnect"] == "hysteria2-salamander-udp-link"
+    assert cfg["design_constraints"]["private_interconnect"] == "hysteria2-gecko-udp-link"
     assert cfg["design_constraints"]["backhaul_outside_xray"] is True
     assert cfg["design_constraints"]["udp_over_private_relay"] is True
     assert cfg["design_constraints"]["chain_client_rate_limit_mbit"] == 10
@@ -1089,13 +1096,13 @@ def test_grpc_tls_universal_entry_uses_proxied_entry_and_encrypted_endpoint_chai
     assert cfg["grpc"]["authority"] == "entry-proxy.tracegate.test"
     assert cfg["chain"]["entry"] == "entry-origin.tracegate.test"
     assert cfg["chain"]["endpoint"] == "endpoint.tracegate.test"
-    assert cfg["chain"]["primary"]["carrier"] == "vless-reality-xhttp"
-    assert cfg["chain"]["secondary"]["carrier"] == "hysteria2-salamander"
-    assert cfg["chain"]["connect_sharding"]["scope"] == "connection"
-    assert cfg["chain"]["connect_sharding"]["max_parallel_dials"] == 1
+    assert cfg["chain"]["primary"]["carrier"] == "shadowsocks2022-shadowtls-v3"
+    assert cfg["chain"]["secondary"]["carrier"] == "hysteria2-gecko"
+    assert cfg["chain"]["primary"]["selection"] == "single-authenticated-tcp-link"
+    assert cfg["chain"]["transport_independence"] == "tcp-shadowtls-primary+udp-gecko-secondary"
     assert cfg["design_constraints"]["cloudflare_proxied_ingress_required"] is True
     assert cfg["design_constraints"]["endpoint_egress_required"] is True
-    assert cfg["design_constraints"]["secondary_backhaul"] == "hysteria2-salamander"
+    assert cfg["design_constraints"]["secondary_backhaul"] == "hysteria2-gecko"
 
 
 def test_grpc_tls_universal_entry_rejects_missing_proxy_hostname() -> None:
@@ -1234,17 +1241,17 @@ def test_shadowsocks2022_shadowtls_chain_v6_marks_private_interconnect() -> None
     assert cfg["server"] == "entry.example.com"
     assert cfg["sni"] == "cdn.example.com"
     assert cfg["chain"]["type"] == "entry_transit_private_relay"
-    assert cfg["chain"]["carrier"] == "xray-vless-reality"
-    assert cfg["chain"]["preferred_outer"] == "reality-xhttp"
-    assert cfg["chain"]["outer_carrier"] == "tcp-reality-xhttp"
+    assert cfg["chain"]["carrier"] == "shadowsocks2022-shadowtls-v3"
+    assert cfg["chain"]["preferred_outer"] == "shadowtls-v3"
+    assert cfg["chain"]["outer_carrier"] == "tcp-shadowtls-v3"
     assert cfg["chain"]["optional_packet_shaping"] is None
-    assert cfg["chain"]["managed_by"] == "xray-chain"
+    assert cfg["chain"]["managed_by"] == "link-crypto"
     assert cfg["chain"]["selected_profiles"] == ["V1", "V3"]
     assert cfg["chain"]["inner_transport"] == "shadowsocks2022-shadowtls-v3"
     assert cfg["chain"]["xray_backhaul"] is False
     assert cfg["password"].startswith("ss-entry-key:")
     assert cfg["shadowtls"]["password"] == "shadowtls-entry-static"
-    assert cfg["design_constraints"]["private_interconnect"] == "xray-vless-reality"
+    assert cfg["design_constraints"]["private_interconnect"] == "shadowsocks2022-shadowtls-v3"
     assert cfg["local_socks"]["auth"]["username"].startswith("tg_v3_")
 
 

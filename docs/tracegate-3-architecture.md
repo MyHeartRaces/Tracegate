@@ -22,7 +22,7 @@ IP and disabled shards.
 
 Entry adds one public IP after Endpoint validation. Entry Chain uses
 Cloudflare-proxied gRPC/TLS/H2 and a bounded Entry-to-Endpoint backhaul pool:
-VLESS Reality/XHTTP primary and Hysteria2/Salamander secondary. MTProto enters
+Shadowsocks-2022/ShadowTLS v3 primary and Hysteria2/Gecko secondary. MTProto enters
 through shared Entry TCP/443 and terminates at the Endpoint-local official
 MTProxy using random padding and no FakeTLS SNI.
 
@@ -35,8 +35,8 @@ The secure Entry↔Endpoint interconnect runs a sing-box Shadowsocks-2022 AEAD
 inner carrier with ShadowTLS v3 camouflage inside the mandatory WSS
 (wstunnel) outer tunnel. `interconnect.entryTransit.innerCarrier` is locked to
 `shadowsocks2022`; promotion checks require SS2022 AEAD, ShadowTLS v3,
-SPKI-pinned WSS, HMAC admission and no direct backhaul. The UDP backhaul stays
-on Hysteria2/Salamander.
+SPKI-pinned WSS, HMAC admission and no direct backhaul. The UDP backhaul uses
+Hysteria2/Gecko.
 
 ## Excluded from new production
 

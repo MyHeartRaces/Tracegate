@@ -188,7 +188,12 @@ def _runtime_contract(
                 "httpUrl": "http://127.0.0.1:8070/v1/hysteria/auth",
                 "httpInsecure": False,
             },
-            "obfs": {"type": "salamander", "salamanderPasswordConfigured": True},
+            "obfs": {
+                "type": "gecko",
+                "geckoPasswordConfigured": True,
+                "minPacketSize": 512,
+                "maxPacketSize": 1200,
+            },
             "trafficStats": {"listen": "127.0.0.1:9999", "secretConfigured": True},
             "tls": {"certConfigured": True, "keyConfigured": True, "sniGuard": "dns-san"},
             "udp": {"enabled": True, "idleTimeout": "5m"},
@@ -205,7 +210,7 @@ def _runtime_contract(
                     "http_auth_loopback": True,
                     "auth_insecure_disabled": True,
                     "reject_anonymous": True,
-                    "salamander": True,
+                    "gecko": True,
                     "file_masquerade": True,
                     "traffic_stats_loopback": True,
                     "sni_guard_dns_san": True,
@@ -218,7 +223,7 @@ def _runtime_contract(
                 },
                 "requiredLayers": [
                     "hysteria2",
-                    "salamander",
+                    "gecko",
                     "file-masquerade",
                     "dns-san-sni-guard",
                     "http-auth-loopback",
@@ -760,11 +765,11 @@ def _private_shadowtls_profile(
                 "entry": "entry.tracegate.test",
                 "transit": "transit.tracegate.test",
                 "linkClass": "entry-transit",
-                "carrier": "xray-vless-reality",
-                "preferredOuter": "reality-xhttp",
-                "outerCarrier": "tcp-reality-xhttp",
+                "carrier": "shadowsocks2022-shadowtls-v3",
+                "preferredOuter": "shadowtls-v3",
+                "outerCarrier": "tcp-shadowtls-v3",
                 "optionalPacketShaping": "",
-                "managedBy": "xray-chain",
+                "managedBy": "link-crypto",
                 "selectedProfiles": ["V1", "V3"],
                 "innerTransport": "shadowsocks2022-shadowtls-v3",
                 "xrayBackhaul": False,
@@ -774,7 +779,7 @@ def _private_shadowtls_profile(
         ),
         "obfuscation": {
             "scope": "entry-transit-private-relay" if is_chain else "public-tcp-443",
-            "outer": "reality-xhttp" if is_chain else "shadowtls-v3",
+            "outer": "shadowtls-v3" if is_chain else "shadowtls-v3",
             "packetShaping": "none",
             "hostWideInterception": False,
         },
@@ -1085,7 +1090,7 @@ def _link_crypto_udp_hardening() -> dict:
 def _link_crypto_udp_dpi_resistance() -> dict:
     return {
         "enabled": True,
-        "mode": "salamander-plus-scoped-paired-obfs",
+        "mode": "gecko-plus-scoped-paired-obfs",
         "portSplit": {
             "publicUdpPort": TRACEGATE_INTERCONNECT_UDP_PORT,
             "forbidUdp443": True,
@@ -1093,7 +1098,7 @@ def _link_crypto_udp_dpi_resistance() -> dict:
         },
         "requiredLayers": [
             "hysteria2-quic",
-            "salamander",
+            "gecko",
             "private-auth",
             "anti-replay",
             "anti-amplification",
@@ -1172,11 +1177,11 @@ def _link_crypto_udp_row(
             "preferredForProfiles": selected_profiles,
         },
         "obfs": {
-            "type": "salamander",
+            "type": "gecko",
             "required": True,
             "profileRef": {
                 "kind": "file",
-                "path": "/etc/tracegate/private/udp-link/salamander.env",
+                "path": "/etc/tracegate/private/udp-link/gecko.env",
                 "secretMaterial": True,
             },
         },
@@ -1295,7 +1300,7 @@ def _entry_transit_link_crypto_contract(*, role: str, forbid_tcp8443: bool = Tru
             "secretMaterial": False,
             "xrayBackhaul": False,
             "remotePort": TRACEGATE_INTERCONNECT_UDP_PORT,
-            "obfs": {"type": "salamander", "required": True},
+            "obfs": {"type": "gecko", "required": True},
             "pairedObfs": {
                 "enabled": True,
                 "backend": "udp2raw",
@@ -1359,7 +1364,7 @@ def _router_link_crypto_contract(*, role: str) -> dict:
             "secretMaterial": False,
             "xrayBackhaul": False,
             "remotePort": TRACEGATE_INTERCONNECT_UDP_PORT,
-            "obfs": {"type": "salamander", "required": True},
+            "obfs": {"type": "gecko", "required": True},
             "pairedObfs": {
                 "enabled": True,
                 "backend": "udp2raw",
@@ -1458,9 +1463,9 @@ def _router_route_from_link(row: dict, *, transport: str) -> dict:
                         "path": f"/etc/tracegate/private/router/{row['role'].lower()}/{row['class']}/hysteria-client.yaml",
                         "secretMaterial": True,
                     },
-                    "salamander": {
+                    "gecko": {
                         "kind": "file",
-                        "path": f"/etc/tracegate/private/router/{row['role'].lower()}/{row['class']}/salamander.env",
+                        "path": f"/etc/tracegate/private/router/{row['role'].lower()}/{row['class']}/gecko.env",
                         "secretMaterial": True,
                     },
                     "pairedObfs": {
@@ -1687,7 +1692,7 @@ def _write_router_client_bundle(
                 "name": "hysteria2-client",
                 "required": bool(udp_routes),
                 "transports": ["udp-quic"],
-                "obfs": "salamander",
+                "obfs": "gecko",
                 "failClosed": True,
                 "noHostWideInterception": True,
                 "noNfqueue": True,
@@ -2032,7 +2037,12 @@ def test_validate_runtime_contract_pair_rejects_tracegate22_unsafe_hysteria_conf
     entry["decoy"]["xrayHysteriaMasqueradeDirs"] = ["/srv/legacy-hy2"]
     entry["hysteria"]["listenPort"] = TRACEGATE_INTERCONNECT_UDP_PORT
     entry["hysteria"]["auth"]["httpUrl"] = "http://198.51.100.10/v1/hysteria/auth"
-    entry["hysteria"]["obfs"] = {"type": "none", "salamanderPasswordConfigured": False}
+    entry["hysteria"]["obfs"] = {
+        "type": "none",
+        "geckoPasswordConfigured": False,
+        "minPacketSize": 0,
+        "maxPacketSize": 0,
+    }
     entry["hysteria"]["trafficStats"] = {"listen": "0.0.0.0:9999", "secretConfigured": False}
     entry["hysteria"]["udp"]["enabled"] = False
     entry["hysteria"]["tls"]["sniGuard"] = "disabled"
@@ -2048,7 +2058,7 @@ def test_validate_runtime_contract_pair_rejects_tracegate22_unsafe_hysteria_conf
     assert by_code["entry-hysteria-listen-port"].severity == "error"
     assert by_code["entry-hysteria-auth-loopback"].severity == "error"
     assert by_code["entry-hysteria-obfs"].severity == "error"
-    assert by_code["entry-hysteria-salamander-password"].severity == "error"
+    assert by_code["entry-hysteria-gecko-password"].severity == "error"
     assert by_code["entry-hysteria-stats-listen-loopback"].severity == "error"
     assert by_code["entry-hysteria-stats-secret"].severity == "error"
     assert by_code["entry-hysteria-udp-disabled"].severity == "error"
@@ -2836,7 +2846,7 @@ def test_validate_link_crypto_state_accepts_udp_hysteria2_handoff(tmp_path: Path
             "secretMaterial": False,
             "xrayBackhaul": False,
             "remotePort": TRACEGATE_INTERCONNECT_UDP_PORT,
-            "obfs": {"type": "salamander", "required": True},
+            "obfs": {"type": "gecko", "required": True},
             "pairedObfs": {
                 "enabled": True,
                 "backend": "udp2raw",
@@ -3118,7 +3128,7 @@ def test_validate_link_crypto_state_rejects_unsafe_udp_handoff(tmp_path: Path) -
     assert by_code["entry-link-crypto-udp-contract-secret-material"].severity == "error"
     assert by_code["entry-link-crypto-udp-contract-xray-backhaul"].severity == "error"
     assert by_code["entry-link-crypto-udp-contract-remote-port"].severity == "error"
-    assert by_code["entry-link-crypto-udp-contract-salamander"].severity == "error"
+    assert by_code["entry-link-crypto-udp-contract-gecko"].severity == "error"
     assert by_code["entry-link-crypto-udp-contract-paired-obfs-backend"].severity == "error"
     assert by_code["entry-link-crypto-udp-contract-paired-obfs"].severity == "error"
     assert by_code["entry-link-crypto-udp-contract-paired-obfs-fail-closed"].severity == "error"
@@ -3144,7 +3154,7 @@ def test_validate_link_crypto_state_rejects_unsafe_udp_handoff(tmp_path: Path) -
     assert by_code["entry-link-crypto-entry-transit-udp-local-auth"].severity == "error"
     assert by_code["entry-link-crypto-entry-transit-udp-remote-protocol"].severity == "error"
     assert by_code["entry-link-crypto-entry-transit-udp-udp-capable"].severity == "error"
-    assert by_code["entry-link-crypto-entry-transit-udp-salamander"].severity == "error"
+    assert by_code["entry-link-crypto-entry-transit-udp-gecko"].severity == "error"
     assert by_code["entry-link-crypto-entry-transit-udp-paired-obfs-backend"].severity == "error"
     assert by_code["entry-link-crypto-entry-transit-udp-paired-obfs-mode"].severity == "error"
     assert by_code["entry-link-crypto-entry-transit-udp-paired-obfs-both-sides"].severity == "error"
@@ -3748,7 +3758,7 @@ def test_validate_router_handoff_state_rejects_unsafe_router_routes(tmp_path: Pa
     assert by_code["entry-router-handoff-router-entry-udp-router-client-host-wide"].severity == "error"
     assert by_code["entry-router-handoff-router-entry-udp-router-client-nfqueue"].severity == "error"
     assert by_code["entry-router-handoff-router-entry-udp-router-client-profile-hysteriaClient"].severity == "error"
-    assert by_code["entry-router-handoff-router-entry-udp-router-client-profile-salamander"].severity == "error"
+    assert by_code["entry-router-handoff-router-entry-udp-router-client-profile-gecko"].severity == "error"
     assert by_code["entry-router-handoff-router-entry-udp-router-client-profile-pairedObfs"].severity == "error"
     assert by_code["entry-router-handoff-router-entry-udp-selected-profiles"].severity == "error"
     assert by_code["entry-router-handoff-router-entry-udp-paired-obfs-fail-closed"].severity == "error"
@@ -3962,7 +3972,7 @@ def test_validate_router_client_bundle_rejects_unsafe_routes(tmp_path: Path) -> 
     assert by_code["entry-router-client-bundle-host-wide"].severity == "error"
     assert by_code["entry-router-client-bundle-nfqueue"].severity == "error"
     assert by_code["entry-router-client-bundle-profile-distribution"].severity == "error"
-    assert by_code["entry-router-client-bundle-component-hysteria2-client-salamander"].severity == "error"
+    assert by_code["entry-router-client-bundle-component-hysteria2-client-gecko"].severity == "error"
     assert by_code["entry-router-client-bundle-component-hysteria2-client-fail-closed"].severity == "error"
     assert by_code["entry-router-client-bundle-component-paired-udp-obfs-backend"].severity == "error"
     assert by_code["entry-router-client-bundle-component-paired-udp-obfs-both-sides"].severity == "error"
@@ -3975,7 +3985,7 @@ def test_validate_router_client_bundle_rejects_unsafe_routes(tmp_path: Path) -> 
     assert by_code["entry-router-client-bundle-router-entry-udp-router-host-wide"].severity == "error"
     assert by_code["entry-router-client-bundle-router-entry-udp-router-nfqueue"].severity == "error"
     assert by_code["entry-router-client-bundle-router-entry-udp-router-client-profile-hysteriaClient"].severity == "error"
-    assert by_code["entry-router-client-bundle-router-entry-udp-router-client-profile-salamander"].severity == "error"
+    assert by_code["entry-router-client-bundle-router-entry-udp-router-client-profile-gecko"].severity == "error"
     assert by_code["entry-router-client-bundle-router-entry-udp-router-client-profile-pairedObfs"].severity == "error"
     assert by_code["entry-router-client-bundle-router-entry-udp-server-mode"].severity == "error"
     assert by_code["entry-router-client-bundle-router-entry-udp-server-listen-loopback"].severity == "error"

@@ -80,7 +80,7 @@ def client_profile_name(effective: dict[str, Any]) -> str:
     if is_chain:
         return "Chain"
     if protocol == "vless" and (
-        transport in {"reality", "reality_xhttp", "reality-xhttp", "xhttp_reality"}
+        transport in {"reality", "reality_raw", "reality-raw", "raw_reality", "raw-tcp-reality"}
         or isinstance(effective.get("reality"), dict)
     ):
         return "Direct-VLESS"
@@ -595,7 +595,7 @@ def export_client_config(effective: dict[str, Any]) -> ExportResult:
                 transport = "grpc_tls"
             elif effective.get("ws"):
                 transport = "ws_tls"
-        if transport in {"reality"}:
+        if transport in {"reality", "reality_raw", "reality-raw", "raw_reality", "raw-tcp-reality"}:
             return _export_vless_reality(effective)
         if transport in {"ws_tls", "ws+tls", "ws-tls"}:
             return _export_vless_ws_tls(effective)
@@ -629,9 +629,7 @@ def _export_vless_reality(effective: dict[str, Any]) -> ExportResult:
     reality = effective.get("reality") or {}
     pbk = reality.get("public_key")
     sid = reality.get("short_id")
-    xhttp = effective.get("xhttp") or {}
-    xhttp_mode = str((xhttp.get("mode") or "")).strip()
-    xhttp_path = str((xhttp.get("path") or "")).strip()
+    flow = str(effective.get("flow") or "xtls-rprx-vision").strip()
     encryption = _vless_encryption(effective)
 
     if not server or not uuid or not sni or not pbk or not sid:
@@ -647,11 +645,9 @@ def _export_vless_reality(effective: dict[str, Any]) -> ExportResult:
         "sid": sid,
         # Many clients default to spiderX="/". Export explicitly to reduce interop issues.
         "spx": "/",
-        # Tracegate VLESS/REALITY is xhttp-only.
-        "type": "xhttp",
-        "mode": xhttp_mode or "auto",
+        "type": "tcp",
+        "flow": flow,
     }
-    params["path"] = xhttp_path or "/api/v1/update"
 
     name = client_profile_name(effective)
     uri = f"vless://{uuid}@{server}:{port}?{_encode_query(params, safe='/,')}#{_q(str(name))}"
@@ -665,12 +661,12 @@ def _export_vless_reality(effective: dict[str, Any]) -> ExportResult:
                     {
                         "address": server,
                         "port": port,
-                        "users": [{"id": uuid, "encryption": encryption}],
+                        "users": [{"id": uuid, "encryption": encryption, "flow": flow}],
                     }
                 ]
             },
             "streamSettings": {
-                "network": "xhttp",
+                "network": "raw",
                 "security": "reality",
                 "realitySettings": {
                     "serverName": sni,
@@ -678,10 +674,6 @@ def _export_vless_reality(effective: dict[str, Any]) -> ExportResult:
                     "publicKey": pbk,
                     "shortId": sid,
                     "spiderX": "/",
-                },
-                "xhttpSettings": {
-                    "mode": xhttp_mode or "auto",
-                    "path": xhttp_path or "/api/v1/update",
                 },
             },
         },
@@ -874,13 +866,13 @@ def _export_hysteria2(effective: dict[str, Any]) -> ExportResult:
 
     if not server:
         raise ClientConfigExportError("Missing fields for Hysteria2 export")
-    if obfs_type != "salamander" or not obfs_password:
-        raise ClientConfigExportError("Hysteria2 export requires Salamander obfs with a password")
+    if obfs_type != "gecko" or not obfs_password:
+        raise ClientConfigExportError("Hysteria2 export requires Gecko obfs with a password")
 
     # Keep the URI aligned with the official Hysteria 2 scheme:
     # token auth is a single opaque auth component, percent-encoded as needed.
     params = {
-        "obfs": "salamander",
+        "obfs": "gecko",
         "obfs-password": obfs_password,
     }
     if insecure:
@@ -921,8 +913,10 @@ def _export_hysteria2(effective: dict[str, Any]) -> ExportResult:
             "down_mbps": _hysteria_export_mbps(effective, "down_mbps"),
             "password": share_auth,
             "obfs": {
-                "type": "salamander",
+                "type": "gecko",
                 "password": obfs_password,
+                "min_packet_size": int(obfs.get("min_packet_size") or 512),
+                "max_packet_size": int(obfs.get("max_packet_size") or 1200),
             },
             "tls": singbox_tls,
         },
@@ -931,7 +925,13 @@ def _export_hysteria2(effective: dict[str, Any]) -> ExportResult:
         kind="uri",
         title="Hysteria2 link",
         content=uri,
-        extra_messages=(_local_socks_extra_message(effective),),
+        extra_messages=(
+            _local_socks_extra_message(effective),
+            (
+                "Client compatibility",
+                "Gecko obfs requires Hysteria 2.9.2+ or sing-box 1.14.0+.",
+            ),
+        ),
         attachment_content=attachment_content,
         attachment_filename=attachment_filename,
         attachment_mime="application/json",

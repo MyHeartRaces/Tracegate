@@ -24,11 +24,18 @@
 {{- $roleHysteriaStatsKey := ternary $.Values.privateProfiles.keys.hysteriaStatsEntry $.Values.privateProfiles.keys.hysteriaStatsTransit $roleIsEntry }}
 {{- $roleHysteriaStatsSecretKey := ternary $.Values.privateProfiles.secretKeys.hysteriaStatsEntry $.Values.privateProfiles.secretKeys.hysteriaStatsTransit $roleIsEntry }}
 {{- $endpointBackhaul := $.Values.interconnect.endpointBackhaul | default dict }}
+{{- $endpointBackhaulShadowtls := dig "shadowtls" (dict) $endpointBackhaul }}
+{{- $endpointBackhaulShadowtlsEnabled := and ($endpointBackhaul.enabled | default false) (dig "enabled" false $endpointBackhaulShadowtls) }}
+{{- $roleEndpointBackhaulShadowtlsClientEnabled := and $roleIsEntry $endpointBackhaulShadowtlsEnabled }}
 {{- $endpointBackhaulHysteria := dig "hysteria2" (dict) $endpointBackhaul }}
 {{- $endpointBackhaulHysteriaEnabled := and ($endpointBackhaul.enabled | default false) (dig "enabled" false $endpointBackhaulHysteria) }}
 {{- $roleEndpointBackhaulHysteriaClientEnabled := and $roleIsEntry $endpointBackhaulHysteriaEnabled }}
 {{- $endpointBackhaulAuthKey := $.Values.privateProfiles.keys.hysteriaEndpointBackhaulAuth }}
 {{- $endpointBackhaulAuthSecretKey := $.Values.privateProfiles.secretKeys.hysteriaEndpointBackhaulAuth }}
+{{- $endpointBackhaulSsPasswordKey := $.Values.privateProfiles.keys.shadowsocks2022PasswordTransit }}
+{{- $endpointBackhaulSsPasswordSecretKey := $.Values.privateProfiles.secretKeys.shadowsocks2022PasswordTransit }}
+{{- $endpointBackhaulShadowtlsPasswordKey := $.Values.privateProfiles.keys.shadowtlsPasswordTransit }}
+{{- $endpointBackhaulShadowtlsPasswordSecretKey := $.Values.privateProfiles.secretKeys.shadowtlsPasswordTransit }}
 {{- $roleZapretKey := ternary $.Values.privateProfiles.keys.zapretEntry $.Values.privateProfiles.keys.zapretTransit $roleIsEntry }}
 {{- $roleZapretSecretKey := ternary $.Values.privateProfiles.secretKeys.zapretEntry $.Values.privateProfiles.secretKeys.zapretTransit $roleIsEntry }}
 {{- $roleShadowsocks2022Key := ternary $.Values.privateProfiles.keys.shadowsocks2022Entry $.Values.privateProfiles.keys.shadowsocks2022Transit $roleIsEntry }}
@@ -99,6 +106,13 @@
 {{- $mtprotoEgressShadowtlsPasswordKey := $.Values.privateProfiles.keys.shadowtlsPasswordTransit }}
 {{- $mtprotoEgressShadowtlsPasswordSecretKey := $.Values.privateProfiles.secretKeys.shadowtlsPasswordTransit }}
 {{- $topologyEndpoint := dig "servers" "endpoint" (dict) ($.Values.topology | default dict) }}
+{{- $endpointBackhaulShadowtlsHost := trim (toString (dig "endpointHost" "" $endpointBackhaulShadowtls)) }}
+{{- if not $endpointBackhaulShadowtlsHost }}{{- $endpointBackhaulShadowtlsHost = trim (toString ($topologyEndpoint.publicIp | default "")) }}{{- end }}
+{{- if not $endpointBackhaulShadowtlsHost }}{{- $endpointBackhaulShadowtlsHost = include "tracegate.transitHost" $ }}{{- end }}
+{{- $endpointBackhaulShadowtlsPort := int (dig "endpointPort" 443 $endpointBackhaulShadowtls) }}
+{{- $endpointBackhaulShadowtlsServerName := trim (toString (dig "serverName" "" $endpointBackhaulShadowtls)) }}
+{{- if not $endpointBackhaulShadowtlsServerName }}{{- $endpointBackhaulShadowtlsServerName = $endpointShadowtlsServerName }}{{- end }}
+{{- $endpointBackhaulShadowtlsLocalPort := int (dig "entryLocalPort" 11088 $endpointBackhaulShadowtls) }}
 {{- if not $mtprotoEgressShadowtlsEndpointHost }}{{- $mtprotoEgressShadowtlsEndpointHost = trim (toString ($topologyEndpoint.publicIp | default "")) }}{{- end }}
 {{- $mtprotoDomainFrontingHost := trim (toString (dig "domainFrontingHost" $mtprotoTlsDomain $mtprotoEgress)) }}
 {{- $mtprotoDomainFrontingPort := int (dig "domainFrontingPort" 443 $mtprotoEgress) }}
@@ -293,6 +307,12 @@ spec:
 {{- if $roleEndpointBackhaulHysteriaClientEnabled }}
               - key: {{ $.Values.privateProfiles.secretKeys.hysteriaSalamanderTransit }}
                 path: {{ $.Values.privateProfiles.keys.hysteriaSalamanderTransit }}
+{{- end }}
+{{- if $roleEndpointBackhaulShadowtlsClientEnabled }}
+              - key: {{ $endpointBackhaulSsPasswordSecretKey }}
+                path: {{ $endpointBackhaulSsPasswordKey }}
+              - key: {{ $endpointBackhaulShadowtlsPasswordSecretKey }}
+                path: {{ $endpointBackhaulShadowtlsPasswordKey }}
 {{- end }}
 {{- if $.Values.interconnect.emergencyXrayChain.enabled }}
               - key: {{ $.Values.privateProfiles.secretKeys.xrayChainBridgeClientId }}
@@ -508,14 +528,17 @@ spec:
 {{- if $.Values.shadowsocks2022.enabled }}
               replace_xray_literal REPLACE_SHADOWSOCKS2022_PASSWORD "$(read_secret_file "{{ $.Values.privateProfiles.mountPath }}/{{ $roleShadowsocks2022PasswordKey }}")"
 {{- end }}
+{{- if $roleEndpointBackhaulShadowtlsClientEnabled }}
+              replace_xray_literal REPLACE_ENDPOINT_BACKHAUL_SHADOWSOCKS2022_PASSWORD "$(read_secret_file "{{ $.Values.privateProfiles.mountPath }}/{{ $endpointBackhaulSsPasswordKey }}")"
+{{- end }}
 {{- if $.Values.vlessEncryption.enabled }}
               replace_xray_literal REPLACE_VLESS_ENCRYPTION_DECRYPTION "${VLESS_ENCRYPTION_DECRYPTION}"
 {{- end }}
-              replace_hysteria_literal REPLACE_HYSTERIA_SALAMANDER_PASSWORD "$(read_secret_file "{{ $.Values.privateProfiles.mountPath }}/{{ $roleHysteriaSalamanderKey }}")"
+              replace_hysteria_literal REPLACE_HYSTERIA_GECKO_PASSWORD "$(read_secret_file "{{ $.Values.privateProfiles.mountPath }}/{{ $roleHysteriaSalamanderKey }}")"
               replace_hysteria_literal REPLACE_HYSTERIA_STATS_SECRET "$(read_secret_file "{{ $.Values.privateProfiles.mountPath }}/{{ $roleHysteriaStatsKey }}")"
 {{- if $roleEndpointBackhaulHysteriaClientEnabled }}
               replace_literal_in_file /state/base/hysteria/backhaul-client.yaml REPLACE_HYSTERIA_ENDPOINT_BACKHAUL_AUTH "$(read_secret_file "{{ $.Values.privateProfiles.mountPath }}/{{ $endpointBackhaulAuthKey }}")"
-              replace_literal_in_file /state/base/hysteria/backhaul-client.yaml REPLACE_HYSTERIA_ENDPOINT_BACKHAUL_SALAMANDER_PASSWORD "$(read_secret_file "{{ $.Values.privateProfiles.mountPath }}/{{ $.Values.privateProfiles.keys.hysteriaSalamanderTransit }}")"
+              replace_literal_in_file /state/base/hysteria/backhaul-client.yaml REPLACE_HYSTERIA_ENDPOINT_BACKHAUL_GECKO_PASSWORD "$(read_secret_file "{{ $.Values.privateProfiles.mountPath }}/{{ $.Values.privateProfiles.keys.hysteriaSalamanderTransit }}")"
 {{- end }}
               cp /base/haproxy/haproxy.cfg /state/base/haproxy/haproxy.cfg
               cp /base/nginx/nginx.conf /state/base/nginx/nginx.conf
@@ -1608,6 +1631,42 @@ spec:
               readOnly: true
             - name: gateway-state
               mountPath: /var/lib/tracegate
+              readOnly: true
+{{- end }}
+{{- if $roleEndpointBackhaulShadowtlsClientEnabled }}
+        - name: endpoint-backhaul-shadowtls-client
+          image: {{ include "tracegate.image" $.Values.gateway.images.shadowtls | quote }}
+          imagePullPolicy: {{ $.Values.gateway.images.shadowtls.pullPolicy }}
+          command:
+            - sh
+            - -lc
+            - |
+              set -eu
+              password_file="{{ $.Values.privateProfiles.mountPath }}/{{ $endpointBackhaulShadowtlsPasswordKey }}"
+              until [ -s "${password_file}" ]; do sleep 2; done
+              password="$(tr -d '\r\n' < "${password_file}")"
+              exec shadow-tls --v3 client \
+                --listen "127.0.0.1:{{ $endpointBackhaulShadowtlsLocalPort }}" \
+                --server "{{ $endpointBackhaulShadowtlsHost }}:{{ $endpointBackhaulShadowtlsPort }}" \
+                --sni "{{ $endpointBackhaulShadowtlsServerName }}" \
+                --password "${password}"
+          startupProbe:
+            tcpSocket:
+              port: {{ $endpointBackhaulShadowtlsLocalPort }}
+            periodSeconds: 2
+            failureThreshold: 30
+          readinessProbe:
+            tcpSocket:
+              port: {{ $endpointBackhaulShadowtlsLocalPort }}
+            periodSeconds: 5
+            failureThreshold: 3
+{{- with (index $roleContainerResources "shadowtls") }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+{{- end }}
+          volumeMounts:
+            - name: private-profiles
+              mountPath: {{ $.Values.privateProfiles.mountPath }}
               readOnly: true
 {{- end }}
 {{- if $mtprotoEgressShadowtlsEnabled }}

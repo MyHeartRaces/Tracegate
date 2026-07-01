@@ -44,11 +44,11 @@ def _udp_hardening() -> dict:
 def _udp_dpi_resistance() -> dict:
     return {
         "enabled": True,
-        "mode": "salamander-plus-scoped-paired-obfs",
+        "mode": "gecko-plus-scoped-paired-obfs",
         "portSplit": {"publicUdpPort": 4443, "forbidUdp443": True, "forbidTcp8443": True},
         "requiredLayers": [
             "hysteria2-quic",
-            "salamander",
+            "gecko",
             "private-auth",
             "anti-replay",
             "anti-amplification",
@@ -182,7 +182,7 @@ def _contract(path: Path) -> dict:
                 "secretMaterial": False,
                 "xrayBackhaul": False,
                 "remotePort": 4443,
-                "obfs": {"type": "salamander", "required": True},
+                "obfs": {"type": "gecko", "required": True},
                 "pairedObfs": {
                     "enabled": False,
                     "backend": "udp2raw",
@@ -283,7 +283,7 @@ def _state(path: Path, *, contract: dict, contract_path: Path, paired_obfs_enabl
                 "remote": {"role": "TRANSIT", "endpoint": "transit.example.com:4443", "protocol": "udp-quic"},
                 "datagram": {"udpCapable": True, "innerTransports": ["hysteria2-quic"], "preferredForProfiles": ["V2"]},
                 "obfs": {
-                    "type": "salamander",
+                    "type": "gecko",
                     "required": True,
                     "profileRef": {
                         "kind": "file",

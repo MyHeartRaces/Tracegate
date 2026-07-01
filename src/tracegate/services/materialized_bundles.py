@@ -410,11 +410,15 @@ class MaterializedBundleRenderContext:
         if runtime_profile == "tracegate-3":
             entry_hysteria_salamander_password = _require_first(
                 env,
+                "HYSTERIA_GECKO_PASSWORD_ENTRY",
+                "HYSTERIA_GECKO_PASSWORD",
                 "HYSTERIA_SALAMANDER_PASSWORD_ENTRY",
                 "HYSTERIA_SALAMANDER_PASSWORD",
             )
             transit_hysteria_salamander_password = _require_first(
                 env,
+                "HYSTERIA_GECKO_PASSWORD_TRANSIT",
+                "HYSTERIA_GECKO_PASSWORD",
                 "HYSTERIA_SALAMANDER_PASSWORD_TRANSIT",
                 "HYSTERIA_SALAMANDER_PASSWORD",
             )
@@ -433,11 +437,15 @@ class MaterializedBundleRenderContext:
         else:
             entry_hysteria_salamander_password = _first(
                 env,
+                "HYSTERIA_GECKO_PASSWORD_ENTRY",
+                "HYSTERIA_GECKO_PASSWORD",
                 "HYSTERIA_SALAMANDER_PASSWORD_ENTRY",
                 "HYSTERIA_SALAMANDER_PASSWORD",
             )
             transit_hysteria_salamander_password = _first(
                 env,
+                "HYSTERIA_GECKO_PASSWORD_TRANSIT",
+                "HYSTERIA_GECKO_PASSWORD",
                 "HYSTERIA_SALAMANDER_PASSWORD_TRANSIT",
                 "HYSTERIA_SALAMANDER_PASSWORD",
             )
@@ -677,7 +685,7 @@ def _materialized_manifest_payload(ctx: "MaterializedBundleRenderContext") -> di
                 "features": {
                     "runtimeProfile": ctx.runtime_profile,
                     "standaloneHysteriaEnabled": ctx.runtime_profile == "tracegate-3",
-                    "hysteriaSalamanderEnabled": ctx.runtime_profile == "tracegate-3",
+                    "hysteriaGeckoEnabled": ctx.runtime_profile == "tracegate-3",
                     "finalMaskEnabled": finalmask_enabled,
                     "echEnabled": ech_enabled,
                     "mtprotoFrontingEnabled": role_upper == "TRANSIT" and bool(str(ctx.mtproto_domain or "").strip()),
@@ -869,9 +877,11 @@ def _render_hysteria_server_yaml(
         f"    url: {_yaml_scalar(auth_url)}",
         "    insecure: false",
         "obfs:",
-        "  type: salamander",
-        "  salamander:",
+        "  type: gecko",
+        "  gecko:",
         f"    password: {_yaml_scalar(salamander_password)}",
+        "    minPacketSize: 512",
+        "    maxPacketSize: 1200",
         "quic:",
         "  maxIdleTimeout: 2m",
         "  disablePathMTUDiscovery: false",

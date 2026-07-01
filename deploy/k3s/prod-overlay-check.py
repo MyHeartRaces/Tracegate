@@ -369,6 +369,13 @@ def validate_prod_overlay(chart_values: Path, prod_values: Path, *, strict: bool
             require(_has_valid_digest(image_map), f"{_image_label(f'gateway.images.{name}', image_map)} must use a valid OCI digest")
         else:
             require(not _is_mutable_tag(image_map.get("tag")), f"{_image_label(f'gateway.images.{name}', image_map)} must use a pinned tag or digest")
+    hysteria_image = _as_dict(_as_dict(gateway.get("images")).get("hysteria"))
+    hysteria_version_match = re.fullmatch(r"v?(\d+)\.(\d+)\.(\d+)", _text(hysteria_image.get("tag")))
+    require(
+        bool(hysteria_version_match)
+        and tuple(int(part) for part in hysteria_version_match.groups()) >= (2, 9, 2),
+        "gateway.images.hysteria.tag must be Hysteria 2.9.2 or newer for Gecko obfs",
+    )
 
     control_plane = _as_dict(merged.get("controlPlane"))
     auth = _as_dict(control_plane.get("auth"))
@@ -802,6 +809,20 @@ def validate_prod_overlay(chart_values: Path, prod_values: Path, *, strict: bool
     endpoint_ingress_enabled = bool(endpoint_ingress.get("enabled", False))
     universal_entry_enabled = bool(universal_entry.get("enabled", False))
     ingress_rotation_enabled = bool(ingress_rotation.get("enabled", False))
+    removed_xhttp = _as_dict(interconnect.get("emergencyXrayChain"))
+    require(not bool(removed_xhttp.get("enabled", False)), "interconnect.emergencyXrayChain must stay disabled; XHTTP was removed")
+    require(not _as_list(removed_xhttp.get("shards")), "interconnect.emergencyXrayChain.shards must stay empty; XHTTP was removed")
+    require(not _as_dict(removed_xhttp.get("xhttp")), "interconnect.emergencyXrayChain.xhttp must stay empty; XHTTP was removed")
+    gateway_hysteria = _as_dict(_as_dict(merged.get("gateway")).get("hysteria"))
+    gateway_hysteria_obfs = _as_dict(gateway_hysteria.get("obfs"))
+    gateway_hysteria_gecko = _as_dict(gateway_hysteria_obfs.get("gecko"))
+    direct_gecko_min = _as_int(gateway_hysteria_gecko.get("minPacketSize"))
+    direct_gecko_max = _as_int(gateway_hysteria_gecko.get("maxPacketSize"))
+    require(_text(gateway_hysteria_obfs.get("type")) == "gecko", "gateway.hysteria.obfs.type must stay gecko")
+    require(
+        512 <= direct_gecko_min <= direct_gecko_max <= 2048,
+        "gateway.hysteria Gecko packet sizes must satisfy 512 <= minPacketSize <= maxPacketSize <= 2048",
+    )
     entry_rotation_hosts = [_text(host) for host in _as_list(ingress_rotation.get("entryHosts")) if _text(host)]
     endpoint_rotation_hosts = [_text(host) for host in _as_list(ingress_rotation.get("endpointHosts")) if _text(host)]
     minimum_pool_size = _as_int(ingress_rotation.get("minimumPoolSize"), default=2)
@@ -901,12 +922,6 @@ def validate_prod_overlay(chart_values: Path, prod_values: Path, *, strict: bool
         cdn_fallback = _as_dict(endpoint_ingress.get("cdnFallback"))
         cdn_fallback_enabled = bool(cdn_fallback.get("enabled", False))
         shadowtls_sni = _endpoint_shadowtls_server_name(merged).lower().rstrip(".")
-        chain_bridge = _as_dict(interconnect.get("emergencyXrayChain"))
-        chain_shard_snis = {
-            _text(_as_dict(row).get("serverName")).lower().rstrip(".")
-            for row in _as_list(chain_bridge.get("shards"))
-            if _text(_as_dict(row).get("serverName"))
-        }
         endpoint_ips = {service_ip, *shard_ips}
         normalized_endpoint_ips, invalid_endpoint_ips = _valid_public_ip_set({value for value in endpoint_ips if value})
         expected_ingress_ips = set(shard_ips)
@@ -932,10 +947,6 @@ def validate_prod_overlay(chart_values: Path, prod_values: Path, *, strict: bool
         require(bool(firewall.get("required", False)), "architecture.endpointIngress.firewall.required must stay true")
         require(bool(tcp_channel.get("bindShardIpsOnly", False)), "Endpoint TCP listeners must bind shard IPs only")
         require(bool(udp_channel.get("serviceIpRejectRequired", False)), "Endpoint UDP service-facing IP rejection must stay required")
-        require(
-            not (endpoint_sni_pool & chain_shard_snis),
-            "Endpoint direct SNI pool must not overlap Entry-to-Endpoint XHTTP shard SNI values",
-        )
         require(
             not (shadowtls_sni and shadowtls_sni in endpoint_sni_pool),
             "shadowsocks2022.shadowtls.serverNameEndpoint must not reuse an Endpoint direct SNI",
@@ -976,12 +987,9 @@ def validate_prod_overlay(chart_values: Path, prod_values: Path, *, strict: bool
         endpoint_backhaul = _as_dict(interconnect.get("endpointBackhaul"))
         endpoint_backhaul_selection = _as_dict(endpoint_backhaul.get("selection"))
         endpoint_backhaul_health = _as_dict(endpoint_backhaul.get("health"))
+        endpoint_backhaul_shadowtls = _as_dict(endpoint_backhaul.get("shadowtls"))
         endpoint_backhaul_hysteria = _as_dict(endpoint_backhaul.get("hysteria2"))
-        chain_bridge = _as_dict(interconnect.get("emergencyXrayChain"))
-        chain_allowed_sources = {_text(value) for value in _as_list(chain_bridge.get("allowedSources")) if _text(value)}
-        chain_shards = [_as_dict(row) for row in _as_list(chain_bridge.get("shards"))]
-        chain_xhttp = _as_dict(chain_bridge.get("xhttp"))
-        chain_xmux = _as_dict(chain_xhttp.get("xmux"))
+        endpoint_backhaul_gecko = _as_dict(endpoint_backhaul_hysteria.get("gecko"))
         hysteria_allowed_sources = {
             _text(value) for value in _as_list(endpoint_backhaul_hysteria.get("allowedSources")) if _text(value)
         }
@@ -1002,11 +1010,18 @@ def validate_prod_overlay(chart_values: Path, prod_values: Path, *, strict: bool
             enabled_client_profiles == ENDPOINT_FIRST_CLIENT_PROFILE_KEYS,
             "entry-staged must keep bot/API issuance limited to Endpoint-direct and Backup profiles",
         )
-        require(bool(chain_bridge.get("enabled", False)), "entry-staged requires interconnect.emergencyXrayChain.enabled=true")
-        require(entry_public_ip in chain_allowed_sources, "entry-staged chain bridge allowedSources must include Entry publicIp")
         require(bool(endpoint_backhaul.get("enabled", False)), "entry-staged requires interconnect.endpointBackhaul.enabled=true")
-        require(_text(endpoint_backhaul.get("primary")) == "vless-reality-xhttp", "entry-staged primary backhaul must stay vless-reality-xhttp")
-        require(_text(endpoint_backhaul.get("secondary")) == "hysteria2-salamander", "entry-staged secondary backhaul must stay hysteria2-salamander")
+        require(_text(endpoint_backhaul.get("primary")) == "shadowsocks2022-shadowtls-v3", "entry-staged primary backhaul must stay shadowsocks2022-shadowtls-v3")
+        require(_text(endpoint_backhaul.get("secondary")) == "hysteria2-gecko", "entry-staged secondary backhaul must stay hysteria2-gecko")
+        require(bool(_as_dict(merged.get("shadowsocks2022")).get("enabled", False)), "entry-staged ShadowTLS primary requires shadowsocks2022.enabled=true")
+        require(bool(endpoint_backhaul_shadowtls.get("enabled", False)), "entry-staged ShadowTLS primary must stay enabled")
+        require(_has_value(endpoint_backhaul_shadowtls.get("endpointHost")), "entry-staged ShadowTLS endpointHost is required")
+        require(_as_int(endpoint_backhaul_shadowtls.get("endpointPort")) == 443, "entry-staged ShadowTLS endpointPort must stay 443")
+        require(1024 <= _as_int(endpoint_backhaul_shadowtls.get("entryLocalPort")) <= 65535, "entry-staged ShadowTLS entryLocalPort must be unprivileged")
+        require(
+            _text(endpoint_backhaul_shadowtls.get("serverName")).lower().rstrip(".") == _endpoint_shadowtls_server_name(merged).lower().rstrip("."),
+            "entry-staged ShadowTLS serverName must match the Endpoint ShadowTLS SNI",
+        )
         require(_text(endpoint_backhaul_selection.get("strategy")) == "roundRobin", "entry-staged connect sharding must stay roundRobin")
         require(_text(endpoint_backhaul_selection.get("stickyScope")) == "connection", "entry-staged connect sharding must stay connection-sticky")
         require(_as_int(endpoint_backhaul_selection.get("maxParallelDials")) == 1, "entry-staged maxParallelDials must stay 1")
@@ -1019,15 +1034,9 @@ def validate_prod_overlay(chart_values: Path, prod_values: Path, *, strict: bool
         require(entry_public_ip in hysteria_allowed_sources, "entry-staged Hysteria2 allowedSources must include Entry publicIp")
         require(not bool(endpoint_backhaul_hysteria.get("fastOpen", True)), "entry-staged Hysteria2 fastOpen must stay false")
         require(not bool(endpoint_backhaul_hysteria.get("lazy", True)), "entry-staged Hysteria2 lazy must stay false")
-        require(2 <= len(chain_shards) <= 8, "entry-staged requires 2 to 8 XHTTP connect/SNI shards")
-        require(len({_text(row.get("id")) for row in chain_shards}) == len(chain_shards), "entry-staged XHTTP shard ids must be unique")
-        require(len({_text(row.get("serverName")) for row in chain_shards}) == len(chain_shards), "entry-staged XHTTP shard SNI values must be unique")
-        require(len({_as_int(row.get("endpointListenPort")) for row in chain_shards}) == len(chain_shards), "entry-staged XHTTP shard ports must be unique")
-        require(all(_is_clean_http_path(row.get("path")) for row in chain_shards), "entry-staged XHTTP shard paths must be clean absolute paths")
-        require(_text(chain_xhttp.get("clientMode")) == "stream-one", "entry-staged XHTTP clientMode must stay stream-one")
-        require(_text(chain_xhttp.get("serverMode")) == "auto", "entry-staged XHTTP serverMode must stay auto")
-        require(_as_int(chain_xmux.get("maxConnections")) == 1, "entry-staged XHTTP xmux.maxConnections must stay 1")
-        require(not _has_value(chain_xmux.get("maxConcurrency")), "entry-staged XHTTP xmux.maxConcurrency conflicts with maxConnections")
+        gecko_min = _as_int(endpoint_backhaul_gecko.get("minPacketSize"))
+        gecko_max = _as_int(endpoint_backhaul_gecko.get("maxPacketSize"))
+        require(512 <= gecko_min <= gecko_max <= 2048, "entry-staged Hysteria2 Gecko packet sizes are invalid")
 
     if universal_entry_enabled:
         universal_host = _text(universal_entry.get("publicHost"))
@@ -1037,14 +1046,11 @@ def validate_prod_overlay(chart_values: Path, prod_values: Path, *, strict: bool
         endpoint_backhaul = _as_dict(interconnect.get("endpointBackhaul"))
         endpoint_backhaul_selection = _as_dict(endpoint_backhaul.get("selection"))
         endpoint_backhaul_health = _as_dict(endpoint_backhaul.get("health"))
+        endpoint_backhaul_shadowtls = _as_dict(endpoint_backhaul.get("shadowtls"))
         endpoint_backhaul_hysteria = _as_dict(endpoint_backhaul.get("hysteria2"))
+        endpoint_backhaul_gecko = _as_dict(endpoint_backhaul_hysteria.get("gecko"))
         allowed_source_cidrs, invalid_source_cidrs = _valid_public_ipv4_networks(origin_firewall.get("allowedSourceCidrs"))
         enabled_client_profiles = {_text(value).lower() for value in _as_list(env.get("enabledClientProfiles")) if _text(value)}
-        chain_bridge = _as_dict(interconnect.get("emergencyXrayChain"))
-        chain_allowed_sources = {_text(value) for value in _as_list(chain_bridge.get("allowedSources")) if _text(value)}
-        chain_shards = [_as_dict(row) for row in _as_list(chain_bridge.get("shards"))]
-        chain_xhttp = _as_dict(chain_bridge.get("xhttp"))
-        chain_xmux = _as_dict(chain_xhttp.get("xmux"))
         hysteria_allowed_sources = {
             _text(value) for value in _as_list(endpoint_backhaul_hysteria.get("allowedSources")) if _text(value)
         }
@@ -1076,11 +1082,18 @@ def validate_prod_overlay(chart_values: Path, prod_values: Path, *, strict: bool
             enabled_client_profiles == TRACEGATE3_CLIENT_PROFILE_KEYS,
             "Universal Entry deployment must expose the complete Tracegate 3 client profile set",
         )
-        require(bool(chain_bridge.get("enabled", False)), "Universal Entry requires interconnect.emergencyXrayChain.enabled=true")
-        require(entry_public_ip in chain_allowed_sources, "Universal Entry chain bridge allowedSources must include Entry publicIp")
         require(bool(endpoint_backhaul.get("enabled", False)), "Universal Entry requires interconnect.endpointBackhaul.enabled=true")
-        require(_text(endpoint_backhaul.get("primary")) == "vless-reality-xhttp", "Universal Entry primary backhaul must stay vless-reality-xhttp")
-        require(_text(endpoint_backhaul.get("secondary")) == "hysteria2-salamander", "Universal Entry secondary backhaul must stay hysteria2-salamander")
+        require(_text(endpoint_backhaul.get("primary")) == "shadowsocks2022-shadowtls-v3", "Universal Entry primary backhaul must stay shadowsocks2022-shadowtls-v3")
+        require(_text(endpoint_backhaul.get("secondary")) == "hysteria2-gecko", "Universal Entry secondary backhaul must stay hysteria2-gecko")
+        require(bool(_as_dict(merged.get("shadowsocks2022")).get("enabled", False)), "Universal Entry ShadowTLS primary requires shadowsocks2022.enabled=true")
+        require(bool(endpoint_backhaul_shadowtls.get("enabled", False)), "Universal Entry ShadowTLS primary must stay enabled")
+        require(_has_value(endpoint_backhaul_shadowtls.get("endpointHost")), "Universal Entry ShadowTLS endpointHost is required")
+        require(_as_int(endpoint_backhaul_shadowtls.get("endpointPort")) == 443, "Universal Entry ShadowTLS endpointPort must stay 443")
+        require(1024 <= _as_int(endpoint_backhaul_shadowtls.get("entryLocalPort")) <= 65535, "Universal Entry ShadowTLS entryLocalPort must be unprivileged")
+        require(
+            _text(endpoint_backhaul_shadowtls.get("serverName")).lower().rstrip(".") == _endpoint_shadowtls_server_name(merged).lower().rstrip("."),
+            "Universal Entry ShadowTLS serverName must match the Endpoint ShadowTLS SNI",
+        )
         require(_text(endpoint_backhaul_selection.get("strategy")) == "roundRobin", "Universal Entry connect sharding must stay roundRobin")
         require(_text(endpoint_backhaul_selection.get("stickyScope")) == "connection", "Universal Entry connect sharding must stay connection-sticky")
         require(_as_int(endpoint_backhaul_selection.get("maxParallelDials")) == 1, "Universal Entry maxParallelDials must stay 1")
@@ -1093,15 +1106,9 @@ def validate_prod_overlay(chart_values: Path, prod_values: Path, *, strict: bool
         require(entry_public_ip in hysteria_allowed_sources, "Universal Entry Hysteria2 allowedSources must include Entry publicIp")
         require(not bool(endpoint_backhaul_hysteria.get("fastOpen", True)), "Universal Entry Hysteria2 fastOpen must stay false")
         require(not bool(endpoint_backhaul_hysteria.get("lazy", True)), "Universal Entry Hysteria2 lazy must stay false")
-        require(2 <= len(chain_shards) <= 8, "Universal Entry requires 2 to 8 XHTTP connect/SNI shards")
-        require(len({_text(row.get("id")) for row in chain_shards}) == len(chain_shards), "Universal Entry XHTTP shard ids must be unique")
-        require(len({_text(row.get("serverName")) for row in chain_shards}) == len(chain_shards), "Universal Entry XHTTP shard SNI values must be unique")
-        require(len({_as_int(row.get("endpointListenPort")) for row in chain_shards}) == len(chain_shards), "Universal Entry XHTTP shard ports must be unique")
-        require(all(_is_clean_http_path(row.get("path")) for row in chain_shards), "Universal Entry XHTTP shard paths must be clean absolute paths")
-        require(_text(chain_xhttp.get("clientMode")) == "stream-one", "Universal Entry XHTTP clientMode must stay stream-one")
-        require(_text(chain_xhttp.get("serverMode")) == "auto", "Universal Entry XHTTP serverMode must stay auto")
-        require(_as_int(chain_xmux.get("maxConnections")) == 1, "Universal Entry XHTTP xmux.maxConnections must stay 1")
-        require(not _has_value(chain_xmux.get("maxConcurrency")), "Universal Entry XHTTP xmux.maxConcurrency conflicts with maxConnections")
+        gecko_min = _as_int(endpoint_backhaul_gecko.get("minPacketSize"))
+        gecko_max = _as_int(endpoint_backhaul_gecko.get("maxPacketSize"))
+        require(512 <= gecko_min <= gecko_max <= 2048, "Universal Entry Hysteria2 Gecko packet sizes are invalid")
         if endpoint_ingress_enabled:
             endpoint_shard_ips = {
                 _text(_as_dict(row).get("publicIp"))
@@ -1185,8 +1192,8 @@ def validate_prod_overlay(chart_values: Path, prod_values: Path, *, strict: bool
         mtproto_egress_shadowtls = _as_dict(mtproto_egress.get("shadowtls"))
         require(_text(mtproto.get("runtime")) == "mtg", "entry-local-endpoint-egress requires mtproto.runtime=mtg")
         require(
-            bool(_as_dict(interconnect.get("emergencyXrayChain")).get("enabled", False)),
-            "entry-local-endpoint-egress requires interconnect.emergencyXrayChain.enabled=true",
+            bool(_as_dict(interconnect.get("endpointBackhaul")).get("enabled", False)),
+            "entry-local-endpoint-egress requires interconnect.endpointBackhaul.enabled=true",
         )
         require(_text(mtproto_egress.get("mode")) == "socks5-only", "entry-local-endpoint-egress requires mtproto.egress.mode=socks5-only")
         require(_as_int(mtproto_egress.get("socksPort")) > 0, "entry-local-endpoint-egress requires mtproto.egress.socksPort")

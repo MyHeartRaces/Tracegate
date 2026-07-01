@@ -291,14 +291,14 @@ def _shadowsocks2022_password(
     return base64.b64encode(hashlib.sha256(seed).digest()[:key_len]).decode("ascii")
 
 
-def _hysteria_salamander_password(*, endpoints: EndpointSet, is_chain: bool) -> str:
+def _hysteria_gecko_password(*, endpoints: EndpointSet, is_chain: bool) -> str:
     password = (
         endpoints.hysteria_salamander_password_entry
         if is_chain
         else endpoints.hysteria_salamander_password_transit
     )
     password = str(password or "").strip()
-    return password or "REPLACE_HYSTERIA2_SALAMANDER_PASSWORD"
+    return password or "REPLACE_HYSTERIA2_GECKO_PASSWORD"
 
 
 def _hysteria_masquerade_payload() -> dict[str, Any]:
@@ -315,7 +315,7 @@ def _hysteria_hygiene_payload(*, is_chain: bool, public_udp_port: int) -> dict[s
         "required": True,
         "required_layers": [
             "hysteria2",
-            "salamander",
+            "gecko",
             "file-masquerade",
             "dns-san-sni-guard",
             "http-auth-loopback",
@@ -375,16 +375,16 @@ def _entry_transit_private_relay(
         "entry": endpoints.entry_host,
         "transit": endpoints.transit_host,
         "link_class": "entry-transit-udp" if is_udp else "entry-transit",
-        "carrier": "hysteria2-salamander" if is_udp else "xray-vless-reality",
-        "preferred_outer": "udp-quic-salamander" if is_udp else "reality-xhttp",
-        "outer_carrier": "udp-quic" if is_udp else "tcp-reality-xhttp",
+        "carrier": "hysteria2-gecko" if is_udp else "shadowsocks2022-shadowtls-v3",
+        "preferred_outer": "udp-quic-gecko" if is_udp else "shadowtls-v3",
+        "outer_carrier": "udp-quic" if is_udp else "tcp-shadowtls-v3",
         "optional_packet_shaping": "paired-udp-obfs" if is_udp else None,
-        "managed_by": "link-crypto" if is_udp else "xray-chain",
+        "managed_by": "link-crypto",
         "selected_profiles": udp_chain_selected_profiles() if is_udp else tcp_chain_selected_profiles(),
         "inner_transport": inner_transport,
         "xray_backhaul": False,
         "udp_capable": is_udp,
-        "salamander_required": is_udp,
+        "gecko_required": is_udp,
         "paired_obfs_supported": is_udp,
         "client_rate_limit": {
             "enabled": True,
@@ -397,7 +397,7 @@ def _entry_transit_private_relay(
         },
         "dpi_resistance": {
             "required": is_udp,
-            "mode": "salamander-plus-scoped-paired-obfs" if is_udp else "reality-xhttp",
+            "mode": "gecko-fragmented-quic" if is_udp else "shadowsocks2022-shadowtls-v3",
             "forbid_udp_443": False,
             "forbid_tcp_8443": is_udp,
         },
@@ -406,7 +406,7 @@ def _entry_transit_private_relay(
         relay["hygiene"] = {
             "required": True,
             "carrier": "hysteria2",
-            "obfs": "salamander",
+            "obfs": "gecko",
             "anti_replay": True,
             "anti_amplification": True,
             "source_validation": "profile-bound-remote",
@@ -421,24 +421,16 @@ def _entry_endpoint_backhaul_pool(*, endpoints: EndpointSet) -> dict[str, Any]:
         "entry": endpoints.entry_host,
         "endpoint": endpoints.transit_host,
         "primary": {
-            "carrier": "vless-reality-xhttp",
-            "selection": "round-robin-connect-sni-shards",
+            "carrier": "shadowsocks2022-shadowtls-v3",
+            "selection": "single-authenticated-tcp-link",
             "health": "authenticated-payload-probe",
         },
         "secondary": {
-            "carrier": "hysteria2-salamander",
+            "carrier": "hysteria2-gecko",
             "role": "fail-closed-fallback",
             "udp_capable": True,
         },
-        "connect_sharding": {
-            "scope": "connection",
-            "max_parallel_dials": 1,
-            "revision_sticky": False,
-        },
-        "sni_sharding": {
-            "scope": "xhttp-backhaul-shard",
-            "client_visible": False,
-        },
+        "transport_independence": "tcp-shadowtls-primary+udp-gecko-secondary",
         "endpoint_egress_only": True,
         "fail_closed": True,
     }
@@ -477,11 +469,8 @@ def build_effective_config(
 
         common = {
             "protocol": "vless",
-            "transport": "reality",
-            "xhttp": {
-                "mode": "auto",
-                "path": "/api/v1/update",
-            },
+            "transport": "reality_raw",
+            "flow": "xtls-rprx-vision",
             "port": 443,
             # Use connection-scoped UUID so one user can have multiple VLESS connections safely.
             "uuid": str(connection.id),
@@ -521,13 +510,16 @@ def build_effective_config(
                 **common,
                 "profile": connection_profile_label(connection.protocol, connection.mode, connection.variant),
                 "server": endpoints.entry_host,
-                "chain": _entry_transit_private_relay(endpoints=endpoints, inner_transport="vless-reality-xhttp"),
+                "chain": _entry_transit_private_relay(
+                    endpoints=endpoints,
+                    inner_transport="shadowsocks2022-shadowtls-v3",
+                ),
                 "design_constraints": {
                     "fixed_port_tcp": 443,
                     "entry_role_required": True,
                     "transit_role_required": True,
-                    "private_interconnect": "xray-vless-reality",
-                    "backhaul_outside_xray": False,
+                    "private_interconnect": "shadowsocks2022-shadowtls-v3",
+                    "backhaul_outside_xray": True,
                 },
             }
 
@@ -656,9 +648,9 @@ def build_effective_config(
                         "http2_single_tls_multiplexing": True,
                         "entry_role_required": True,
                         "transit_role_required": True,
-                        "private_interconnect": "vless-reality-xhttp+hysteria2-salamander",
-                        "connect_sharding": "round-robin-xhttp-sni-shards",
-                        "secondary_backhaul": "hysteria2-salamander",
+                        "private_interconnect": "shadowsocks2022-shadowtls-v3+hysteria2-gecko",
+                        "primary_backhaul": "shadowsocks2022-shadowtls-v3",
+                        "secondary_backhaul": "hysteria2-gecko",
                         "endpoint_egress_required": True,
                     }
                     if is_universal_entry
@@ -708,7 +700,7 @@ def build_effective_config(
             tls_payload["ech_config_list"] = ech_config_list
         if ech_force_query:
             tls_payload["ech_force_query"] = ech_force_query
-        salamander_password = _hysteria_salamander_password(endpoints=endpoints, is_chain=is_chain)
+        gecko_password = _hysteria_gecko_password(endpoints=endpoints, is_chain=is_chain)
         hysteria_port = _normalize_int_range(
             endpoints.hysteria_udp_port,
             field_name="hysteria_udp_port",
@@ -740,9 +732,16 @@ def build_effective_config(
             "tls": tls_payload,
             "auth": auth_payload,
             "obfs": {
-                "type": "salamander",
-                "password": salamander_password,
+                "type": "gecko",
+                "password": gecko_password,
                 "required": True,
+                "min_packet_size": 512,
+                "max_packet_size": 1200,
+            },
+            "client_requirements": {
+                "hysteria": ">=2.9.2",
+                "sing_box": ">=1.14.0",
+                "reason": "gecko-obfs",
             },
             "masquerade": _hysteria_masquerade_payload(),
             "hygiene": _hysteria_hygiene_payload(is_chain=is_chain, public_udp_port=hysteria_port),
@@ -770,7 +769,7 @@ def build_effective_config(
                 "fixed_port_udp": hysteria_port,
                 "masquerade_mode": "file",
                 "masquerade_required": True,
-                "salamander_required": True,
+                "gecko_required": True,
                 "hygiene_required": True,
                 "server_sni_guard": "dns-san",
                 "auth_backend": "http-loopback",
@@ -778,7 +777,7 @@ def build_effective_config(
                 "traffic_stats": "loopback-secret",
                 "udp_hygiene": "anti-replay+anti-amplification+rate-limit+mtu-clamp+source-validation",
                 "entry_role_required": is_chain,
-                "private_interconnect": "hysteria2-salamander-udp-link" if is_chain else None,
+                "private_interconnect": "hysteria2-gecko-udp-link" if is_chain else None,
                 "backhaul_outside_xray": is_chain,
                 "udp_over_private_relay": is_chain,
                 "chain_client_rate_limit_mbit": _CHAIN_CLIENT_RATE_LIMIT_MBIT if is_chain else None,
@@ -861,7 +860,8 @@ def build_effective_config(
                 "fixed_port_tcp": 443,
                 "shadowtls_version": 3,
                 "entry_role_required": is_chain,
-                "private_interconnect": "xray-vless-reality" if is_chain else None,
+                "private_interconnect": "shadowsocks2022-shadowtls-v3" if is_chain else None,
+                "backhaul_outside_xray": bool(is_chain),
             },
             "chain": (
                 _entry_transit_private_relay(endpoints=endpoints, inner_transport="shadowsocks2022-shadowtls-v3")

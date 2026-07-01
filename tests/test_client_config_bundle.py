@@ -45,7 +45,7 @@ def test_client_config_bundle_collects_universal_links_artifacts_and_singbox() -
                     "server": "hy.example.com",
                     "port": 4443,
                     "auth": {"type": "userpass", "username": "u", "password": "p"},
-                    "obfs": {"type": "salamander", "password": "obfs-secret"},
+                    "obfs": {"type": "gecko", "password": "obfs-secret"},
                     "profile": "Hysteria2",
                 },
             ),

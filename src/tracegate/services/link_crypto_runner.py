@@ -330,7 +330,7 @@ def build_link_crypto_runner_plan(
             "secretMaterialInline": False,
             "restartExisting": False,
             "udpFailClosed": all(not bool(_row_dict(row, "stability").get("failOpen", True)) for row in state.udp_links),
-            "udpSalamanderRequired": all(bool(_row_dict(row, "obfs").get("required", False)) for row in state.udp_links),
+            "udpGeckoRequired": all(bool(_row_dict(row, "obfs").get("required", False)) for row in state.udp_links),
             "udpDpiResistanceRequired": all(bool(_row_dict(row, "dpiResistance").get("enabled", False)) for row in state.udp_links),
             "tcpDpiResistanceRequired": all(bool(_row_dict(row, "dpiResistance").get("enabled", False)) for row in state.links),
             "tcpZapret2Required": False,
