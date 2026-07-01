@@ -9,6 +9,8 @@
   primary and an independent Hysteria2/Gecko fallback.
 - Migrated Direct Hysteria2 and internal Hysteria2 contracts from Salamander
   to Gecko, with minimum client/runtime version checks.
+- Fixed the Entry ShadowTLS backhaul probes to check their loopback-only
+  listener instead of the pod address.
 
 ## v3.0.0 - 2026-06-27
 

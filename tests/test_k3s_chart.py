@@ -3916,9 +3916,18 @@ def test_tracegate22_universal_entry_routes_all_entry_traffic_through_dual_trans
     assert "hysteria-backhaul-client" in entry_containers
     assert "endpoint-backhaul-shadowtls-client" in entry_containers
     backhaul_runtime = entry_containers["hysteria-backhaul-client"]
+    shadowtls_backhaul_runtime = entry_containers["endpoint-backhaul-shadowtls-client"]
     assert backhaul_runtime["command"] == ["sh", "-lc"]
     assert "retrying in ${delay}s" in backhaul_runtime["args"][0]
     assert backhaul_runtime["readinessProbe"]["tcpSocket"] == {"host": "127.0.0.1", "port": 11086}
+    assert shadowtls_backhaul_runtime["startupProbe"]["tcpSocket"] == {
+        "host": "127.0.0.1",
+        "port": 11088,
+    }
+    assert shadowtls_backhaul_runtime["readinessProbe"]["tcpSocket"] == {
+        "host": "127.0.0.1",
+        "port": 11088,
+    }
     assert not any(str(row.get("tag", "")).startswith("chain-bridge-") for row in endpoint_xray["inbounds"])
     assert any(row.get("tag") == "ss2022-in" for row in endpoint_xray["inbounds"])
     endpoint_hysteria_server = yaml.safe_load(endpoint_hysteria["server.yaml"])

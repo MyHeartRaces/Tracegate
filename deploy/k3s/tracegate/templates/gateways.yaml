@@ -1652,11 +1652,13 @@ spec:
                 --password "${password}"
           startupProbe:
             tcpSocket:
+              host: 127.0.0.1
               port: {{ $endpointBackhaulShadowtlsLocalPort }}
             periodSeconds: 2
             failureThreshold: 30
           readinessProbe:
             tcpSocket:
+              host: 127.0.0.1
               port: {{ $endpointBackhaulShadowtlsLocalPort }}
             periodSeconds: 5
             failureThreshold: 3
