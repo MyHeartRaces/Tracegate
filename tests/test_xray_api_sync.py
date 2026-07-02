@@ -7,7 +7,11 @@ from xray.proxy.vless import account_pb2 as vless_account_pb2
 
 
 def test_build_vless_user_packs_vless_account() -> None:
-    user = xray_api._build_vless_user(email="V1 - 1 - c1", uuid="11111111-1111-4111-8111-111111111111")
+    user = xray_api._build_vless_user(
+        email="V1 - 1 - c1",
+        uuid="11111111-1111-4111-8111-111111111111",
+        flow="xtls-rprx-vision",
+    )
 
     account = vless_account_pb2.Account()
     account.ParseFromString(user.account.value)
@@ -16,6 +20,7 @@ def test_build_vless_user_packs_vless_account() -> None:
     assert user.account.type == "xray.proxy.vless.Account"
     assert account.id == "11111111-1111-4111-8111-111111111111"
     assert account.encryption == "none"
+    assert account.flow == "xtls-rprx-vision"
 
 
 def test_build_hysteria_user_packs_hysteria_account() -> None:
@@ -41,14 +46,16 @@ def test_xray_api_target_rejects_remote_addresses() -> None:
 
 
 def test_sync_inbound_users_dispatches_vless_add_and_remove(monkeypatch) -> None:
-    calls: list[tuple[str, str, str]] = []
+    calls: list[tuple[str, str, str, str]] = []
     removals: list[tuple[str, str]] = []
 
     monkeypatch.setattr(xray_api, "list_inbound_user_emails", lambda _settings, *, inbound_tag: {"old@example"})
     monkeypatch.setattr(
         xray_api,
         "add_vless_user",
-        lambda _settings, *, inbound_tag, email, uuid: calls.append((inbound_tag, email, uuid)),
+        lambda _settings, *, inbound_tag, email, uuid, flow="": calls.append(
+            (inbound_tag, email, uuid, flow)
+        ),
     )
     monkeypatch.setattr(
         xray_api,
@@ -64,11 +71,17 @@ def test_sync_inbound_users_dispatches_vless_add_and_remove(monkeypatch) -> None
     changed = xray_api.sync_inbound_users(
         Settings(),
         inbound_tag="vless-reality-in",
-        desired_email_to_user={"new@example": {"protocol": "vless", "uuid": "vless-uuid"}},
+        desired_email_to_user={
+            "new@example": {
+                "protocol": "vless",
+                "uuid": "vless-uuid",
+                "flow": "xtls-rprx-vision",
+            }
+        },
     )
 
     assert changed is True
-    assert calls == [("vless-reality-in", "new@example", "vless-uuid")]
+    assert calls == [("vless-reality-in", "new@example", "vless-uuid", "xtls-rprx-vision")]
     assert removals == [("vless-reality-in", "old@example")]
 
 

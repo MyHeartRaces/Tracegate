@@ -2076,7 +2076,11 @@ def reconcile_xray(settings: Settings) -> ReconcileXrayResult:
                     email = str(row.get("email") or "").strip()
                     client_id = str(row.get("id") or "").strip()
                     if email and client_id:
-                        desired[email] = {"protocol": "vless", "uuid": client_id}
+                        desired[email] = {
+                            "protocol": "vless",
+                            "uuid": client_id,
+                            "flow": str(row.get("flow") or "").strip(),
+                        }
                 desired_by_tag[tag] = desired
             continue
 
@@ -2142,7 +2146,11 @@ def reconcile_xray(settings: Settings) -> ReconcileXrayResult:
                     email = str(row.get("email") or "").strip()
                     client_id = str(row.get("id") or "").strip()
                     if email and client_id:
-                        desired[email] = {"protocol": "vless", "uuid": client_id}
+                        desired[email] = {
+                            "protocol": "vless",
+                            "uuid": client_id,
+                            "flow": str(row.get("flow") or "").strip(),
+                        }
                 desired_by_tag[tag] = desired
             continue
 

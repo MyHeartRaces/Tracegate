@@ -66,13 +66,17 @@ def _require_loopback_xray_api_target(settings: Settings) -> str:
     return target
 
 
-def _build_vless_user(*, email: str, uuid: str) -> user_pb2.User:
+def _build_vless_user(*, email: str, uuid: str, flow: str = "") -> user_pb2.User:
     email_s = str(email or "").strip()
     uuid_s = str(uuid or "").strip()
     if not email_s or not uuid_s:
         raise ValueError("email/uuid are required to build a VLESS user")
 
-    account = account_pb2.Account(id=uuid_s, encryption="none")
+    account = account_pb2.Account(
+        id=uuid_s,
+        encryption="none",
+        flow=str(flow or "").strip(),
+    )
     return user_pb2.User(
         level=0,
         email=email_s,
@@ -196,8 +200,13 @@ def list_inbound_user_emails(settings: Settings, *, inbound_tag: str) -> set[str
     return emails
 
 
-def add_vless_user(settings: Settings, *, inbound_tag: str, email: str, uuid: str) -> None:
-    _add_user(settings, inbound_tag=inbound_tag, email=email, user=_build_vless_user(email=email, uuid=uuid))
+def add_vless_user(settings: Settings, *, inbound_tag: str, email: str, uuid: str, flow: str = "") -> None:
+    _add_user(
+        settings,
+        inbound_tag=inbound_tag,
+        email=email,
+        user=_build_vless_user(email=email, uuid=uuid, flow=flow),
+    )
 
 
 def add_hysteria_user(settings: Settings, *, inbound_tag: str, email: str, auth: str) -> None:
@@ -264,7 +273,11 @@ def sync_inbound_users(settings: Settings, *, inbound_tag: str, desired_email_to
             uuid_s = str(raw_spec.get("uuid") or "").strip()
             if not uuid_s:
                 continue
-            desired[email_s] = {"protocol": "vless", "uuid": uuid_s}
+            desired[email_s] = {
+                "protocol": "vless",
+                "uuid": uuid_s,
+                "flow": str(raw_spec.get("flow") or "").strip(),
+            }
             continue
         if protocol == "hysteria":
             auth_s = str(raw_spec.get("auth") or "").strip()
@@ -301,7 +314,13 @@ def sync_inbound_users(settings: Settings, *, inbound_tag: str, desired_email_to
                 key=str(spec.get("key") or "").strip(),
             )
         else:
-            add_vless_user(settings, inbound_tag=inbound_tag, email=email, uuid=str(spec.get("uuid") or "").strip())
+            add_vless_user(
+                settings,
+                inbound_tag=inbound_tag,
+                email=email,
+                uuid=str(spec.get("uuid") or "").strip(),
+                flow=str(spec.get("flow") or "").strip(),
+            )
     for email in to_remove:
         remove_user(settings, inbound_tag=inbound_tag, email=email)
 

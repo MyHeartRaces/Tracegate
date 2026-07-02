@@ -13,6 +13,9 @@
   listener instead of the pod address.
 - Hardened exclusive SNI pools to reject `max.ru` and sibling subdomains from
   the same root, and kept private catalog overrides explicit in production.
+- Fixed Xray API hot-reload to preserve `xtls-rprx-vision` when adding
+  VLESS/REALITY users, preventing live users from diverging from the persisted
+  runtime configuration.
 
 ## v3.0.0 - 2026-06-27
 
