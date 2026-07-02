@@ -16,6 +16,9 @@
 - Fixed Xray API hot-reload to preserve `xtls-rprx-vision` when adding
   VLESS/REALITY users, preventing live users from diverging from the persisted
   runtime configuration.
+- Routed both VLESS gRPC and WebSocket backup profiles through the configured
+  Cloudflare Endpoint hostname instead of exporting a direct origin-shard dial
+  target that the origin firewall correctly rejects.
 
 ## v3.0.0 - 2026-06-27
 

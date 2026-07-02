@@ -847,7 +847,7 @@ def test_ws_tls_chain_is_rejected() -> None:
         )
 
 
-def test_ws_tls_direct_ignores_proxy_host_and_uses_transit_host() -> None:
+def test_ws_tls_direct_prefers_proxied_endpoint_host() -> None:
     user = _user()
     device = _device(user.telegram_id)
     conn = Connection(
@@ -874,12 +874,13 @@ def test_ws_tls_direct_ignores_proxy_host_and_uses_transit_host() -> None:
         ),
     )
 
-    assert cfg["server"] == "transit.example.com"
+    assert cfg["server"] == "proxy-transit.example.com"
+    assert cfg["connect_host"] == ""
     assert cfg["profile"] == "v0-ws-vless"
-    assert cfg["sni"] == "transit.example.com"
-    assert cfg["ws"]["host"] == "transit.example.com"
+    assert cfg["sni"] == "proxy-transit.example.com"
+    assert cfg["ws"]["host"] == "proxy-transit.example.com"
     assert cfg["tls"]["alpn"] == ["http/1.1"]
-    assert cfg["design_constraints"]["cloudflare_proxied_ingress_required"] is False
+    assert cfg["design_constraints"]["cloudflare_proxied_ingress_required"] is True
     assert cfg["design_constraints"]["origin_site_tls_certificate_required"] is True
     assert cfg["design_constraints"]["http_version"] == "http/1.1"
 
