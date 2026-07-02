@@ -480,7 +480,7 @@ transportProfiles:
   clientNames:
     - v1-direct-reality-vless
     - v2-direct-quic-hysteria
-    - v5-universal-entry
+    - v5-entry-ws
     - v0-grpc-vless
     - v0-ws-vless
     - v3-direct-shadowtls-shadowsocks

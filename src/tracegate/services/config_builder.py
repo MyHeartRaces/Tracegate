@@ -530,11 +530,14 @@ def build_effective_config(
         is_universal_entry = (
             is_grpc and connection.variant == ConnectionVariant.V5 and connection.mode == ConnectionMode.CHAIN
         )
+        is_direct_entry_ws = (
+            not is_grpc and connection.variant == ConnectionVariant.V5 and connection.mode == ConnectionMode.CHAIN
+        )
         is_backup_tls = connection.variant == ConnectionVariant.V0 and connection.mode == ConnectionMode.DIRECT
-        if not is_universal_entry and (
+        if not is_universal_entry and not is_direct_entry_ws and (
             connection.variant != ConnectionVariant.V0 or connection.mode != ConnectionMode.DIRECT
         ):
-            raise ValueError("VLESS TLS compatibility profiles support only V0 direct, except V5 Universal Entry gRPC Chain")
+            raise ValueError("VLESS TLS compatibility profiles support only V0 direct or V5 Entry Chain")
 
         # Direct TLS compatibility surfaces terminate on Endpoint shards.
         # Universal Entry terminates on Entry and forbids overrides that could
@@ -553,6 +556,20 @@ def build_effective_config(
                 override_value = str(overrides.get(field_name) or "").strip()
                 if override_value and override_value != default_host:
                     raise ValueError(f"V5 Universal Entry forbids {field_name} override outside the Entry proxy hostname")
+        elif is_direct_entry_ws:
+            default_host = str(endpoints.entry_host or "").strip()
+            if not default_host:
+                raise ValueError("V5 Entry WebSocket Chain requires the direct Entry hostname")
+            expected_tls_host = str(endpoints.entry_server_name or default_host).strip()
+            for field_name in ("server", "connect_host"):
+                override_value = str(overrides.get(field_name) or "").strip()
+                if override_value and override_value != default_host:
+                    raise ValueError(f"V5 Entry WebSocket Chain forbids {field_name} outside the direct Entry hostname")
+            for field_name in ("tls_server_name", "ws_host"):
+                override_value = str(overrides.get(field_name) or "").strip()
+                if override_value and override_value != expected_tls_host:
+                    raise ValueError(f"V5 Entry WebSocket Chain forbids {field_name} outside the Entry TLS hostname")
+            tls_server_name = expected_tls_host
         elif is_backup_tls and (endpoints.transit_proxy_host or is_grpc):
             default_host = str(endpoints.transit_proxy_host or endpoints.transit_server_name or "").strip()
             if not default_host:
@@ -563,7 +580,7 @@ def build_effective_config(
         connect_host = str(overrides.get("connect_host") or "").strip()
         proxied_backup_tls = is_backup_tls and bool(str(endpoints.transit_proxy_host or "").strip())
         proxied_backup_grpc = is_grpc and proxied_backup_tls
-        direct_shard_fallback = not is_universal_entry and not proxied_backup_tls
+        direct_shard_fallback = not is_universal_entry and not is_direct_entry_ws and not proxied_backup_tls
         if not is_universal_entry and direct_shard_fallback and not connect_host and endpoints.transit_host != public_host:
             connect_host = endpoints.transit_host
         tls_termination_host = public_host
@@ -628,7 +645,7 @@ def build_effective_config(
             "server": public_host,
             "chain": (
                 _entry_endpoint_backhaul_pool(endpoints=endpoints)
-                if is_universal_entry
+                if is_universal_entry or is_direct_entry_ws
                 else None
             ),
             "design_constraints": {
@@ -636,6 +653,7 @@ def build_effective_config(
                 "preferred_compat_transport": "grpc" if is_grpc else "ws",
                 "http_version": "h2" if is_grpc else "http/1.1",
                 "cloudflare_proxied_ingress_required": is_universal_entry or proxied_backup_tls,
+                "direct_entry_ingress_required": is_direct_entry_ws,
                 "origin_site_tls_certificate_required": not is_universal_entry,
                 **(
                     {
@@ -654,7 +672,7 @@ def build_effective_config(
                         "secondary_backhaul": "hysteria2-gecko",
                         "endpoint_egress_required": True,
                     }
-                    if is_universal_entry
+                    if is_universal_entry or is_direct_entry_ws
                     else {}
                 ),
             },

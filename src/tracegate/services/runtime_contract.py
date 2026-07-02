@@ -87,7 +87,7 @@ TRACEGATE21_CLIENT_PROFILES = (
 TRACEGATE3_CLIENT_PROFILES = (
     "v1-direct-reality-vless",
     "v2-direct-quic-hysteria",
-    "v5-universal-entry",
+    "v5-entry-ws",
     "v0-grpc-vless",
     "v0-ws-vless",
     "v3-direct-shadowtls-shadowsocks",

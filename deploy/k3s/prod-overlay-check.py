@@ -1041,8 +1041,8 @@ def validate_prod_overlay(chart_values: Path, prod_values: Path, *, strict: bool
             "entry-staged gateway.roles.entry.tls.serverName must match defaultEntryHost",
         )
         require(
-            enabled_client_profiles == ENDPOINT_FIRST_CLIENT_PROFILE_KEYS,
-            "entry-staged must keep bot/API issuance limited to Endpoint-direct and Backup profiles",
+            enabled_client_profiles in (ENDPOINT_FIRST_CLIENT_PROFILE_KEYS, TRACEGATE3_CLIENT_PROFILE_KEYS),
+            "entry-staged must expose Endpoint-direct/Backup profiles with optional direct Entry Chain",
         )
         require(bool(endpoint_backhaul.get("enabled", False)), "entry-staged requires interconnect.endpointBackhaul.enabled=true")
         require(_text(endpoint_backhaul.get("primary")) == "shadowsocks2022-shadowtls-v3", "entry-staged primary backhaul must stay shadowsocks2022-shadowtls-v3")
@@ -1169,8 +1169,8 @@ def validate_prod_overlay(chart_values: Path, prod_values: Path, *, strict: bool
             elif deployment_phase == "entry-staged":
                 require(not universal_entry_enabled, "entry-staged forbids Universal Entry")
                 require(
-                    enabled_profiles == ENDPOINT_FIRST_CLIENT_PROFILE_KEYS,
-                    "entry-staged must expose only Endpoint-direct and Backup profiles",
+                    enabled_profiles in (ENDPOINT_FIRST_CLIENT_PROFILE_KEYS, TRACEGATE3_CLIENT_PROFILE_KEYS),
+                    "entry-staged must expose Endpoint-direct/Backup profiles with optional direct Entry Chain",
                 )
             else:
                 require(universal_entry_enabled, "full entry-endpoint deployment requires Universal Entry")

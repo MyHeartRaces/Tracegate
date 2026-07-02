@@ -19,6 +19,9 @@
 - Routed both VLESS gRPC and WebSocket backup profiles through the configured
   Cloudflare Endpoint hostname instead of exporting a direct origin-shard dial
   target that the origin firewall correctly rejects.
+- Replaced the disabled Cloudflare Universal Entry profile with direct
+  VLESS WebSocket+TLS Chain ingress on Entry; Entry traffic still uses the
+  independent ShadowTLS/Hysteria2 backhaul pool and Endpoint-only egress.
 
 ## v3.0.0 - 2026-06-27
 

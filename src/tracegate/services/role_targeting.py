@@ -17,6 +17,7 @@ def target_roles_for_connection(
     if mode == ConnectionMode.CHAIN:
         if protocol in {
             ConnectionProtocol.VLESS_REALITY,
+            ConnectionProtocol.VLESS_WS_TLS,
             ConnectionProtocol.VLESS_GRPC_TLS,
             ConnectionProtocol.HYSTERIA2,
             ConnectionProtocol.SHADOWSOCKS2022_SHADOWTLS,
@@ -28,7 +29,7 @@ def target_roles_for_connection(
         return [NodeRole.TRANSIT]
 
     if protocol in {ConnectionProtocol.VLESS_WS_TLS, ConnectionProtocol.VLESS_GRPC_TLS}:
-        # TLS/gRPC compatibility profiles are direct-only and terminate on Transit.
+        # TLS compatibility profiles without an explicit mode terminate on Transit.
         return [NodeRole.TRANSIT]
     if protocol == ConnectionProtocol.HYSTERIA2 and variant == ConnectionVariant.V4:
         # Legacy V4 terminates Hysteria on Entry.

@@ -1753,7 +1753,12 @@ def _artifact_applies_to_xray_public_runtime(settings: Settings, row: dict) -> b
     except Exception:
         return _artifact_applies_to_role(settings, row)
 
-    if mode == ConnectionMode.CHAIN and protocol in {ConnectionProtocol.VLESS_REALITY, ConnectionProtocol.HYSTERIA2}:
+    if mode == ConnectionMode.CHAIN and protocol in {
+        ConnectionProtocol.VLESS_REALITY,
+        ConnectionProtocol.VLESS_WS_TLS,
+        ConnectionProtocol.VLESS_GRPC_TLS,
+        ConnectionProtocol.HYSTERIA2,
+    }:
         return role == NodeRole.ENTRY
     if protocol == ConnectionProtocol.VLESS_REALITY and variant == ConnectionVariant.V2:
         return role == NodeRole.ENTRY

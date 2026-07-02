@@ -37,6 +37,8 @@ def connection_profile_label(
     if proto == ConnectionProtocol.SHADOWSOCKS2022_SHADOWTLS:
         return f"{version}-{conn_mode.value}-shadowtls-shadowsocks"
     if proto == ConnectionProtocol.VLESS_WS_TLS:
+        if conn_variant == ConnectionVariant.V5 and conn_mode == ConnectionMode.CHAIN:
+            return "v5-entry-ws"
         return "v0-ws-vless"
     if proto == ConnectionProtocol.VLESS_GRPC_TLS:
         if conn_variant == ConnectionVariant.V5 and conn_mode == ConnectionMode.CHAIN:
@@ -76,7 +78,7 @@ def supported_profile_specs() -> dict[str, tuple[ConnectionProtocol, ConnectionM
     return {
         "reality": (ConnectionProtocol.VLESS_REALITY, ConnectionMode.DIRECT, ConnectionVariant.V1),
         "hysteria": (ConnectionProtocol.HYSTERIA2, ConnectionMode.DIRECT, ConnectionVariant.V2),
-        "entry": (ConnectionProtocol.VLESS_GRPC_TLS, ConnectionMode.CHAIN, ConnectionVariant.V5),
+        "entry": (ConnectionProtocol.VLESS_WS_TLS, ConnectionMode.CHAIN, ConnectionVariant.V5),
         "backup-grpc": (ConnectionProtocol.VLESS_GRPC_TLS, ConnectionMode.DIRECT, ConnectionVariant.V0),
         "backup-ws": (ConnectionProtocol.VLESS_WS_TLS, ConnectionMode.DIRECT, ConnectionVariant.V0),
         "backup-shadowtls": (
@@ -130,7 +132,7 @@ def enabled_profile_keys(enabled_profile_names: Iterable[str] | None) -> set[str
         aliases = {
             "reality": {"v1direct", "v1-direct-reality-vless"},
             "hysteria": {"v2direct", "v2-direct-quic-hysteria"},
-            "entry": {"universal", "v5-universal-entry"},
+            "entry": {"universal", "v5-universal-entry", "v5-entry-ws"},
             "backup-grpc": {"v0grpc", "v0-grpc-vless"},
             "backup-ws": {"v0ws", "v0-ws-vless"},
             "backup-shadowtls": {"v3direct", "v3-direct-shadowtls-shadowsocks"},

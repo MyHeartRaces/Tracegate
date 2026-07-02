@@ -951,6 +951,91 @@ def test_ws_tls_direct_connects_to_endpoint_shard_with_canonical_tls_name() -> N
     assert cfg["tls"]["insecure"] is False
 
 
+def test_ws_tls_entry_chain_uses_direct_entry_and_endpoint_backhaul_pool() -> None:
+    user = _user()
+    device = _device(user.telegram_id)
+    conn = Connection(
+        id=uuid4(),
+        user_id=user.telegram_id,
+        device_id=device.id,
+        protocol=ConnectionProtocol.VLESS_WS_TLS,
+        mode=ConnectionMode.CHAIN,
+        variant=ConnectionVariant.V5,
+        profile_name="v5-entry-ws",
+        custom_overrides_json={},
+        status=RecordStatus.ACTIVE,
+    )
+
+    cfg = build_effective_config(
+        user=user,
+        device=device,
+        connection=conn,
+        selected_sni=None,
+        endpoints=EndpointSet(
+            transit_host="endpoint.tracegate.test",
+            entry_host="entry.tracegate.test",
+            entry_server_name="entry.tracegate.test",
+            entry_proxy_host="unused-cdn.tracegate.test",
+        ),
+    )
+
+    assert cfg["profile"] == "v5-entry-ws"
+    assert cfg["server"] == "entry.tracegate.test"
+    assert cfg["connect_host"] == ""
+    assert cfg["sni"] == "entry.tracegate.test"
+    assert cfg["transport"] == "ws_tls"
+    assert cfg["tls"] == {
+        "server_name": "entry.tracegate.test",
+        "insecure": False,
+        "alpn": ["http/1.1"],
+    }
+    assert cfg["chain"]["entry"] == "entry.tracegate.test"
+    assert cfg["chain"]["endpoint"] == "endpoint.tracegate.test"
+    assert cfg["chain"]["primary"]["carrier"] == "shadowsocks2022-shadowtls-v3"
+    assert cfg["chain"]["secondary"]["carrier"] == "hysteria2-gecko"
+    assert cfg["design_constraints"]["cloudflare_proxied_ingress_required"] is False
+    assert cfg["design_constraints"]["direct_entry_ingress_required"] is True
+    assert cfg["design_constraints"]["endpoint_egress_required"] is True
+
+
+@pytest.mark.parametrize(
+    ("field_name", "override_value"),
+    [
+        ("server", "cdn.example.test"),
+        ("connect_host", "cdn.example.test"),
+        ("tls_server_name", "cdn.example.test"),
+        ("ws_host", "cdn.example.test"),
+    ],
+)
+def test_ws_tls_entry_chain_rejects_non_entry_overrides(field_name: str, override_value: str) -> None:
+    user = _user()
+    device = _device(user.telegram_id)
+    conn = Connection(
+        id=uuid4(),
+        user_id=user.telegram_id,
+        device_id=device.id,
+        protocol=ConnectionProtocol.VLESS_WS_TLS,
+        mode=ConnectionMode.CHAIN,
+        variant=ConnectionVariant.V5,
+        profile_name="v5-entry-ws",
+        custom_overrides_json={field_name: override_value},
+        status=RecordStatus.ACTIVE,
+    )
+
+    with pytest.raises(ValueError, match="outside"):
+        build_effective_config(
+            user=user,
+            device=device,
+            connection=conn,
+            selected_sni=None,
+            endpoints=EndpointSet(
+                transit_host="endpoint.tracegate.test",
+                entry_host="entry.tracegate.test",
+                entry_server_name="entry.tracegate.test",
+            ),
+        )
+
+
 def test_grpc_tls_direct_prefers_proxied_endpoint_host() -> None:
     user = _user()
     device = _device(user.telegram_id)

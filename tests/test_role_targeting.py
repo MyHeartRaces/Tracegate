@@ -17,6 +17,11 @@ def test_ws_tls_targets_only_transit_for_v0() -> None:
     assert roles == [NodeRole.TRANSIT]
 
 
+def test_ws_tls_entry_chain_targets_entry_and_transit() -> None:
+    roles = target_roles_for_connection(ConnectionProtocol.VLESS_WS_TLS, ConnectionVariant.V5, ConnectionMode.CHAIN)
+    assert roles == [NodeRole.ENTRY, NodeRole.TRANSIT]
+
+
 def test_grpc_tls_targets_only_transit_for_v0() -> None:
     roles = target_roles_for_connection(ConnectionProtocol.VLESS_GRPC_TLS, ConnectionVariant.V0, ConnectionMode.DIRECT)
     assert roles == [NodeRole.TRANSIT]

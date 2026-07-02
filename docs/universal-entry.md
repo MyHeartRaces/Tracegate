@@ -1,4 +1,8 @@
-# Universal Entry
+# Universal Entry (legacy, inactive)
+
+> This Cloudflare/gRPC design is retained only as historical and optional
+> reference material. Production Chain issuance uses direct VLESS
+> WebSocket+TLS to Entry (`v5-entry-ws`); Cloudflare is not part of that path.
 
 `V5-Universal-Entry` is added in the full phase after the four-IP Endpoint has
 passed direct-profile validation. It replaces a user-visible set of Chain

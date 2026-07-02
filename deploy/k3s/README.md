@@ -77,16 +77,12 @@ Configure 10 to 15 pool domains and exactly one
 `gateway.realityMultiInboundGroups` row per domain. Three active shards and 15
 domains provide 45 active revision slots, including overlap revisions.
 
-The full phase adds one-address `architecture.universalEntry`. It exposes one
-`V5-Universal-Entry` profile via
-a Cloudflare-proxied gRPC/TLS/H2 hostname and routes it through a shared
+The production Chain profile connects directly to the one-address Entry over
+VLESS WebSocket+TLS on TCP/443. Entry routes user traffic through the shared
 Entry-to-Endpoint backhaul pool: Shadowsocks-2022 over ShadowTLS v3 with an
-independent Hysteria2/Gecko fallback. It disables direct Entry user egress and
-uses the same four-address Endpoint. Start from
-`values-endpoint-first.example.yaml`, then promote with
-`values-entry-endpoint.example.yaml` and persist Entry's mandatory
-Cloudflare-only origin policy with
-`deploy/k3s/universal-entry-origin-firewall.py`.
+independent Hysteria2/Gecko fallback. Direct Entry user egress stays blocked;
+all Chain traffic exits through the four-address Endpoint. The optional legacy
+`architecture.universalEntry` Cloudflare/gRPC surface remains disabled.
 
 Set `architecture.podRuntimeOnly=true` for new production. This requires
 PVC-backed gateway state, forbids data-plane hostPath volumes and rejects
