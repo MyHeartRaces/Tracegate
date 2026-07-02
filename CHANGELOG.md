@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Fixed Backup-Shadowsocks delivery in the Telegram bot: new revisions now include
+  the generated `ss://` URI and QR code alongside the preferred sing-box JSON file.
+
 ### Transport Architecture
 
 - Replaced VLESS/REALITY XHTTP with RAW/TCP + XTLS Vision.

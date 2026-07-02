@@ -570,7 +570,7 @@ async def test_send_client_config_hides_local_socks_extra_message(monkeypatch: p
 
 
 @pytest.mark.asyncio
-async def test_send_client_config_prefers_shadowsocks_singbox_attachment(
+async def test_send_client_config_sends_shadowsocks_uri_and_prefers_singbox_attachment(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     async def _get_connection(_connection_id: str) -> dict:
@@ -623,11 +623,10 @@ async def test_send_client_config_prefers_shadowsocks_singbox_attachment(
 
     summary = str(callback.message.answer_calls[0][0][0])
     assert "1. Скачайте приложенный `.json` файл" in summary
-    assert "поддерживает sing-box JSON" in summary
-    assert "Ссылка и QR ниже" not in summary
+    assert "Ссылка и QR ниже" in summary
     assert any("Shadowsocks import note" in str(args[0]) for args, _kwargs in callback.message.answer_calls)
-    assert not any(str(args[0]).startswith("ss://") for args, _kwargs in callback.message.answer_calls)
-    assert len(callback.message.answer_photo_calls) == 0
+    assert any(str(args[0]).startswith("ss://") for args, _kwargs in callback.message.answer_calls)
+    assert len(callback.message.answer_photo_calls) == 1
     assert len(callback.message.answer_document_calls) == 1
 
 
