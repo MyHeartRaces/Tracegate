@@ -10,8 +10,8 @@ relay destination, a server-side change cannot create one.
 Tracegate has two separate Telegram paths:
 
 1. **Native MTProxy** for an unmodified Telegram client. The client connects to
-   Entry TCP/443; HAProxy forwards the no-SNI stream to the Endpoint-local
-   official MTProxy; Telegram DC traffic exits from Endpoint.
+   Entry TCP/443 with a FakeTLS secret; HAProxy forwards the selected SNI to
+   Endpoint-local Telemt; Telegram DC traffic exits from Endpoint.
 2. **Telegram over a Tracegate tunnel**. The operating system or
    Tracegate-Router sends ordinary Telegram traffic through an HTTPS-shaped or
    other working Tracegate carrier. Telegram's own proxy setting is disabled.
@@ -46,7 +46,7 @@ fingerprint property as provider-specific and expiring.
 | Lane | Native Telegram client | Survives direct Entry IP block | Main limitation |
 | --- | --- | --- | --- |
 | Official MTProxy + random padding | Yes | No | Address and MTProto behavior remain classifiable |
-| Telemt/MTG FakeTLS | Yes | No | Telegram ClientHello/JA4 is client-controlled; changing the server is not a general fix |
+| Telemt FakeTLS + real-site mask | Yes | No | Telegram ClientHello/JA4 is client-controlled; changing the server is not a general fix |
 | Cloudflare Spectrum TCP | Yes | Potentially | Custom TCP requires the Enterprise Spectrum add-on |
 | Cloudflare-proxied gRPC/H2 Tracegate tunnel | No; requires TUN/router | Often, when the proxied hostname is allowed | Own hostname or Cloudflare can still be filtered |
 | WSS/HTTPS Tracegate fallback | No; requires TUN/router | Same as above | More overhead and reconnect sensitivity |
@@ -63,34 +63,31 @@ for a `tg://proxy` link.
 
 ### Native lane
 
-- Keep the official MTProxy random-padding transport as the production
-  baseline while it has better measured availability than FakeTLS.
-- Keep the raw 16-byte secret stable during runtime changes so existing links
-  remain compatible. Rotate only after a staged overlap plan.
-- Pin the MTProxy image by digest. A mutable `latest` image is forbidden by the
+- Use Telemt TLS-only mode with a validated decoy SNI and a matching real-site
+  mask. Keep classic and secure MTProxy modes disabled.
+- Retain the raw 16-byte bootstrap secret during migration so existing links
+  remain compatible, then migrate renewed grants to per-user secrets.
+- Regenerate Telemt `access.users` atomically on issue/revoke. Telemt watches
+  the file, so user churn must not restart the gateway pod or proxy process.
+- Pin the Telemt image by digest. A mutable `latest` image is forbidden by the
   production overlay check.
-- Persist the upstream-owned `proxy.secret` and Telegram DC configuration in
-  gateway state and update them atomically. A temporary `core.telegram.org`
-  outage must not prevent a replacement pod from using its last known-good
-  public runtime metadata. Keep the client/server access secret only in the
-  Kubernetes Secret-backed `emptyDir`, not in this cache.
-- Require startup, readiness and liveness probes executed inside the official
-  MTProxy container against its loopback backend. A kubelet `tcpSocket` with
-  `host: 127.0.0.1` tests the node namespace and is forbidden; HAProxy or a
-  node-local listener being alive is not proof that this MTProxy is alive.
+- Require Telemt's native startup, readiness and liveness health checks. A
+  node-local listener being alive is not proof that the runtime is healthy.
 - Keep the Entry-to-Endpoint source ACL and exempt the trusted Entry address
   from Endpoint per-source abuse limits.
-- Classify non-TLS traffic after the first two bytes so raw MTProto does not
-  wait for the full TLS inspection timeout.
 - Do not claim availability from a TCP-open check. The release gate must create
   a Telegram auth key or perform another authenticated, sustained protocol
   probe through the public path.
 
-Telemt remains a canary candidate, not an automatic failover target. Its own
-project notes that the June 2026 malfunction is caused by the Telegram
-client's TLS ClientHello/JA4 fingerprint. Server failover between official
-MTProxy and Telemt cannot repair a client-originated fingerprint while keeping
-an unmodified native client.
+Telemt improves server-side TLS behavior and active-probe masking, but it does
+not control the Telegram application's ClientHello. Its upstream documentation
+notes that the June 2026 malfunction is caused by the client JA4/JA4+
+fingerprint. No server runtime can repair that fingerprint while keeping an
+unmodified native client.
+
+Native Telegram also has no MTProxy-over-WebSocket mode. Putting Telemt behind
+an HTTP Upgrade proxy would produce a protocol the official clients cannot
+dial. WebSocket is therefore reserved for the system/router tunnel lane.
 
 ### Tunnel lane
 
@@ -133,24 +130,21 @@ destabilizes clients.
 
 - public-path authenticated MTProxy probe success and duration;
 - Entry and Endpoint HAProxy backend availability and connection rate;
-- MTProxy container readiness/restarts and runtime image digest;
+- Telemt container readiness/restarts and runtime image digest;
 - reconnect rate and successful payload duration per carrier;
 - Universal Entry gRPC connection duration and backhaul selection;
 - carrier result labelled by provider, access type and region, without storing
   user addresses or secrets;
-- alerts for stale Telegram DC configuration and any secret-like value in
-  container logs.
+- alerts for secret-like values in container logs.
 
-The upstream `mtproxy/mtproxy` entrypoint prints the raw secret and generated
-links. The Tracegate chart replaces it with a non-logging runner. Deployments
-from before that change still have sensitive MTProxy logs and must not export
-them to a shared logging system; rotate their secret after the safe runner is
-rolled out and active grants can be reissued.
+Telemt access entries and generated links are secret material. Keep them in
+gateway state with mode `0600`; never pass them on command lines or export
+them to shared logs.
 
 ## Rollout gates
 
 1. Render and validate HAProxy/Helm with synthetic secrets.
-2. Confirm the MTProxy image resolves to the expected digest.
+2. Confirm the Telemt image resolves to the expected digest.
 3. Verify both gateway pods remain Ready during a sequential rollout.
 4. Run an authenticated public-path MTProxy probe repeatedly, including a
    reconnect test and sustained payload interval.

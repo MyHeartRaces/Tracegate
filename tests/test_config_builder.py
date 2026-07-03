@@ -420,6 +420,46 @@ def test_hysteria_uses_fixed_public_udp_port_and_gecko() -> None:
     assert cfg["local_socks"]["auth"]["username"].startswith("tg_v2_")
 
 
+def test_hysteria_direct_can_select_salamander_on_independent_listener() -> None:
+    user = _user()
+    device = _device(user.telegram_id)
+    conn = Connection(
+        id=uuid4(),
+        user_id=user.telegram_id,
+        device_id=device.id,
+        protocol=ConnectionProtocol.HYSTERIA2,
+        mode=ConnectionMode.DIRECT,
+        variant=ConnectionVariant.V2,
+        profile_name="v2-direct-quic-hysteria",
+        custom_overrides_json={"hysteria_obfs": "salamander"},
+        status=RecordStatus.ACTIVE,
+    )
+
+    cfg = build_effective_config(
+        user=user,
+        device=device,
+        connection=conn,
+        selected_sni=None,
+        endpoints=EndpointSet(
+            transit_host="transit.example.com",
+            entry_host="entry.example.com",
+            hysteria_salamander_udp_port=8444,
+            hysteria_salamander_password_transit="shared-obfs-secret",
+        ),
+    )
+
+    assert cfg["port"] == 8444
+    assert cfg["obfs"] == {
+        "type": "salamander",
+        "password": "shared-obfs-secret",
+        "required": True,
+    }
+    assert cfg["client_requirements"]["reason"] == "salamander-obfs"
+    assert cfg["design_constraints"]["gecko_required"] is False
+    assert cfg["design_constraints"]["salamander_required"] is True
+    assert cfg["hygiene"]["required_layers"][1] == "salamander"
+
+
 def test_hysteria_uses_role_specific_salamander_passwords() -> None:
     user = _user()
     device = _device(user.telegram_id)

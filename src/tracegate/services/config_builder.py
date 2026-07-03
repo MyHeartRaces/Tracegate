@@ -45,6 +45,7 @@ class EndpointSet:
     entry_server_name: str = ""
     hysteria_auth_mode: str = "userpass"
     hysteria_udp_port: int = TRACEGATE_PUBLIC_UDP_PORT
+    hysteria_salamander_udp_port: int = 8444
     hysteria_server_name_entry: str = ""
     hysteria_server_name_transit: str = ""
     hysteria_salamander_password_entry: str = ""
@@ -310,12 +311,12 @@ def _hysteria_masquerade_payload() -> dict[str, Any]:
     }
 
 
-def _hysteria_hygiene_payload(*, is_chain: bool, public_udp_port: int) -> dict[str, Any]:
+def _hysteria_hygiene_payload(*, is_chain: bool, public_udp_port: int, obfs_type: str = "gecko") -> dict[str, Any]:
     return {
         "required": True,
         "required_layers": [
             "hysteria2",
-            "gecko",
+            obfs_type,
             "file-masquerade",
             "dns-san-sni-guard",
             "http-auth-loopback",
@@ -719,9 +720,14 @@ def build_effective_config(
             tls_payload["ech_config_list"] = ech_config_list
         if ech_force_query:
             tls_payload["ech_force_query"] = ech_force_query
-        gecko_password = _hysteria_gecko_password(endpoints=endpoints, is_chain=is_chain)
+        obfs_type = str(overrides.get("hysteria_obfs") or "gecko").strip().lower()
+        if obfs_type not in {"gecko", "salamander"}:
+            raise ValueError("Hysteria obfs must be gecko or salamander")
+        if is_chain and obfs_type != "gecko":
+            raise ValueError("Hysteria Chain must stay on Gecko")
+        obfs_password = _hysteria_gecko_password(endpoints=endpoints, is_chain=is_chain)
         hysteria_port = _normalize_int_range(
-            endpoints.hysteria_udp_port,
+            endpoints.hysteria_salamander_udp_port if obfs_type == "salamander" else endpoints.hysteria_udp_port,
             field_name="hysteria_udp_port",
             min_value=1,
             max_value=65535,
@@ -741,6 +747,14 @@ def build_effective_config(
             max_value=bandwidth_max,
         )
 
+        obfs_payload: dict[str, Any] = {
+            "type": obfs_type,
+            "password": obfs_password,
+            "required": True,
+        }
+        if obfs_type == "gecko":
+            obfs_payload.update({"min_packet_size": 512, "max_packet_size": 1200})
+
         return {
             "protocol": "hysteria2",
             "profile": profile_name,
@@ -750,20 +764,26 @@ def build_effective_config(
             "transport": "udp-quic",
             "tls": tls_payload,
             "auth": auth_payload,
-            "obfs": {
-                "type": "gecko",
-                "password": gecko_password,
-                "required": True,
-                "min_packet_size": 512,
-                "max_packet_size": 1200,
-            },
-            "client_requirements": {
-                "hysteria": ">=2.9.2",
-                "sing_box": ">=1.14.0",
-                "reason": "gecko-obfs",
-            },
+            "obfs": obfs_payload,
+            "client_requirements": (
+                {
+                    "hysteria": ">=2.9.2",
+                    "sing_box": ">=1.14.0",
+                    "reason": "gecko-obfs",
+                }
+                if obfs_type == "gecko"
+                else {
+                    "hysteria": ">=2.0.0",
+                    "sing_box": ">=1.8.0",
+                    "reason": "salamander-obfs",
+                }
+            ),
             "masquerade": _hysteria_masquerade_payload(),
-            "hygiene": _hysteria_hygiene_payload(is_chain=is_chain, public_udp_port=hysteria_port),
+            "hygiene": _hysteria_hygiene_payload(
+                is_chain=is_chain,
+                public_udp_port=hysteria_port,
+                obfs_type=obfs_type,
+            ),
             "client_mode": mode,
             "up_mbps": up_mbps,
             "down_mbps": down_mbps,
@@ -788,7 +808,9 @@ def build_effective_config(
                 "fixed_port_udp": hysteria_port,
                 "masquerade_mode": "file",
                 "masquerade_required": True,
-                "gecko_required": True,
+                "gecko_required": obfs_type == "gecko",
+                "salamander_required": obfs_type == "salamander",
+                "obfs": obfs_type,
                 "hygiene_required": True,
                 "server_sni_guard": "dns-san",
                 "auth_backend": "http-loopback",

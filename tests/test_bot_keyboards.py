@@ -13,6 +13,7 @@ from tracegate.bot.keyboards import (
     feedback_admin_keyboard,
     guide_keyboard,
     help_keyboard,
+    hysteria_obfs_keyboard,
     main_menu_keyboard,
     mtproto_delivery_keyboard,
     revisions_keyboard,
@@ -207,6 +208,14 @@ def test_connection_create_profiles_keyboard_uses_new_profile_names() -> None:
     assert "Backup-VLESS+WebSocket" in texts
     assert "Backup-Shadowsocks" in texts
     assert "Backup-WGWS" in texts
+
+
+def test_hysteria_obfs_keyboard_recommends_salamander_and_offers_gecko() -> None:
+    kb = hysteria_obfs_keyboard(device_id="dev-42")
+
+    assert _button_texts(kb)[:2] == ["Salamander (рекомендуется)", "Gecko"]
+    assert kb.inline_keyboard[0][0].callback_data == "hyobfs:salamander:dev-42"
+    assert kb.inline_keyboard[1][0].callback_data == "hyobfs:gecko:dev-42"
 
 
 def test_connection_create_keyboards_hide_disabled_profiles() -> None:

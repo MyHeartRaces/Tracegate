@@ -9,6 +9,7 @@ from tracegate.services.mtproto import (
     build_mtproto_mtg_config,
     build_mtproto_official_proxy_command,
     build_mtproto_share_links,
+    build_mtproto_telemt_config,
     load_mtproto_issued_secret_entries,
     load_mtproto_issued_secret_hexes,
     load_mtproto_server_secret,
@@ -226,6 +227,33 @@ def test_build_mtproto_mtg_config_rejects_invalid_proxy_scheme() -> None:
             socks5_proxy="http://127.0.0.1:11084",
             domain_fronting_host="tracegate.test",
         )
+
+
+def test_build_mtproto_telemt_config_enables_faketls_masking_and_per_user_secrets() -> None:
+    config = build_mtproto_telemt_config(
+        listen_port=9443,
+        tls_domain="2gis.ru",
+        primary_secret_hex="95f0d81f7539ecbe1bd880f48b6a739a",
+        issued_secrets=[
+            MTProtoIssuedSecret(telegram_id=101, secret_hex="00112233445566778899aabbccddeeff"),
+            MTProtoIssuedSecret(telegram_id=102, secret_hex="fedcba98765432100123456789abcdef"),
+        ],
+        mask_host="2gis.ru",
+        public_host="proxy.example.org",
+    )
+
+    assert config.client_secret_hex.startswith("ee95f0d81f7539ecbe1bd880f48b6a739a")
+    assert '[general.modes]' in config.config_text
+    assert 'tls = true' in config.config_text
+    assert 'listen_addr_ipv4 = "127.0.0.1"' in config.config_text
+    assert 'proxy_protocol = true' in config.config_text
+    assert 'proxy_protocol_trusted_cidrs = ["127.0.0.1/32", "::1/128"]' in config.config_text
+    assert 'tls_domain = "2gis.ru"' in config.config_text
+    assert 'mask_host = "2gis.ru"' in config.config_text
+    assert 'tls_emulation = true' in config.config_text
+    assert '"bootstrap" = "95f0d81f7539ecbe1bd880f48b6a739a"' in config.config_text
+    assert '"tg_101" = "00112233445566778899aabbccddeeff"' in config.config_text
+    assert '"tg_102" = "fedcba98765432100123456789abcdef"' in config.config_text
 
 
 def test_build_mtproto_official_proxy_command_accepts_primary_and_issued_secrets() -> None:

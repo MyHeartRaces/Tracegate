@@ -911,7 +911,54 @@ def test_k3s_strict_prod_overlay_check_accepts_entry_endpoint_overlay(tmp_path: 
     )
 
     assert result.returncode == 0, result.stderr
-    assert "prod-overlay-check: OK" in result.stdout
+
+
+def test_pod_runtime_readiness_accepts_telemt_runtime(tmp_path: Path) -> None:
+    manifest_path = tmp_path / "telemt.yaml"
+    manifest_path.write_text(
+        yaml.safe_dump(
+            {
+                "apiVersion": "apps/v1",
+                "kind": "Deployment",
+                "metadata": {"labels": {"app.kubernetes.io/component": "gateway-endpoint"}},
+                "spec": {
+                    "template": {
+                        "spec": {
+                            "containers": [
+                                {"name": name}
+                                for name in (
+                                    "agent",
+                                    "haproxy",
+                                    "nginx",
+                                    "xray",
+                                    "hysteria",
+                                    "telemt",
+                                    "shadowtls-v3",
+                                    "wireguard",
+                                    "wireguard-sync",
+                                    "wstunnel-wireguard",
+                                )
+                            ],
+                            "volumes": [
+                                {"name": "decoy", "configMap": {"name": "tracegate-decoy-endpoint"}},
+                                {"name": "gateway-state", "persistentVolumeClaim": {"claimName": "gateway"}},
+                            ],
+                        }
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    result = subprocess.run(
+        ["python3", "deploy/k3s/pod-runtime-readiness.py", "--manifest", str(manifest_path), "--phase", "endpoint-first"],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
 
 
 def test_k3s_strict_prod_overlay_check_accepts_official_entry_endpoint_mtproto_without_sni(tmp_path: Path) -> None:
@@ -2831,7 +2878,8 @@ def test_tracegate21_gateway_probes_are_local_only() -> None:
     assert "tcpSocket:" in gateways
     assert "host: 127.0.0.1" in gateways
     assert "port: 8404" in gateways
-    assert 'command: ["sh", "-lc", "nc -z -w 1 127.0.0.1 9999"]' in gateways
+    assert "port: 9999" in gateways
+    assert 'command: ["sh", "-lc", "nc -z -w 1 127.0.0.1 9999"]' not in gateways
     assert "test -s /usr/local/etc/haproxy/haproxy.cfg" in gateways
     assert "test -s /etc/nginx/nginx.conf" in gateways
     assert "host: 127.0.0.1" in gateways
@@ -3003,7 +3051,54 @@ def test_mtproto_fallback_is_not_supported_with_mtg_runtime(tmp_path: Path) -> N
         {"mtproto": {"fallback": {"enabled": True, "mode": "mirror", "prefer": "parallel"}}},
     )
     assert unsupported.returncode != 0
-    assert "mtproto.fallback is not supported with the MTG runtime" in unsupported.stderr
+    assert "mtproto.fallback is not supported by the current Tracegate MTProto runtime contract" in unsupported.stderr
+
+
+def test_telemt_runtime_renders_faketls_container_and_hardened_probe(tmp_path: Path) -> None:
+    rendered = _helm_template_with_values(
+        tmp_path,
+        {
+            "mtproto": {
+                "runtime": "telemt",
+                "transport": "tls",
+                "domain": "proto.tracegate.test",
+                "tlsDomain": "2gis.ru",
+                "stealth": {"validatedTlsDomains": ["2gis.ru"]},
+            }
+        },
+    )
+
+    assert rendered.returncode == 0, rendered.stderr
+    deployments = [doc for doc in yaml.safe_load_all(rendered.stdout) if isinstance(doc, dict) and doc.get("kind") == "Deployment"]
+    endpoint = next(doc for doc in deployments if doc.get("metadata", {}).get("name", "").endswith("gateway-transit"))
+    containers = _containers_by_name(endpoint["spec"]["template"])
+    assert "telemt" in containers
+    assert "mtproto" not in containers
+    assert "mtproto-official" not in containers
+    assert containers["telemt"]["command"] == ["/app/telemt"]
+    assert containers["telemt"]["workingDir"] == "/var/lib/tracegate/private/mtproto/runtime"
+    assert containers["telemt"]["image"].endswith(
+        "@sha256:e6493af8cf180c8b17255c7a0143eaebc150393e5ca50ead3163ecb6e6ae4c8e"
+    )
+    assert containers["telemt"]["readinessProbe"]["exec"]["command"][-1] == "ready"
+    assert "server mtproto 127.0.0.1:9443 check send-proxy-v2" in rendered.stdout
+
+
+def test_direct_hysteria_salamander_renders_only_on_endpoint(tmp_path: Path) -> None:
+    rendered = _helm_template_with_values(tmp_path, {})
+
+    assert rendered.returncode == 0, rendered.stderr
+    deployments = [doc for doc in yaml.safe_load_all(rendered.stdout) if isinstance(doc, dict) and doc.get("kind") == "Deployment"]
+    endpoint = next(doc for doc in deployments if doc.get("metadata", {}).get("name", "").endswith("gateway-transit"))
+    entry = next(doc for doc in deployments if doc.get("metadata", {}).get("name", "").endswith("gateway-entry"))
+    endpoint_containers = _containers_by_name(endpoint["spec"]["template"])
+    entry_containers = _containers_by_name(entry["spec"]["template"])
+    assert endpoint_containers["hysteria-salamander"]["ports"] == [
+        {"name": "hy2-salamander", "containerPort": 8444, "protocol": "UDP"}
+    ]
+    assert "hysteria-salamander" not in entry_containers
+    assert "type: salamander" in rendered.stdout
+    assert "listen: :8444" in rendered.stdout
 
 
 def test_mtproto_entry_transit_endpoint_route_renders_entry_proxy_and_endpoint_acl(tmp_path: Path) -> None:

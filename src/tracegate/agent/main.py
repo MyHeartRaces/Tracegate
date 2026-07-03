@@ -29,7 +29,9 @@ from tracegate.services.mtproto_access import (
     issue_mtproto_access_profile,
     load_mtproto_access_entries,
     revoke_mtproto_access,
+    set_mtproto_access_entries,
 )
+from tracegate.services.private_handoffs import refresh_mtproto_runtime_state
 from tracegate.services.runtime_contract import resolve_runtime_contract
 from tracegate.settings import effective_mtproto_reload_cmd, ensure_agent_dirs, get_settings
 
@@ -288,6 +290,8 @@ def _apply_mtproto_reload() -> None:
 
 
 def _mtproto_reload_required_for_profile(profile: dict) -> bool:
+    if str(settings.private_mtproto_runtime or "").strip().lower() != "telemt":
+        return False
     secret_policy = str(profile.get("secretPolicy") or "").strip().lower()
     if secret_policy == "shared":
         return False
@@ -356,7 +360,7 @@ async def list_mtproto_access() -> AgentMTProtoAccessListResponse:
 )
 async def issue_mtproto_access(payload: AgentMTProtoAccessIssueRequest) -> AgentMTProtoAccessResponse:
     try:
-        profile, _previous_entries, _next_entries, changed = issue_mtproto_access_profile(
+        profile, previous_entries, _next_entries, changed = issue_mtproto_access_profile(
             settings,
             telegram_id=int(payload.telegram_id),
             label=str(payload.label or "").strip(),
@@ -370,9 +374,19 @@ async def issue_mtproto_access(payload: AgentMTProtoAccessIssueRequest) -> Agent
     except DecoyAuthConfigError as exc:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc)) from exc
 
-    # MTProto access issuance is part of the user lifecycle. Do not reload the
-    # MTProto binary here; production profiles must use shared/live-readable
-    # credentials if they need zero-drop issuance.
+    if changed and _mtproto_reload_required_for_profile(profile):
+        try:
+            refresh_mtproto_runtime_state(settings)
+        except Exception as exc:  # noqa: BLE001
+            set_mtproto_access_entries(settings, previous_entries)
+            try:
+                refresh_mtproto_runtime_state(settings)
+            except Exception:  # noqa: BLE001
+                logger.exception("failed to restore MTProto runtime after issuance rollback")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="MTProto runtime rejected the issued credential",
+            ) from exc
 
     logger.info(
         "mtproto_access_issued telegram_id=%s changed=%s rotate=%s",
@@ -390,15 +404,26 @@ async def issue_mtproto_access(payload: AgentMTProtoAccessIssueRequest) -> Agent
 )
 async def revoke_mtproto_access_profile(telegram_id: int) -> AgentMTProtoAccessRevokeResponse:
     try:
-        removed, _previous_entries, _next_entries = revoke_mtproto_access(settings, telegram_id=int(telegram_id))
+        removed, previous_entries, _next_entries = revoke_mtproto_access(settings, telegram_id=int(telegram_id))
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
     if removed is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="MTProto access profile not found")
 
-    # Revocation must not reload the MTProto binary. The no-reload contract is
-    # enforced at the access layer instead of by restarting the service.
+    if _mtproto_reload_required_for_current_profile():
+        try:
+            refresh_mtproto_runtime_state(settings)
+        except Exception as exc:  # noqa: BLE001
+            set_mtproto_access_entries(settings, previous_entries)
+            try:
+                refresh_mtproto_runtime_state(settings)
+            except Exception:  # noqa: BLE001
+                logger.exception("failed to restore MTProto runtime after revocation rollback")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="MTProto runtime rejected the credential revocation",
+            ) from exc
 
     logger.info("mtproto_access_revoked telegram_id=%s", telegram_id)
     return AgentMTProtoAccessRevokeResponse(ok=True, removed=True)

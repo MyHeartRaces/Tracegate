@@ -1,90 +1,77 @@
 # MTProto Shared Entry With Endpoint Runtime
 
-Tracegate 3 production uses the official MTProxy runtime on Endpoint and
-exposes it through the same Entry TCP/443 address used by the other Entry
-transports.
+Tracegate 3 production uses Telemt FakeTLS on Endpoint and exposes it through
+the same Entry TCP/443 address used by the other Entry transports.
 
 ## Architecture
 
 ```text
 Telegram client
   -> DNS-only MTProto hostname mtproto.entry.example:443 on Entry
-  -> Entry HAProxy no-SNI demux
+  -> Entry HAProxy SNI demux for the validated FakeTLS domain
   -> Endpoint public TCP/443 from the Entry source only
-  -> Endpoint HAProxy no-SNI demux
-  -> Endpoint-local official MTProxy
+  -> Endpoint HAProxy SNI demux
+  -> Endpoint-local Telemt on loopback
   -> Telegram network through Endpoint egress
 ```
 
-MTProxy does not run on Entry. The Endpoint runtime is loopback-bound; the only
-public path to it is Endpoint HAProxy accepting no-SNI traffic from the Entry
-source address. Telegram egress is physically on Endpoint, not Entry.
+MTProxy does not run on Entry. The Endpoint runtime is loopback-bound; the
+only public path is Endpoint HAProxy accepting the selected SNI from trusted
+Entry source addresses. Telegram egress is physically on Endpoint.
 
-Because this mode shares Entry `tcp/443` with Universal Entry, direct source
-filtering cannot live solely in nftables: nftables cannot inspect TLS SNI. The
-host firewall allows `443` to HAProxy; HAProxy then rejects non-Cloudflare
-origin traffic unless it is either the controlled TLS adapter SNI or a no-SNI
-MTProto flow.
+Because this mode shares Entry TCP/443 with Universal Entry, source filtering
+cannot live solely in nftables: nftables cannot inspect TLS SNI. The host
+firewall allows TCP/443 to HAProxy, and HAProxy owns the protocol/SNI policy.
 
-## Naming
-
-The production public connection has no FakeTLS SNI:
+## Naming and masking
 
 - public hostname: DNS-only `mtproto.entry.example`, pointing to Entry;
-- client secret: official random-padding MTProxy secret;
-- `tlsDomain`: empty.
+- client secret: Telemt `ee` FakeTLS secret;
+- `tlsDomain`: a validated real site such as `example.ru`;
+- Telemt `mask_host`: the same real site, so rejected or probe TLS sessions
+  reach a genuine site rather than a synthetic local page.
 
-Legacy MTG/FakeTLS test profiles may still use a validated `.ru` FakeTLS SNI
-such as `2gis.ru`, but production MTProto must not depend on SNI or Cloudflare
-proxying.
-
-Ordinary Cloudflare proxying cannot carry raw MTProto TCP. Keep the MTProto
+Ordinary Cloudflare proxying cannot carry native MTProto TCP. Keep the MTProto
 public hostname DNS-only.
 
-## Helm Values
+## Helm values
 
 ```yaml
 mtproto:
   enabled: true
-  runtime: official
-  transport: random_padding
+  runtime: telemt
+  transport: tls
   domain: mtproto.entry.example
-  tlsDomain: ""
+  tlsDomain: example.ru
   publicPort: 443
-  fallback:
-    enabled: false
-    officialBindAddress: ""
-    officialExternalIp: 198.51.100.20
-    officialInternalIp: 198.51.100.20
+  egress:
+    domainFrontingHost: example.ru
   route:
     mode: entry-endpoint-tunnel
     endpoint:
       allowedProxySources: [203.0.113.10]
-    entry:
-      endpointHost: 198.51.100.20
-      endpointPort: 443
 ```
 
-The raw 16-byte MTProto secret remains in an external private profile Secret.
-The bot issues the derived official MTProxy Telegram link.
+The raw 16-byte bootstrap secret remains in an external private profile
+Secret. The bot issues per-user secrets and atomically regenerates
+`access.users`; Telemt hot-reloads the file without a process restart.
 
-For official MTProxy, `domain` is the client-facing Entry hostname, but
-`officialExternalIp` must be the Endpoint egress address that reaches Telegram
-DCs. Do not set `officialBindAddress` in hostNetwork mode; `--address
-127.0.0.1` also binds upstream DC sockets to loopback in the upstream image.
+Native Telegram does not implement MTProxy over WebSocket. WSS requires a
+separate local TUN/router client and is not interchangeable with a
+`tg://proxy` link.
 
 ## Verification
 
-1. Confirm Entry HAProxy contains `use_backend be_mtproto_tls if !request_sni_found`.
-2. Confirm Entry HAProxy does not reject no-SNI flows with
-   `WAIT_END !universal_origin_allowed_src`.
-3. Confirm Endpoint HAProxy contains
-   `use_backend be_mtproto if !request_sni_found mtproto_proxy_src`.
-4. Confirm `mtproto_proxy_src` contains only Entry source addresses.
-5. Confirm official MTProxy exists only in the Endpoint gateway pod.
-6. Confirm the bot profile has `server=mtproto.entry.example`, `transport=random_padding`
-   and an empty `tlsDomain`.
-7. Test sustained Telegram traffic and reconnection through Endpoint egress.
+1. Confirm Entry HAProxy routes the configured FakeTLS SNI to
+   `be_mtproto_tls`.
+2. Confirm Endpoint HAProxy routes that SNI to `be_mtproto` only for trusted
+   Entry sources.
+3. Confirm Telemt exists only in the Endpoint gateway pod and its native
+   readiness check succeeds.
+4. Confirm the bot profile has `server=mtproto.entry.example`, `transport=tls`,
+   the expected `tlsDomain` and a per-user secret.
+5. Test an authenticated connection, sustained traffic and reconnection
+   through the public path.
 
 No proxy configuration can guarantee permanent availability. Keep public
-hostname, secret and Entry address rotation operationally prepared.
+hostname, bootstrap secret and Entry address rotation operationally prepared.

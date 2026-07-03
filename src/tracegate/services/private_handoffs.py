@@ -16,6 +16,8 @@ from tracegate.services.mtproto import (
     MTProtoConfigError,
     build_mtproto_mtg_config,
     build_mtproto_share_links,
+    build_mtproto_telemt_config,
+    load_mtproto_issued_secret_entries,
     normalize_mtproto_domain,
 )
 from tracegate.services.connection_profiles import (
@@ -1542,6 +1544,21 @@ def _write_mtproto_state(
                     tolerate_time_skewness=settings.mtproto_tolerate_time_skewness,
                     transport=mtproto_transport,
                 )
+            elif mtproto_runtime == "telemt":
+                if mtproto_transport != "tls":
+                    raise MTProtoConfigError("Telemt runtime requires TLS/FakeTLS MTProto transport")
+                mtg_config = build_mtproto_telemt_config(
+                    listen_port=int(payload["upstreamPort"]),
+                    listen_ip=str(payload["upstreamHost"]),
+                    tls_domain=normalized_tls_domain,
+                    primary_secret_hex=server_secret_hex,
+                    issued_secrets=load_mtproto_issued_secret_entries(issued_state_file),
+                    mask_host=settings.mtproto_domain_fronting_host or normalized_tls_domain,
+                    mask_port=int(settings.mtproto_domain_fronting_port or 443),
+                    public_host=normalized_domain,
+                    public_port=int(payload["publicPort"]),
+                    tls_front_dir=str(runtime_dir / "tlsfront"),
+                )
             elif mtproto_runtime == "official":
                 mtg_config = None
             else:
@@ -1559,7 +1576,7 @@ def _write_mtproto_state(
                 "transport": mtproto_transport,
                 "domain": normalized_tls_domain,
                 "tlsDomain": normalized_tls_domain,
-                "secretPolicy": "shared",
+                "secretPolicy": "per-user" if mtproto_runtime == "telemt" else "shared",
                 "clientSecretHex": share.client_secret_hex,
                 "tgUri": share.tg_uri,
                 "httpsUrl": share.https_url,
@@ -1574,7 +1591,7 @@ def _write_mtproto_state(
                 ],
             }
             changed = _write_secret_text_if_changed(profile_path, _json_text(profile_payload)) or changed
-            if mtproto_runtime == "mtg" and mtg_config is not None:
+            if mtproto_runtime in {"mtg", "telemt"} and mtg_config is not None:
                 changed = _write_secret_text_if_changed(mtproto_config_file, mtg_config.config_text) or changed
             else:
                 changed = _remove_if_exists(mtproto_config_file) or changed
@@ -1585,6 +1602,24 @@ def _write_mtproto_state(
     # Ensure the state dir / runtime dir layout exists even if the helper is not active yet.
     runtime_dir.mkdir(parents=True, exist_ok=True)
     return changed
+
+
+def refresh_mtproto_runtime_state(settings: Settings) -> bool:
+    """Re-render only MTProto state after a grant change.
+
+    Telemt watches the generated TOML and applies ``access.users`` changes
+    without a process restart. Other gateway components are deliberately not
+    reconciled from this user-lifecycle path.
+    """
+
+    runtime_contract_path = Path(settings.agent_data_root) / "runtime" / "runtime-contract.json"
+    try:
+        payload = json.loads(runtime_contract_path.read_text(encoding="utf-8"))
+    except (FileNotFoundError, json.JSONDecodeError) as exc:
+        raise MTProtoConfigError("MTProto runtime contract is unavailable") from exc
+    if not isinstance(payload, dict):
+        raise MTProtoConfigError("MTProto runtime contract is invalid")
+    return _write_mtproto_state(settings, runtime_contract_payload=payload)
 
 
 def _mapping(value: object) -> dict[str, Any]:

@@ -313,6 +313,8 @@ spec:
                   key: {{ .Values.privateProfiles.secretKeys.hysteriaSalamanderTransit }}
             - name: HYSTERIA_UDP_PORT
               value: {{ int $endpointRole.ports.publicUdp | quote }}
+            - name: HYSTERIA_SALAMANDER_UDP_PORT
+              value: {{ int (dig "hysteria" "salamander" "port" 8444 $.Values.gateway) | quote }}
             - name: HYSTERIA_SERVER_NAME_ENTRY
               value: {{ dig "hysteria" "clientServerNameEntry" "" $.Values.gateway | quote }}
             - name: HYSTERIA_SERVER_NAME_TRANSIT

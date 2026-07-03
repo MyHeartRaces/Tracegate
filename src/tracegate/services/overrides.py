@@ -213,6 +213,7 @@ def validate_overrides(protocol: ConnectionProtocol, overrides: dict[str, Any]) 
     elif protocol == ConnectionProtocol.HYSTERIA2:
         allowed = {
             "client_mode",
+            "hysteria_obfs",
             "up_mbps",
             "down_mbps",
             "socks_listen",
@@ -230,6 +231,10 @@ def validate_overrides(protocol: ConnectionProtocol, overrides: dict[str, Any]) 
         }
         _ensure_keys(overrides, allowed, forbidden)
         _validate_hysteria_client_mode(overrides)
+        if "hysteria_obfs" in overrides and overrides.get("hysteria_obfs") is not None:
+            obfs_type = str(overrides.get("hysteria_obfs") or "").strip().lower()
+            if obfs_type not in {"gecko", "salamander"}:
+                raise OverrideValidationError("hysteria_obfs must be gecko or salamander")
         _validate_local_socks_credentials(overrides)
         _validate_loopback_endpoint_override(overrides, "socks_listen")
         _validate_loopback_endpoint_override(overrides, "http_listen")

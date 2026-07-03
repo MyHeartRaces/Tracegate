@@ -61,13 +61,13 @@ then produces Python, Helm and generic bundle packages plus `SHA256SUMS`.
 
 ## MTProto
 
-- Confirm official MTProxy runs only in the Endpoint gateway pod.
-- Confirm Entry TCP/443 routes no-SNI MTProto to Endpoint TCP/443 and does not
-  reject it with the Universal Entry `WAIT_END` origin rule.
-- Confirm Endpoint TCP/443 accepts no-SNI MTProto only from Entry source
+- Confirm Telemt runs only in the Endpoint gateway pod and its native health
+  checks pass.
+- Confirm Entry TCP/443 routes the configured FakeTLS SNI to Endpoint TCP/443.
+- Confirm Endpoint TCP/443 accepts that MTProto SNI only from Entry source
   addresses.
-- Confirm the public profile uses the DNS-only Entry hostname and has an empty
-  `tlsDomain`.
+- Confirm the public profile uses the DNS-only Entry hostname, TLS transport,
+  a validated decoy domain and per-user secrets.
 - Confirm `front-g.example.net` and `splitter.front-m.example.net` are absent from active SNI fields.
 - Test sustained Telegram traffic through the Endpoint egress path.
 

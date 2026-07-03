@@ -86,6 +86,7 @@ def test_endpoint_ingress_firewall_script_is_executable() -> None:
     ).stdout
     assert 'iifname != "lo" ip daddr' in rendered
     assert 'ct status dnat ip daddr' in rendered
+    assert "udp dport { 443, 8444 }" in rendered
 
 
 def test_endpoint_egress_firewall_script_is_executable() -> None:
@@ -108,3 +109,4 @@ def test_endpoint_egress_firewall_script_is_executable() -> None:
     assert "table ip tracegate_endpoint_egress" in rendered
     assert " dnat to " in rendered
     assert " snat to " in rendered
+    assert "udp dport 8444 dnat" in rendered

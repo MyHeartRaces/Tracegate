@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Replaced the native Telegram lane with pinned Telemt FakeTLS, real-site TLS
+  masking, per-user hot-reloaded secrets and in-container health checks. Native
+  Telegram still cannot use WebSocket transport; WSS remains a TUN/router lane.
+- Added a Direct Hysteria2 Salamander option alongside Gecko on a dedicated
+  UDP listener, including a bot selection menu and compatible client exports.
 - Fixed Backup-Shadowsocks delivery in the Telegram bot: new revisions now include
   the generated `ss://` URI and QR code alongside the preferred sing-box JSON file.
 

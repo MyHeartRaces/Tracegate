@@ -360,6 +360,30 @@ def test_agent_mtproto_access_issue_shared_secret_does_not_reload(monkeypatch, t
     assert load_mtproto_access_entries(settings)[0]["telegramId"] == 101
 
 
+def test_agent_mtproto_access_issue_refreshes_telemt_state(monkeypatch, tmp_path) -> None:
+    settings = _settings(tmp_path).model_copy(update={"private_mtproto_runtime": "telemt"})
+    _write_profile(Path(settings.mtproto_public_profile_file))
+    refresh_calls: list[str] = []
+
+    monkeypatch.setattr(agent_main, "settings", settings)
+    monkeypatch.setattr(
+        agent_main,
+        "refresh_mtproto_runtime_state",
+        lambda _settings: refresh_calls.append("refresh") or True,
+    )
+
+    with TestClient(agent_main.app) as client:
+        response = client.post(
+            "/v1/mtproto/access/issue",
+            headers={"x-agent-token": "test-agent-token"},
+            json={"telegram_id": 101, "issued_by": "bot"},
+        )
+
+    assert response.status_code == 200
+    assert response.json()["ok"] is True
+    assert refresh_calls == ["refresh"]
+
+
 def test_agent_mtproto_access_revoke_removes_profile(monkeypatch, tmp_path) -> None:
     settings = _settings(tmp_path)
     _write_profile(Path(settings.mtproto_public_profile_file))

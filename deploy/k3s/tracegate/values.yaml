@@ -749,6 +749,11 @@ gateway:
       gecko:
         minPacketSize: 512
         maxPacketSize: 1200
+    # Gecko remains on UDP/443. Salamander needs a separate Hysteria listener
+    # because obfs negotiation is not available on a shared UDP socket.
+    salamander:
+      enabled: true
+      port: 8444
     udpIdleTimeout: 5m
   agent:
     port: 8070
@@ -809,6 +814,11 @@ gateway:
       repository: nineseconds/mtg
       tag: "latest"
       digest: sha256:c082586a19886e4822f92aa8c1949a771df3519053d64b1b5505a9a280a3929d
+      pullPolicy: IfNotPresent
+    telemt:
+      repository: ghcr.io/telemt/telemt
+      tag: "3.4.22"
+      digest: sha256:e6493af8cf180c8b17255c7a0143eaebc150393e5ca50ead3163ecb6e6ae4c8e
       pullPolicy: IfNotPresent
     mtprotoOfficial:
       repository: mtproxy/mtproxy
@@ -1105,7 +1115,7 @@ shadowsocks2022:
 mtproto:
   enabled: true
   runtime: mtg
-  # tls = MTG FakeTLS/domain-fronting. raw/random_padding = official MTProxy without FakeTLS/SNI.
+  # tls = MTG/Telemt FakeTLS. raw/random_padding = official MTProxy without FakeTLS/SNI.
   transport: tls
   domain: ""
   # FakeTLS SNI. Keep it distinct from the public address hostname and

@@ -501,6 +501,9 @@ data:
 {{- $roleRuntimeName := ternary "entry" "transit" (eq $roleName "entry") }}
 {{- $roleIsEntry := eq $roleRuntimeName "entry" }}
 {{- $roleIsEndpoint := eq $roleRuntimeName "transit" }}
+{{- $hysteriaSalamander := dig "salamander" (dict) $.Values.gateway.hysteria }}
+{{- $hysteriaSalamanderEnabled := and $roleIsEndpoint (dig "enabled" false $hysteriaSalamander) }}
+{{- $hysteriaSalamanderPort := int (dig "port" 8444 $hysteriaSalamander) }}
 {{- $entryRedirectBaseUrl := trimSuffix "/" (trim ($.Values.decoy.entryRedirectBaseUrl | default "")) }}
 {{- if and $entryRedirectBaseUrl (not (regexMatch `^https://[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?(?::[0-9]{1,5})?$` $entryRedirectBaseUrl)) }}
 {{- fail "decoy.entryRedirectBaseUrl must be an HTTPS origin without a path" }}
@@ -1338,6 +1341,46 @@ data:
     sniff:
       enable: {{ not (and $roleIsEndpoint $endpointBackhaulEnabled) }}
       timeout: 2s
+{{- if $hysteriaSalamanderEnabled }}
+  salamander-server.yaml: |
+    listen: :{{ $hysteriaSalamanderPort }}
+    tls:
+      cert: /etc/tracegate/tls/tls.crt
+      key: /etc/tracegate/tls/tls.key
+      sniGuard: dns-san
+    auth:
+      type: http
+      http:
+        url: {{ printf "http://127.0.0.1:%d/v1/hysteria/auth" (int $.Values.gateway.agent.port) | quote }}
+        insecure: false
+    obfs:
+      type: salamander
+      salamander:
+        password: REPLACE_HYSTERIA_SALAMANDER_PASSWORD
+    masquerade:
+      type: file
+      file:
+        dir: {{ $.Values.decoy.mountPath | quote }}
+    trafficStats:
+      listen: 127.0.0.1:9998
+      secret: REPLACE_HYSTERIA_STATS_SECRET
+    outbounds:
+      - name: direct-v4
+        type: direct
+        direct:
+          mode: 4
+    quic:
+      maxIdleTimeout: {{ dig "quic" "maxIdleTimeout" "2m" $.Values.gateway.hysteria }}
+      disablePathMTUDiscovery: {{ dig "quic" "disablePathMTUDiscovery" false $.Values.gateway.hysteria }}
+    congestion:
+      type: bbr
+    ignoreClientBandwidth: {{ $.Values.gateway.trafficShaping.hysteria.ignoreClientBandwidth }}
+    disableUDP: false
+    udpIdleTimeout: {{ $.Values.gateway.hysteria.udpIdleTimeout }}
+    sniff:
+      enable: true
+      timeout: 2s
+{{- end }}
 {{- if and $roleIsEntry $endpointBackhaulHysteriaEnabled }}
   backhaul-client.yaml: |
     server: {{ printf "%s:%d" $endpointBackhaulHysteriaHost $endpointBackhaulHysteriaPort | quote }}

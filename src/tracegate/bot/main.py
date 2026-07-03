@@ -54,6 +54,7 @@ from tracegate.bot.keyboards import (
     devices_keyboard,
     feedback_admin_keyboard,
     guide_keyboard,
+    hysteria_obfs_keyboard,
     main_menu_keyboard,
     mtproto_delivery_keyboard,
     provider_keyboard_with_cancel,
@@ -814,7 +815,12 @@ def _connection_profile_label(connection: dict) -> str:
     mode = str(connection.get("mode") or "").strip().lower()
     variant = str(connection.get("variant") or "").strip() or "V?"
     try:
-        return connection_profile_display_label(protocol, mode, variant)
+        label = connection_profile_display_label(protocol, mode, variant)
+        overrides = connection.get("custom_overrides_json") or {}
+        if protocol == "hysteria2" and "hysteria_obfs" in overrides:
+            obfs_type = str(overrides.get("hysteria_obfs") or "gecko")
+            label = f"{label} ({obfs_type.capitalize()})"
+        return label
     except Exception:
         return f"{variant} | {_connection_family_name(protocol, mode)}"
 
@@ -2355,6 +2361,14 @@ async def new_connection(callback: CallbackQuery) -> None:
     try:
         profile_key = _profile_key(spec)
         _ensure_profile_enabled(profile_key)
+        if profile_key == "hysteria":
+            await _safe_edit_text(
+                callback.message,
+                "Если ты не знаешь что из этого выбрать, выбирай Salamander",
+                reply_markup=hysteria_obfs_keyboard(device_id=device_id),
+            )
+            await callback.answer()
+            return
         protocol, _, _ = _profile(profile_key)
         user = await ensure_user(callback.from_user.id)
         protocol, mode, variant = _profile(spec)
@@ -2373,6 +2387,34 @@ async def new_connection(callback: CallbackQuery) -> None:
         await callback.message.answer(_msg_error(exc))
 
     await callback.answer()
+
+
+@router.callback_query(F.data.startswith("hyobfs:"))
+async def new_hysteria_with_obfs(callback: CallbackQuery) -> None:
+    _, obfs_type, device_id = callback.data.split(":", 2)
+    try:
+        _ensure_profile_enabled("hysteria")
+        normalized_obfs = str(obfs_type or "").strip().lower()
+        if normalized_obfs not in {"salamander", "gecko"}:
+            raise ValueError("Неизвестный режим Hysteria2 obfs.")
+        user = await ensure_user(callback.from_user.id)
+        protocol, mode, variant = _profile("hysteria")
+        _connection, revision = await api.create_connection_and_revision(
+            user["telegram_id"],
+            device_id,
+            protocol,
+            mode,
+            variant,
+            None,
+            {"hysteria_obfs": normalized_obfs},
+        )
+        text, keyboard = await render_device_page(device_id)
+        await _safe_edit_text(callback.message, text, reply_markup=keyboard)
+        await _send_client_config(callback, revision, context="created")
+    except Exception as exc:  # noqa: BLE001
+        await callback.message.answer(_msg_error(exc))
+    finally:
+        await callback.answer()
 
 
 @router.callback_query(F.data.startswith("vlessnew:"))

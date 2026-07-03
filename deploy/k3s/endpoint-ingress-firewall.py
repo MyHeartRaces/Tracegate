@@ -86,6 +86,9 @@ def render(values: dict[str, Any]) -> str:
 
     tcp_ports = {_port(ports.get("publicTcp"))}
     udp_ports = {_port(ports.get("publicUdp"))}
+    hysteria_salamander = _mapping(_mapping(gateway.get("hysteria")).get("salamander"))
+    if hysteria_salamander.get("enabled"):
+        udp_ports.add(_port(hysteria_salamander.get("port")))
     if wireguard.get("enabled"):
         tcp_ports.add(_port(_mapping(wireguard.get("wstunnel")).get("websocketPort")))
     tcp_ports.discard(0)

@@ -683,6 +683,13 @@ def validate_prod_overlay(chart_values: Path, prod_values: Path, *, strict: bool
             _as_int(ports.get("publicUdp")) == 443,
             f"gateway.roles.{role_name}.ports.publicUdp must stay 443 for Tracegate 3 Hysteria2",
         )
+    hysteria_salamander = _as_dict(_as_dict(gateway.get("hysteria")).get("salamander"))
+    if bool(hysteria_salamander.get("enabled", False)):
+        salamander_port = _as_int(hysteria_salamander.get("port"))
+        require(
+            1024 <= salamander_port <= 65535 and salamander_port not in {443, 4443, 8443},
+            "gateway.hysteria.salamander.port must be a dedicated unreserved UDP port",
+        )
     require(
         [_text(value) for value in _as_list(env.get("wireguardAllowedIps")) if _text(value)] == ["0.0.0.0/0"],
         "production WireGuard client routes must stay IPv4-only",
@@ -1195,7 +1202,10 @@ def validate_prod_overlay(chart_values: Path, prod_values: Path, *, strict: bool
         if mtproto_transport == "dd":
             mtproto_transport = "random_padding"
         tls_domain = _text(mtproto.get("tlsDomain")).lower().rstrip(".")
-        require(mtproto_runtime in {"mtg", "official"}, "entry-endpoint-tunnel requires mtproto.runtime=mtg or official")
+        require(
+            mtproto_runtime in {"mtg", "official", "telemt"},
+            "entry-endpoint-tunnel requires mtproto.runtime=mtg, official or telemt",
+        )
         require(_as_int(mtproto.get("publicPort")) == 443, "entry-endpoint-tunnel requires mtproto.publicPort=443")
         require(not bool(_as_dict(mtproto.get("fallback")).get("enabled", False)), "entry-endpoint-tunnel forbids fallback runtimes")
         require(
@@ -1217,6 +1227,7 @@ def validate_prod_overlay(chart_values: Path, prod_values: Path, *, strict: bool
                 "entry-endpoint-tunnel officialExternalIp must be an Endpoint egress public IP",
             )
         else:
+            require(mtproto_transport == "tls", "entry-endpoint-tunnel MTG/Telemt requires mtproto.transport=tls")
             require(tls_domain not in {"front-g.example.net", "splitter.front-m.example.net"}, "entry-endpoint-tunnel forbids common MTProto TLS domains")
             require(
                 tls_domain in {_text(value).lower().rstrip(".") for value in _as_list(mtproto_stealth.get("validatedTlsDomains"))},

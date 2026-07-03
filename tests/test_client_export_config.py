@@ -108,6 +108,28 @@ def test_export_hysteria2_uri() -> None:
     assert attachment["outbounds"][0]["tls"]["alpn"] == ["h3"]
 
 
+def test_export_hysteria2_salamander_uri_and_singbox_attachment() -> None:
+    effective = {
+        "protocol": "hysteria2",
+        "server": "t.example.com",
+        "port": 8444,
+        "auth": {"type": "userpass", "username": "u", "password": "p"},
+        "obfs": {"type": "salamander", "password": "obfs-secret"},
+        "profile": "V2-Hysteria2-QUIC-Direct",
+    }
+
+    out = export_client_config(effective)
+
+    assert "@t.example.com:8444/" in out.content
+    assert "obfs=salamander" in out.content
+    assert "broadly compatible" in dict(out.extra_messages)["Client compatibility"]
+    attachment = json.loads((out.attachment_content or b"").decode("utf-8"))
+    assert attachment["outbounds"][0]["obfs"] == {
+        "type": "salamander",
+        "password": "obfs-secret",
+    }
+
+
 def test_export_hysteria2_chain_caps_stale_bandwidth_to_chain_limit() -> None:
     effective = {
         "protocol": "hysteria2",
@@ -150,7 +172,7 @@ def test_export_hysteria2_direct_keeps_explicit_bandwidth_override() -> None:
     assert attachment["outbounds"][0]["down_mbps"] == 200
 
 
-def test_export_hysteria2_rejects_missing_gecko() -> None:
+def test_export_hysteria2_rejects_missing_obfs() -> None:
     effective = {
         "protocol": "hysteria2",
         "server": "t.example.com",
@@ -159,7 +181,7 @@ def test_export_hysteria2_rejects_missing_gecko() -> None:
         "profile": "V3-Hysteria2-QUIC-Direct",
     }
 
-    with pytest.raises(ClientConfigExportError, match="Gecko"):
+    with pytest.raises(ClientConfigExportError, match="Gecko or Salamander"):
         export_client_config(effective)
 
 

@@ -19,7 +19,7 @@ ENDPOINT_REQUIRED_CONTAINERS = {
     "wireguard-sync",
     "wstunnel-wireguard",
 }
-MTPROTO_RUNTIME_CONTAINERS = {"mtproto", "mtproto-official"}
+MTPROTO_RUNTIME_CONTAINERS = {"mtproto", "mtproto-official", "telemt"}
 
 
 def _documents(path: Path) -> list[dict[str, Any]]:

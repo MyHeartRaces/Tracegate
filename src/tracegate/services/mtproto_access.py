@@ -246,7 +246,8 @@ def issue_mtproto_access_profile(
     secret_policy = _mtproto_secret_policy(base_profile)
     if secret_policy not in {"per-user", "shared"}:
         raise DecoyAuthConfigError(f"unsupported MTProto secret policy: {secret_policy}")
-    shared_secret_hex = _raw_secret_from_client_secret(base_profile) if secret_policy == "shared" else ""
+    bootstrap_secret_hex = _raw_secret_from_client_secret(base_profile)
+    shared_secret_hex = bootstrap_secret_hex if secret_policy == "shared" else ""
 
     changed = False
     with _locked_state(settings) as path:
@@ -254,7 +255,15 @@ def issue_mtproto_access_profile(
         by_telegram_id = {int(entry["telegramId"]): dict(entry) for entry in previous_entries}
         current = by_telegram_id.get(int(telegram_id))
 
-        if current is None or rotate or (secret_policy == "shared" and current.get("secretHex") != shared_secret_hex):
+        migrated_from_shared = secret_policy == "per-user" and current is not None and (
+            current.get("secretHex") == bootstrap_secret_hex
+        )
+        if (
+            current is None
+            or rotate
+            or migrated_from_shared
+            or (secret_policy == "shared" and current.get("secretHex") != shared_secret_hex)
+        ):
             changed = True
             previous_generation = int(current.get("ingressGeneration") or 0) if current else -1
             current = {

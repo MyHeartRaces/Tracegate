@@ -160,6 +160,10 @@ def devices_keyboard(devices: list[dict], *, active_device_id: str | None = None
 def _connection_button_label(connection: dict) -> str:
     try:
         label = connection_profile_display_label(connection["protocol"], connection["mode"], connection["variant"])
+        overrides = connection.get("custom_overrides_json") or {}
+        if str(connection.get("protocol") or "").lower() == "hysteria2" and "hysteria_obfs" in overrides:
+            obfs_type = str(overrides.get("hysteria_obfs") or "gecko")
+            label = f"{label} ({obfs_type.capitalize()})"
     except Exception:
         label = f"{connection.get('variant')} ({connection.get('protocol')})"
     alias = str(connection.get("alias") or "").strip()
@@ -253,6 +257,21 @@ def connection_create_profiles_keyboard(
         add_row(rows, "backup-wgws", "Backup-WGWS")
     rows.append([InlineKeyboardButton(text="↩️ Назад", callback_data=f"conn_create:{device_id}")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def hysteria_obfs_keyboard(*, device_id: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="Salamander (рекомендуется)",
+                    callback_data=f"hyobfs:salamander:{device_id}",
+                )
+            ],
+            [InlineKeyboardButton(text="Gecko", callback_data=f"hyobfs:gecko:{device_id}")],
+            [InlineKeyboardButton(text="↩️ Назад", callback_data=f"conn_create:{device_id}")],
+        ]
+    )
 
 
 def device_actions_keyboard(device_id: str, connections: list[dict] | None = None) -> InlineKeyboardMarkup:

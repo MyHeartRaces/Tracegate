@@ -193,6 +193,34 @@ def test_issue_mtproto_access_profile_reuses_shared_runtime_secret(tmp_path) -> 
     assert next_entries[0]["secretHex"] == "00112233445566778899aabbccddeeff"
 
 
+def test_issue_mtproto_access_profile_migrates_shared_secret_to_per_user(tmp_path) -> None:
+    profile_path = tmp_path / "public-profile.json"
+    access_state_path = tmp_path / "issued.json"
+    _write_profile(profile_path)
+    payload = json.loads(profile_path.read_text(encoding="utf-8"))
+    payload["secretPolicy"] = "shared"
+    profile_path.write_text(json.dumps(payload), encoding="utf-8")
+    settings = Settings(
+        mtproto_public_profile_file=str(profile_path),
+        mtproto_issued_state_file=str(access_state_path),
+    )
+
+    shared, _previous, _entries, _changed = issue_mtproto_access_profile(settings, telegram_id=123456)
+    payload["secretPolicy"] = "per-user"
+    profile_path.write_text(json.dumps(payload), encoding="utf-8")
+    migrated, previous_entries, next_entries, changed = issue_mtproto_access_profile(
+        settings,
+        telegram_id=123456,
+    )
+
+    assert previous_entries[0]["secretHex"] == "00112233445566778899aabbccddeeff"
+    assert changed is True
+    assert migrated["secretPolicy"] == "per-user"
+    assert migrated["clientSecretHex"] != shared["clientSecretHex"]
+    assert next_entries[0]["secretHex"] != "00112233445566778899aabbccddeeff"
+    assert next_entries[0]["ingressGeneration"] == 1
+
+
 def test_issue_mtproto_access_profile_returns_all_public_ports(tmp_path) -> None:
     profile_path = tmp_path / "public-profile.json"
     access_state_path = tmp_path / "issued.json"

@@ -1295,6 +1295,62 @@ def test_reconcile_materializes_official_mtproto_without_tls_domain(tmp_path: Pa
     assert (private_root / "mtproto" / "issued.json").stat().st_mode & 0o777 == 0o600
 
 
+def test_reconcile_materializes_telemt_with_per_user_hot_reload_config(tmp_path: Path) -> None:
+    settings = Settings(
+        agent_data_root=str(tmp_path),
+        agent_runtime_mode="systemd",
+        agent_role="TRANSIT",
+        agent_runtime_profile="xray-centric",
+        default_transit_host="endpoint.example.org",
+        mtproto_domain="mtproto.example.org",
+        mtproto_tls_domain="2gis.ru",
+        mtproto_transport="tls",
+        mtproto_public_port=443,
+        mtproto_domain_fronting_host="2gis.ru",
+        private_mtproto_runtime="telemt",
+        private_mtproto_secret_file=str(tmp_path / "secrets" / "mtproto.txt"),
+    )
+
+    _write(tmp_path / "secrets" / "mtproto.txt", "00112233445566778899aabbccddeeff")
+    _write(
+        tmp_path / "base/xray/config.json",
+        json.dumps({"inbounds": [], "outbounds": [{"tag": "direct", "protocol": "freedom"}], "routing": {"rules": []}}),
+    )
+    _write(tmp_path / "base/nginx/nginx.conf", "events {}\nhttp {}\n")
+    _write(tmp_path / "base/haproxy/haproxy.cfg", "frontend fe\n  bind :443\n")
+    _write(
+        tmp_path / "private/mtproto/issued.json",
+        json.dumps(
+            {
+                "version": 1,
+                "entries": [
+                    {
+                        "telegramId": 123456789,
+                        "secretHex": "0123456789abcdef0123456789abcdef",
+                        "issuedAt": "2026-07-03T00:00:00Z",
+                        "updatedAt": "2026-07-03T00:00:00Z",
+                    }
+                ],
+            }
+        ),
+    )
+
+    reconcile_all(settings)
+
+    private_root = tmp_path / "private"
+    state_payload = json.loads((private_root / "mtproto" / "last-action.json").read_text(encoding="utf-8"))
+    public_profile = json.loads((private_root / "mtproto" / "public-profile.json").read_text(encoding="utf-8"))
+    config = (private_root / "mtproto" / "runtime" / "config.toml").read_text(encoding="utf-8")
+
+    assert state_payload["runtime"] == "telemt"
+    assert public_profile["secretPolicy"] == "per-user"
+    assert '[access.users]' in config
+    assert '"bootstrap" = "00112233445566778899aabbccddeeff"' in config
+    assert '"tg_123456789" = "0123456789abcdef0123456789abcdef"' in config
+    assert 'proxy_protocol_trusted_cidrs = ["127.0.0.1/32", "::1/128"]' in config
+    assert 'mask_host = "2gis.ru"' in config
+
+
 def test_reconcile_emits_obfuscation_change_only_when_reload_hook_is_configured(tmp_path: Path) -> None:
     settings = Settings(
         agent_data_root=str(tmp_path),

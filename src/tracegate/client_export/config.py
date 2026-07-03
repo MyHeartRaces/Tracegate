@@ -866,13 +866,13 @@ def _export_hysteria2(effective: dict[str, Any]) -> ExportResult:
 
     if not server:
         raise ClientConfigExportError("Missing fields for Hysteria2 export")
-    if obfs_type != "gecko" or not obfs_password:
-        raise ClientConfigExportError("Hysteria2 export requires Gecko obfs with a password")
+    if obfs_type not in {"gecko", "salamander"} or not obfs_password:
+        raise ClientConfigExportError("Hysteria2 export requires Gecko or Salamander obfs with a password")
 
     # Keep the URI aligned with the official Hysteria 2 scheme:
     # token auth is a single opaque auth component, percent-encoded as needed.
     params = {
-        "obfs": "gecko",
+        "obfs": obfs_type,
         "obfs-password": obfs_password,
     }
     if insecure:
@@ -913,10 +913,16 @@ def _export_hysteria2(effective: dict[str, Any]) -> ExportResult:
             "down_mbps": _hysteria_export_mbps(effective, "down_mbps"),
             "password": share_auth,
             "obfs": {
-                "type": "gecko",
+                "type": obfs_type,
                 "password": obfs_password,
-                "min_packet_size": int(obfs.get("min_packet_size") or 512),
-                "max_packet_size": int(obfs.get("max_packet_size") or 1200),
+                **(
+                    {
+                        "min_packet_size": int(obfs.get("min_packet_size") or 512),
+                        "max_packet_size": int(obfs.get("max_packet_size") or 1200),
+                    }
+                    if obfs_type == "gecko"
+                    else {}
+                ),
             },
             "tls": singbox_tls,
         },
@@ -929,7 +935,11 @@ def _export_hysteria2(effective: dict[str, Any]) -> ExportResult:
             _local_socks_extra_message(effective),
             (
                 "Client compatibility",
-                "Gecko obfs requires Hysteria 2.9.2+ or sing-box 1.14.0+.",
+                (
+                    "Gecko obfs requires Hysteria 2.9.2+ or sing-box 1.14.0+."
+                    if obfs_type == "gecko"
+                    else "Salamander is the broadly compatible Hysteria2 obfs mode."
+                ),
             ),
         ),
         attachment_content=attachment_content,

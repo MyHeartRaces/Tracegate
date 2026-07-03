@@ -482,6 +482,9 @@ class Settings(BaseSettings):
     vless_encryption_grpc_service_name: str = "tracegate.v1.EdgeEnc"
     # Hysteria2 owns UDP/443. TCP/443 remains the shared L4 fronting surface.
     hysteria_udp_port: int = TRACEGATE_PUBLIC_UDP_PORT
+    # Optional second direct listener. Salamander and Gecko cannot share one
+    # Hysteria UDP socket, so Salamander uses a dedicated public port.
+    hysteria_salamander_udp_port: int = 8444
     # Optional client-facing TLS SNI override. Leave empty unless the Hysteria
     # server certificate covers the chosen name; dns-san sniGuard will fail closed.
     hysteria_server_name_entry: str = Field(

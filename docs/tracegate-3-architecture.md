@@ -22,9 +22,10 @@ IP and disabled shards.
 
 Entry adds one public IP after Endpoint validation. Entry Chain uses
 Cloudflare-proxied gRPC/TLS/H2 and a bounded Entry-to-Endpoint backhaul pool:
-Shadowsocks-2022/ShadowTLS v3 primary and Hysteria2/Gecko secondary. MTProto enters
-through shared Entry TCP/443 and terminates at the Endpoint-local official
-MTProxy using random padding and no FakeTLS SNI.
+Shadowsocks-2022/ShadowTLS v3 primary and Hysteria2/Gecko secondary. MTProto
+enters through shared Entry TCP/443 and terminates at Endpoint-local Telemt in
+TLS-only FakeTLS mode. Direct Hysteria2 additionally exposes a dedicated
+Salamander listener for broad client compatibility; Gecko remains available.
 
 All client internet traffic exits only through the Endpoint service/egress IP.
 Entry retains the global 65 Mbit/s cap.
