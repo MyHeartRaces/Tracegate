@@ -257,6 +257,7 @@ controlPlane:
       name: tracegate-bot-guide
       key: message
     enabledClientProfiles: null
+    defaultRealitySni: yandex.ru
     superadminTelegramIds: []
     grafanaEnabled: false
     grafanaInternalUrl: http://tracegate-grafana:3000
@@ -480,6 +481,7 @@ transportProfiles:
   clientNames:
     - v1-direct-reality-vless
     - v2-direct-quic-hysteria
+    - v1-chain-reality-vless
     - v5-entry-ws
     - v0-grpc-vless
     - v0-ws-vless

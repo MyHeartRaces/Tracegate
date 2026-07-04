@@ -2394,6 +2394,7 @@ def test_tracegate21_chart_declares_required_client_profiles_and_socks_auth() ->
     assert values["transportProfiles"]["socks5"]["allowAnonymousLocalhost"] is False
     assert tuple(values["transportProfiles"]["clientNames"]) == TRACEGATE3_CLIENT_PROFILES
     assert "v1-direct-reality-vless" in profiles
+    assert "v1-chain-reality-vless" in profiles
     assert "v0-grpc-vless" in profiles
     assert "v3-direct-shadowtls-shadowsocks" in profiles
     assert "v3-chain-shadowtls-shadowsocks" not in profiles

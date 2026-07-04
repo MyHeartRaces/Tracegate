@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Route newly issued Chain connections through Entry REALITY with an operator-selected camouflage SNI, while retaining existing WebSocket Chain revisions as a legacy compatibility profile.
+
 - Replaced the native Telegram lane with pinned Telemt FakeTLS, real-site TLS
   masking, per-user hot-reloaded secrets and in-container health checks. Native
   Telegram still cannot use WebSocket transport; WSS remains a TUN/router lane.

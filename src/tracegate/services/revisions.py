@@ -24,7 +24,6 @@ from tracegate.services.sni_catalog import SniCatalogEntry, get_by_id, is_blocke
 from tracegate.settings import get_settings
 
 
-DEFAULT_V1_REALITY_SNI = "yandex.ru"
 ENTRY_INGRESS_PAIR_LOCK_ID = 6822526267863597649
 
 
@@ -401,7 +400,8 @@ async def _resolve_sni(
 
     sni_id = requested_sni_id or overrides.get("camouflage_sni_id")
     if sni_id is None:
-        default_row = next((row for row in load_catalog() if row.enabled and row.fqdn == DEFAULT_V1_REALITY_SNI), None)
+        default_sni = str(get_settings().default_reality_sni or "").strip().lower().rstrip(".")
+        default_row = next((row for row in load_catalog() if row.enabled and row.fqdn == default_sni), None)
         if default_row is not None:
             return default_row
         for row in load_catalog():

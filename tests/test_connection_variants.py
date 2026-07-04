@@ -32,6 +32,11 @@ def test_tracegate3_connection_variants_are_validated() -> None:
         ConnectionVariant.V0,
     )
     validate_variant(
+        ConnectionProtocol.VLESS_REALITY,
+        ConnectionMode.CHAIN,
+        ConnectionVariant.V1,
+    )
+    validate_variant(
         ConnectionProtocol.VLESS_WS_TLS,
         ConnectionMode.CHAIN,
         ConnectionVariant.V5,
@@ -51,7 +56,6 @@ def test_tracegate3_connection_variants_are_validated() -> None:
 @pytest.mark.parametrize(
     ("protocol", "mode", "variant"),
     [
-        (ConnectionProtocol.VLESS_REALITY, ConnectionMode.CHAIN, ConnectionVariant.V1),
         (ConnectionProtocol.VLESS_REALITY, ConnectionMode.DIRECT, ConnectionVariant.V0),
         (ConnectionProtocol.HYSTERIA2, ConnectionMode.CHAIN, ConnectionVariant.V2),
         (ConnectionProtocol.VLESS_GRPC_TLS, ConnectionMode.CHAIN, ConnectionVariant.V5),
@@ -91,6 +95,7 @@ def test_disabled_connection_profile_is_rejected() -> None:
 
 def test_connection_profile_sort_key_groups_created_connections_by_product_order() -> None:
     shuffled = [
+        (ConnectionProtocol.VLESS_REALITY, ConnectionMode.CHAIN, ConnectionVariant.V1),
         (ConnectionProtocol.VLESS_WS_TLS, ConnectionMode.CHAIN, ConnectionVariant.V5),
         (ConnectionProtocol.VLESS_GRPC_TLS, ConnectionMode.DIRECT, ConnectionVariant.V0),
         (ConnectionProtocol.SHADOWSOCKS2022_SHADOWTLS, ConnectionMode.DIRECT, ConnectionVariant.V3),
@@ -105,6 +110,7 @@ def test_connection_profile_sort_key_groups_created_connections_by_product_order
     assert ordered == [
         (ConnectionProtocol.VLESS_REALITY, ConnectionMode.DIRECT, ConnectionVariant.V1),
         (ConnectionProtocol.HYSTERIA2, ConnectionMode.DIRECT, ConnectionVariant.V2),
+        (ConnectionProtocol.VLESS_REALITY, ConnectionMode.CHAIN, ConnectionVariant.V1),
         (ConnectionProtocol.VLESS_WS_TLS, ConnectionMode.CHAIN, ConnectionVariant.V5),
         (ConnectionProtocol.VLESS_GRPC_TLS, ConnectionMode.DIRECT, ConnectionVariant.V0),
         (ConnectionProtocol.VLESS_WS_TLS, ConnectionMode.DIRECT, ConnectionVariant.V0),

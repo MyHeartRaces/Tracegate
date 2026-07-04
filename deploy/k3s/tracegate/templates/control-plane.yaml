@@ -384,6 +384,8 @@ spec:
             - name: ENABLED_CLIENT_PROFILES
               value: {{ toJson .Values.controlPlane.env.enabledClientProfiles | quote }}
 {{- end }}
+            - name: DEFAULT_REALITY_SNI
+              value: {{ .Values.controlPlane.env.defaultRealitySni | quote }}
             - name: GRAFANA_ENABLED
               value: {{ .Values.controlPlane.env.grafanaEnabled | quote }}
             - name: GRAFANA_INTERNAL_URL

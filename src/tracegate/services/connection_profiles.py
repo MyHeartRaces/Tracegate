@@ -13,6 +13,7 @@ _PROFILE_LIST_ORDER = {
     "reality": 10,
     "hysteria": 20,
     "entry": 30,
+    "entry-ws-legacy": 31,
     "backup-grpc": 110,
     "backup-ws": 120,
     "backup-shadowtls": 130,
@@ -78,7 +79,10 @@ def supported_profile_specs() -> dict[str, tuple[ConnectionProtocol, ConnectionM
     return {
         "reality": (ConnectionProtocol.VLESS_REALITY, ConnectionMode.DIRECT, ConnectionVariant.V1),
         "hysteria": (ConnectionProtocol.HYSTERIA2, ConnectionMode.DIRECT, ConnectionVariant.V2),
-        "entry": (ConnectionProtocol.VLESS_WS_TLS, ConnectionMode.CHAIN, ConnectionVariant.V5),
+        "entry": (ConnectionProtocol.VLESS_REALITY, ConnectionMode.CHAIN, ConnectionVariant.V1),
+        # Existing WS Chain connections remain valid and can be reissued, but
+        # the bot no longer offers this compatibility profile for new connections.
+        "entry-ws-legacy": (ConnectionProtocol.VLESS_WS_TLS, ConnectionMode.CHAIN, ConnectionVariant.V5),
         "backup-grpc": (ConnectionProtocol.VLESS_GRPC_TLS, ConnectionMode.DIRECT, ConnectionVariant.V0),
         "backup-ws": (ConnectionProtocol.VLESS_WS_TLS, ConnectionMode.DIRECT, ConnectionVariant.V0),
         "backup-shadowtls": (
@@ -132,7 +136,8 @@ def enabled_profile_keys(enabled_profile_names: Iterable[str] | None) -> set[str
         aliases = {
             "reality": {"v1direct", "v1-direct-reality-vless"},
             "hysteria": {"v2direct", "v2-direct-quic-hysteria"},
-            "entry": {"universal", "v5-universal-entry", "v5-entry-ws"},
+            "entry": {"universal", "v1chain", "v1-chain-reality-vless"},
+            "entry-ws-legacy": {"v5-universal-entry", "v5-entry-ws"},
             "backup-grpc": {"v0grpc", "v0-grpc-vless"},
             "backup-ws": {"v0ws", "v0-ws-vless"},
             "backup-shadowtls": {"v3direct", "v3-direct-shadowtls-shadowsocks"},

@@ -174,6 +174,9 @@ class Settings(BaseSettings):
         default=None,
         validation_alias=AliasChoices("ENABLED_CLIENT_PROFILES", "CLIENT_PROFILE_NAMES"),
     )
+    # Default camouflage target for REALITY revisions that are not allocated
+    # from an exclusive ingress pool (notably the fixed Entry Chain profile).
+    default_reality_sni: str = "yandex.ru"
 
     # Observability (Grafana is optional; can be deployed via Helm).
     grafana_enabled: bool = False

@@ -2,7 +2,9 @@
 
 > This Cloudflare/gRPC design is retained only as historical and optional
 > reference material. Production Chain issuance uses direct VLESS
-> WebSocket+TLS to Entry (`v5-entry-ws`); Cloudflare is not part of that path.
+> REALITY over raw TCP to Entry (`v1-chain-reality-vless`); Cloudflare is not
+> part of that path. Existing `v5-entry-ws` revisions remain supported as a
+> compatibility surface.
 
 `V5-Universal-Entry` is added in the full phase after the four-IP Endpoint has
 passed direct-profile validation. It replaces a user-visible set of Chain
