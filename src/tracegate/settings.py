@@ -420,10 +420,14 @@ class Settings(BaseSettings):
     endpoint_ingress_hosts: list[str] = Field(default_factory=list)
     entry_ingress_shards: list[dict] = Field(default_factory=list)
     entry_ingress_alias_token_length: int = 20
+    entry_ingress_alias_token_style: str = "hex"
+    entry_ingress_pair_key_scope: str = "sni"
     entry_ingress_exclusive_sni_pairs_enabled: bool = False
     entry_ingress_sni_pool: list[str] = Field(default_factory=list)
     endpoint_ingress_shards: list[dict] = Field(default_factory=list)
     endpoint_ingress_alias_token_length: int = 20
+    endpoint_ingress_alias_token_style: str = "hex"
+    endpoint_ingress_pair_key_scope: str = "sni"
     endpoint_ingress_exclusive_sni_pairs_enabled: bool = False
     endpoint_ingress_sni_pool: list[str] = Field(default_factory=list)
     mtproto_ingress_hosts: list[str] = Field(default_factory=list)

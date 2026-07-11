@@ -163,6 +163,42 @@ async def test_exclusive_endpoint_pair_allocates_direct_shard_alias() -> None:
     assert assignment.host.endswith(f".{assignment.shard_id}.endpoint.test")
 
 
+@pytest.mark.asyncio
+async def test_exclusive_endpoint_pair_can_lease_unique_host_sni_combinations() -> None:
+    settings = _settings()
+    settings.endpoint_ingress_alias_token_style = "word"
+    settings.endpoint_ingress_pair_key_scope = "combination"
+    connection_id = UUID("00000000-0000-0000-0000-000000000790")
+
+    first = await _allocate_entry_ingress_pair(
+        _PairSession(),
+        connection_id=connection_id,
+        rotation_generation=0,
+        settings=settings,
+        role="endpoint",
+    )
+    repeated = await _allocate_entry_ingress_pair(
+        _PairSession(),
+        connection_id=connection_id,
+        rotation_generation=0,
+        settings=settings,
+        role="endpoint",
+    )
+    replacement = await _allocate_entry_ingress_pair(
+        _PairSession([(first.pair_key, {"server": first.host})]),
+        connection_id=connection_id,
+        rotation_generation=0,
+        settings=settings,
+        role="endpoint",
+    )
+
+    assert first == repeated
+    assert replacement.host != first.host
+    assert replacement.pair_key != first.pair_key
+    assert first.host.count("-") == 1
+    assert first.host.endswith(f".{first.shard_id}.endpoint.test")
+
+
 def test_infer_legacy_entry_pair_reserves_active_pre_migration_revision() -> None:
     settings = _settings()
     config = {"server": "private-token.b.tracegate.test", "sni": "www.yandex.ru"}

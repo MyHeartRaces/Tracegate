@@ -25,6 +25,73 @@ from tracegate.settings import get_settings
 
 
 ENTRY_INGRESS_PAIR_LOCK_ID = 6822526267863597649
+INGRESS_ALIAS_WORDS = (
+    "apple",
+    "apricot",
+    "atlas",
+    "autumn",
+    "bamboo",
+    "beacon",
+    "birch",
+    "breeze",
+    "brook",
+    "cedar",
+    "cherry",
+    "cinder",
+    "clover",
+    "copper",
+    "coral",
+    "cosmos",
+    "cotton",
+    "crystal",
+    "daisy",
+    "delta",
+    "ember",
+    "falcon",
+    "field",
+    "forest",
+    "garden",
+    "ginger",
+    "harbor",
+    "hazel",
+    "indigo",
+    "jasmine",
+    "juniper",
+    "lagoon",
+    "laurel",
+    "lemon",
+    "linden",
+    "lotus",
+    "maple",
+    "marble",
+    "meadow",
+    "mercury",
+    "mint",
+    "nebula",
+    "olive",
+    "opal",
+    "orchid",
+    "pearl",
+    "pepper",
+    "pine",
+    "plum",
+    "prairie",
+    "quartz",
+    "raven",
+    "river",
+    "rose",
+    "saffron",
+    "shadow",
+    "signal",
+    "silver",
+    "spruce",
+    "stone",
+    "sunrise",
+    "thistle",
+    "violet",
+    "walnut",
+    "willow",
+)
 
 
 class RevisionError(RuntimeError):
@@ -114,11 +181,11 @@ def _select_revision_sticky_shard_host(
     base_index = int.from_bytes(hashlib.sha256(key).digest()[:8], "big") % len(candidates)
     shard_id, template = candidates[(base_index + max(0, rotation_generation)) % len(candidates)]
     try:
-        token = pseudo_id(
+        token = _derive_ingress_alias_token(
             settings=settings,
-            kind=f"{role}-ingress",
-            raw=f"{connection_id}:{max(0, rotation_generation)}",
-            length=max(8, int(getattr(settings, f"{role}_ingress_alias_token_length"))),
+            role=role,
+            connection_id=connection_id,
+            rotation_generation=rotation_generation,
         )
     except PseudonymError as exc:
         raise RevisionError(f"Unable to derive a private {role.title()} ingress alias") from exc
@@ -147,17 +214,51 @@ def _render_entry_ingress_alias(
     rotation_generation: int,
     settings,
     role: str = "entry",
+    alias_attempt: int = 0,
 ) -> str:
+    token = _derive_ingress_alias_token(
+        settings=settings,
+        role=role,
+        connection_id=connection_id,
+        rotation_generation=rotation_generation,
+        alias_attempt=alias_attempt,
+    )
+    return template.replace("{token}", token).replace("{shard}", shard_id)
+
+
+def _derive_ingress_alias_token(
+    *,
+    settings,
+    role: str,
+    connection_id: UUID,
+    rotation_generation: int,
+    alias_attempt: int = 0,
+) -> str:
+    style = str(getattr(settings, f"{role}_ingress_alias_token_style", "hex") or "hex").strip().lower()
+    raw = f"{connection_id}:{max(0, rotation_generation)}:{max(0, alias_attempt)}"
     try:
-        token = pseudo_id(
+        seed = pseudo_id(
             settings=settings,
             kind=f"{role}-ingress",
-            raw=f"{connection_id}:{max(0, rotation_generation)}",
-            length=max(8, int(getattr(settings, f"{role}_ingress_alias_token_length"))),
+            raw=raw,
+            length=32 if style in {"word", "words", "human"} else max(
+                8,
+                int(getattr(settings, f"{role}_ingress_alias_token_length")),
+            ),
         )
     except PseudonymError as exc:
         raise RevisionError(f"Unable to derive a private {role.title()} ingress alias") from exc
-    return template.replace("{token}", token).replace("{shard}", shard_id)
+
+    if style in {"hex", "hash", "default"}:
+        return seed
+    if style not in {"word", "words", "human"}:
+        raise RevisionError(f"Unsupported {role.title()} ingress alias token style: {style}")
+
+    first_index = int(seed[:8], 16) % len(INGRESS_ALIAS_WORDS)
+    second_index = int(seed[8:16], 16) % (len(INGRESS_ALIAS_WORDS) - 1)
+    if second_index >= first_index:
+        second_index += 1
+    return f"{INGRESS_ALIAS_WORDS[first_index]}-{INGRESS_ALIAS_WORDS[second_index]}"
 
 
 def _exclusive_sni_pool(settings, *, role: str = "entry") -> list[SniCatalogEntry]:
@@ -187,11 +288,34 @@ def _exclusive_sni_pool(settings, *, role: str = "entry") -> list[SniCatalogEntr
     return [by_fqdn[fqdn] for fqdn in requested]
 
 
-def _entry_ingress_pair_key(public_ip: str, sni_fqdn: str) -> str:
-    return hashlib.sha256(f"{public_ip}|{sni_fqdn.lower()}".encode()).hexdigest()
+def _ingress_pair_key_scope(settings, *, role: str) -> str:
+    scope = str(getattr(settings, f"{role}_ingress_pair_key_scope", "sni") or "sni").strip().lower()
+    if scope in {"sni", "ip-sni", "legacy"}:
+        return "sni"
+    if scope in {"combination", "combo", "host-sni", "host_sni"}:
+        return "combination"
+    raise RevisionError(f"Unsupported {role.title()} ingress pair key scope: {scope}")
 
 
-def _infer_legacy_entry_pair(config: dict, shards: list[dict]) -> tuple[str, str] | None:
+def _entry_ingress_pair_key(
+    public_ip: str,
+    sni_fqdn: str,
+    *,
+    host: str | None = None,
+    scope: str = "sni",
+) -> str:
+    normalized_scope = str(scope or "sni").strip().lower()
+    if normalized_scope in {"combination", "combo", "host-sni", "host_sni"}:
+        normalized_host = str(host or "").strip().lower().rstrip(".")
+        if not normalized_host:
+            raise RevisionError("Combination ingress pair keys require a generated host alias")
+        material = f"{public_ip}|{normalized_host}|{sni_fqdn.lower()}"
+    else:
+        material = f"{public_ip}|{sni_fqdn.lower()}"
+    return hashlib.sha256(material.encode()).hexdigest()
+
+
+def _infer_legacy_entry_pair(config: dict, shards: list[dict], *, settings=None, role: str = "entry") -> tuple[str, str] | None:
     if not isinstance(config, dict):
         return None
     host = str(config.get("server") or "").strip().lower()
@@ -217,7 +341,8 @@ def _infer_legacy_entry_pair(config: dict, shards: list[dict]) -> tuple[str, str
         prefix, suffix = rendered.split("{token}", 1)
         token_length = len(host) - len(prefix) - len(suffix)
         if token_length > 0 and host.startswith(prefix) and host.endswith(suffix):
-            return _entry_ingress_pair_key(assigned_public_ip or public_ip, sni), shard_id
+            scope = _ingress_pair_key_scope(settings, role=role) if settings is not None else "sni"
+            return _entry_ingress_pair_key(assigned_public_ip or public_ip, sni, host=host, scope=scope), shard_id
     return None
 
 
@@ -261,27 +386,36 @@ async def _allocate_entry_ingress_pair(
     if not shards:
         raise RevisionError(f"Exclusive {role.title()} shard/SNI allocation requires at least one active shard")
     sni_pool = _exclusive_sni_pool(settings, role=role)
+    pair_key_scope = _ingress_pair_key_scope(settings, role=role)
+    alias_attempts = 16 if pair_key_scope == "combination" else 1
 
     candidates: list[EntryIngressPairAssignment] = []
     for shard_id, template, public_ip in shards:
-        host = _render_entry_ingress_alias(
-            shard_id=shard_id,
-            template=template,
-            connection_id=connection_id,
-            rotation_generation=rotation_generation,
-            settings=settings,
-            role=role,
-        )
-        for sni in sni_pool:
-            candidates.append(
-                EntryIngressPairAssignment(
-                    pair_key=_entry_ingress_pair_key(public_ip, sni.fqdn),
-                    shard_id=shard_id,
-                    public_ip=public_ip,
-                    host=host,
-                    sni=sni,
-                )
+        for alias_attempt in range(alias_attempts):
+            host = _render_entry_ingress_alias(
+                shard_id=shard_id,
+                template=template,
+                connection_id=connection_id,
+                rotation_generation=rotation_generation,
+                settings=settings,
+                role=role,
+                alias_attempt=alias_attempt,
             )
+            for sni in sni_pool:
+                candidates.append(
+                    EntryIngressPairAssignment(
+                        pair_key=_entry_ingress_pair_key(
+                            public_ip,
+                            sni.fqdn,
+                            host=host,
+                            scope=pair_key_scope,
+                        ),
+                        shard_id=shard_id,
+                        public_ip=public_ip,
+                        host=host,
+                        sni=sni,
+                    )
+                )
 
     seed = hashlib.sha256(f"{connection_id}:{rotation_generation}:{role}-sni-pair".encode()).digest()
     start = int.from_bytes(seed[:8], "big") % len(candidates)
@@ -294,15 +428,25 @@ async def _allocate_entry_ingress_pair(
         )
     )
     used: set[str] = set()
+    used_hosts: set[str] = set()
     for pair_key, config in used_result.all():
+        if isinstance(config, dict):
+            server = str(config.get("server") or "").strip().lower().rstrip(".")
+            if server:
+                used_hosts.add(server)
         if pair_key:
             used.add(str(pair_key))
             continue
-        inferred = _infer_legacy_entry_pair(config or {}, getattr(settings, f"{role}_ingress_shards"))
+        inferred = _infer_legacy_entry_pair(
+            config or {},
+            getattr(settings, f"{role}_ingress_shards"),
+            settings=settings,
+            role=role,
+        )
         if inferred is not None:
             used.add(inferred[0])
     for candidate in ordered:
-        if candidate.pair_key not in used:
+        if candidate.pair_key not in used and candidate.host.lower().rstrip(".") not in used_hosts:
             return candidate
     raise RevisionError(
         f"Exclusive {role.title()} shard/SNI pool is exhausted ({len(candidates)} active-pair capacity)"
@@ -314,9 +458,9 @@ async def _ensure_ingress_pair_available(session: AsyncSession, revision: Connec
     if not pair_key:
         settings = get_settings()
         config = getattr(revision, "effective_config_json", {}) or {}
-        inferred = _infer_legacy_entry_pair(config, settings.entry_ingress_shards)
+        inferred = _infer_legacy_entry_pair(config, settings.entry_ingress_shards, settings=settings, role="entry")
         if inferred is None:
-            inferred = _infer_legacy_entry_pair(config, settings.endpoint_ingress_shards)
+            inferred = _infer_legacy_entry_pair(config, settings.endpoint_ingress_shards, settings=settings, role="endpoint")
         if inferred is not None:
             pair_key, revision.ingress_shard_id = inferred
             revision.ingress_pair_key = pair_key
@@ -732,6 +876,7 @@ async def create_revision(
         effective_config[f"{pair_role}_ingress_assignment"] = {
             "shard_id": pair_assignment.shard_id,
             "public_ip": pair_assignment.public_ip,
+            "host": pair_assignment.host,
             "sni_id": pair_assignment.sni.id,
         }
     revision = ConnectionRevision(
