@@ -47,6 +47,8 @@ def test_export_vless_reality_uri() -> None:
     assert attachment["outbounds"][0]["streamSettings"]["network"] == "raw"
     assert attachment["outbounds"][0]["settings"]["vnext"][0]["users"][0]["flow"] == "xtls-rprx-vision"
     assert attachment["outbounds"][0]["streamSettings"]["realitySettings"]["serverName"] == "yandex.ru"
+    assert attachment["outbounds"][0]["streamSettings"]["realitySettings"]["password"] == "PUBKEY"
+    assert "publicKey" not in attachment["outbounds"][0]["streamSettings"]["realitySettings"]
 
 
 def test_export_vless_reality_rejects_removed_vless_encryption() -> None:

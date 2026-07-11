@@ -256,6 +256,34 @@ def test_build_mtproto_telemt_config_enables_faketls_masking_and_per_user_secret
     assert '"tg_102" = "fedcba98765432100123456789abcdef"' in config.config_text
 
 
+def test_build_mtproto_telemt_config_is_fail_closed_through_socks5() -> None:
+    config = build_mtproto_telemt_config(
+        listen_port=9443,
+        tls_domain="tracegate.test",
+        primary_secret_hex="95f0d81f7539ecbe1bd880f48b6a739a",
+        socks5_proxy="socks5://127.0.0.1:11084",
+        mask_host="tracegate.test",
+    )
+
+    assert config.client_secret_hex.startswith("ee95f0d81f7539ecbe1bd880f48b6a739a")
+    assert "use_middle_proxy = false" in config.config_text
+    assert "[[upstreams]]" in config.config_text
+    assert 'type = "socks5"' in config.config_text
+    assert 'address = "127.0.0.1:11084"' in config.config_text
+    assert "enabled = true" in config.config_text
+
+
+def test_build_mtproto_telemt_config_rejects_invalid_proxy_scheme() -> None:
+    with pytest.raises(MTProtoConfigError, match="socks5"):
+        build_mtproto_telemt_config(
+            listen_port=9443,
+            tls_domain="tracegate.test",
+            primary_secret_hex="95f0d81f7539ecbe1bd880f48b6a739a",
+            socks5_proxy="http://127.0.0.1:11084",
+            mask_host="tracegate.test",
+        )
+
+
 def test_build_mtproto_official_proxy_command_accepts_primary_and_issued_secrets() -> None:
     command = build_mtproto_official_proxy_command(
         binary="/opt/MTProxy/objs/bin/mtproto-proxy",

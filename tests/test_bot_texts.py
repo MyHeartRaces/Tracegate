@@ -631,7 +631,7 @@ async def test_send_client_config_sends_shadowsocks_uri_and_prefers_singbox_atta
 
 
 @pytest.mark.asyncio
-async def test_send_client_config_includes_universal_url_when_public_base_is_configured(
+async def test_send_client_config_omits_universal_url_block(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     async def _get_connection(_connection_id: str) -> dict:
@@ -660,10 +660,6 @@ async def test_send_client_config_includes_universal_url_when_public_base_is_con
     monkeypatch.setattr(main.api, "get_connection", _get_connection)
     monkeypatch.setattr(main, "export_client_config", lambda _effective: exported)
     monkeypatch.setattr(main, "_build_qr_png", lambda payload: payload.encode("utf-8"))
-    monkeypatch.setattr(main.settings, "public_base_url", "https://tg.example/")
-    monkeypatch.setattr(main.settings, "pseudonym_secret", "client-config-secret")
-    monkeypatch.setattr(main.settings, "api_internal_token", "")
-
     callback = _DummyCallback("send")
     await main._send_client_config(
         callback,
@@ -677,11 +673,8 @@ async def test_send_client_config_includes_universal_url_when_public_base_is_con
     )
 
     messages = [str(args[0]) for args, _kwargs in callback.message.answer_calls]
-    universal = next(message for message in messages if message.startswith("Universal import URL"))
-    assert "https://tg.example/client-config/" in universal
-    assert "?format=json" in universal
-    assert "?format=singbox" in universal
-    assert "?format=base64" in universal
+    assert not any(message.startswith("Universal import URL") for message in messages)
+    assert any("vless://user@example.com:443" in message for message in messages)
 
 
 @pytest.mark.asyncio

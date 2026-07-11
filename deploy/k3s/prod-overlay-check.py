@@ -1235,7 +1235,10 @@ def validate_prod_overlay(chart_values: Path, prod_values: Path, *, strict: bool
             )
     if mtproto_route_mode == "entry-local-endpoint-egress":
         mtproto_egress_shadowtls = _as_dict(mtproto_egress.get("shadowtls"))
-        require(_text(mtproto.get("runtime")) == "mtg", "entry-local-endpoint-egress requires mtproto.runtime=mtg")
+        require(
+            _text(mtproto.get("runtime")).lower() in {"mtg", "telemt"},
+            "entry-local-endpoint-egress requires mtproto.runtime=mtg or telemt",
+        )
         require(
             bool(_as_dict(interconnect.get("endpointBackhaul")).get("enabled", False)),
             "entry-local-endpoint-egress requires interconnect.endpointBackhaul.enabled=true",

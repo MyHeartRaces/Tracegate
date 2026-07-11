@@ -3085,6 +3085,47 @@ def test_telemt_runtime_renders_faketls_container_and_hardened_probe(tmp_path: P
     assert "server mtproto 127.0.0.1:9443 check send-proxy-v2" in rendered.stdout
 
 
+def test_entry_local_telemt_routes_egress_through_endpoint_socks(tmp_path: Path) -> None:
+    rendered = _helm_template_with_values(
+        tmp_path,
+        {
+            "mtproto": {
+                "runtime": "telemt",
+                "domain": "proto.tracegate.test",
+                "tlsDomain": "tracegate.test",
+                "stealth": {"validatedTlsDomains": ["tracegate.test"]},
+                "publicPort": 443,
+                "fallback": {"enabled": False},
+                "egress": {
+                    "mode": "socks5-only",
+                    "socksPort": 11084,
+                    "domainFrontingHost": "tracegate.test",
+                    "domainFrontingPort": 443,
+                },
+                "route": {"mode": "entry-local-endpoint-egress"},
+            },
+            "interconnect": {"endpointBackhaul": _enabled_endpoint_backhaul()},
+            "shadowsocks2022": {"enabled": True},
+        },
+    )
+
+    assert rendered.returncode == 0, rendered.stderr
+    entry = _deployment_by_component(rendered.stdout, "gateway-entry")
+    transit = _deployment_by_component(rendered.stdout, "gateway-transit")
+    entry_containers = _containers_by_name(entry["spec"]["template"])
+    transit_containers = _containers_by_name(transit["spec"]["template"])
+
+    assert "telemt" in entry_containers
+    assert "telemt" not in transit_containers
+    assert "mtproto" not in transit_containers
+    assert "use_middle_proxy = false" in rendered.stdout
+    assert "[[upstreams]]" in rendered.stdout
+    assert 'type = "socks5"' in rendered.stdout
+    assert 'address = "127.0.0.1:11084"' in rendered.stdout
+    assert '"tag": "mtproto-egress-socks-in"' in rendered.stdout
+    assert '"inboundTag": ["mtproto-egress-socks-in"], "balancerTag": "endpoint-backhaul"' in rendered.stdout
+
+
 def test_direct_hysteria_salamander_renders_only_on_endpoint(tmp_path: Path) -> None:
     rendered = _helm_template_with_values(tmp_path, {})
 

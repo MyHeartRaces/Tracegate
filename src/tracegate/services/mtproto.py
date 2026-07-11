@@ -5,7 +5,7 @@ import json
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlparse
 
 
 class MTProtoConfigError(ValueError):
@@ -327,6 +327,7 @@ def build_mtproto_telemt_config(
     listen_port: int,
     tls_domain: str,
     primary_secret_hex: str,
+    socks5_proxy: str = "",
     issued_secrets: tuple[MTProtoIssuedSecret, ...] | list[MTProtoIssuedSecret] = (),
     mask_host: str = "",
     mask_port: int = 443,
@@ -359,9 +360,28 @@ def build_mtproto_telemt_config(
     normalized_tls_domain = normalize_mtproto_domain(tls_domain)
     normalized_mask_host = normalize_mtproto_domain(mask_host or normalized_tls_domain)
     normalized_public_host = normalize_mtproto_domain(public_host or normalized_tls_domain)
+    tls_dns_override_ip = ""
+    try:
+        mask_ip = ipaddress.ip_address(normalized_mask_host)
+    except ValueError:
+        mask_ip = None
+    if mask_ip is not None and mask_ip.is_loopback:
+        tls_dns_override_ip = str(mask_ip)
     primary_secret = _normalize_hex(primary_secret_hex)
     if len(primary_secret) != 32:
         raise MTProtoConfigError("Telemt primary secret must contain exactly 16 bytes in hex")
+
+    proxy = str(socks5_proxy or "").strip()
+    proxy_address = ""
+    proxy_username = ""
+    proxy_password = ""
+    if proxy:
+        parsed_proxy = urlparse(proxy)
+        if parsed_proxy.scheme != "socks5" or not parsed_proxy.hostname or not parsed_proxy.port:
+            raise MTProtoConfigError("Telemt egress proxy must be a non-empty socks5://host:port URL when configured")
+        proxy_address = f"{parsed_proxy.hostname}:{parsed_proxy.port}"
+        proxy_username = parsed_proxy.username or ""
+        proxy_password = parsed_proxy.password or ""
 
     users: list[tuple[str, str]] = [("bootstrap", primary_secret)]
     seen = {primary_secret}
@@ -387,7 +407,7 @@ def build_mtproto_telemt_config(
         "config_strict = true",
         "prefer_ipv6 = false",
         "fast_mode = true",
-        "use_middle_proxy = true",
+        f"use_middle_proxy = {'false' if proxy_address else 'true'}",
         "me2dc_fallback = true",
         'log_level = "normal"',
         "",
@@ -401,29 +421,62 @@ def build_mtproto_telemt_config(
         f"public_host = {_toml_string(normalized_public_host)}",
         f"public_port = {int(public_port)}",
         "",
-        "[server]",
-        f"port = {int(listen_port)}",
-        f"listen_addr_ipv4 = {_toml_string(bind_ip)}",
-        "proxy_protocol = true",
-        "proxy_protocol_header_timeout_ms = 1000",
-        'proxy_protocol_trusted_cidrs = ["127.0.0.1/32", "::1/128"]',
-        f"metrics_listen = {_toml_string(f'127.0.0.1:{int(metrics_port)}')}",
-        "",
-        "[server.api]",
-        "enabled = false",
-        "",
-        "[censorship]",
-        f"tls_domain = {_toml_string(normalized_tls_domain)}",
-        "mask = true",
-        f"mask_host = {_toml_string(normalized_mask_host)}",
-        f"mask_port = {int(mask_port)}",
-        "tls_emulation = true",
-        f"tls_front_dir = {_toml_string(str(tls_front_dir or '').strip())}",
-        "",
-        "[access.users]",
     ]
+    if tls_dns_override_ip:
+        lines.extend(
+            [
+                "[network]",
+                "ipv6 = false",
+                "prefer = 4",
+                f"dns_overrides = [{_toml_string(f'{normalized_tls_domain}:443:{tls_dns_override_ip}')}]",
+                "",
+            ]
+        )
+    lines.extend(
+        [
+            "[server]",
+            f"port = {int(listen_port)}",
+            f"listen_addr_ipv4 = {_toml_string(bind_ip)}",
+            "proxy_protocol = true",
+            "proxy_protocol_header_timeout_ms = 1000",
+            'proxy_protocol_trusted_cidrs = ["127.0.0.1/32", "::1/128"]',
+            f"metrics_listen = {_toml_string(f'127.0.0.1:{int(metrics_port)}')}",
+            "",
+            "[server.api]",
+            "enabled = false",
+            "",
+            "[censorship]",
+            f"tls_domain = {_toml_string(normalized_tls_domain)}",
+            "mask = true",
+            f"mask_host = {_toml_string(normalized_mask_host)}",
+            f"mask_port = {int(mask_port)}",
+            "tls_emulation = true",
+            f"tls_front_dir = {_toml_string(str(tls_front_dir or '').strip())}",
+            "",
+            "[access.users]",
+        ]
+    )
     lines.extend(f"{_toml_string(username)} = {_toml_string(secret_hex)}" for username, secret_hex in users)
     lines.append("")
+    if proxy_address:
+        lines.extend(
+            [
+                "[[upstreams]]",
+                'type = "socks5"',
+                f"address = {_toml_string(proxy_address)}",
+            ]
+        )
+        if proxy_username:
+            lines.append(f"username = {_toml_string(proxy_username)}")
+        if proxy_password:
+            lines.append(f"password = {_toml_string(proxy_password)}")
+        lines.extend(
+            [
+                "weight = 1",
+                "enabled = true",
+                "",
+            ]
+        )
     return MTProtoTelemtConfig(config_text="\n".join(lines), client_secret_hex=client_secret)
 
 

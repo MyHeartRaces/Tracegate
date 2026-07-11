@@ -1547,11 +1547,17 @@ def _write_mtproto_state(
             elif mtproto_runtime == "telemt":
                 if mtproto_transport != "tls":
                     raise MTProtoConfigError("Telemt runtime requires TLS/FakeTLS MTProto transport")
+                egress_proxy = (
+                    f"socks5://127.0.0.1:{int(settings.mtproto_egress_socks_port or 11084)}"
+                    if mtproto_route_mode == "entry-local-endpoint-egress"
+                    else ""
+                )
                 mtg_config = build_mtproto_telemt_config(
                     listen_port=int(payload["upstreamPort"]),
                     listen_ip=str(payload["upstreamHost"]),
                     tls_domain=normalized_tls_domain,
                     primary_secret_hex=server_secret_hex,
+                    socks5_proxy=egress_proxy,
                     issued_secrets=load_mtproto_issued_secret_entries(issued_state_file),
                     mask_host=settings.mtproto_domain_fronting_host or normalized_tls_domain,
                     mask_port=int(settings.mtproto_domain_fronting_port or 443),

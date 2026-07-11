@@ -622,7 +622,11 @@ spec:
                 printf '%s\n' 'config_strict = true'
                 printf '%s\n' 'prefer_ipv6 = false'
                 printf '%s\n' 'fast_mode = true'
+{{- if eq $mtprotoRouteMode "entry-local-endpoint-egress" }}
+                printf '%s\n' 'use_middle_proxy = false'
+{{- else }}
                 printf '%s\n' 'use_middle_proxy = true'
+{{- end }}
                 printf '%s\n' 'me2dc_fallback = true'
                 printf '%s\n' 'log_level = "normal"'
                 printf '%s\n' ''
@@ -657,6 +661,14 @@ spec:
                 printf '%s\n' ''
                 printf '%s\n' '[access.users]'
                 printf '"bootstrap" = "%s"\n' "${mtproto_secret}"
+{{- if eq $mtprotoRouteMode "entry-local-endpoint-egress" }}
+                printf '%s\n' ''
+                printf '%s\n' '[[upstreams]]'
+                printf '%s\n' 'type = "socks5"'
+                printf '%s\n' 'address = "127.0.0.1:{{ $mtprotoEgressSocksPort }}"'
+                printf '%s\n' 'weight = 1'
+                printf '%s\n' 'enabled = true'
+{{- end }}
               } > "${mtproto_config}"
 {{- end }}
 {{- end }}

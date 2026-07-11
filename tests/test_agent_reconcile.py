@@ -1351,6 +1351,44 @@ def test_reconcile_materializes_telemt_with_per_user_hot_reload_config(tmp_path:
     assert 'mask_host = "2gis.ru"' in config
 
 
+def test_reconcile_materializes_entry_local_telemt_egress_through_socks5(tmp_path: Path) -> None:
+    settings = Settings(
+        agent_data_root=str(tmp_path),
+        agent_runtime_mode="systemd",
+        agent_role="ENTRY",
+        agent_runtime_profile="xray-centric",
+        default_entry_host="tracegate.test",
+        mtproto_domain="tracegate.test",
+        mtproto_tls_domain="tracegate.test",
+        mtproto_transport="tls",
+        mtproto_public_port=443,
+        mtproto_route_mode="entry-local-endpoint-egress",
+        mtproto_domain_fronting_host="127.0.0.1",
+        mtproto_domain_fronting_port=10443,
+        mtproto_egress_socks_port=11084,
+        private_mtproto_runtime="telemt",
+        private_mtproto_secret_file=str(tmp_path / "secrets" / "mtproto.txt"),
+    )
+
+    _write(tmp_path / "secrets" / "mtproto.txt", "00112233445566778899aabbccddeeff")
+    _write(
+        tmp_path / "base/xray/config.json",
+        json.dumps({"inbounds": [], "outbounds": [{"tag": "direct", "protocol": "freedom"}], "routing": {"rules": []}}),
+    )
+    _write(tmp_path / "base/nginx/nginx.conf", "events {}\nhttp {}\n")
+    _write(tmp_path / "base/haproxy/haproxy.cfg", "frontend fe\n  bind :443\n")
+
+    reconcile_all(settings)
+
+    config = (tmp_path / "private/mtproto/runtime/config.toml").read_text(encoding="utf-8")
+
+    assert "use_middle_proxy = false" in config
+    assert "[[upstreams]]" in config
+    assert 'type = "socks5"' in config
+    assert 'address = "127.0.0.1:11084"' in config
+    assert 'dns_overrides = ["tracegate.test:443:127.0.0.1"]' in config
+
+
 def test_reconcile_emits_obfuscation_change_only_when_reload_hook_is_configured(tmp_path: Path) -> None:
     settings = Settings(
         agent_data_root=str(tmp_path),

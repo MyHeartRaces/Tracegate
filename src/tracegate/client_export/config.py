@@ -671,7 +671,7 @@ def _export_vless_reality(effective: dict[str, Any]) -> ExportResult:
                 "realitySettings": {
                     "serverName": sni,
                     "fingerprint": "chrome",
-                    "publicKey": pbk,
+                    "password": pbk,
                     "shortId": sid,
                     "spiderX": "/",
                 },
