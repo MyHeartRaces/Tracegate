@@ -366,6 +366,9 @@ class MaterializedBundleRenderContext:
     mtproto_domain: str
     mtproto_tls_domain: str
     mtproto_upstream: str
+    mtproto_route_mode: str
+    mtproto_egress_socks_port: int
+    mtproto_entry_backhaul_uuid: str
     decoy_dir: str
     transit_decoy_agent_upstream: str
     transit_decoy_secret_path: str
@@ -523,6 +526,19 @@ class MaterializedBundleRenderContext:
             or "127.0.0.1:9443",
             label="MTPROTO_HAPROXY_UPSTREAM",
         )
+        mtproto_route_mode = _first(env, "MTPROTO_ROUTE_MODE", default="entry-endpoint-tunnel")
+        mtproto_egress_socks_port = _int_env(
+            env,
+            "MTPROTO_EGRESS_SOCKS_PORT",
+            default=11084,
+            min_value=1,
+            max_value=65535,
+        )
+        mtproto_entry_backhaul_uuid = _first(env, "MTPROTO_ENTRY_BACKHAUL_UUID", "MTPROTO_BACKHAUL_UUID")
+        if mtproto_route_mode == "entry-local-endpoint-egress" and mtproto_domain and not mtproto_entry_backhaul_uuid:
+            raise MaterializedBundleRenderError(
+                "MTPROTO_ENTRY_BACKHAUL_UUID or MTPROTO_BACKHAUL_UUID is required for entry-local-endpoint-egress"
+            )
         decoy_dir = _first(env, "XRAY_CENTRIC_DECOY_DIR", default="/var/www/decoy") or "/var/www/decoy"
         transit_decoy_agent_upstream = _first(
             env,
@@ -586,6 +602,9 @@ class MaterializedBundleRenderContext:
             mtproto_domain=mtproto_domain,
             mtproto_tls_domain=mtproto_tls_domain,
             mtproto_upstream=mtproto_upstream,
+            mtproto_route_mode=mtproto_route_mode,
+            mtproto_egress_socks_port=mtproto_egress_socks_port,
+            mtproto_entry_backhaul_uuid=mtproto_entry_backhaul_uuid,
             decoy_dir=decoy_dir,
             transit_decoy_agent_upstream=transit_decoy_agent_upstream,
             transit_decoy_secret_path=transit_decoy_secret_path,
@@ -644,7 +663,11 @@ def _role_public_units_for_profile(role_lower: str, runtime_profile: str) -> lis
 
 def _role_private_companions(ctx: "MaterializedBundleRenderContext", role_lower: str) -> list[str]:
     units = [f"tracegate-obfuscation@{role_lower}"]
-    if role_lower == "transit" and str(ctx.mtproto_domain or "").strip():
+    mtproto_enabled = bool(str(ctx.mtproto_domain or "").strip())
+    entry_local_mtproto = ctx.mtproto_route_mode == "entry-local-endpoint-egress"
+    if role_lower == "entry" and mtproto_enabled and entry_local_mtproto:
+        units.append("tracegate-mtproto@entry")
+    if role_lower == "transit" and mtproto_enabled and not entry_local_mtproto:
         units.extend(["tracegate-fronting@transit", "tracegate-mtproto@transit"])
     return units
 
@@ -688,9 +711,23 @@ def _materialized_manifest_payload(ctx: "MaterializedBundleRenderContext") -> di
                     "hysteriaGeckoEnabled": ctx.runtime_profile == "tracegate-3",
                     "finalMaskEnabled": finalmask_enabled,
                     "echEnabled": ech_enabled,
-                    "mtprotoFrontingEnabled": role_upper == "TRANSIT" and bool(str(ctx.mtproto_domain or "").strip()),
-                    "mtprotoDomain": str(ctx.mtproto_domain or "").strip() if role_upper == "TRANSIT" else "",
-                    "mtprotoTlsDomain": str(ctx.mtproto_tls_domain or ctx.mtproto_domain or "").strip() if role_upper == "TRANSIT" else "",
+                    "mtprotoFrontingEnabled": bool(str(ctx.mtproto_domain or "").strip())
+                    and (
+                        (role_upper == "ENTRY" and ctx.mtproto_route_mode == "entry-local-endpoint-egress")
+                        or (role_upper == "TRANSIT" and ctx.mtproto_route_mode != "entry-local-endpoint-egress")
+                    ),
+                    "mtprotoDomain": str(ctx.mtproto_domain or "").strip()
+                    if (
+                        (role_upper == "ENTRY" and ctx.mtproto_route_mode == "entry-local-endpoint-egress")
+                        or (role_upper == "TRANSIT" and ctx.mtproto_route_mode != "entry-local-endpoint-egress")
+                    )
+                    else "",
+                    "mtprotoTlsDomain": str(ctx.mtproto_tls_domain or ctx.mtproto_domain or "").strip()
+                    if (
+                        (role_upper == "ENTRY" and ctx.mtproto_route_mode == "entry-local-endpoint-egress")
+                        or (role_upper == "TRANSIT" and ctx.mtproto_route_mode != "entry-local-endpoint-egress")
+                    )
+                    else "",
                     "decoyDir": str(ctx.decoy_dir or "").strip(),
                     "transitDecoySecretPath": ctx.transit_decoy_secret_path if role_upper == "TRANSIT" else "",
                 },
@@ -991,6 +1028,58 @@ def render_materialized_bundles(ctx: MaterializedBundleRenderContext) -> None:
         reality["serverName"] = ctx.reality_server_name_transit
         reality["publicKey"] = ctx.reality_public_key_transit
         reality["shortId"] = ctx.reality_short_id_transit
+    if ctx.mtproto_route_mode == "entry-local-endpoint-egress" and ctx.mtproto_domain:
+        entry_xray.setdefault("inbounds", []).append(
+            {
+                "tag": "mtproto-egress-socks-in",
+                "listen": "127.0.0.1",
+                "port": ctx.mtproto_egress_socks_port,
+                "protocol": "socks",
+                "settings": {"auth": "noauth", "udp": False},
+                "sniffing": {"enabled": False},
+            }
+        )
+        entry_xray.setdefault("outbounds", []).append(
+            {
+                "tag": "mtproto-egress-endpoint-ws",
+                "protocol": "vless",
+                "settings": {
+                    "vnext": [
+                        {
+                            "address": ctx.transit_host,
+                            "port": 443,
+                            "users": [
+                                {
+                                    "id": ctx.mtproto_entry_backhaul_uuid,
+                                    "encryption": "none",
+                                }
+                            ],
+                        }
+                    ]
+                },
+                "streamSettings": {
+                    "network": "ws",
+                    "security": "tls",
+                    "tlsSettings": {
+                        "serverName": ctx.transit_tls_server_name,
+                        "allowInsecure": False,
+                        "alpn": ["http/1.1"],
+                    },
+                    "wsSettings": {
+                        "path": ctx.ws_path,
+                        "headers": {"Host": ctx.transit_tls_server_name},
+                    },
+                },
+            }
+        )
+        entry_xray.setdefault("routing", {}).setdefault("rules", []).insert(
+            0,
+            {
+                "type": "field",
+                "inboundTag": ["mtproto-egress-socks-in"],
+                "outboundTag": "mtproto-egress-endpoint-ws",
+            },
+        )
     _materialize_reality_groups(
         entry_xray,
         source_tag="entry-in",
@@ -1009,6 +1098,20 @@ def render_materialized_bundles(ctx: MaterializedBundleRenderContext) -> None:
         "REPLACE_TLS_SERVER_NAME",
         ctx.entry_tls_server_name,
     )
+    entry_mtproto_acl = ""
+    entry_mtproto_route = ""
+    entry_mtproto_backend = ""
+    entry_mtproto_sni = str(ctx.mtproto_tls_domain or ctx.mtproto_domain or "").strip()
+    if ctx.mtproto_route_mode == "entry-local-endpoint-egress" and ctx.mtproto_domain:
+        entry_mtproto_acl = f"  acl mtproto_tls_sni req.ssl_sni -i {entry_mtproto_sni}"
+        entry_mtproto_route = "  use_backend be_mtproto_tls if mtproto_tls_sni"
+        entry_mtproto_backend = (
+            f"\nbackend be_mtproto_tls\n"
+            f"  server mtproto {ctx.mtproto_upstream} check send-proxy-v2\n"
+        )
+    entry_haproxy = entry_haproxy.replace("REPLACE_ENTRY_MTPROTO_ACL", entry_mtproto_acl)
+    entry_haproxy = entry_haproxy.replace("REPLACE_ENTRY_MTPROTO_ROUTE", entry_mtproto_route)
+    entry_haproxy = entry_haproxy.replace("REPLACE_ENTRY_MTPROTO_BACKEND", entry_mtproto_backend)
     entry_haproxy = entry_haproxy.replace("REPLACE_REALITY_ACLS", entry_reality_acls)
     entry_haproxy = entry_haproxy.replace("REPLACE_REALITY_ROUTES", entry_reality_routes)
     entry_haproxy = entry_haproxy.replace("REPLACE_REALITY_BACKENDS", entry_reality_backends)
@@ -1066,7 +1169,7 @@ def render_materialized_bundles(ctx: MaterializedBundleRenderContext) -> None:
     mtproto_route = ""
     mtproto_backend = ""
     mtproto_sni = str(ctx.mtproto_tls_domain or ctx.mtproto_domain or "").strip()
-    if ctx.mtproto_domain:
+    if ctx.mtproto_domain and ctx.mtproto_route_mode != "entry-local-endpoint-egress":
         mtproto_acl = f"  acl mtproto_sni req.ssl_sni -i {mtproto_sni}"
         mtproto_route = "  use_backend be_transit_mtproto if mtproto_sni"
         mtproto_backend = (

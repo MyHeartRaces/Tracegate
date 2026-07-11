@@ -288,6 +288,53 @@ def test_render_materialized_bundles_rewrites_runtime_files(tmp_path: Path) -> N
     assert not any(path.startswith("decoy/") for path in transit_files)
 
 
+def test_render_materialized_bundles_routes_entry_local_mtproto_through_endpoint_ws_backhaul(
+    tmp_path: Path,
+) -> None:
+    env = _base_env(tmp_path)
+    env["MTPROTO_ROUTE_MODE"] = "entry-local-endpoint-egress"
+    env["MTPROTO_TLS_DOMAIN"] = "2gis.example"
+    env["MTPROTO_EGRESS_SOCKS_PORT"] = "11084"
+    env["MTPROTO_ENTRY_BACKHAUL_UUID"] = "11111111-1111-4111-8111-111111111111"
+
+    ctx = MaterializedBundleRenderContext.from_environ(env)
+    render_materialized_bundles(ctx)
+
+    entry_xray = json.loads((ctx.materialized_root / "base-entry" / "xray.json").read_text(encoding="utf-8"))
+    entry_haproxy = (ctx.materialized_root / "base-entry" / "haproxy.cfg").read_text(encoding="utf-8")
+    transit_haproxy = (ctx.materialized_root / "base-transit" / "haproxy.cfg").read_text(encoding="utf-8")
+    manifest = json.loads((ctx.materialized_root / ".tracegate-deploy-manifest.json").read_text(encoding="utf-8"))
+
+    entry_inbounds = {row["tag"]: row for row in entry_xray["inbounds"]}
+    entry_outbounds = {row["tag"]: row for row in entry_xray["outbounds"]}
+    mtproto_socks = entry_inbounds["mtproto-egress-socks-in"]
+    mtproto_backhaul = entry_outbounds["mtproto-egress-endpoint-ws"]
+
+    assert mtproto_socks["listen"] == "127.0.0.1"
+    assert mtproto_socks["port"] == 11084
+    assert mtproto_socks["protocol"] == "socks"
+    assert mtproto_backhaul["settings"]["vnext"][0]["address"] == "transit.tracegate.test"
+    assert mtproto_backhaul["settings"]["vnext"][0]["users"][0]["id"] == "11111111-1111-4111-8111-111111111111"
+    assert mtproto_backhaul["streamSettings"]["network"] == "ws"
+    assert mtproto_backhaul["streamSettings"]["tlsSettings"]["serverName"] == "tls-transit.example"
+    assert mtproto_backhaul["streamSettings"]["wsSettings"]["path"] == "/stealth/ws"
+    assert entry_xray["routing"]["rules"][0] == {
+        "type": "field",
+        "inboundTag": ["mtproto-egress-socks-in"],
+        "outboundTag": "mtproto-egress-endpoint-ws",
+    }
+    assert "acl mtproto_tls_sni req.ssl_sni -i 2gis.example" in entry_haproxy
+    assert "use_backend be_mtproto_tls if mtproto_tls_sni" in entry_haproxy
+    assert "server mtproto 127.0.0.1:9443 check send-proxy-v2" in entry_haproxy
+    assert "be_transit_mtproto" not in transit_haproxy
+
+    bundles = {row["role"]: row for row in manifest["bundles"]}
+    assert "tracegate-mtproto@entry" in bundles["ENTRY"]["privateCompanions"]
+    assert "tracegate-mtproto@transit" not in bundles["TRANSIT"]["privateCompanions"]
+    assert bundles["ENTRY"]["features"]["mtprotoFrontingEnabled"] is True
+    assert bundles["TRANSIT"]["features"]["mtprotoFrontingEnabled"] is False
+
+
 def test_render_materialized_bundles_materializes_prod_style_reality_groups_and_haproxy_demux(tmp_path: Path) -> None:
     env = _base_env(tmp_path)
     env["REALITY_MULTI_INBOUND_GROUPS"] = json.dumps(
