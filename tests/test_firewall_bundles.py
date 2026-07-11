@@ -75,3 +75,4 @@ def test_entry_and_transit_bundles_define_proxy_fronting_stack() -> None:
     assert "location ^~ /v1/decoy/" not in entry_nginx
     assert "location = /vault/mtproto" not in entry_nginx
     assert "proxy_pass https://tracegate.test/vault/mtproto/" not in entry_nginx
+    assert "listen 127.0.0.1:443 ssl http2;" in entry_nginx
