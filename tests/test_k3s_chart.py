@@ -2018,7 +2018,7 @@ def test_tracegate22_k3s_runs_hysteria2_outside_xray(tmp_path: Path) -> None:
     ]
     assert hysteria_configs
     assert all("maxIdleTimeout: 2m" in config for config in hysteria_configs)
-    assert all("udpIdleTimeout: 5m" in config for config in hysteria_configs)
+    assert all("udpIdleTimeout: 10m" in config for config in hysteria_configs)
     assert '"hy2-in"' not in rendered.stdout
     assert "REPLACE_HYSTERIA_AUTH" not in rendered.stdout
     assert "REPLACE_HYSTERIA_GECKO_PASSWORD" in rendered.stdout

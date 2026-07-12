@@ -756,7 +756,7 @@ gateway:
     salamander:
       enabled: true
       port: 8444
-    udpIdleTimeout: 5m
+    udpIdleTimeout: 10m
   agent:
     port: 8070
     dryRun: false
