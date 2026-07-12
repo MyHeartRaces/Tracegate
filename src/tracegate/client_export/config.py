@@ -118,6 +118,52 @@ def _is_ip_literal(host: str) -> bool:
         return False
 
 
+def _normalize_route_host(value: object) -> str:
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    if "://" in raw:
+        parsed = urlparse(raw)
+        raw = parsed.hostname or ""
+    else:
+        raw = raw.split("/", 1)[0].split("?", 1)[0].strip()
+        if raw.startswith("["):
+            raw = raw[1:].split("]", 1)[0]
+        elif raw.count(":") == 1:
+            host, sep, port = raw.rpartition(":")
+            if sep and port.isdigit():
+                raw = host
+    return raw.strip().strip("[]").rstrip(".").lower()
+
+
+def _singbox_direct_route_rules_for_outbounds(outbounds: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Route proxy bearer addresses outside the proxy to avoid TUN/FakeIP loops."""
+
+    domains: set[str] = set()
+    cidrs: set[str] = set()
+    for outbound in outbounds:
+        if not isinstance(outbound, dict):
+            continue
+        host = _normalize_route_host(outbound.get("server"))
+        if not host or host == "localhost":
+            continue
+        try:
+            parsed_ip = ip_address(host)
+        except ValueError:
+            domains.add(host)
+            continue
+        if parsed_ip.is_loopback or parsed_ip.is_unspecified:
+            continue
+        cidrs.add(f"{parsed_ip}/{32 if parsed_ip.version == 4 else 128}")
+
+    rules: list[dict[str, Any]] = []
+    if domains:
+        rules.append({"domain": sorted(domains), "outbound": "direct"})
+    if cidrs:
+        rules.append({"ip_cidr": sorted(cidrs), "outbound": "direct"})
+    return rules
+
+
 def _ip_prefix_families(values: list[str]) -> set[int]:
     families: set[int] = set()
     for value in values:
@@ -356,6 +402,15 @@ def _build_singbox_client_attachment(
     local_host, local_port = _local_socks_endpoint(effective)
     socks_username, socks_password = _local_socks_auth(effective)
     outbounds = outbound if isinstance(outbound, list) else [outbound]
+    route: dict[str, Any] = {
+        "auto_detect_interface": True,
+        "default_domain_resolver": "cloudflare",
+        "final": "proxy",
+    }
+    direct_route_rules = _singbox_direct_route_rules_for_outbounds(outbounds)
+    if direct_route_rules:
+        route["rules"] = direct_route_rules
+
     config = {
         "log": {"level": "warn"},
         "dns": {
@@ -373,11 +428,7 @@ def _build_singbox_client_attachment(
             }
         ],
         "outbounds": outbounds,
-        "route": {
-            "auto_detect_interface": True,
-            "default_domain_resolver": "cloudflare",
-            "final": "proxy",
-        },
+        "route": route,
     }
     filename = f"{_safe_filename_fragment(profile_name)}.singbox.json"
     return json.dumps(config, ensure_ascii=True, indent=2).encode("utf-8"), filename

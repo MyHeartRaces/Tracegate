@@ -4,7 +4,9 @@ import base64
 import json
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from ipaddress import ip_address
 from typing import Any
+from urllib.parse import urlparse
 
 from tracegate.client_export.config import ClientConfigExportError, ExportResult, client_profile_name, export_client_config
 
@@ -30,6 +32,56 @@ def _safe_tag(value: str, fallback: str) -> str:
     normalized = "".join(ch if ch.isalnum() else "-" for ch in raw)
     compact = "-".join(part for part in normalized.split("-") if part)
     return compact[:80] or fallback
+
+
+def _normalize_route_host(value: object) -> str:
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    if "://" in raw:
+        parsed = urlparse(raw)
+        raw = parsed.hostname or ""
+    else:
+        raw = raw.split("/", 1)[0].split("?", 1)[0].strip()
+        if raw.startswith("["):
+            raw = raw[1:].split("]", 1)[0]
+        elif raw.count(":") == 1:
+            host, sep, port = raw.rpartition(":")
+            if sep and port.isdigit():
+                raw = host
+    return raw.strip().strip("[]").rstrip(".").lower()
+
+
+def _singbox_direct_route_rules_for_outbounds(outbounds: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Route proxy bearer addresses outside the proxy to avoid TUN/FakeIP loops.
+
+    Only the actual dial targets are collected. TLS SNI / WS Host / gRPC authority
+    can be borrowed camouflage names and must not become general DIRECT bypasses.
+    """
+
+    domains: set[str] = set()
+    cidrs: set[str] = set()
+    for outbound in outbounds:
+        if not isinstance(outbound, dict):
+            continue
+        host = _normalize_route_host(outbound.get("server"))
+        if not host or host == "localhost":
+            continue
+        try:
+            parsed_ip = ip_address(host)
+        except ValueError:
+            domains.add(host)
+            continue
+        if parsed_ip.is_loopback or parsed_ip.is_unspecified:
+            continue
+        cidrs.add(f"{parsed_ip}/{32 if parsed_ip.version == 4 else 128}")
+
+    rules: list[dict[str, Any]] = []
+    if domains:
+        rules.append({"domain": sorted(domains), "outbound": "direct"})
+    if cidrs:
+        rules.append({"ip_cidr": sorted(cidrs), "outbound": "direct"})
+    return rules
 
 
 def _json_attachment(exported: ExportResult) -> dict[str, Any] | None:
@@ -249,6 +301,11 @@ def build_client_config_bundle(
         "outbounds": singbox_selector_tags or ["direct"],
         "default": singbox_selector_tags[0] if singbox_selector_tags else "direct",
     }
+    route: dict[str, Any] = {"auto_detect_interface": True, "final": "proxy"}
+    direct_route_rules = _singbox_direct_route_rules_for_outbounds(singbox_outbounds)
+    if direct_route_rules:
+        route["rules"] = direct_route_rules
+
     singbox_config = {
         "log": {"level": "warn"},
         "outbounds": [
@@ -257,7 +314,7 @@ def build_client_config_bundle(
             {"type": "direct", "tag": "direct"},
             {"type": "block", "tag": "block"},
         ],
-        "route": {"auto_detect_interface": True, "final": "proxy"},
+        "route": route,
     }
     subscription_text = "\n".join(subscription_links)
     return {

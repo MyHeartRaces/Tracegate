@@ -116,6 +116,11 @@ def test_client_config_bundle_collects_universal_links_artifacts_and_singbox() -
     assert all("protocol" not in outbound for outbound in bundle["singbox"]["outbounds"])
     assert any(outbound["type"] == "vless" and outbound["transport"]["type"] == "ws" for outbound in bundle["singbox"]["outbounds"])
     assert not any(outbound["type"] == "wireguard" for outbound in bundle["singbox"]["outbounds"])
+    assert bundle["singbox"]["route"] == {
+        "auto_detect_interface": True,
+        "final": "proxy",
+        "rules": [{"domain": ["edge.example.com", "hy.example.com", "ss.example.com"], "outbound": "direct"}],
+    }
 
     ss_outbound = next(outbound for outbound in bundle["singbox"]["outbounds"] if outbound["type"] == "shadowsocks")
     assert ss_outbound["detour"].startswith("tg-2-backup-shadowsocks-")
@@ -128,6 +133,33 @@ def test_client_config_bundle_collects_universal_links_artifacts_and_singbox() -
     assert profiles["Backup-WGWS"]["artifacts"][0]["kind"] == "wgws-config"
     assert profiles["Backup-WGWS"]["artifacts"][0]["json"]["type"] == "wgws"
     assert profiles["Backup-WGWS"]["warnings"] == ["wireguard_wstunnel_requires_wgws_transport"]
+
+
+def test_client_config_bundle_routes_connect_host_direct_without_fake_sni_bypass() -> None:
+    bundle = build_client_config_bundle(
+        [
+            _item(
+                1,
+                {
+                    "protocol": "vless",
+                    "transport": "ws_tls",
+                    "server": "logical.example.com",
+                    "connect_host": "edge-connect.example.com",
+                    "port": 443,
+                    "uuid": "11111111-2222-3333-4444-555555555555",
+                    "sni": "borrowed-sni.example.net",
+                    "ws": {"path": "/ws", "host": "borrowed-sni.example.net"},
+                    "profile": "VLESS-WS",
+                },
+            )
+        ],
+        subject_type="device",
+        subject_id="dev-1",
+        generated_at=datetime(2026, 5, 19, 12, 0, tzinfo=timezone.utc),
+    )
+
+    assert bundle["singbox"]["outbounds"][1]["server"] == "edge-connect.example.com"
+    assert bundle["singbox"]["route"]["rules"] == [{"domain": ["edge-connect.example.com"], "outbound": "direct"}]
 
 
 def test_client_config_bundle_rejects_removed_vless_encryption() -> None:

@@ -108,6 +108,7 @@ def test_export_hysteria2_uri() -> None:
         "max_packet_size": 1200,
     }
     assert attachment["outbounds"][0]["tls"]["alpn"] == ["h3"]
+    assert attachment["route"]["rules"] == [{"domain": ["t.example.com"], "outbound": "direct"}]
 
 
 def test_export_hysteria2_salamander_uri_and_singbox_attachment() -> None:
@@ -504,6 +505,7 @@ def test_export_shadowsocks2022_shadowtls_single_line_uri() -> None:
         "auto_detect_interface": True,
         "default_domain_resolver": "cloudflare",
         "final": "proxy",
+        "rules": [{"domain": ["t.example.com"], "outbound": "direct"}],
     }
     assert attachment["inbounds"][0]["users"] == [{"username": "local-user", "password": "local-pass"}]
     assert attachment["outbounds"][0] == {
