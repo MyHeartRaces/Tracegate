@@ -2,7 +2,7 @@ apiVersion: tracegate.io/v1
 kind: PublicBundleSet
 metadata:
   name: tracegate-runtime-bundles
-  version: 3.0.0
+  version: 3.1.0
 spec:
   runtimeProfile: tracegate-3
   materializationRequired: true

@@ -10,7 +10,7 @@ namespace:
 global:
   image:
     repository: ghcr.io/your-org/tracegate
-    tag: "3.0.0"
+    tag: "3.1.0"
   publicBaseUrl: "https://tracegate.example.com"
 
 architecture:
