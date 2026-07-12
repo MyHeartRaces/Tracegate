@@ -1,0 +1,19 @@
+[Unit]
+Description=Tracegate WireGuard dynamic peer synchronizer
+After=tracegate-wireguard.service tracegate-agent.service
+Requires=tracegate-wireguard.service
+
+[Service]
+Environment=WIREGUARD_SYNC_STATE=/var/lib/tracegate/private/profiles/transit/desired-state.json
+Environment=WIREGUARD_SYNC_INTERFACE=wg
+Environment=WIREGUARD_SYNC_INTERVAL_SECONDS=2
+Environment=WIREGUARD_SYNC_KEEP_STALE_PEERS=false
+ExecStart=/opt/tracegate/venv/bin/tracegate-wireguard-sync-runner
+Restart=always
+RestartSec=3
+NoNewPrivileges=true
+ProtectHome=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

@@ -9,3 +9,8 @@
 
 Install the service and timer in `/etc/systemd/system/`, then enable the timer.
 Do not enable it on hosts with an untrusted or local-time RTC.
+
+`tracegate-wireguard-sync.service` connects the host-based WireGuard runtime to
+the canonical private profile handoff written by the Endpoint agent. It applies
+WGWS peers live with `wg set`, removes revoked peers, and does not restart the
+WireGuard or WSTunnel data plane.

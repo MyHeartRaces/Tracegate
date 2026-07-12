@@ -71,6 +71,8 @@ def test_entry_and_transit_bundles_define_proxy_fronting_stack() -> None:
 
     assert "listen 80;" in transit_nginx
     assert "location ^~ /grafana/" in transit_nginx
+    assert "location /wgws" in transit_nginx
+    assert "proxy_pass http://127.0.0.1:51821;" in transit_nginx
     assert "proxy_pass http://127.0.0.1:18080;" in transit_nginx
     assert "location ^~ /v1/decoy/" not in entry_nginx
     assert "location = /vault/mtproto" not in entry_nginx
