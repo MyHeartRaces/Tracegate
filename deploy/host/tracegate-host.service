@@ -1,0 +1,19 @@
+[Unit]
+Description=Tracegate host-based production runtime
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+EnvironmentFile=/etc/tracegate/deploy.env
+WorkingDirectory=/opt/tracegate/current/deploy/host
+ExecStart=/opt/tracegate/current/deploy/host/tracegate-host-deploy up
+ExecReload=/opt/tracegate/current/deploy/host/tracegate-host-deploy deploy
+ExecStop=/opt/tracegate/current/deploy/host/tracegate-host-deploy stop
+TimeoutStartSec=900
+TimeoutStopSec=120
+
+[Install]
+WantedBy=multi-user.target

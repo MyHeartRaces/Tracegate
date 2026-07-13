@@ -1,0 +1,125 @@
+name: tracegate
+
+x-app: &app
+  image: ${TRACEGATE_IMAGE:?TRACEGATE_IMAGE must be an immutable ghcr.io image digest}
+  env_file:
+    - ${TRACEGATE_ENV_FILE:-/etc/tracegate/tracegate.env}
+  init: true
+  restart: unless-stopped
+  security_opt:
+    - no-new-privileges:true
+  read_only: true
+  tmpfs:
+    - /tmp:size=64m,mode=1777
+  networks:
+    - control
+
+services:
+  postgres:
+    image: ${POSTGRES_IMAGE:?POSTGRES_IMAGE must be an immutable postgres image digest}
+    env_file:
+      - ${TRACEGATE_ENV_FILE:-/etc/tracegate/tracegate.env}
+    environment:
+      PGDATA: /var/lib/postgresql/data/pgdata
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 10s
+    networks:
+      - control
+    profiles: ["control"]
+
+  migrate:
+    <<: *app
+    command: tracegate-migrate-db
+    restart: "no"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    profiles: ["control"]
+
+  api:
+    <<: *app
+    command: tracegate-api
+    ports:
+      - "127.0.0.1:${TRACEGATE_API_PORT:-18080}:8080"
+    volumes:
+      - ${TRACEGATE_PRIVATE_ROOT:-/var/lib/tracegate/private}:/var/lib/tracegate/private:ro
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/ready', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 15s
+    profiles: ["control"]
+
+  dispatcher:
+    <<: *app
+    command: tracegate-dispatcher
+    depends_on:
+      api:
+        condition: service_healthy
+    profiles: ["control"]
+
+  bot:
+    <<: *app
+    command: tracegate-bot
+    depends_on:
+      api:
+        condition: service_healthy
+    profiles: ["control"]
+
+  agent:
+    image: ${TRACEGATE_IMAGE:?TRACEGATE_IMAGE must be an immutable ghcr.io image digest}
+    env_file:
+      - ${TRACEGATE_ENV_FILE:-/etc/tracegate/tracegate.env}
+    command: tracegate-agent
+    network_mode: host
+    profiles: ["gateway"]
+    init: true
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    read_only: false
+    volumes:
+      - ${TRACEGATE_AGENT_DATA_ROOT:-/var/lib/tracegate/agent}:/var/lib/tracegate/agent
+      - ${TRACEGATE_PRIVATE_ROOT:-/var/lib/tracegate/private}:/var/lib/tracegate/private:ro
+      - /run:/run
+
+  wireguard-sync:
+    image: ${TRACEGATE_IMAGE:?TRACEGATE_IMAGE must be an immutable ghcr.io image digest}
+    command: tracegate-wireguard-sync-runner
+    network_mode: host
+    profiles: ["gateway"]
+    init: true
+    restart: unless-stopped
+    cap_add:
+      - NET_ADMIN
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      WIREGUARD_SYNC_STATE: /var/lib/tracegate/private/profiles/transit/desired-state.json
+      WIREGUARD_SYNC_INTERFACE: ${WIREGUARD_SYNC_INTERFACE:-wg}
+      WIREGUARD_SYNC_INTERVAL_SECONDS: ${WIREGUARD_SYNC_INTERVAL_SECONDS:-2}
+      WIREGUARD_SYNC_KEEP_STALE_PEERS: "false"
+    volumes:
+      - ${TRACEGATE_PRIVATE_ROOT:-/var/lib/tracegate/private}:/var/lib/tracegate/private:ro
+      - /run:/run
+
+networks:
+  control:
+    driver: bridge
+
+volumes:
+  postgres-data:
+    name: tracegate-postgres-data

@@ -1,26 +1,9 @@
-# Entry and Endpoint migration
+# Entry and Endpoint host migration
 
-New production is promoted in two phases.
+Promote Endpoint first, validate direct and backup transports, then promote
+Entry and validate Chain and Telegram Proxy. Each host uses a separate private
+role overlay, immutable image digest and release directory.
 
-## Endpoint first
-
-- provision Endpoint with four IPv4 addresses;
-- set `architecture.deploymentPhase=endpoint-first`;
-- set `architecture.podRuntimeOnly=true`;
-- enable only `gateway.roles.transit`, the Endpoint compatibility role;
-- use PVC gateway state and ConfigMap/PVC decoy content;
-- install Endpoint ingress firewall and Endpoint egress SNAT;
-- validate Direct and Backup sustained payload before continuing.
-
-## Full
-
-- provision one-IP Entry;
-- set `architecture.deploymentPhase=full`;
-- enable Universal Entry, SS2022/ShadowTLS v3 primary and Hysteria2/Gecko secondary
-  backhauls;
-- enable MTProto client ingress through Entry while MTG remains in the
-  Endpoint pod;
-- validate Endpoint-only egress and failure-closed Entry behavior.
-
-The old deployment remains available for rollback until canary observation and
-user revision migration are complete.
+Keep the previous runtime active until the new role passes `/ready`, agent
+health and sustained payload probes. Do not enable new bot issuance before its
+server runtime and revocation path have both been verified.

@@ -1,40 +1,24 @@
-# Operator Workflow
+# Host operator workflow
 
-This document is intentionally high level. Live deployment material stays
-outside the public source tree.
+Tracegate production is managed through immutable container digests, Docker
+Compose, systemd and private role overlays.
 
-## Local Work
+1. Build and validate the public release with `make release-check` and
+   `scripts/build_release_artifacts.sh VERSION`.
+2. Record the resulting application and PostgreSQL image digests in the
+   private repository. Never promote a mutable tag.
+3. Render/decrypt the reviewed private inventory into root-only files outside
+   both repositories.
+4. Verify checksums, install the host-runtime archive into a new release
+   directory, then run `tracegate-host-deploy preflight`.
+5. Run `tracegate-host-deploy deploy`. The command requires a successful backup,
+   applies migrations, replaces containers and waits for database-backed API
+   readiness.
+6. Validate role services and sustained client payload before proceeding to the
+   next host.
+7. On failure, use `tracegate-host-deploy rollback`; retain the failed logs,
+   backup and release directory for review.
 
-1. Update application code, chart templates or tests in the public repository.
-2. Keep placeholders in public examples.
-3. Run local checks:
-
-```bash
-python3 -m ruff check .
-pytest -q
-```
-
-## Operator Overlay Work
-
-1. Update encrypted secrets or ignored operator values.
-2. Keep raw secret files untracked unless they are encrypted.
-3. Keep decoy assets and generated client artifacts private.
-4. For new `entry-endpoint` deployments, provision ordinary protected runtime
-   paths and keep `gateway.nodeEncryption` disabled. Use
-   operator-managed storage encryption runbooks only when required.
-5. Run the strict deployment gate from the operator environment.
-
-## Promotion
-
-1. Render the chart with operator values.
-2. Run the operator release gate.
-3. Deploy with operator automation.
-4. Verify bot, API, gateway health and Grafana OTP flow.
-5. Watch alert delivery long enough to catch noisy or missing signals.
-
-## Cleanup
-
-Routine cleanup should remove stale bot message references, expired one-time
-tokens, failed outbox rows that are no longer actionable, revoked connection
-material and old Kubernetes rollout artifacts. Keep only the retention window
-needed for rollback and incident review.
+Environment-specific inventory, DNS, firewall inputs, certificates, rendered
+profiles, decoy content and credentials belong exclusively to
+`tracegate-private` and production storage.

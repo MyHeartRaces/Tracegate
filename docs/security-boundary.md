@@ -16,7 +16,7 @@ safe examples and high-level documentation.
 - real domains, addresses and endpoint layout;
 - exact production ports and host policy;
 - node inventory, aliases and provider metadata;
-- decrypted Kubernetes Secrets;
+- decrypted host environment and runtime secret files;
 - plaintext disk encryption keys, LUKS passphrases and unencrypted LUKS header
   backups;
 - production values files;

@@ -11,6 +11,7 @@ test:
 
 host-check:
 	python3 scripts/check_host_runtime.py
+	python3 scripts/check_host_deploy.py
 
 privacy-check:
 	python3 scripts/check_public_release.py

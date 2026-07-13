@@ -70,8 +70,9 @@ alias while older installations migrate.
 
 - [src/tracegate](src/tracegate): application, agent, bot, dispatcher and
   service code.
-- [deploy/systemd](deploy/systemd): host service units for optional runtime
-  components.
+- [deploy/host](deploy/host): production Compose, systemd, install, upgrade and
+  rollback contract.
+- [deploy/systemd](deploy/systemd): host service units for data-plane helpers.
 - [bundles](bundles): generic runtime bundle templates.
 - [alembic](alembic): database migrations.
 - [tests](tests): automated coverage for behavior and generated artifacts.

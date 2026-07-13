@@ -68,7 +68,7 @@ for a `tg://proxy` link.
 - Retain the raw 16-byte bootstrap secret during migration so existing links
   remain compatible, then migrate renewed grants to per-user secrets.
 - Regenerate Telemt `access.users` atomically on issue/revoke. Telemt watches
-  the file, so user churn must not restart the gateway pod or proxy process.
+  the file, so user churn must not restart the gateway container or proxy process.
 - Pin the Telemt image by digest. A mutable `latest` image is forbidden by the
   production overlay check.
 - Require Telemt's native startup, readiness and liveness health checks. A
@@ -145,7 +145,7 @@ them to shared logs.
 
 1. Materialize and validate the host HAProxy bundle with synthetic secrets.
 2. Confirm the Telemt image resolves to the expected digest.
-3. Verify both gateway pods remain Ready during a sequential rollout.
+3. Verify both gateway hosts remain ready during a sequential rollout.
 4. Run an authenticated public-path MTProxy probe repeatedly, including a
    reconnect test and sustained payload interval.
 5. Test Universal Entry from at least two real provider networks; localhost or

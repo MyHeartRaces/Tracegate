@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SOURCE_ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"
+VERSION="${1:-}"
+INSTALL_ROOT="${TRACEGATE_INSTALL_ROOT:-/opt/tracegate}"
+SYSTEMD_DIR="${TRACEGATE_SYSTEMD_DIR:-/etc/systemd/system}"
+
+[ "$(id -u)" -eq 0 ] || { echo "tracegate host install: run as root" >&2; exit 2; }
+[[ "${VERSION}" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][A-Za-z0-9.]+)?$ ]] || {
+  echo "usage: $0 VERSION" >&2
+  exit 2
+}
+python3 "${SOURCE_ROOT}/scripts/check_host_runtime.py" --root "${SOURCE_ROOT}"
+python3 "${SOURCE_ROOT}/scripts/check_host_deploy.py" --root "${SOURCE_ROOT}"
+
+target="${INSTALL_ROOT}/releases/${VERSION}"
+[ ! -e "${target}" ] || { echo "release already installed: ${target}" >&2; exit 2; }
+install -d -m 0755 "${INSTALL_ROOT}/releases"
+mkdir "${target}"
+cp -a "${SOURCE_ROOT}/bundles" "${SOURCE_ROOT}/deploy" "${SOURCE_ROOT}/scripts" "${target}/"
+chmod 0755 "${target}/deploy/host/tracegate-host-deploy" "${target}/deploy/host/tracegate-host-install"
+ln -s "${target}" "${INSTALL_ROOT}/current.new"
+mv -Tf "${INSTALL_ROOT}/current.new" "${INSTALL_ROOT}/current"
+
+install -m 0644 "${target}/deploy/host/tracegate-host.service" "${SYSTEMD_DIR}/tracegate-host.service"
+install -m 0644 "${target}/deploy/systemd/tracegate-wireguard-sync.service" \
+  "${SYSTEMD_DIR}/tracegate-wireguard-sync.service"
+systemctl daemon-reload
+echo "installed Tracegate host release ${VERSION}; run tracegate-host-deploy preflight before activation"

@@ -39,7 +39,7 @@ git -C "${ROOT}" archive \
   --format=tar.gz \
   --prefix="tracegate-host-runtime-${VERSION}/" \
   -o "${OUT_DIR}/tracegate-host-runtime-${VERSION}.tar.gz" \
-  HEAD bundles deploy/systemd scripts/check_host_runtime.py
+  HEAD bundles deploy/host deploy/systemd scripts/check_host_runtime.py scripts/check_host_deploy.py
 
 for archive in "${OUT_DIR}"/*.tar.gz; do
   target="${INSPECT_DIR}/$(basename "${archive}")"

@@ -1,0 +1,140 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"
+COMPOSE_FILE="${TRACEGATE_COMPOSE_FILE:-${ROOT}/deploy/host/compose.yaml}"
+DEPLOY_ENV="${TRACEGATE_DEPLOY_ENV:-/etc/tracegate/deploy.env}"
+RUNTIME_ENV="${TRACEGATE_ENV_FILE:-/etc/tracegate/tracegate.env}"
+STATE_DIR="${TRACEGATE_STATE_DIR:-/var/lib/tracegate/deploy-state}"
+
+die() { echo "tracegate host deploy: $*" >&2; exit 2; }
+need() { command -v "$1" >/dev/null 2>&1 || die "missing command: $1"; }
+
+load_deploy_env() {
+  [ -f "${DEPLOY_ENV}" ] || die "missing deployment environment: ${DEPLOY_ENV}"
+  # shellcheck disable=SC1090
+  set -a; source "${DEPLOY_ENV}"; set +a
+  RUNTIME_ENV="${TRACEGATE_ENV_FILE:-${RUNTIME_ENV}}"
+}
+
+compose() {
+  local profiles=()
+  if [ -n "${TRACEGATE_COMPOSE_PROFILES:-}" ]; then
+    IFS=',' read -ra requested <<<"${TRACEGATE_COMPOSE_PROFILES}"
+    for profile in "${requested[@]}"; do profiles+=(--profile "${profile}"); done
+  fi
+  TRACEGATE_ENV_FILE="${RUNTIME_ENV}" docker compose --env-file "${DEPLOY_ENV}" -f "${COMPOSE_FILE}" "${profiles[@]}" "$@"
+}
+
+preflight() {
+  load_deploy_env
+  need docker; need curl; need stat
+  docker compose version >/dev/null
+  [ -f "${RUNTIME_ENV}" ] || die "missing runtime environment: ${RUNTIME_ENV}"
+  case "$(stat -c '%a' "${RUNTIME_ENV}" 2>/dev/null || stat -f '%Lp' "${RUNTIME_ENV}")" in
+    600|400) ;; *) die "${RUNTIME_ENV} must have mode 0600 or 0400" ;; esac
+  [[ "${TRACEGATE_IMAGE:-}" =~ ^ghcr\.io/.+@sha256:[0-9a-f]{64}$ ]] || die "TRACEGATE_IMAGE must be a GHCR sha256 digest"
+  [[ "${POSTGRES_IMAGE:-}" =~ ^postgres:[^[:space:]@]+@sha256:[0-9a-f]{64}$ ]] || die "POSTGRES_IMAGE must be a sha256 digest"
+  [ -n "${TRACEGATE_COMPOSE_PROFILES:-}" ] || die "TRACEGATE_COMPOSE_PROFILES must select control and/or gateway"
+  if grep -En '(^|=)(REPLACE_ME|CHANGE_ME|TODO|REPLACE_WITH_)' "${RUNTIME_ENV}" "${DEPLOY_ENV}" >/dev/null 2>&1; then
+    die "placeholder value found in private deployment inputs"
+  fi
+  for key in API_INTERNAL_TOKEN AGENT_AUTH_TOKEN; do
+    grep -Eq "^${key}=.+" "${RUNTIME_ENV}" || die "missing ${key} in ${RUNTIME_ENV}"
+  done
+  case ",${TRACEGATE_COMPOSE_PROFILES}," in
+    *,control,*)
+      for key in DATABASE_URL POSTGRES_DB POSTGRES_USER POSTGRES_PASSWORD BOT_TOKEN BOT_API_TOKEN; do
+        grep -Eq "^${key}=.+" "${RUNTIME_ENV}" || die "missing ${key} in ${RUNTIME_ENV}"
+      done
+      ;;
+  esac
+  compose config --quiet
+  if [ -n "${TRACEGATE_PRIVATE_ROLE:-}" ]; then
+    private_args=(--root /var/lib/tracegate/private --role "${TRACEGATE_PRIVATE_ROLE}")
+    if [ -n "${TRACEGATE_PRIVATE_REQUIRED_FILES:-}" ]; then
+      IFS=',' read -ra required_files <<<"${TRACEGATE_PRIVATE_REQUIRED_FILES}"
+      for required_file in "${required_files[@]}"; do
+        private_args+=(--required-file "${required_file}")
+      done
+    fi
+    compose run --rm --no-deps api tracegate-host-private-preflight "${private_args[@]}"
+  fi
+  echo "tracegate host preflight passed"
+}
+
+wait_healthy() {
+  local attempt url healthy
+  local urls=()
+  case ",${TRACEGATE_COMPOSE_PROFILES}," in
+    *,control,*) urls+=("${TRACEGATE_HEALTH_URL:-http://127.0.0.1:${TRACEGATE_API_PORT:-18080}/ready}") ;;
+  esac
+  case ",${TRACEGATE_COMPOSE_PROFILES}," in
+    *,gateway,*) urls+=("${TRACEGATE_AGENT_HEALTH_URL:-http://127.0.0.1:${TRACEGATE_AGENT_PORT:-8070}/v1/health}") ;;
+  esac
+  [ "${#urls[@]}" -gt 0 ] || die "no health gate selected"
+  for attempt in $(seq 1 60); do
+    healthy=1
+    for url in "${urls[@]}"; do
+      curl --fail --silent --show-error --max-time 5 "${url}" >/dev/null || healthy=0
+    done
+    if [ "${healthy}" -eq 1 ]; then
+      echo "tracegate host runtime healthy"
+      return 0
+    fi
+    sleep 2
+  done
+  compose ps >&2 || true
+  echo "tracegate host deploy: role health gate timed out" >&2
+  return 1
+}
+
+up() {
+  preflight
+  compose up -d --remove-orphans --wait
+  wait_healthy || die "initial runtime failed readiness"
+}
+
+deploy() {
+  preflight
+  install -d -m 0700 "${STATE_DIR}"
+  case ",${TRACEGATE_COMPOSE_PROFILES}," in
+    *,control,*)
+      [ -n "${TRACEGATE_BACKUP_COMMAND:-}" ] || die "TRACEGATE_BACKUP_COMMAND is required for control deployment"
+      "${TRACEGATE_BACKUP_COMMAND}"
+      ;;
+  esac
+  cp "${DEPLOY_ENV}" "${STATE_DIR}/deploy.env.previous"
+  chmod 0600 "${STATE_DIR}/deploy.env.previous"
+  compose pull
+  case ",${TRACEGATE_COMPOSE_PROFILES}," in
+    *,control,*) compose run --rm migrate ;;
+  esac
+  compose up -d --remove-orphans --wait
+  if ! wait_healthy; then
+    echo "new runtime failed health gate; invoking rollback" >&2
+    rollback
+    return 1
+  fi
+}
+
+rollback() {
+  [ -f "${STATE_DIR}/deploy.env.previous" ] || die "no previous deployment state"
+  cp "${STATE_DIR}/deploy.env.previous" "${DEPLOY_ENV}"
+  chmod 0600 "${DEPLOY_ENV}"
+  load_deploy_env
+  compose pull
+  compose up -d --remove-orphans --wait
+  wait_healthy || die "rollback runtime failed readiness"
+  echo "tracegate host image rollback completed; database migrations are not downgraded"
+}
+
+case "${1:-}" in
+  preflight) preflight ;;
+  up) up ;;
+  deploy) deploy ;;
+  rollback) load_deploy_env; rollback ;;
+  status) load_deploy_env; compose ps ;;
+  stop) load_deploy_env; compose down ;;
+  *) die "usage: $0 preflight|up|deploy|rollback|status|stop" ;;
+esac
