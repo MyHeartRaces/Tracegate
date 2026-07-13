@@ -31,8 +31,5 @@ tracegate-secrets/
 # deploy/**/private-example; live profiles and prod values stay off-repo.
 private/
 local-private/
-deploy/k3s/values-prod.yaml
-deploy/k3s/values-*.private.yaml
-deploy/k3s/values-*.local.yaml
-deploy/k3s/private/
-deploy/k3s/link-profiles/
+deploy/systemd/*.private.env
+deploy/systemd/private/

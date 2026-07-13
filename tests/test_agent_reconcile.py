@@ -29,14 +29,14 @@ def _fingerprint(path: Path) -> dict[str, int]:
     return {"sizeBytes": int(stat.st_size), "mtimeNs": int(stat.st_mtime_ns)}
 
 
-def _write_k3s_reload_marker(root: Path, *, component: str, role: str, include_summary_schema: bool = True) -> Path:
+def _write_host_reload_marker(root: Path, *, component: str, role: str, include_summary_schema: bool = True) -> Path:
     role_lower = role.lower()
     component_dir = {"profiles": "profiles", "link-crypto": "link-crypto"}[component]
     state_path = root / component_dir / role_lower / "desired-state.json"
     env_path = root / component_dir / role_lower / "desired-state.env"
     marker_path = root / "runtime" / f"{component}-{role_lower}-last-reload.json"
     marker = {
-        "schema": "tracegate.k3s-private-reload.v1",
+        "schema": "tracegate.host-private-reload.v1",
         "component": component,
         "role": role.upper(),
         "summary": {"sources": {"state": _fingerprint(state_path), "env": _fingerprint(env_path)}},
@@ -54,7 +54,7 @@ def _write_k3s_reload_marker(root: Path, *, component: str, role: str, include_s
                 "sources": {key: _fingerprint(path) for key, path in router_sources.items()}
             }
     if include_summary_schema:
-        marker["summarySchema"] = "tracegate.k3s-private-reload-summary.v1"
+        marker["summarySchema"] = "tracegate.host-private-reload-summary.v1"
     _write(marker_path, json.dumps(marker) + "\n")
     return marker_path
 
@@ -128,7 +128,7 @@ def test_xray_structural_reload_required_detects_routing_rule_changes() -> None:
 def test_reconcile_xray_centric_updates_vless_and_hysteria_inbounds(tmp_path: Path) -> None:
     settings = Settings(
         agent_data_root=str(tmp_path),
-        agent_runtime_mode="kubernetes",
+        agent_runtime_mode="systemd",
         agent_role="TRANSIT",
         agent_runtime_profile="xray-centric",
     )
@@ -252,7 +252,7 @@ def test_reconcile_xray_centric_updates_vless_and_hysteria_inbounds(tmp_path: Pa
 def test_reconcile_keeps_encrypted_vless_clients_on_separate_inbounds(tmp_path: Path) -> None:
     settings = Settings(
         agent_data_root=str(tmp_path),
-        agent_runtime_mode="kubernetes",
+        agent_runtime_mode="systemd",
         agent_role="TRANSIT",
         agent_runtime_profile="xray-centric",
         vless_encryption_enabled=True,
@@ -1756,14 +1756,14 @@ def test_reconcile_materializes_only_chain_profile_handoff_for_entry(tmp_path: P
     }
 
 
-def test_reconcile_k3s_revalidates_private_profiles_when_reload_marker_is_missing_or_stale(tmp_path: Path) -> None:
+def test_reconcile_host_revalidates_private_profiles_when_reload_marker_is_missing_or_stale(tmp_path: Path) -> None:
     settings = Settings(
         agent_data_root=str(tmp_path),
-        agent_runtime_mode="kubernetes",
+        agent_runtime_mode="systemd",
         agent_role="TRANSIT",
         agent_runtime_profile="tracegate-2.1",
         private_runtime_root=str(tmp_path / "private"),
-        agent_reload_profiles_cmd="reload-profiles",
+        agent_reload_profiles_cmd="tracegate-host-private-reload --component profiles",
     )
     _write_tracegate21_profile_artifacts(tmp_path)
 
@@ -1777,7 +1777,7 @@ def test_reconcile_k3s_revalidates_private_profiles_when_reload_marker_is_missin
     changed_with_invalid_marker = reconcile_all(settings)
     assert changed_with_invalid_marker == ["profiles"]
 
-    marker_path = _write_k3s_reload_marker(tmp_path / "private", component="profiles", role="TRANSIT")
+    marker_path = _write_host_reload_marker(tmp_path / "private", component="profiles", role="TRANSIT")
     changed_with_marker = reconcile_all(settings)
     assert changed_with_marker == []
 
@@ -1953,15 +1953,15 @@ def test_reconcile_materializes_link_crypto_handoff_without_private_secrets(tmp_
     assert changed2 == []
 
 
-def test_reconcile_k3s_revalidates_link_crypto_when_reload_marker_is_missing_or_stale(tmp_path: Path) -> None:
+def test_reconcile_host_revalidates_link_crypto_when_reload_marker_is_missing_or_stale(tmp_path: Path) -> None:
     settings = Settings(
         agent_data_root=str(tmp_path),
-        agent_runtime_mode="kubernetes",
+        agent_runtime_mode="systemd",
         agent_role="ENTRY",
         agent_runtime_profile="tracegate-2.1",
         private_runtime_root=str(tmp_path / "private"),
         private_link_crypto_enabled=True,
-        agent_reload_link_crypto_cmd="reload-link-crypto",
+        agent_reload_link_crypto_cmd="tracegate-host-private-reload --component link-crypto",
     )
 
     changed = reconcile_all(settings)
@@ -1974,11 +1974,11 @@ def test_reconcile_k3s_revalidates_link_crypto_when_reload_marker_is_missing_or_
     changed_with_invalid_marker = reconcile_all(settings)
     assert changed_with_invalid_marker == ["link-crypto"]
 
-    _write_k3s_reload_marker(tmp_path / "private", component="link-crypto", role="ENTRY", include_summary_schema=False)
+    _write_host_reload_marker(tmp_path / "private", component="link-crypto", role="ENTRY", include_summary_schema=False)
     changed_with_legacy_marker = reconcile_all(settings)
     assert changed_with_legacy_marker == ["link-crypto"]
 
-    marker_path = _write_k3s_reload_marker(tmp_path / "private", component="link-crypto", role="ENTRY")
+    marker_path = _write_host_reload_marker(tmp_path / "private", component="link-crypto", role="ENTRY")
     changed_with_marker = reconcile_all(settings)
     assert changed_with_marker == []
 
@@ -1989,7 +1989,7 @@ def test_reconcile_k3s_revalidates_link_crypto_when_reload_marker_is_missing_or_
     changed_with_stale_router_marker = reconcile_all(settings)
     assert changed_with_stale_router_marker == ["link-crypto"]
 
-    marker_path = _write_k3s_reload_marker(tmp_path / "private", component="link-crypto", role="ENTRY")
+    marker_path = _write_host_reload_marker(tmp_path / "private", component="link-crypto", role="ENTRY")
     state_path = tmp_path / "private/link-crypto/entry/desired-state.json"
     newer_mtime_ns = marker_path.stat().st_mtime_ns + 1_000_000
     os.utime(state_path, ns=(newer_mtime_ns, newer_mtime_ns))

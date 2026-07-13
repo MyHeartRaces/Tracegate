@@ -143,7 +143,7 @@ them to shared logs.
 
 ## Rollout gates
 
-1. Render and validate HAProxy/Helm with synthetic secrets.
+1. Materialize and validate the host HAProxy bundle with synthetic secrets.
 2. Confirm the Telemt image resolves to the expected digest.
 3. Verify both gateway pods remain Ready during a sequential rollout.
 4. Run an authenticated public-path MTProxy probe repeatedly, including a

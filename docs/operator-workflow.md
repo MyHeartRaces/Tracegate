@@ -21,7 +21,7 @@ pytest -q
 3. Keep decoy assets and generated client artifacts private.
 4. For new `entry-endpoint` deployments, provision ordinary protected runtime
    paths and keep `gateway.nodeEncryption` disabled. Use
-   `docs/node-encryption-runbook.md` only for retained legacy three-node nodes.
+   operator-managed storage encryption runbooks only when required.
 5. Run the strict deployment gate from the operator environment.
 
 ## Promotion

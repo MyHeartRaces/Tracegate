@@ -55,7 +55,7 @@ def _load_bundle_files(name: str) -> dict[str, BundleFilePayload]:
     files = _read_tree(_bundle_path(name))
     materialized_path = _materialized_bundle_path(name)
     if materialized_path is not None:
-        # Materialized files (Helm-rendered secrets) override repo bundle templates.
+        # Materialized host files override repository bundle templates.
         files.update(_read_tree(materialized_path))
     return files
 

@@ -363,6 +363,7 @@ class MaterializedBundleRenderContext:
     reality_multi_inbound_groups: tuple[MaterializedRealityInboundGroup, ...]
     entry_tls_server_name: str
     transit_tls_server_name: str
+    shadowtls_server_name_transit: str
     mtproto_domain: str
     mtproto_tls_domain: str
     mtproto_upstream: str
@@ -514,6 +515,7 @@ class MaterializedBundleRenderContext:
 
         entry_tls_server_name = _first(env, "ENTRY_TLS_SERVER_NAME", default=entry_host)
         transit_tls_server_name = _first(env, "TRANSIT_TLS_SERVER_NAME", default=transit_host)
+        shadowtls_server_name_transit = _first(env, "SHADOWTLS_SERVER_NAME_TRANSIT", "SHADOWTLS_SERVER_NAME")
         mtproto_domain = _first(env, "MTPROTO_DOMAIN")
         mtproto_tls_domain = _first(env, "MTPROTO_TLS_DOMAIN", default=mtproto_domain)
         mtproto_upstream = _haproxy_server_address(
@@ -599,6 +601,7 @@ class MaterializedBundleRenderContext:
             reality_multi_inbound_groups=reality_multi_inbound_groups,
             entry_tls_server_name=entry_tls_server_name,
             transit_tls_server_name=transit_tls_server_name,
+            shadowtls_server_name_transit=shadowtls_server_name_transit,
             mtproto_domain=mtproto_domain,
             mtproto_tls_domain=mtproto_tls_domain,
             mtproto_upstream=mtproto_upstream,
@@ -1165,6 +1168,16 @@ def render_materialized_bundles(ctx: MaterializedBundleRenderContext) -> None:
         "REPLACE_TLS_SERVER_NAME",
         ctx.transit_tls_server_name,
     )
+    shadowtls_acl = ""
+    shadowtls_route = ""
+    shadowtls_backend = ""
+    if ctx.shadowtls_server_name_transit:
+        shadowtls_acl = f"  acl shadowtls_sni req.ssl_sni -i {ctx.shadowtls_server_name_transit}"
+        shadowtls_route = "  use_backend be_transit_shadowtls if shadowtls_sni"
+        shadowtls_backend = (
+            "\nbackend be_transit_shadowtls\n"
+            "  server transit_shadowtls 127.0.0.1:14443 check\n"
+        )
     mtproto_acl = ""
     mtproto_route = ""
     mtproto_backend = ""
@@ -1179,6 +1192,9 @@ def render_materialized_bundles(ctx: MaterializedBundleRenderContext) -> None:
     transit_haproxy = transit_haproxy.replace("REPLACE_MTPROTO_ACL", mtproto_acl)
     transit_haproxy = transit_haproxy.replace("REPLACE_MTPROTO_ROUTE", mtproto_route)
     transit_haproxy = transit_haproxy.replace("REPLACE_MTPROTO_BACKEND", mtproto_backend)
+    transit_haproxy = transit_haproxy.replace("REPLACE_SHADOWTLS_ACL", shadowtls_acl)
+    transit_haproxy = transit_haproxy.replace("REPLACE_SHADOWTLS_ROUTE", shadowtls_route)
+    transit_haproxy = transit_haproxy.replace("REPLACE_SHADOWTLS_BACKEND", shadowtls_backend)
     transit_haproxy = transit_haproxy.replace("REPLACE_REALITY_ACLS", transit_reality_acls)
     transit_haproxy = transit_haproxy.replace("REPLACE_REALITY_ROUTES", transit_reality_routes)
     transit_haproxy = transit_haproxy.replace("REPLACE_REALITY_BACKENDS", transit_reality_backends)

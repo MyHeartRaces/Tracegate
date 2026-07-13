@@ -1,6 +1,0 @@
-apiVersion: v2
-name: tracegate
-description: Tracegate 3 single-chart k3s runtime
-type: application
-version: 3.1.0
-appVersion: "3.1.0"

@@ -4,7 +4,6 @@ set -euo pipefail
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 PYTHON="${PYTHON:-python3}"
 PYTHON_BIN="$(command -v "${PYTHON}")"
-HELM_BIN="$(command -v "${HELM:-helm}")"
 VERSION="${1:-}"
 
 if [ -z "${VERSION}" ]; then
@@ -36,14 +35,13 @@ git -C "${ROOT}" archive --format=tar HEAD | tar -xf - -C "${SOURCE_DIR}"
   cd "${SOURCE_DIR}"
   "${PYTHON_BIN}" -m build --outdir "${OUT_DIR}"
 )
-"${HELM_BIN}" package "${SOURCE_DIR}/deploy/k3s/tracegate" --destination "${OUT_DIR}"
 git -C "${ROOT}" archive \
   --format=tar.gz \
-  --prefix="tracegate-runtime-bundles-${VERSION}/" \
-  -o "${OUT_DIR}/tracegate-runtime-bundles-${VERSION}.tar.gz" \
-  HEAD bundles
+  --prefix="tracegate-host-runtime-${VERSION}/" \
+  -o "${OUT_DIR}/tracegate-host-runtime-${VERSION}.tar.gz" \
+  HEAD bundles deploy/systemd scripts/check_host_runtime.py
 
-for archive in "${OUT_DIR}"/*.tar.gz "${OUT_DIR}"/*.tgz; do
+for archive in "${OUT_DIR}"/*.tar.gz; do
   target="${INSPECT_DIR}/$(basename "${archive}")"
   mkdir -p "${target}"
   tar -xf "${archive}" -C "${target}"
@@ -59,7 +57,7 @@ done
 (
   cd "${OUT_DIR}"
   rm -f SHA256SUMS
-  shasum -a 256 ./*.tar.gz ./*.tgz ./*.whl > SHA256SUMS
+  shasum -a 256 ./*.tar.gz ./*.whl > SHA256SUMS
 )
 
 printf 'release artifacts written to %s\n' "${OUT_DIR}"

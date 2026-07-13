@@ -178,7 +178,7 @@ class Settings(BaseSettings):
     # from an exclusive ingress pool (notably the fixed Entry Chain profile).
     default_reality_sni: str = "yandex.ru"
 
-    # Observability (Grafana is optional; can be deployed via Helm).
+    # Observability (Grafana is optional in the host runtime).
     grafana_enabled: bool = False
     grafana_internal_url: str = "http://tracegate-grafana:3000"
     grafana_public_base_url: str = ""
@@ -435,7 +435,7 @@ class Settings(BaseSettings):
 
     # Material required to build working client configs.
     # For direct mode this is Transit key.
-    # For chain mode with Entry splitter, this can be reused as transit REALITY public key unless overridden in Helm values.
+    # For chain mode with Entry splitter, this can be reused as the Endpoint REALITY public key unless overridden.
     reality_public_key: str = ""
     reality_short_id: str = ""
     # Optional per-role REALITY keys. When set, they override reality_public_key/reality_short_id for that node.

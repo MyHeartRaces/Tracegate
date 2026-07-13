@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from tracegate.cli.k3s_private_reload import K3sPrivateReloadError, main, run_private_reload
+from tracegate.cli.host_private_reload import HostPrivateReloadError, main, run_private_reload
 from tracegate.services.runtime_contract import TRACEGATE22_CLIENT_PROFILES
 
 
@@ -651,7 +651,7 @@ def _write_router_handoff_bundle(root: Path, *, role: str, contract: dict, contr
     )
 
 
-def test_k3s_private_reload_validates_profiles_and_writes_redacted_marker(tmp_path: Path) -> None:
+def test_host_private_reload_validates_profiles_and_writes_redacted_marker(tmp_path: Path) -> None:
     contract_path = tmp_path / "runtime" / "runtime-contract.json"
     contract = _contract(contract_path)
     private_root = tmp_path / "private"
@@ -666,8 +666,8 @@ def test_k3s_private_reload_validates_profiles_and_writes_redacted_marker(tmp_pa
 
     marker_path = Path(str(result["markerPath"]))
     marker = json.loads(marker_path.read_text(encoding="utf-8"))
-    assert marker["schema"] == "tracegate.k3s-private-reload.v1"
-    assert marker["summarySchema"] == "tracegate.k3s-private-reload-summary.v1"
+    assert marker["schema"] == "tracegate.host-private-reload.v1"
+    assert marker["summarySchema"] == "tracegate.host-private-reload-summary.v1"
     assert marker["component"] == "profiles"
     assert marker["summary"]["total"] == 0
     assert marker["summary"]["protocols"]["shadowsocks2022ShadowTLS"] == 0
@@ -681,7 +681,7 @@ def test_k3s_private_reload_validates_profiles_and_writes_redacted_marker(tmp_pa
     assert "desired-state" not in json.dumps(marker)
 
 
-def test_k3s_private_reload_profile_marker_summarizes_without_profile_secrets(tmp_path: Path) -> None:
+def test_host_private_reload_profile_marker_summarizes_without_profile_secrets(tmp_path: Path) -> None:
     contract_path = tmp_path / "runtime" / "runtime-contract.json"
     contract = _contract(contract_path)
     private_root = tmp_path / "private"
@@ -734,7 +734,7 @@ def test_k3s_private_reload_profile_marker_summarizes_without_profile_secrets(tm
     _assert_no_private_canaries(json.dumps(marker))
 
 
-def test_k3s_private_reload_writes_entry_shadowsocks2022_via_chain_socks(tmp_path: Path) -> None:
+def test_host_private_reload_writes_entry_shadowsocks2022_via_chain_socks(tmp_path: Path) -> None:
     contract_path = tmp_path / "runtime" / "runtime-contract.json"
     contract = _contract(contract_path)
     private_root = tmp_path / "private"
@@ -768,7 +768,7 @@ def test_k3s_private_reload_writes_entry_shadowsocks2022_via_chain_socks(tmp_pat
     assert ss_config["route"]["rules"] == [{"inbound": ["ss2022-in"], "outbound": "chain-to-transit"}]
 
 
-def test_k3s_private_reload_validates_link_crypto_and_writes_marker(tmp_path: Path) -> None:
+def test_host_private_reload_validates_link_crypto_and_writes_marker(tmp_path: Path) -> None:
     contract_path = tmp_path / "runtime" / "runtime-contract.json"
     contract = _contract(contract_path)
     private_root = tmp_path / "private"
@@ -818,7 +818,7 @@ def test_k3s_private_reload_validates_link_crypto_and_writes_marker(tmp_path: Pa
         ("TRANSIT", "router-transit", ["V0", "V1", "V3"]),
     ],
 )
-def test_k3s_private_reload_validates_router_only_link_crypto_marker(
+def test_host_private_reload_validates_router_only_link_crypto_marker(
     tmp_path: Path,
     role: str,
     link_class: str,
@@ -870,7 +870,7 @@ def test_k3s_private_reload_validates_router_only_link_crypto_marker(
     _assert_no_private_canaries(json.dumps(marker))
 
 
-def test_k3s_private_reload_link_crypto_validates_router_client_bundle(tmp_path: Path) -> None:
+def test_host_private_reload_link_crypto_validates_router_client_bundle(tmp_path: Path) -> None:
     contract_path = tmp_path / "runtime" / "runtime-contract.json"
     contract = _contract(contract_path)
     private_root = tmp_path / "private"
@@ -910,7 +910,7 @@ def test_k3s_private_reload_link_crypto_validates_router_client_bundle(tmp_path:
     _assert_no_private_canaries(json.dumps(marker))
 
 
-def test_k3s_private_reload_link_crypto_fails_on_invalid_router_bundle(tmp_path: Path) -> None:
+def test_host_private_reload_link_crypto_fails_on_invalid_router_bundle(tmp_path: Path) -> None:
     contract_path = tmp_path / "runtime" / "runtime-contract.json"
     contract = _contract(contract_path)
     private_root = tmp_path / "private"
@@ -927,7 +927,7 @@ def test_k3s_private_reload_link_crypto_fails_on_invalid_router_bundle(tmp_path:
     bundle["requirements"]["noNfqueue"] = False
     _write_json(bundle_path, bundle)
 
-    with pytest.raises(K3sPrivateReloadError, match="router handoff validation failed"):
+    with pytest.raises(HostPrivateReloadError, match="router handoff validation failed"):
         run_private_reload(
             component="link-crypto",
             role="ENTRY",
@@ -936,7 +936,7 @@ def test_k3s_private_reload_link_crypto_fails_on_invalid_router_bundle(tmp_path:
         )
 
 
-def test_k3s_private_reload_fails_on_invalid_handoff(tmp_path: Path) -> None:
+def test_host_private_reload_fails_on_invalid_handoff(tmp_path: Path) -> None:
     contract_path = tmp_path / "runtime" / "runtime-contract.json"
     contract = _contract(contract_path)
     private_root = tmp_path / "private"
@@ -947,7 +947,7 @@ def test_k3s_private_reload_fails_on_invalid_handoff(tmp_path: Path) -> None:
     ]
     _write_json(state_path, state)
 
-    with pytest.raises(K3sPrivateReloadError, match="shadowtls-v3"):
+    with pytest.raises(HostPrivateReloadError, match="shadowtls-v3"):
         run_private_reload(
             component="link-crypto",
             role="ENTRY",
@@ -956,7 +956,7 @@ def test_k3s_private_reload_fails_on_invalid_handoff(tmp_path: Path) -> None:
         )
 
 
-def test_k3s_private_reload_cli_prints_marker_without_secrets(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+def test_host_private_reload_cli_prints_marker_without_secrets(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     contract_path = tmp_path / "runtime" / "runtime-contract.json"
     contract = _contract(contract_path)
     private_root = tmp_path / "private"
@@ -976,6 +976,6 @@ def test_k3s_private_reload_cli_prints_marker_without_secrets(tmp_path: Path, ca
     )
 
     out = capsys.readouterr().out
-    assert "OK k3s private reload component=profiles role=TRANSIT" in out
+    assert "OK host private reload component=profiles role=TRANSIT" in out
     assert "desired-state.json" not in out
     _assert_no_private_canaries(out)

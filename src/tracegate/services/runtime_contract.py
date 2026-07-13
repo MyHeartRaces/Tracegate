@@ -167,7 +167,7 @@ _TRACEGATE21_CONTRACT = AgentRuntimeContract(
 
 _TRACEGATE3_CONTRACT = AgentRuntimeContract(
     name="tracegate-3",
-    aliases=("default", "tracegate-2.2", "tracegate2.2", "tracegate3", "k3s", "helm"),
+    aliases=("default", "tracegate-2.2", "tracegate2.2", "tracegate3", "host", "systemd"),
     managed_components=("xray", "hysteria", "haproxy", "nginx"),
     runtime_dirs=("xray", "hysteria", "haproxy", "nginx", "xray-v2", "profiles", "link-crypto"),
     hysteria_auth_mode="userpass",

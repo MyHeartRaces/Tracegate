@@ -98,7 +98,7 @@ def test_settings_accept_legacy_env_aliases(monkeypatch) -> None:
 
 def test_settings_keep_tracegate21_profile_distinct_from_xray_centric() -> None:
     settings = Settings(agent_runtime_profile="tracegate-2.1")
-    alias_settings = Settings(agent_runtime_profile="k3s")
+    alias_settings = Settings(agent_runtime_profile="host")
 
     assert settings.agent_runtime_profile == "tracegate-2.1"
     assert alias_settings.agent_runtime_profile == "tracegate-3"

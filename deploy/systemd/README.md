@@ -1,4 +1,8 @@
-# Optional host services
+# Host runtime services
+
+Tracegate production uses Linux hosts with systemd, Docker and host networking.
+The public repository ships only generic units; private environment files,
+credentials and rendered profiles remain operator-managed.
 
 `tracegate-clock-sync-from-rtc.timer` is an opt-in fallback for hosts where:
 
@@ -14,3 +18,6 @@ Do not enable it on hosts with an untrusted or local-time RTC.
 the canonical private profile handoff written by the Endpoint agent. It applies
 WGWS peers live with `wg set`, removes revoked peers, and does not restart the
 WireGuard or WSTunnel data plane.
+
+Before packaging or rollout, run `python3 scripts/check_host_runtime.py` and
+`tracegate-host-private-preflight` for each role-specific private profile tree.

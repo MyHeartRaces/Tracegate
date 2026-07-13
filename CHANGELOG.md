@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Retired the k3s/Helm deployment tree and replaced its release dependency with
+  a host-runtime archive, host private preflight/reload commands and a
+  deterministic `host-check` gate.
+- Added the missing materialized Endpoint HAProxy route for the standalone
+  ShadowTLS v3 listener while retaining WGWS HTTP/1.1 upgrade validation.
+
 - Raised account capacity to four devices and capped each device at five
   connections while retaining the two-slot revision contract.
 - Moved account-bound Telegram Proxy access into the Connections menu and kept

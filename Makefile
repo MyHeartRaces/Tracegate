@@ -1,4 +1,4 @@
-.PHONY: install lint test helm-check privacy-check release-check release-artifacts run-api run-agent run-dispatcher run-bot init-db
+.PHONY: install lint test host-check privacy-check release-check release-artifacts run-api run-agent run-dispatcher run-bot init-db
 
 install:
 	pip install -e '.[dev]' -c requirements.lock
@@ -9,18 +9,17 @@ lint:
 test:
 	pytest -q
 
-helm-check:
-	helm lint ./deploy/k3s/tracegate
-	helm template tracegate ./deploy/k3s/tracegate >/tmp/tracegate-rendered.yaml
+host-check:
+	python3 scripts/check_host_runtime.py
 
 privacy-check:
 	python3 scripts/check_public_release.py
 
-release-check: lint test helm-check privacy-check
+release-check: lint test host-check privacy-check
 	git diff --check
 
 release-artifacts: release-check
-	scripts/build_release_artifacts.sh 3.0.0
+	scripts/build_release_artifacts.sh $$(python3 -c 'import pathlib,tomllib; print(tomllib.loads(pathlib.Path("pyproject.toml").read_text())["project"]["version"])')
 
 run-api:
 	tracegate-api

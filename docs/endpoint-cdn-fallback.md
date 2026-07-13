@@ -23,8 +23,8 @@ The selected shard must:
 - keep long-lived gRPC read and send timeouts.
 
 Set `architecture.endpointIngress.cdnFallback.enabled=true` only after the
-DNS target, certificate and firewall contract are ready. The Helm chart and
-strict production overlay check fail closed when the public hostname differs
+DNS target, certificate and firewall contract are ready. The host runtime
+preflight fails closed when the public hostname differs
 from the Endpoint TLS/default/service-facing hostname, the origin shard is
 not active, the source ranges are absent, or `backup-grpc` is disabled.
 

@@ -38,4 +38,4 @@ value in the private deployment repository.
 Disk encryption keys are stricter than normal deployment values: a private
 repository may store only encrypted backup material, never plaintext unlock
 secrets. Keep the decrypting identity in a password manager, hardware token,
-operator vault or KMS outside Git. See `docs/node-encryption-runbook.md`.
+operator vault or KMS outside Git.

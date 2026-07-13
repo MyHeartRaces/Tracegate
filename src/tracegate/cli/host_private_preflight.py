@@ -11,7 +11,7 @@ from typing import Any
 import yaml
 
 
-class K3sPrivatePreflightError(RuntimeError):
+class HostPrivatePreflightError(RuntimeError):
     pass
 
 
@@ -71,14 +71,14 @@ def _is_true(value: object) -> bool:
 def _resolve_private_child(root: Path, rel_path: str) -> Path:
     raw = str(rel_path or "").strip()
     if not raw:
-        raise K3sPrivatePreflightError("empty private file path")
+        raise HostPrivatePreflightError("empty private file path")
     child = Path(raw)
     if child.is_absolute() or ".." in child.parts:
-        raise K3sPrivatePreflightError(f"private file path must stay under private root: {raw}")
+        raise HostPrivatePreflightError(f"private file path must stay under private root: {raw}")
     root_resolved = root.resolve()
     candidate = (root / child).resolve()
     if not candidate.is_relative_to(root_resolved):
-        raise K3sPrivatePreflightError(f"private file path escapes private root: {raw}")
+        raise HostPrivatePreflightError(f"private file path escapes private root: {raw}")
     return candidate
 
 
@@ -86,19 +86,19 @@ def _read_required_text(path: Path, *, label: str) -> str:
     try:
         stat = path.stat()
     except FileNotFoundError as exc:
-        raise K3sPrivatePreflightError(f"{label} private file is missing: {path}") from exc
+        raise HostPrivatePreflightError(f"{label} private file is missing: {path}") from exc
     if not path.is_file():
-        raise K3sPrivatePreflightError(f"{label} private path is not a file: {path}")
+        raise HostPrivatePreflightError(f"{label} private path is not a file: {path}")
     if stat.st_size <= 0:
-        raise K3sPrivatePreflightError(f"{label} private file is empty: {path}")
+        raise HostPrivatePreflightError(f"{label} private file is empty: {path}")
     if stat.st_mode & 0o007:
-        raise K3sPrivatePreflightError(f"{label} private file must not be accessible by world permissions: {path}")
+        raise HostPrivatePreflightError(f"{label} private file must not be accessible by world permissions: {path}")
     return path.read_text(encoding="utf-8", errors="replace")
 
 
 def _reject_placeholders(content: str, *, label: str, path: Path) -> None:
     if _PLACEHOLDER_RE.search(content):
-        raise K3sPrivatePreflightError(f"{label} private file still contains placeholder markers: {path}")
+        raise HostPrivatePreflightError(f"{label} private file still contains placeholder markers: {path}")
 
 
 def _validate_structured_file(path: Path, content: str, *, label: str) -> Any | None:
@@ -107,15 +107,15 @@ def _validate_structured_file(path: Path, content: str, *, label: str) -> Any | 
         try:
             parsed = json.loads(content)
         except json.JSONDecodeError as exc:
-            raise K3sPrivatePreflightError(f"{label} private JSON is invalid: {path}") from exc
+            raise HostPrivatePreflightError(f"{label} private JSON is invalid: {path}") from exc
         if not isinstance(parsed, (dict, list)):
-            raise K3sPrivatePreflightError(f"{label} private JSON must be an object or list: {path}")
+            raise HostPrivatePreflightError(f"{label} private JSON must be an object or list: {path}")
         return parsed
     if suffix in {".yaml", ".yml"}:
         try:
             return yaml.safe_load(content)
         except yaml.YAMLError as exc:
-            raise K3sPrivatePreflightError(f"{label} private YAML is invalid: {path}") from exc
+            raise HostPrivatePreflightError(f"{label} private YAML is invalid: {path}") from exc
     return None
 
 
@@ -188,22 +188,22 @@ def _validate_restls_config(path: Path, parsed: Any | None, *, label: str) -> No
     if not _looks_restls_config(path):
         return
     if not isinstance(parsed, (dict, list)):
-        raise K3sPrivatePreflightError(f"{label} RESTLS config must be a JSON/YAML object or list: {path}")
+        raise HostPrivatePreflightError(f"{label} RESTLS config must be a JSON/YAML object or list: {path}")
     if not _has_nonempty_value(parsed, _RESTLS_SECRET_KEYS):
-        raise K3sPrivatePreflightError(f"{label} RESTLS config is missing private credential material: {path}")
+        raise HostPrivatePreflightError(f"{label} RESTLS config is missing private credential material: {path}")
     if _has_true_normalized_key(parsed, _RESTLS_INSECURE_TLS_KEYS):
-        raise K3sPrivatePreflightError(f"{label} RESTLS lab config must not disable TLS verification: {path}")
+        raise HostPrivatePreflightError(f"{label} RESTLS lab config must not disable TLS verification: {path}")
 
 
 def _validate_tuic_config(path: Path, parsed: Any | None, *, label: str) -> None:
     if not _looks_tuic_config(path):
         return
     if not isinstance(parsed, (dict, list)):
-        raise K3sPrivatePreflightError(f"{label} TUIC config must be a JSON/YAML object or list: {path}")
+        raise HostPrivatePreflightError(f"{label} TUIC config must be a JSON/YAML object or list: {path}")
     if not _has_nonempty_value(parsed, _TUIC_SECRET_KEYS):
-        raise K3sPrivatePreflightError(f"{label} TUIC config is missing private credential material: {path}")
+        raise HostPrivatePreflightError(f"{label} TUIC config is missing private credential material: {path}")
     if _has_true_normalized_key(parsed, _TUIC_ZERO_RTT_KEYS):
-        raise K3sPrivatePreflightError(f"{label} TUIC lab config must keep 0-RTT disabled: {path}")
+        raise HostPrivatePreflightError(f"{label} TUIC lab config must keep 0-RTT disabled: {path}")
 
 
 def _looks_shadowsocks2022_config(path: Path) -> bool:
@@ -222,13 +222,13 @@ def _validate_shadowsocks2022_config(path: Path, parsed: Any | None, *, label: s
     if not _looks_shadowsocks2022_config(path):
         return
     if not isinstance(parsed, dict):
-        raise K3sPrivatePreflightError(f"{label} Shadowsocks-2022 config must be a JSON object: {path}")
+        raise HostPrivatePreflightError(f"{label} Shadowsocks-2022 config must be a JSON object: {path}")
 
     methods = [str(value or "").strip().lower() for value in _key_values(parsed, "method")]
     if not methods or not any(method.startswith("2022-") for method in methods):
-        raise K3sPrivatePreflightError(f"{label} Shadowsocks config must use a 2022-* method: {path}")
+        raise HostPrivatePreflightError(f"{label} Shadowsocks config must use a 2022-* method: {path}")
     if not _has_nonempty_value(parsed, _SHADOWSOCKS2022_SECRET_KEYS):
-        raise K3sPrivatePreflightError(f"{label} Shadowsocks-2022 config is missing private key/password material: {path}")
+        raise HostPrivatePreflightError(f"{label} Shadowsocks-2022 config is missing private key/password material: {path}")
 
 
 def _looks_shadowtls_config(path: Path) -> bool:
@@ -243,14 +243,14 @@ def _validate_shadowtls_config(path: Path, parsed: Any | None, *, label: str) ->
     if not _looks_shadowtls_config(path):
         return
     if not isinstance(parsed, dict):
-        raise K3sPrivatePreflightError(f"{label} ShadowTLS config must be a YAML/JSON object: {path}")
+        raise HostPrivatePreflightError(f"{label} ShadowTLS config must be a YAML/JSON object: {path}")
 
     versions = [str(value or "").strip().lower() for value in _key_values(parsed, "version")]
     has_v3_section = _has_key(parsed, "v3")
     if not has_v3_section and not any(version == "3" or version == "v3" for version in versions):
-        raise K3sPrivatePreflightError(f"{label} ShadowTLS config must declare version 3: {path}")
+        raise HostPrivatePreflightError(f"{label} ShadowTLS config must declare version 3: {path}")
     if not _has_nonempty_value(parsed, {"password"}):
-        raise K3sPrivatePreflightError(f"{label} ShadowTLS v3 config is missing password material: {path}")
+        raise HostPrivatePreflightError(f"{label} ShadowTLS v3 config is missing password material: {path}")
 
 
 def _looks_mtproto_secret(path: Path) -> bool:
@@ -263,7 +263,7 @@ def _validate_mtproto_secret(path: Path, content: str, *, label: str) -> None:
     values = [line.split("#", 1)[0].strip() for line in content.splitlines()]
     values = [value for value in values if value]
     if len(values) != 1 or _MTPROTO_RAW_SECRET_RE.fullmatch(values[0]) is None:
-        raise K3sPrivatePreflightError(
+        raise HostPrivatePreflightError(
             f"{label} MTProto secret must contain exactly one raw 32-hex-character server secret: {path}"
         )
 
@@ -324,11 +324,11 @@ def _validate_wireguard_allowed_ips(values: list[str], *, label: str, path: Path
             try:
                 network = ipaddress.ip_network(token, strict=False)
             except ValueError as exc:
-                raise K3sPrivatePreflightError(f"{label} WireGuard AllowedIPs entry is invalid: {token}") from exc
+                raise HostPrivatePreflightError(f"{label} WireGuard AllowedIPs entry is invalid: {token}") from exc
             if (network.version == 4 and network.prefixlen <= 1) or (
                 network.version == 6 and network.prefixlen <= 1
             ):
-                raise K3sPrivatePreflightError(
+                raise HostPrivatePreflightError(
                     f"{label} WireGuard config must not install default or split-default routes via AllowedIPs: {path}"
                 )
 
@@ -338,9 +338,9 @@ def _validate_wireguard_mtu(values: list[str], *, label: str) -> None:
         try:
             mtu = int(value)
         except ValueError as exc:
-            raise K3sPrivatePreflightError(f"{label} WireGuard Interface MTU must be an integer") from exc
+            raise HostPrivatePreflightError(f"{label} WireGuard Interface MTU must be an integer") from exc
         if mtu < 1200 or mtu > 1420:
-            raise K3sPrivatePreflightError(f"{label} WireGuard Interface MTU must stay within 1200..1420")
+            raise HostPrivatePreflightError(f"{label} WireGuard Interface MTU must stay within 1200..1420")
 
 
 def _validate_wireguard_keepalive(values: list[str], *, label: str) -> None:
@@ -348,9 +348,9 @@ def _validate_wireguard_keepalive(values: list[str], *, label: str) -> None:
         try:
             keepalive = int(value)
         except ValueError as exc:
-            raise K3sPrivatePreflightError(f"{label} WireGuard PersistentKeepalive must be an integer") from exc
+            raise HostPrivatePreflightError(f"{label} WireGuard PersistentKeepalive must be an integer") from exc
         if keepalive < 0 or keepalive > 60:
-            raise K3sPrivatePreflightError(f"{label} WireGuard PersistentKeepalive must stay within 0..60")
+            raise HostPrivatePreflightError(f"{label} WireGuard PersistentKeepalive must stay within 0..60")
 
 
 def _validate_wireguard_config(path: Path, content: str, *, label: str) -> None:
@@ -360,14 +360,14 @@ def _validate_wireguard_config(path: Path, content: str, *, label: str) -> None:
     values = _parse_wireguard_values(content)
     interface_keys = sections.get("interface", set())
     if not interface_keys:
-        raise K3sPrivatePreflightError(f"{label} WireGuard config is missing [Interface]: {path}")
+        raise HostPrivatePreflightError(f"{label} WireGuard config is missing [Interface]: {path}")
     if "privatekey" not in interface_keys:
-        raise K3sPrivatePreflightError(f"{label} WireGuard config is missing Interface PrivateKey: {path}")
+        raise HostPrivatePreflightError(f"{label} WireGuard config is missing Interface PrivateKey: {path}")
     if not {"address", "listenport"}.intersection(interface_keys):
-        raise K3sPrivatePreflightError(f"{label} WireGuard config must declare Interface Address or ListenPort: {path}")
+        raise HostPrivatePreflightError(f"{label} WireGuard config must declare Interface Address or ListenPort: {path}")
     forbidden = sorted(interface_keys.intersection(_WIREGUARD_FORBIDDEN_INTERFACE_KEYS))
     if forbidden:
-        raise K3sPrivatePreflightError(
+        raise HostPrivatePreflightError(
             f"{label} WireGuard config contains wg-quick host-network side effects: {', '.join(forbidden)}"
         )
     _validate_wireguard_mtu(values.get("interface", {}).get("mtu", []), label=label)
@@ -413,22 +413,22 @@ def _validate_zapret_profile(
             or ""
         ).strip().lower()
         if scope in _HOST_WIDE_SCOPES:
-            raise K3sPrivatePreflightError(f"zapret2 profile uses forbidden host-wide scope: {path}")
+            raise HostPrivatePreflightError(f"zapret2 profile uses forbidden host-wide scope: {path}")
         for key in _HOST_WIDE_KEYS:
             if _is_true(values.get(key)):
-                raise K3sPrivatePreflightError(f"zapret2 profile enables host-wide interception via {key}: {path}")
+                raise HostPrivatePreflightError(f"zapret2 profile enables host-wide interception via {key}: {path}")
         for key in _ZAPRET_TARGET_KEYS:
             tokens = _env_list_tokens(values.get(key))
             if tokens.intersection(_BROAD_TARGET_VALUES):
-                raise K3sPrivatePreflightError(f"zapret2 profile targets broad host traffic via {key}: {path}")
+                raise HostPrivatePreflightError(f"zapret2 profile targets broad host traffic via {key}: {path}")
         for key in _ZAPRET_APPLY_MODE_KEYS:
             mode = str(values.get(key) or "").strip().lower()
             if mode in _BROAD_APPLY_MODES:
-                raise K3sPrivatePreflightError(f"zapret2 profile applies to broad host traffic via {key}: {path}")
+                raise HostPrivatePreflightError(f"zapret2 profile applies to broad host traffic via {key}: {path}")
     if not allow_nfqueue:
         for key in _NFQUEUE_KEYS:
             if _is_true(values.get(key)):
-                raise K3sPrivatePreflightError(f"zapret2 profile enables broad NFQUEUE via {key}: {path}")
+                raise HostPrivatePreflightError(f"zapret2 profile enables broad NFQUEUE via {key}: {path}")
 
 
 def validate_private_mount(
@@ -443,10 +443,10 @@ def validate_private_mount(
 ) -> dict[str, int | str]:
     role_upper = str(role or "").strip().upper()
     if role_upper not in {"ENTRY", "TRANSIT"}:
-        raise K3sPrivatePreflightError(f"role must be ENTRY or TRANSIT, got: {role}")
+        raise HostPrivatePreflightError(f"role must be ENTRY or TRANSIT, got: {role}")
 
     if not root.exists() or not root.is_dir():
-        raise K3sPrivatePreflightError(f"private root is missing or not a directory: {root}")
+        raise HostPrivatePreflightError(f"private root is missing or not a directory: {root}")
 
     seen: set[str] = set()
     checked_required = 0
@@ -494,8 +494,8 @@ def validate_private_mount(
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="tracegate-k3s-private-preflight",
-        description="Validate mounted Tracegate private profile Secret files before starting a k3s gateway pod.",
+        prog="tracegate-host-private-preflight",
+        description="Validate Tracegate private profile files before starting a host gateway runtime.",
     )
     parser.add_argument("--root", default="/etc/tracegate/private", help="Mounted private Secret root")
     parser.add_argument("--role", required=True, choices=["ENTRY", "TRANSIT", "entry", "transit"], help="Gateway role")
@@ -520,11 +520,11 @@ def main(argv: list[str] | None = None) -> None:
             allow_host_wide_interception=args.allow_host_wide_interception,
             allow_nfqueue=args.allow_nfqueue,
         )
-    except K3sPrivatePreflightError as exc:
+    except HostPrivatePreflightError as exc:
         raise SystemExit(str(exc)) from exc
 
     sys.stdout.write(
-        "OK k3s private preflight "
+        "OK host private preflight "
         f"role={report['role']} "
         f"required_files={report['requiredFiles']} "
         f"zapret_files={report['zapretFiles']}\n"

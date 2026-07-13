@@ -23,18 +23,16 @@ python3 scripts/check_public_release.py
 For chart changes:
 
 ```bash
-helm lint ./deploy/k3s/tracegate
-helm template tracegate ./deploy/k3s/tracegate
-python3 deploy/k3s/prod-overlay-check.py --strict \
-  --chart-values deploy/k3s/tracegate/values.yaml \
-  --values deploy/k3s/values-prod.yaml
+python3 scripts/check_host_runtime.py
+tracegate-host-private-preflight --help
 ```
 
 Production promotion gates run from the operator environment.
 
 Build release assets only through `scripts/build_release_artifacts.sh`. It
 exports a clean tracked tree, scans the source and every unpacked artifact,
-then produces Python, Helm and generic bundle packages plus `SHA256SUMS`.
+then produces Python packages and a generic host-runtime archive plus
+`SHA256SUMS`.
 
 ## Endpoint First
 

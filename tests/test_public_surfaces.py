@@ -36,7 +36,7 @@ def test_readme_stays_high_level() -> None:
 
 def test_public_docs_do_not_expose_live_tracegate_domains_or_ips() -> None:
     repo_root = Path(__file__).resolve().parents[1]
-    scanned_roots = (repo_root / "README.md", repo_root / "docs", repo_root / "deploy/k3s/README.md")
+    scanned_roots = (repo_root / "README.md", repo_root / "docs", repo_root / "deploy/systemd/README.md")
     needles = (
         _LIVE_DOMAIN,
         f"entry.{_LIVE_DOMAIN}",
@@ -59,12 +59,4 @@ def test_public_docs_do_not_expose_live_tracegate_domains_or_ips() -> None:
 def test_public_repo_does_not_ship_bot_copy() -> None:
     repo_root = Path(__file__).resolve().parents[1]
     assert not (repo_root / "bundles/bot/guide.md").exists()
-    public_text = "\n".join(
-        path.read_text(encoding="utf-8")
-        for path in (
-            repo_root / "deploy/k3s/tracegate/values.yaml",
-            repo_root / "deploy/k3s/values-prod.example.yaml",
-        )
-    )
-    assert "tracegate-bot-guide" in public_text
-    assert ("Короткий " + "гайд") not in public_text
+    assert not any((repo_root / "bundles/bot").glob("*.md"))

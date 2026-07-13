@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from tracegate.cli.k3s_private_preflight import K3sPrivatePreflightError, main, validate_private_mount
+from tracegate.cli.host_private_preflight import HostPrivatePreflightError, main, validate_private_mount
 
 
 PRIVATE_PREFLIGHT_SECRET_CANARIES = (
@@ -32,7 +32,7 @@ def _write(root: Path, rel_path: str, content: str) -> None:
     path.chmod(0o600)
 
 
-def test_k3s_private_preflight_accepts_role_scoped_secret_files(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+def test_host_private_preflight_accepts_role_scoped_secret_files(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     _write(tmp_path, "reality/transit-private-key", "real-private-key\n")
     _write(tmp_path, "hysteria/transit-auth", "real-hysteria-auth\n")
     _write(
@@ -95,18 +95,18 @@ def test_k3s_private_preflight_accepts_role_scoped_secret_files(tmp_path: Path, 
     )
 
     out = capsys.readouterr().out
-    assert "OK k3s private preflight role=TRANSIT" in out
+    assert "OK host private preflight role=TRANSIT" in out
     _assert_no_private_canaries(out)
 
 
-def test_k3s_private_preflight_rejects_shadowsocks2022_without_private_credentials(tmp_path: Path) -> None:
+def test_host_private_preflight_rejects_shadowsocks2022_without_private_credentials(tmp_path: Path) -> None:
     _write(
         tmp_path,
         "link-crypto-ss2022/server.json",
         '{"outbounds": [{"type": "shadowsocks", "method": "2022-blake3-aes-128-gcm"}, {"type": "shadowtls", "version": 3}]}\n',
     )
 
-    with pytest.raises(K3sPrivatePreflightError, match="key/password material"):
+    with pytest.raises(HostPrivatePreflightError, match="key/password material"):
         validate_private_mount(
             root=tmp_path,
             role="TRANSIT",
@@ -115,7 +115,7 @@ def test_k3s_private_preflight_rejects_shadowsocks2022_without_private_credentia
         )
 
 
-def test_k3s_private_preflight_allows_ss2022_password_scalar_file(tmp_path: Path) -> None:
+def test_host_private_preflight_allows_ss2022_password_scalar_file(tmp_path: Path) -> None:
     _write(tmp_path, "credentials/ss2022-transit-password", "ss2022-secret\n")
 
     report = validate_private_mount(
@@ -128,14 +128,14 @@ def test_k3s_private_preflight_allows_ss2022_password_scalar_file(tmp_path: Path
     assert report["requiredFiles"] == 1
 
 
-def test_k3s_private_preflight_rejects_shadowsocks2022_non_2022_method(tmp_path: Path) -> None:
+def test_host_private_preflight_rejects_shadowsocks2022_non_2022_method(tmp_path: Path) -> None:
     _write(
         tmp_path,
         "link-crypto-ss2022/server.json",
         '{"outbounds": [{"type": "shadowsocks", "method": "aes-256-gcm", "password": "secret"}, {"type": "shadowtls", "version": 3, "password": "secret"}]}\n',
     )
 
-    with pytest.raises(K3sPrivatePreflightError, match="2022-"):
+    with pytest.raises(HostPrivatePreflightError, match="2022-"):
         validate_private_mount(
             root=tmp_path,
             role="TRANSIT",
@@ -144,7 +144,7 @@ def test_k3s_private_preflight_rejects_shadowsocks2022_non_2022_method(tmp_path:
         )
 
 
-def test_k3s_private_preflight_accepts_tuic_lab_config_without_0rtt(tmp_path: Path) -> None:
+def test_host_private_preflight_accepts_tuic_lab_config_without_0rtt(tmp_path: Path) -> None:
     _write(tmp_path, "lab/tuic-transit.json", '{"server": "0.0.0.0", "users": [{"uuid": "user-uuid", "password": "secret"}]}\n')
 
     report = validate_private_mount(
@@ -157,14 +157,14 @@ def test_k3s_private_preflight_accepts_tuic_lab_config_without_0rtt(tmp_path: Pa
     assert report["requiredFiles"] == 1
 
 
-def test_k3s_private_preflight_rejects_tuic_lab_0rtt(tmp_path: Path) -> None:
+def test_host_private_preflight_rejects_tuic_lab_0rtt(tmp_path: Path) -> None:
     _write(
         tmp_path,
         "lab/tuic-transit.json",
         '{"users": [{"uuid": "user-uuid", "password": "secret"}], "zero_rtt_handshake": true}\n',
     )
 
-    with pytest.raises(K3sPrivatePreflightError, match="0-RTT"):
+    with pytest.raises(HostPrivatePreflightError, match="0-RTT"):
         validate_private_mount(
             root=tmp_path,
             role="TRANSIT",
@@ -173,10 +173,10 @@ def test_k3s_private_preflight_rejects_tuic_lab_0rtt(tmp_path: Path) -> None:
         )
 
 
-def test_k3s_private_preflight_rejects_tuic_lab_without_credentials(tmp_path: Path) -> None:
+def test_host_private_preflight_rejects_tuic_lab_without_credentials(tmp_path: Path) -> None:
     _write(tmp_path, "lab/tuic-transit.json", '{"server": "0.0.0.0"}\n')
 
-    with pytest.raises(K3sPrivatePreflightError, match="credential material"):
+    with pytest.raises(HostPrivatePreflightError, match="credential material"):
         validate_private_mount(
             root=tmp_path,
             role="TRANSIT",
@@ -185,7 +185,7 @@ def test_k3s_private_preflight_rejects_tuic_lab_without_credentials(tmp_path: Pa
         )
 
 
-def test_k3s_private_preflight_accepts_restls_lab_config_with_credentials(tmp_path: Path) -> None:
+def test_host_private_preflight_accepts_restls_lab_config_with_credentials(tmp_path: Path) -> None:
     _write(tmp_path, "lab/restls-direct.yaml", "server: transit.example.com\npassword: restls-secret\n")
 
     report = validate_private_mount(
@@ -198,10 +198,10 @@ def test_k3s_private_preflight_accepts_restls_lab_config_with_credentials(tmp_pa
     assert report["requiredFiles"] == 1
 
 
-def test_k3s_private_preflight_rejects_restls_lab_without_credentials(tmp_path: Path) -> None:
+def test_host_private_preflight_rejects_restls_lab_without_credentials(tmp_path: Path) -> None:
     _write(tmp_path, "lab/restls-direct.yaml", "server: transit.example.com\n")
 
-    with pytest.raises(K3sPrivatePreflightError, match="credential material"):
+    with pytest.raises(HostPrivatePreflightError, match="credential material"):
         validate_private_mount(
             root=tmp_path,
             role="TRANSIT",
@@ -210,10 +210,10 @@ def test_k3s_private_preflight_rejects_restls_lab_without_credentials(tmp_path: 
         )
 
 
-def test_k3s_private_preflight_rejects_restls_insecure_tls(tmp_path: Path) -> None:
+def test_host_private_preflight_rejects_restls_insecure_tls(tmp_path: Path) -> None:
     _write(tmp_path, "lab/restls-direct.yaml", "server: transit.example.com\npassword: secret\nskip_cert_verify: true\n")
 
-    with pytest.raises(K3sPrivatePreflightError, match="TLS verification"):
+    with pytest.raises(HostPrivatePreflightError, match="TLS verification"):
         validate_private_mount(
             root=tmp_path,
             role="TRANSIT",
@@ -222,7 +222,7 @@ def test_k3s_private_preflight_rejects_restls_insecure_tls(tmp_path: Path) -> No
         )
 
 
-def test_k3s_private_preflight_rejects_wireguard_hooks(tmp_path: Path) -> None:
+def test_host_private_preflight_rejects_wireguard_hooks(tmp_path: Path) -> None:
     _write(
         tmp_path,
         "wireguard/wg.conf",
@@ -237,7 +237,7 @@ def test_k3s_private_preflight_rejects_wireguard_hooks(tmp_path: Path) -> None:
         ),
     )
 
-    with pytest.raises(K3sPrivatePreflightError, match="host-network side effects"):
+    with pytest.raises(HostPrivatePreflightError, match="host-network side effects"):
         validate_private_mount(
             root=tmp_path,
             role="TRANSIT",
@@ -246,10 +246,10 @@ def test_k3s_private_preflight_rejects_wireguard_hooks(tmp_path: Path) -> None:
         )
 
 
-def test_k3s_private_preflight_rejects_incomplete_wireguard_config(tmp_path: Path) -> None:
+def test_host_private_preflight_rejects_incomplete_wireguard_config(tmp_path: Path) -> None:
     _write(tmp_path, "wireguard/wg.conf", "[Interface]\nAddress = 10.7.0.1/24\n")
 
-    with pytest.raises(K3sPrivatePreflightError, match="PrivateKey"):
+    with pytest.raises(HostPrivatePreflightError, match="PrivateKey"):
         validate_private_mount(
             root=tmp_path,
             role="TRANSIT",
@@ -258,7 +258,7 @@ def test_k3s_private_preflight_rejects_incomplete_wireguard_config(tmp_path: Pat
         )
 
 
-def test_k3s_private_preflight_rejects_wireguard_default_route(tmp_path: Path) -> None:
+def test_host_private_preflight_rejects_wireguard_default_route(tmp_path: Path) -> None:
     _write(
         tmp_path,
         "wireguard/wg.conf",
@@ -277,7 +277,7 @@ def test_k3s_private_preflight_rejects_wireguard_default_route(tmp_path: Path) -
         ),
     )
 
-    with pytest.raises(K3sPrivatePreflightError, match="default or split-default routes"):
+    with pytest.raises(HostPrivatePreflightError, match="default or split-default routes"):
         validate_private_mount(
             root=tmp_path,
             role="TRANSIT",
@@ -286,7 +286,7 @@ def test_k3s_private_preflight_rejects_wireguard_default_route(tmp_path: Path) -
         )
 
 
-def test_k3s_private_preflight_rejects_wireguard_split_default_route(tmp_path: Path) -> None:
+def test_host_private_preflight_rejects_wireguard_split_default_route(tmp_path: Path) -> None:
     _write(
         tmp_path,
         "wireguard/wg.conf",
@@ -305,7 +305,7 @@ def test_k3s_private_preflight_rejects_wireguard_split_default_route(tmp_path: P
         ),
     )
 
-    with pytest.raises(K3sPrivatePreflightError, match="default or split-default routes"):
+    with pytest.raises(HostPrivatePreflightError, match="default or split-default routes"):
         validate_private_mount(
             root=tmp_path,
             role="TRANSIT",
@@ -314,7 +314,7 @@ def test_k3s_private_preflight_rejects_wireguard_split_default_route(tmp_path: P
         )
 
 
-def test_k3s_private_preflight_rejects_wireguard_dns_side_effect(tmp_path: Path) -> None:
+def test_host_private_preflight_rejects_wireguard_dns_side_effect(tmp_path: Path) -> None:
     _write(
         tmp_path,
         "wireguard/wg.conf",
@@ -330,7 +330,7 @@ def test_k3s_private_preflight_rejects_wireguard_dns_side_effect(tmp_path: Path)
         ),
     )
 
-    with pytest.raises(K3sPrivatePreflightError, match="host-network side effects"):
+    with pytest.raises(HostPrivatePreflightError, match="host-network side effects"):
         validate_private_mount(
             root=tmp_path,
             role="TRANSIT",
@@ -339,7 +339,7 @@ def test_k3s_private_preflight_rejects_wireguard_dns_side_effect(tmp_path: Path)
         )
 
 
-def test_k3s_private_preflight_rejects_wireguard_unsafe_mtu(tmp_path: Path) -> None:
+def test_host_private_preflight_rejects_wireguard_unsafe_mtu(tmp_path: Path) -> None:
     _write(
         tmp_path,
         "wireguard/wg.conf",
@@ -360,7 +360,7 @@ def test_k3s_private_preflight_rejects_wireguard_unsafe_mtu(tmp_path: Path) -> N
         ),
     )
 
-    with pytest.raises(K3sPrivatePreflightError, match="MTU"):
+    with pytest.raises(HostPrivatePreflightError, match="MTU"):
         validate_private_mount(
             root=tmp_path,
             role="TRANSIT",
@@ -369,7 +369,7 @@ def test_k3s_private_preflight_rejects_wireguard_unsafe_mtu(tmp_path: Path) -> N
         )
 
 
-def test_k3s_private_preflight_rejects_wireguard_unsafe_keepalive(tmp_path: Path) -> None:
+def test_host_private_preflight_rejects_wireguard_unsafe_keepalive(tmp_path: Path) -> None:
     _write(
         tmp_path,
         "wireguard/wg.conf",
@@ -390,7 +390,7 @@ def test_k3s_private_preflight_rejects_wireguard_unsafe_keepalive(tmp_path: Path
         ),
     )
 
-    with pytest.raises(K3sPrivatePreflightError, match="PersistentKeepalive"):
+    with pytest.raises(HostPrivatePreflightError, match="PersistentKeepalive"):
         validate_private_mount(
             root=tmp_path,
             role="TRANSIT",
@@ -399,14 +399,14 @@ def test_k3s_private_preflight_rejects_wireguard_unsafe_keepalive(tmp_path: Path
         )
 
 
-def test_k3s_private_preflight_rejects_legacy_shadowsocks_config(tmp_path: Path) -> None:
+def test_host_private_preflight_rejects_legacy_shadowsocks_config(tmp_path: Path) -> None:
     _write(
         tmp_path,
         "shadowsocks2022/server.json",
         '{"server": "127.0.0.1", "server_port": 18443, "method": "chacha20-ietf-poly1305", "password": "secret"}\n',
     )
 
-    with pytest.raises(K3sPrivatePreflightError, match="2022-"):
+    with pytest.raises(HostPrivatePreflightError, match="2022-"):
         validate_private_mount(
             root=tmp_path,
             role="TRANSIT",
@@ -415,14 +415,14 @@ def test_k3s_private_preflight_rejects_legacy_shadowsocks_config(tmp_path: Path)
         )
 
 
-def test_k3s_private_preflight_rejects_shadowsocks2022_without_secret(tmp_path: Path) -> None:
+def test_host_private_preflight_rejects_shadowsocks2022_without_secret(tmp_path: Path) -> None:
     _write(
         tmp_path,
         "shadowsocks2022/server.json",
         '{"server": "127.0.0.1", "server_port": 18443, "method": "2022-blake3-aes-128-gcm"}\n',
     )
 
-    with pytest.raises(K3sPrivatePreflightError, match="key/password"):
+    with pytest.raises(HostPrivatePreflightError, match="key/password"):
         validate_private_mount(
             root=tmp_path,
             role="TRANSIT",
@@ -431,10 +431,10 @@ def test_k3s_private_preflight_rejects_shadowsocks2022_without_secret(tmp_path: 
         )
 
 
-def test_k3s_private_preflight_rejects_shadowtls_v2_config(tmp_path: Path) -> None:
+def test_host_private_preflight_rejects_shadowtls_v2_config(tmp_path: Path) -> None:
     _write(tmp_path, "shadowtls/config.yaml", "version: 2\npassword: shadowtls-secret\n")
 
-    with pytest.raises(K3sPrivatePreflightError, match="version 3"):
+    with pytest.raises(HostPrivatePreflightError, match="version 3"):
         validate_private_mount(
             root=tmp_path,
             role="TRANSIT",
@@ -443,10 +443,10 @@ def test_k3s_private_preflight_rejects_shadowtls_v2_config(tmp_path: Path) -> No
         )
 
 
-def test_k3s_private_preflight_rejects_shadowtls_without_password(tmp_path: Path) -> None:
+def test_host_private_preflight_rejects_shadowtls_without_password(tmp_path: Path) -> None:
     _write(tmp_path, "shadowtls/config.yaml", "version: 3\nserverName: cdn.tracegate.test\n")
 
-    with pytest.raises(K3sPrivatePreflightError, match="password"):
+    with pytest.raises(HostPrivatePreflightError, match="password"):
         validate_private_mount(
             root=tmp_path,
             role="TRANSIT",
@@ -455,10 +455,10 @@ def test_k3s_private_preflight_rejects_shadowtls_without_password(tmp_path: Path
         )
 
 
-def test_k3s_private_preflight_rejects_weak_mtproto_secret(tmp_path: Path) -> None:
+def test_host_private_preflight_rejects_weak_mtproto_secret(tmp_path: Path) -> None:
     _write(tmp_path, "mtproto/secret.txt", "short-secret\n")
 
-    with pytest.raises(K3sPrivatePreflightError, match="raw 32-hex-character"):
+    with pytest.raises(HostPrivatePreflightError, match="raw 32-hex-character"):
         validate_private_mount(
             root=tmp_path,
             role="TRANSIT",
@@ -467,10 +467,10 @@ def test_k3s_private_preflight_rejects_weak_mtproto_secret(tmp_path: Path) -> No
         )
 
 
-def test_k3s_private_preflight_rejects_mtproto_client_secret(tmp_path: Path) -> None:
+def test_host_private_preflight_rejects_mtproto_client_secret(tmp_path: Path) -> None:
     _write(tmp_path, "mtproto/secret.txt", "ee00112233445566778899aabbccddeeff\n")
 
-    with pytest.raises(K3sPrivatePreflightError, match="raw 32-hex-character"):
+    with pytest.raises(HostPrivatePreflightError, match="raw 32-hex-character"):
         validate_private_mount(
             root=tmp_path,
             role="TRANSIT",
@@ -479,14 +479,14 @@ def test_k3s_private_preflight_rejects_mtproto_client_secret(tmp_path: Path) -> 
         )
 
 
-def test_k3s_private_preflight_rejects_multiple_mtproto_secrets(tmp_path: Path) -> None:
+def test_host_private_preflight_rejects_multiple_mtproto_secrets(tmp_path: Path) -> None:
     _write(
         tmp_path,
         "mtproto/secret.txt",
         "00112233445566778899aabbccddeeff\nffeeddccbbaa99887766554433221100\n",
     )
 
-    with pytest.raises(K3sPrivatePreflightError, match="exactly one"):
+    with pytest.raises(HostPrivatePreflightError, match="exactly one"):
         validate_private_mount(
             root=tmp_path,
             role="TRANSIT",
@@ -495,7 +495,7 @@ def test_k3s_private_preflight_rejects_multiple_mtproto_secrets(tmp_path: Path) 
         )
 
 
-def test_k3s_private_preflight_accepts_mtproto_inline_comment(tmp_path: Path) -> None:
+def test_host_private_preflight_accepts_mtproto_inline_comment(tmp_path: Path) -> None:
     _write(tmp_path, "mtproto/secret.txt", "00112233445566778899aabbccddeeff # raw server secret\n")
 
     report = validate_private_mount(
@@ -508,8 +508,8 @@ def test_k3s_private_preflight_accepts_mtproto_inline_comment(tmp_path: Path) ->
     assert report["requiredFiles"] == 1
 
 
-def test_k3s_private_preflight_rejects_missing_required_file(tmp_path: Path) -> None:
-    with pytest.raises(K3sPrivatePreflightError, match="private file is missing"):
+def test_host_private_preflight_rejects_missing_required_file(tmp_path: Path) -> None:
+    with pytest.raises(HostPrivatePreflightError, match="private file is missing"):
         validate_private_mount(
             root=tmp_path,
             role="ENTRY",
@@ -518,10 +518,10 @@ def test_k3s_private_preflight_rejects_missing_required_file(tmp_path: Path) -> 
         )
 
 
-def test_k3s_private_preflight_rejects_placeholders(tmp_path: Path) -> None:
+def test_host_private_preflight_rejects_placeholders(tmp_path: Path) -> None:
     _write(tmp_path, "reality/entry-private-key", "REPLACE_ENTRY_PLACEHOLDER_PRIVATE_KEY\n")
 
-    with pytest.raises(K3sPrivatePreflightError, match="placeholder"):
+    with pytest.raises(HostPrivatePreflightError, match="placeholder"):
         validate_private_mount(
             root=tmp_path,
             role="ENTRY",
@@ -530,11 +530,11 @@ def test_k3s_private_preflight_rejects_placeholders(tmp_path: Path) -> None:
         )
 
 
-def test_k3s_private_preflight_rejects_world_accessible_private_files(tmp_path: Path) -> None:
+def test_host_private_preflight_rejects_world_accessible_private_files(tmp_path: Path) -> None:
     _write(tmp_path, "reality/entry-private-key", "real-private-key\n")
     (tmp_path / "reality/entry-private-key").chmod(0o604)
 
-    with pytest.raises(K3sPrivatePreflightError, match="world permissions"):
+    with pytest.raises(HostPrivatePreflightError, match="world permissions"):
         validate_private_mount(
             root=tmp_path,
             role="ENTRY",
@@ -554,10 +554,10 @@ def test_k3s_private_preflight_rejects_world_accessible_private_files(tmp_path: 
         ("TRACEGATE_ZAPRET_NFQUEUE=1\n", "broad NFQUEUE"),
     ],
 )
-def test_k3s_private_preflight_rejects_hostwide_and_nfqueue_zapret(tmp_path: Path, content: str, message: str) -> None:
+def test_host_private_preflight_rejects_hostwide_and_nfqueue_zapret(tmp_path: Path, content: str, message: str) -> None:
     _write(tmp_path, "zapret/entry-transit.env", content)
 
-    with pytest.raises(K3sPrivatePreflightError, match=message):
+    with pytest.raises(HostPrivatePreflightError, match=message):
         validate_private_mount(
             root=tmp_path,
             role="ENTRY",
@@ -566,8 +566,8 @@ def test_k3s_private_preflight_rejects_hostwide_and_nfqueue_zapret(tmp_path: Pat
         )
 
 
-def test_k3s_private_preflight_rejects_path_escape(tmp_path: Path) -> None:
-    with pytest.raises(K3sPrivatePreflightError, match="under private root"):
+def test_host_private_preflight_rejects_path_escape(tmp_path: Path) -> None:
+    with pytest.raises(HostPrivatePreflightError, match="under private root"):
         validate_private_mount(
             root=tmp_path,
             role="ENTRY",

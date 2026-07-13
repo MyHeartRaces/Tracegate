@@ -37,18 +37,18 @@ from tracegate.services.runtime_preflight import (
 )
 
 
-class K3sPrivateReloadError(RuntimeError):
+class HostPrivateReloadError(RuntimeError):
     pass
 
 
-_MARKER_SCHEMA = "tracegate.k3s-private-reload.v1"
-_SUMMARY_SCHEMA = "tracegate.k3s-private-reload-summary.v1"
+_MARKER_SCHEMA = "tracegate.host-private-reload.v1"
+_SUMMARY_SCHEMA = "tracegate.host-private-reload-summary.v1"
 
 
 def _role_lower(role: str) -> str:
     role_upper = str(role or "").strip().upper()
     if role_upper not in {"ENTRY", "TRANSIT"}:
-        raise K3sPrivateReloadError(f"role must be ENTRY or TRANSIT, got: {role}")
+        raise HostPrivateReloadError(f"role must be ENTRY or TRANSIT, got: {role}")
     return role_upper.lower()
 
 
@@ -56,11 +56,11 @@ def _load_contract(path: Path) -> dict:
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
     except FileNotFoundError as exc:
-        raise K3sPrivateReloadError(f"runtime contract is missing: {path}") from exc
+        raise HostPrivateReloadError(f"runtime contract is missing: {path}") from exc
     except json.JSONDecodeError as exc:
-        raise K3sPrivateReloadError(f"runtime contract is not valid JSON: {path}") from exc
+        raise HostPrivateReloadError(f"runtime contract is not valid JSON: {path}") from exc
     if not isinstance(payload, dict):
-        raise K3sPrivateReloadError(f"runtime contract must be a JSON object: {path}")
+        raise HostPrivateReloadError(f"runtime contract must be a JSON object: {path}")
     return payload
 
 
@@ -75,7 +75,7 @@ def _raise_for_errors(findings: list[RuntimePreflightFinding], *, component: str
     details = "; ".join(f"{finding.code}: {finding.message}" for finding in errors[:5])
     if len(errors) > 5:
         details += f"; ... {len(errors) - 5} more"
-    raise K3sPrivateReloadError(f"{component} handoff validation failed: {details}")
+    raise HostPrivateReloadError(f"{component} handoff validation failed: {details}")
 
 
 def _safe_write_marker(marker_path: Path, payload: dict[str, object]) -> None:
@@ -239,11 +239,11 @@ def _split_shadowsocks2022_password(value: object) -> tuple[str, str]:
     raw = str(value or "").strip()
     server_key, sep, user_key = raw.rpartition(":")
     if not sep:
-        raise K3sPrivateReloadError("Shadowsocks-2022 V3 password must use server-key:user-key format")
+        raise HostPrivateReloadError("Shadowsocks-2022 V3 password must use server-key:user-key format")
     server_key = server_key.strip()
     user_key = user_key.strip()
     if not server_key or not user_key:
-        raise K3sPrivateReloadError("Shadowsocks-2022 V3 password contains an empty server or user key")
+        raise HostPrivateReloadError("Shadowsocks-2022 V3 password contains an empty server or user key")
     return server_key, user_key
 
 
@@ -264,12 +264,12 @@ def _write_shadowsocks2022_runtime_config(*, state: PrivateProfileState, root: P
         ss2022 = _nested_dict(row, "shadowsocks2022")
         row_method = _row_string(ss2022, "method") or method
         if row_method != method:
-            raise K3sPrivateReloadError("all V3 Shadowsocks-2022 rows for one role must use the same method")
+            raise HostPrivateReloadError("all V3 Shadowsocks-2022 rows for one role must use the same method")
         row_server_password, row_user_password = _split_shadowsocks2022_password(ss2022.get("password"))
         if not server_password:
             server_password = row_server_password
         elif row_server_password != server_password:
-            raise K3sPrivateReloadError("all V3 Shadowsocks-2022 rows for one role must share the same server key")
+            raise HostPrivateReloadError("all V3 Shadowsocks-2022 rows for one role must share the same server key")
         users.append(
             {
                 "name": _row_string(row, "connectionId") or f"v3-{len(users) + 1}",
@@ -689,7 +689,7 @@ def run_private_reload(
     elif component_normalized == "link-crypto":
         summary = _validate_link_crypto(role=role, root=private_runtime_root, contract_path=runtime_contract)
     else:
-        raise K3sPrivateReloadError(f"unsupported k3s private reload component: {component}")
+        raise HostPrivateReloadError(f"unsupported host private reload component: {component}")
 
     marker_dir = marker_root or private_runtime_root / "runtime"
     marker_path = marker_dir / f"{component_normalized}-{role_lower}-last-reload.json"
@@ -708,8 +708,8 @@ def run_private_reload(
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="tracegate-k3s-private-reload",
-        description="Validate Tracegate k3s private runtime handoffs and emit a redacted reload marker.",
+        prog="tracegate-host-private-reload",
+        description="Validate Tracegate host private runtime handoffs and emit a redacted reload marker.",
     )
     parser.add_argument("--component", required=True, choices=["profiles", "link-crypto"], help="Private handoff component")
     parser.add_argument("--role", required=True, choices=["ENTRY", "TRANSIT", "entry", "transit"], help="Gateway role")
@@ -734,11 +734,11 @@ def main(argv: list[str] | None = None) -> None:
             runtime_contract=Path(args.runtime_contract),
             marker_root=Path(args.marker_root) if args.marker_root else None,
         )
-    except (K3sPrivateReloadError, RuntimePreflightError) as exc:
+    except (HostPrivateReloadError, RuntimePreflightError) as exc:
         raise SystemExit(str(exc)) from exc
 
     sys.stdout.write(
-        "OK k3s private reload "
+        "OK host private reload "
         f"component={result['component']} "
         f"role={result['role']} "
         f"marker={result['markerPath']}\n"

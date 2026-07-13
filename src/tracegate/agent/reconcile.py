@@ -32,8 +32,8 @@ from tracegate.settings import Settings, effective_private_runtime_root
 
 _INDEX_FILE_NAME = "artifact-index.json"
 _RUNTIME_CONTRACT_FILE_NAME = "runtime-contract.json"
-_K3S_PRIVATE_RELOAD_MARKER_SCHEMA = "tracegate.k3s-private-reload.v1"
-_K3S_PRIVATE_RELOAD_SUMMARY_SCHEMA = "tracegate.k3s-private-reload-summary.v1"
+_HOST_PRIVATE_RELOAD_MARKER_SCHEMA = "tracegate.host-private-reload.v1"
+_HOST_PRIVATE_RELOAD_SUMMARY_SCHEMA = "tracegate.host-private-reload-summary.v1"
 _DECOY_MANIFEST_FILE_NAME = ".tracegate-sync-manifest.json"
 _INDEX_LOCK = threading.Lock()
 
@@ -2378,7 +2378,7 @@ def _file_fingerprint(path: Path) -> dict[str, int]:
     }
 
 
-def _k3s_private_marker_matches_source(
+def _host_private_marker_matches_source(
     marker: dict,
     *,
     component: str,
@@ -2387,9 +2387,9 @@ def _k3s_private_marker_matches_source(
     env_path: Path,
     extra_sources: dict[str, Path] | None = None,
 ) -> bool:
-    if marker.get("schema") != _K3S_PRIVATE_RELOAD_MARKER_SCHEMA:
+    if marker.get("schema") != _HOST_PRIVATE_RELOAD_MARKER_SCHEMA:
         return False
-    if marker.get("summarySchema") != _K3S_PRIVATE_RELOAD_SUMMARY_SCHEMA:
+    if marker.get("summarySchema") != _HOST_PRIVATE_RELOAD_SUMMARY_SCHEMA:
         return False
     if marker.get("component") != component:
         return False
@@ -2421,8 +2421,14 @@ def _k3s_private_marker_matches_source(
     return True
 
 
-def _k3s_private_reload_marker_stale(settings: Settings, *, component: str) -> bool:
-    if str(settings.agent_runtime_mode or "").strip().lower() != "kubernetes":
+def _host_private_reload_marker_stale(settings: Settings, *, component: str) -> bool:
+    if str(settings.agent_runtime_mode or "").strip().lower() != "systemd":
+        return False
+    reload_command = {
+        "profiles": str(settings.agent_reload_profiles_cmd or "").strip(),
+        "link-crypto": str(settings.agent_reload_link_crypto_cmd or "").strip(),
+    }.get(component, "")
+    if "tracegate-host-private-reload" not in reload_command:
         return False
     role_lower = str(settings.agent_role or "").strip().lower()
     if role_lower not in {"entry", "transit"}:
@@ -2462,7 +2468,7 @@ def _k3s_private_reload_marker_stale(settings: Settings, *, component: str) -> b
         return True
     if state_mtime_ns > marker_mtime_ns or env_mtime_ns > marker_mtime_ns or any(mtime_ns > marker_mtime_ns for mtime_ns in extra_mtime_ns):
         return True
-    return not _k3s_private_marker_matches_source(
+    return not _host_private_marker_matches_source(
         marker_payload,
         component=component,
         role_upper=role_upper,
@@ -2523,7 +2529,7 @@ def _reconcile_all_result(settings: Settings) -> ReconcileAllResult:
         ("profiles", str(settings.agent_reload_profiles_cmd or "").strip()),
         ("link-crypto", str(settings.agent_reload_link_crypto_cmd or "").strip()),
     ):
-        marker_stale = _k3s_private_reload_marker_stale(settings, component=component)
+        marker_stale = _host_private_reload_marker_stale(settings, component=component)
         if (component in private_handoffs_changed or marker_stale) and command and component not in changed:
             changed.append(component)
     return ReconcileAllResult(changed=changed, force_xray_reload=force_xray_reload)

@@ -34,22 +34,16 @@ firewall allows TCP/443 to HAProxy, and HAProxy owns the protocol/SNI policy.
 Ordinary Cloudflare proxying cannot carry native MTProto TCP. Keep the MTProto
 public hostname DNS-only.
 
-## Helm values
+## Host runtime settings
 
-```yaml
-mtproto:
-  enabled: true
-  runtime: telemt
-  transport: tls
-  domain: mtproto.entry.example
-  tlsDomain: example.ru
-  publicPort: 443
-  egress:
-    domainFrontingHost: example.ru
-  route:
-    mode: entry-endpoint-tunnel
-    endpoint:
-      allowedProxySources: [203.0.113.10]
+```dotenv
+MTPROTO_ENABLED=true
+MTPROTO_RUNTIME=telemt
+MTPROTO_TRANSPORT=tls
+MTPROTO_DOMAIN=mtproto.entry.example
+MTPROTO_TLS_DOMAIN=example.ru
+MTPROTO_PUBLIC_PORT=443
+MTPROTO_ROUTE_MODE=entry-endpoint-tunnel
 ```
 
 The raw 16-byte bootstrap secret remains in an external private profile
@@ -66,7 +60,7 @@ separate local TUN/router client and is not interchangeable with a
    `be_mtproto_tls`.
 2. Confirm Endpoint HAProxy routes that SNI to `be_mtproto` only for trusted
    Entry sources.
-3. Confirm Telemt exists only in the Endpoint gateway pod and its native
+3. Confirm Telemt exists only on Endpoint and its native
    readiness check succeeds.
 4. Confirm the bot profile has `server=mtproto.entry.example`, `transport=tls`,
    the expected `tlsDomain` and a per-user secret.

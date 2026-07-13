@@ -11,14 +11,14 @@ def test_entry_opens_udp_4443_for_hysteria_chain_ingress() -> None:
     assert "udp dport 8443 drop" in conf
 
 
-def test_tracegate2_firewalls_do_not_depend_on_k3s_or_wireguard() -> None:
+def test_tracegate2_firewalls_do_not_depend_on_cluster_runtime_or_wireguard() -> None:
     conf_t = Path("bundles/base-transit/nftables.conf").read_text(encoding="utf-8")
     conf_e = Path("bundles/base-entry/nftables.conf").read_text(encoding="utf-8")
     for conf in (conf_t, conf_e):
         assert "10.42.0.0/16" not in conf
         assert "51821" not in conf
         assert "wg0" not in conf
-        assert "k3s" not in conf
+        assert "KUBE-" not in conf
 
 
 def test_transit_accepts_public_80_443_and_udp_4443_for_data_plane() -> None:

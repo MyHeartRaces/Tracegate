@@ -23,8 +23,8 @@ Tracegate provides:
 - client export builders for supported proxy and tunnel profile families;
 - revision tracking for activation, rotation and revocation;
 - Grafana handoff flows for user and operator visibility;
-- a k3s-oriented Helm chart with public validation guards;
-- tests for chart rendering, runtime contracts, bot behavior, exports,
+- host-based systemd runtime units and deterministic bundle validation;
+- tests for host runtime contracts, bot behavior, exports,
   revision logic and observability formatting.
 
 ## Repository Boundary
@@ -32,7 +32,7 @@ Tracegate provides:
 Public-safe material belongs here:
 
 - source code and migrations;
-- generic Helm templates and placeholder values;
+- generic host runtime templates and placeholder values;
 - deterministic tests and non-live fixtures;
 - public bundle templates;
 - high-level operator documentation.
@@ -41,7 +41,7 @@ Sensitive material does not belong here:
 
 - real domains, public addresses, ports, node names or provider metadata;
 - production values and rendered manifests;
-- decrypted Kubernetes Secrets or plaintext disk encryption keys;
+- decrypted runtime secrets or plaintext disk encryption keys;
 - decoy site assets and live bot copy;
 - generated client imports, QR payloads or runtime state snapshots;
 - production deployment automation.
@@ -59,7 +59,7 @@ Tracegate separates control-plane decisions from gateway execution:
 - gateway agents reconcile role-specific desired state;
 - renderers build runtime profiles and public client exports from structured
   connection data;
-- validation tools check public chart safety and private overlay shape without
+- validation tools check public bundle safety and private overlay shape without
   printing secret values.
 
 New production deployments use protected Entry and Endpoint runtime surfaces.
@@ -70,8 +70,8 @@ alias while older installations migrate.
 
 - [src/tracegate](src/tracegate): application, agent, bot, dispatcher and
   service code.
-- [deploy/k3s/tracegate](deploy/k3s/tracegate): public Helm chart and template
-  guards.
+- [deploy/systemd](deploy/systemd): host service units for optional runtime
+  components.
 - [bundles](bundles): generic runtime bundle templates.
 - [alembic](alembic): database migrations.
 - [tests](tests): automated coverage for behavior and generated artifacts.
@@ -103,14 +103,16 @@ pytest -q
 Docker Compose is available for local control-plane development. It is not a
 production deployment path.
 
-## Helm Chart
+## Host Runtime
 
-The public chart is intended for rendering, validation and review. It includes
-guards for external Secrets, private profile material, decoy content, gateway
-traffic shaping, backhaul and Entry/Endpoint topology.
+The supported deployment shape is a Linux host using systemd, Docker and host
+networking. Public bundles are materialized with operator-provided private
+state; the repository never contains live credentials or rendered production
+configuration.
 
-Use placeholder values for public review. Use operator-managed overlays for
-real environments.
+Run `make host-check` to validate the public Entry/Endpoint bundles, WGWS
+WebSocket routing, ShadowTLS HAProxy handoff, Telemt loopback API and peer-sync
+unit before packaging.
 
 ## Security Posture
 
@@ -129,8 +131,6 @@ artifact. If it does, keep it out of this repository.
   workflow for contributors and operators.
 - [docs/release-checklist.md](docs/release-checklist.md): public release review
   checklist.
-- [docs/node-encryption-runbook.md](docs/node-encryption-runbook.md): generic
-  gateway encrypted runtime storage procedure.
 
 ## License
 

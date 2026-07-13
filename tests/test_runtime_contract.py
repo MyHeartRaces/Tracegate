@@ -46,7 +46,7 @@ def test_tracegate22_runtime_contract_is_default_profile() -> None:
     alias_contract = resolve_runtime_contract("default")
 
     assert normalize_runtime_profile_name("") == "tracegate-3"
-    assert normalize_runtime_profile_name("k3s") == "tracegate-3"
+    assert normalize_runtime_profile_name("host") == "tracegate-3"
     assert alias_contract == contract
     assert contract.manages_component("xray") is True
     assert contract.manages_component("hysteria") is True
@@ -88,7 +88,7 @@ def test_xray_centric_runtime_contract_is_legacy_profile() -> None:
     )
 
 
-def test_tracegate21_runtime_contract_is_k3s_profile_without_xray_backhaul() -> None:
+def test_tracegate21_runtime_contract_has_no_xray_backhaul() -> None:
     contract = resolve_runtime_contract("tracegate-2.1")
 
     assert normalize_runtime_profile_name("tracegate2.1") == "tracegate-2.1"
