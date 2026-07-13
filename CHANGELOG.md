@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## v3.1.2 - 2026-07-13
+
+- Pinned the bundled Xray runtime binary by version and SHA-256 so branch and
+  tag image builds cannot silently consume a different upstream release.
+
+## v3.1.1 - 2026-07-13
+
 - Retired the k3s/Helm deployment tree and replaced its release dependency with
   a host-runtime archive, host private preflight/reload commands and a
   deterministic `host-check` gate.
@@ -19,6 +26,8 @@
   issued configurations remain usable and adopt the new label on reissue.
 - Added account-scoped Telemt traffic and per-peer WGWS metrics, corresponding
   Grafana panels, and fixed dashboard traffic presentation to decimal MB/MB/s.
+
+## v3.1.0 - 2026-07-12
 
 - Route newly issued Chain connections through Entry REALITY with an operator-selected camouflage SNI, while retaining existing WebSocket Chain revisions as a legacy compatibility profile.
 
