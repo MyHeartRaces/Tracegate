@@ -1,6 +1,7 @@
 FROM debian:bookworm-slim AS xray-builder
 
-ARG XRAY_VERSION=latest
+ARG XRAY_VERSION=v26.3.27
+ARG XRAY_SHA256=23cd9af937744d97776ee35ecad4972cf4b2109d1e0fe6be9930467608f7c8ae
 
 RUN apt-get update \
     && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
@@ -13,12 +14,9 @@ WORKDIR /src
 
 RUN set -eux; \
     version="${XRAY_VERSION}"; \
-    if [ "$version" = "latest" ]; then \
-        zip_url="https://github.com/XTLS/Xray-core/releases/latest/download/Xray-linux-64.zip"; \
-    else \
-        zip_url="https://github.com/XTLS/Xray-core/releases/download/${version}/Xray-linux-64.zip"; \
-    fi; \
+    zip_url="https://github.com/XTLS/Xray-core/releases/download/${version}/Xray-linux-64.zip"; \
     curl -fsSL -o /tmp/xray-linux-64.zip "$zip_url"; \
+    echo "${XRAY_SHA256}  /tmp/xray-linux-64.zip" | sha256sum -c -; \
     unzip -j /tmp/xray-linux-64.zip xray geoip.dat geosite.dat -d /out; \
     chmod +x /out/xray; \
     rm -f /tmp/xray-linux-64.zip

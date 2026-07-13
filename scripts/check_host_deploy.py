@@ -79,6 +79,13 @@ def check(root: Path, *, compose_runtime: bool = False) -> None:
         "deployment example must document both immutable image pins",
     )
 
+    dockerfile_path = root / "Dockerfile"
+    if dockerfile_path.exists():
+        dockerfile = dockerfile_path.read_text()
+        _require("ARG XRAY_VERSION=latest" not in dockerfile, "Xray build input must not use latest")
+        _require("ARG XRAY_SHA256=" in dockerfile, "Xray archive checksum pin is missing")
+        _require("sha256sum -c -" in dockerfile, "Xray archive checksum is not verified")
+
     if compose_runtime:
         subprocess.run(
             ["docker", "compose", "--env-file", str(env_example_path), "-f", str(compose_path), "config", "--quiet"],
