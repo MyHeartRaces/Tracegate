@@ -73,27 +73,44 @@ def _safe_filename_fragment(value: str) -> str:
     return compact or "tracegate"
 
 
+def _artifact_filename_fragment(profile_name: str) -> str:
+    """Keep artifact filenames stable for existing importers while labels evolve."""
+    return {
+        "Tracegate-Reality": "direct-vless",
+        "Tracegate-Hysteria(Salamander)": "direct-hysteria",
+        "Tracegate-Hysteria(Gecko)": "direct-hysteria",
+        "Tracegate-Chain": "chain",
+        "Tracegate-Backup(gRPC)": "backup-vless-grpc",
+        "Tracegate-Backup(WebSocket)": "backup-vless-websocket",
+        "Tracegate-Experimental(SS2022)": "backup-shadowsocks",
+        "Tracegate-Experimental(WGWS)": "backup-wgws",
+    }.get(profile_name, _safe_filename_fragment(profile_name))
+
+
 def client_profile_name(effective: dict[str, Any]) -> str:
     protocol = str(effective.get("protocol") or "").strip().lower()
     transport = str(effective.get("transport") or "").strip().lower()
     is_chain = isinstance(effective.get("chain"), dict)
     if is_chain:
-        return "Chain"
+        return "Tracegate-Chain"
     if protocol == "vless" and (
         transport in {"reality", "reality_raw", "reality-raw", "raw_reality", "raw-tcp-reality"}
         or isinstance(effective.get("reality"), dict)
     ):
-        return "Direct-VLESS"
+        return "Tracegate-Reality"
     if protocol == "hysteria2":
-        return "Direct-Hysteria"
+        obfs = effective.get("obfs") if isinstance(effective.get("obfs"), dict) else {}
+        obfs_type = str(obfs.get("type") or effective.get("hysteria_obfs") or "salamander").strip().lower()
+        label = "Gecko" if obfs_type == "gecko" else "Salamander"
+        return f"Tracegate-Hysteria({label})"
     if protocol == "vless" and transport in {"ws_tls", "ws+tls", "ws-tls"}:
-        return "Backup-VLESS+WebSocket"
+        return "Tracegate-Backup(WebSocket)"
     if protocol == "vless" and transport in {"grpc_tls", "grpc+tls", "grpc-tls"}:
-        return "Backup-VLESS+gRPC"
+        return "Tracegate-Backup(gRPC)"
     if protocol in {"shadowsocks2022", "shadowsocks2022_shadowtls"} or transport == "shadowtls_v3":
-        return "Backup-Shadowsocks"
+        return "Tracegate-Experimental(SS2022)"
     if protocol == "wireguard" or transport in {"wireguard_wstunnel", "wstunnel"}:
-        return "Backup-WGWS"
+        return "Tracegate-Experimental(WGWS)"
     return str(effective.get("profile") or "Tracegate").strip() or "Tracegate"
 
 
@@ -388,7 +405,7 @@ def _build_xray_client_attachment(effective: dict[str, Any], outbound: dict[str,
         ],
         "outbounds": [outbound],
     }
-    filename = f"{_safe_filename_fragment(profile_name)}.xray.json"
+    filename = f"{_artifact_filename_fragment(profile_name)}.xray.json"
     return json.dumps(config, ensure_ascii=True, indent=2).encode("utf-8"), filename
 
 
@@ -430,7 +447,7 @@ def _build_singbox_client_attachment(
         "outbounds": outbounds,
         "route": route,
     }
-    filename = f"{_safe_filename_fragment(profile_name)}.singbox.json"
+    filename = f"{_artifact_filename_fragment(profile_name)}.singbox.json"
     return json.dumps(config, ensure_ascii=True, indent=2).encode("utf-8"), filename
 
 
@@ -575,7 +592,7 @@ def _build_wgws_client_attachment(
     }
     if preshared_key:
         attachment["wireguard"]["pre_shared_key"] = preshared_key
-    filename = f"{_safe_filename_fragment(profile_name)}.wgws.json"
+    filename = f"{_artifact_filename_fragment(profile_name)}.wgws.json"
     return json.dumps(attachment, ensure_ascii=True, indent=2).encode("utf-8"), filename
 
 

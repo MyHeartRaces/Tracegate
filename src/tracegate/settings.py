@@ -202,6 +202,7 @@ class Settings(BaseSettings):
     agent_auth_token: str = ""
     agent_data_root: str = "/tmp/tracegate-agent"
     agent_stats_url: str = "http://127.0.0.1:9999/traffic"
+    agent_mtproto_stats_url: str = "http://127.0.0.1:9091/v1/stats/users"
     agent_stats_secret: str = ""
     agent_dry_run: bool = True
     # Tracegate 2 defaults to systemd on plain Linux hosts.

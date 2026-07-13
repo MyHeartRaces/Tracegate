@@ -103,6 +103,68 @@ def _ds(uid: str) -> dict[str, str]:
     return {"type": "prometheus", "uid": uid}
 
 
+def _dashboard_megabytes(builder):  # noqa: ANN001, ANN201
+    """Render byte-valued dashboard panels in fixed decimal MB/MB/s units."""
+    def wrapped(*args, **kwargs):  # noqa: ANN002, ANN003, ANN202
+        dashboard = builder(*args, **kwargs)
+        uid = str(dashboard.get("uid") or "")
+        ds_uid = str(args[0] if args else kwargs.get("ds_uid") or "")
+        if uid in {"tracegate-user", "tracegate-admin-dashboard"}:
+            user_scoped = uid == "tracegate-user"
+            user_filter = '{user_pid="${__user.login}"}' if user_scoped else ""
+            panels = dashboard.setdefault("panels", [])
+            max_y = max((int((panel.get("gridPos") or {}).get("y") or 0) for panel in panels), default=0) + 8
+            panels.extend(
+                [
+                    {
+                        "id": 90,
+                        "type": "timeseries",
+                        "title": "WGWS traffic RX/TX",
+                        "datasource": _ds(ds_uid),
+                        "targets": [
+                            {"refId": "A", "expr": _connection_rate_expr("tracegate_wireguard_connection_rx_bytes", user_scoped=user_scoped, protocol_regex="wireguard_wstunnel"), "legendFormat": "{{connection_label}} RX"},
+                            {"refId": "B", "expr": _connection_rate_expr("tracegate_wireguard_connection_tx_bytes", user_scoped=user_scoped, protocol_regex="wireguard_wstunnel"), "legendFormat": "{{connection_label}} TX"},
+                        ],
+                        "fieldConfig": {"defaults": {"unit": "Bps"}, "overrides": []},
+                        "gridPos": {"h": 8, "w": 12, "x": 0, "y": max_y},
+                    },
+                    {
+                        "id": 91,
+                        "type": "timeseries",
+                        "title": "Telegram Proxy traffic",
+                        "datasource": _ds(ds_uid),
+                        "targets": [
+                            {
+                                "refId": "A",
+                                "expr": (
+                                    "sum by (user_handle) (rate(tracegate_mtproto_user_traffic_bytes[5m]) "
+                                    "* on(telegram_id) group_left(user_pid, user_handle) max by "
+                                    f"(telegram_id, user_pid, user_handle) (tracegate_mtproto_access_active{user_filter}))"
+                                ),
+                                "legendFormat": "{{user_handle}}",
+                            }
+                        ],
+                        "fieldConfig": {"defaults": {"unit": "Bps"}, "overrides": []},
+                        "gridPos": {"h": 8, "w": 12, "x": 12, "y": max_y},
+                    },
+                ]
+            )
+        for panel in dashboard.get("panels", []):
+            defaults = (panel.get("fieldConfig") or {}).get("defaults") or {}
+            unit = defaults.get("unit")
+            if unit not in {"bytes", "Bps"}:
+                continue
+            for target in panel.get("targets", []):
+                expr = str(target.get("expr") or "").strip()
+                if expr:
+                    target["expr"] = f"({expr}) / 1000000"
+            defaults["unit"] = "MB" if unit == "bytes" else "MB/s"
+            panel["title"] = str(panel.get("title") or "").replace("bytes", "MB")
+        return dashboard
+
+    return wrapped
+
+
 def _append_query_param(url: str, key: str, value: str) -> str:
     split = urlsplit(url)
     query = list(parse_qsl(split.query, keep_blank_values=True))
@@ -1297,6 +1359,7 @@ def _with_tg_and_connection_id(expr: str) -> str:
     )
 
 
+@_dashboard_megabytes
 def _dashboard_user(ds_uid: str) -> dict[str, Any]:
     return {
         "uid": "tracegate-user",
@@ -1655,6 +1718,7 @@ def _dashboard_user(ds_uid: str) -> dict[str, Any]:
     }
 
 
+@_dashboard_megabytes
 def _dashboard_admin(ds_uid: str) -> dict[str, Any]:
     return {
         "uid": "tracegate-admin-dashboard",
@@ -2183,6 +2247,7 @@ def _dashboard_admin(ds_uid: str) -> dict[str, Any]:
     }
 
 
+@_dashboard_megabytes
 def _dashboard_admin_metadata(ds_uid: str) -> dict[str, Any]:
     return {
         "uid": "tracegate-admin-metadata",
@@ -2522,6 +2587,7 @@ def _dashboard_admin_metadata(ds_uid: str) -> dict[str, Any]:
     }
 
 
+@_dashboard_megabytes
 def _dashboard_operator(ds_uid: str) -> dict[str, Any]:
     return {
         "uid": "tracegate-admin-ops",

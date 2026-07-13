@@ -115,10 +115,11 @@ def test_main_menu_includes_feedback_button() -> None:
     assert _has_text(texts, "Обратная связь")
 
 
-def test_main_menu_includes_mtproto_button() -> None:
+def test_main_menu_moves_mtproto_button_to_connections() -> None:
     kb = main_menu_keyboard(is_admin=False)
     texts = _button_texts(kb)
-    assert _has_text(texts, "Telegram Proxy")
+    assert not _has_text(texts, "Telegram Proxy")
+    assert _has_text(_button_texts(devices_keyboard([])), "Telegram Proxy")
 
 
 def test_feedback_admin_keyboard_uses_targeted_callback() -> None:
@@ -198,16 +199,18 @@ def test_mtproto_delivery_keyboard_exposes_repeat_rotate_and_revoke_actions() ->
     assert _has_text(texts, "Показать снова")
     assert _has_text(texts, "Ротировать секрет")
     assert _has_text(texts, "Отозвать доступ")
-    assert _has_text(texts, "Меню")
+    assert _has_text(texts, "Подключения")
 
 
 def test_connection_create_profiles_keyboard_uses_new_profile_names() -> None:
     kb = connection_create_profiles_keyboard(category="backup", device_id="dev-42")
     texts = _button_texts(kb)
-    assert "Backup-VLESS+gRPC" in texts
-    assert "Backup-VLESS+WebSocket" in texts
-    assert "Backup-Shadowsocks" in texts
-    assert "Backup-WGWS" in texts
+    assert "VLESS+gRPC" in texts
+    assert "VLESS+WebSocket" in texts
+
+    experimental = _button_texts(connection_create_profiles_keyboard(category="experimental", device_id="dev-42"))
+    assert "Shadowsocks-2022+ShadowTLS1.3" in experimental
+    assert "Wireguard-over-WebSocket (WGWS)" in experimental
 
 
 def test_hysteria_obfs_keyboard_recommends_salamander_and_offers_gecko() -> None:
@@ -221,26 +224,26 @@ def test_hysteria_obfs_keyboard_recommends_salamander_and_offers_gecko() -> None
 def test_connection_create_keyboards_hide_disabled_profiles() -> None:
     enabled = {"reality", "hysteria", "backup-ws", "backup-grpc"}
     categories = _button_texts(connection_create_categories_keyboard_for(device_id="dev-42", enabled_specs=enabled))
-    assert "Direct-VLESS" in categories
-    assert "Direct-Hysteria" in categories
+    assert "Direct" in categories
+    assert "Experimental" not in categories
     assert "Backup" in categories
     assert "Entry Chain (Mobile)" not in categories
 
     backup = _button_texts(
         connection_create_profiles_keyboard(category="backup", device_id="dev-42", enabled_specs=enabled)
     )
-    assert "Backup-VLESS+WebSocket" in backup
-    assert "Backup-VLESS+gRPC" in backup
-    assert "Backup-Shadowsocks" not in backup
-    assert "Backup-WGWS" not in backup
+    assert "VLESS+WebSocket" in backup
+    assert "VLESS+gRPC" in backup
+    assert "Shadowsocks-2022+ShadowTLS1.3" not in backup
+    assert "Wireguard-over-WebSocket (WGWS)" not in backup
 
 
 def test_connection_create_keyboards_can_expose_only_universal_entry() -> None:
     enabled = {"entry"}
     categories = _button_texts(connection_create_categories_keyboard_for(device_id="dev-42", enabled_specs=enabled))
     assert "Chain" in categories
-    assert "Direct-VLESS" not in categories
-    assert "Direct-Hysteria" not in categories
+    assert "Tracegate-Reality" not in categories
+    assert "Tracegate-Hysteria" not in categories
     assert "Backup" not in categories
 
 
@@ -256,6 +259,7 @@ def test_devices_keyboard_hides_add_action_at_device_limit() -> None:
             {"id": "dev-1", "name": "Laptop"},
             {"id": "dev-2", "name": "Phone"},
             {"id": "dev-3", "name": "Router"},
+            {"id": "dev-4", "name": "Tablet"},
         ]
     )
 

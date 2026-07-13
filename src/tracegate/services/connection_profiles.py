@@ -4,8 +4,8 @@ from collections.abc import Iterable
 
 from tracegate.enums import ConnectionMode, ConnectionProtocol, ConnectionVariant
 
-MAX_DEVICES_PER_USER = 3
-MAX_CONNECTIONS_PER_DEVICE = 7
+MAX_DEVICES_PER_USER = 4
+MAX_CONNECTIONS_PER_DEVICE = 5
 MAX_ACTIVE_REVISIONS_PER_CONNECTION = 2
 RESERVE_REVISION_SLOT = MAX_ACTIVE_REVISIONS_PER_CONNECTION - 1
 
@@ -59,19 +59,19 @@ def connection_profile_display_label(
     conn_mode = ConnectionMode(mode)
     conn_variant = ConnectionVariant(variant)
     if conn_mode == ConnectionMode.CHAIN:
-        return "Chain"
+        return "Tracegate-Chain"
     if proto == ConnectionProtocol.VLESS_REALITY:
-        return "Direct-VLESS"
+        return "Tracegate-Reality"
     if proto == ConnectionProtocol.HYSTERIA2:
-        return "Direct-Hysteria"
+        return "Tracegate-Hysteria"
     if proto == ConnectionProtocol.SHADOWSOCKS2022_SHADOWTLS:
-        return "Backup-Shadowsocks"
+        return "Tracegate-Experimental(SS2022)"
     if proto == ConnectionProtocol.VLESS_WS_TLS:
-        return "Backup-VLESS+WebSocket"
+        return "Tracegate-Backup(WebSocket)"
     if proto == ConnectionProtocol.VLESS_GRPC_TLS:
-        return "Backup-VLESS+gRPC"
+        return "Tracegate-Backup(gRPC)"
     if proto == ConnectionProtocol.WIREGUARD_WSTUNNEL:
-        return "Backup-WGWS"
+        return "Tracegate-Experimental(WGWS)"
     return f"{conn_variant.value}-{conn_mode.value.capitalize()}-{proto.value}"
 
 

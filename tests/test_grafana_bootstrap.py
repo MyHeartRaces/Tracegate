@@ -90,6 +90,21 @@ def test_shadowsocks_panels_use_per_connection_rate_metrics() -> None:
         assert "0 * max by (connection_label, protocol)" in expr
         assert panel["targets"][0]["legendFormat"] == "{{connection_label}}"
 
+
+def test_new_transport_panels_are_account_scoped_and_use_megabytes() -> None:
+    user_dashboard = _dashboard_user("prom")
+    wg = _panel_by_id(user_dashboard, 90)
+    telegram = _panel_by_id(user_dashboard, 91)
+
+    assert "tracegate_wireguard_connection_rx_bytes" in wg["targets"][0]["expr"]
+    assert 'user_pid="${__user.login}"' in wg["targets"][0]["expr"]
+    assert wg["fieldConfig"]["defaults"]["unit"] == "MB/s"
+    assert "/ 1000000" in wg["targets"][0]["expr"]
+
+    assert "tracegate_mtproto_user_traffic_bytes" in telegram["targets"][0]["expr"]
+    assert 'user_pid="${__user.login}"' in telegram["targets"][0]["expr"]
+    assert telegram["fieldConfig"]["defaults"]["unit"] == "MB/s"
+
     admin_dashboard = _dashboard_admin("prom")
     for panel_id in [29, 30]:
         panel = _panel_by_id(admin_dashboard, panel_id)
@@ -175,17 +190,17 @@ def test_admin_metadata_dashboard_has_total_traffic_panels() -> None:
         assert "tracegate_xray_connection_" in expr
         assert "tracegate_hysteria_" in expr
         assert "or vector(0)" in expr
-    assert rate_panel["fieldConfig"]["defaults"]["unit"] == "Bps"
+    assert rate_panel["fieldConfig"]["defaults"]["unit"] == "MB/s"
 
     rx_panel = _panel_by_id(dashboard, 5)
     assert rx_panel["type"] == "stat"
     assert "increase(" in rx_panel["targets"][0]["expr"]
-    assert rx_panel["fieldConfig"]["defaults"]["unit"] == "bytes"
+    assert rx_panel["fieldConfig"]["defaults"]["unit"] == "MB"
 
     tx_panel = _panel_by_id(dashboard, 6)
     assert tx_panel["type"] == "stat"
     assert "increase(" in tx_panel["targets"][0]["expr"]
-    assert tx_panel["fieldConfig"]["defaults"]["unit"] == "bytes"
+    assert tx_panel["fieldConfig"]["defaults"]["unit"] == "MB"
 
     total_panel = _panel_by_id(dashboard, 7)
     assert total_panel["type"] == "stat"
@@ -196,7 +211,7 @@ def test_admin_metadata_dashboard_has_total_traffic_panels() -> None:
     assert "tracegate_hysteria_inbound_rx_bytes" in total_expr
     assert "tracegate_hysteria_connection_tx_bytes" in total_expr
     assert "tracegate_hysteria_inbound_tx_bytes" in total_expr
-    assert total_panel["fieldConfig"]["defaults"]["unit"] == "bytes"
+    assert total_panel["fieldConfig"]["defaults"]["unit"] == "MB"
 
     mtproto_age = _panel_by_id(dashboard, 8)
     assert (

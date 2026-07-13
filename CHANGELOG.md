@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- Raised account capacity to four devices and capped each device at five
+  connections while retaining the two-slot revision contract.
+- Moved account-bound Telegram Proxy access into the Connections menu and kept
+  block/revoke flows fail-closed for its per-user Telemt secret.
+- Reorganized profile creation into Direct, Chain, Backup and Experimental,
+  restoring SS2022+ShadowTLS v3 and WGWS without changing existing runtime
+  profile identifiers or importer artifact filenames.
+- Updated exported client labels to the `Tracegate-*` naming scheme; already
+  issued configurations remain usable and adopt the new label on reissue.
+- Added account-scoped Telemt traffic and per-peer WGWS metrics, corresponding
+  Grafana panels, and fixed dashboard traffic presentation to decimal MB/MB/s.
+
 - Route newly issued Chain connections through Entry REALITY with an operator-selected camouflage SNI, while retaining existing WebSocket Chain revisions as a legacy compatibility profile.
 
 - Replaced the native Telegram lane with pinned Telemt FakeTLS, real-site TLS

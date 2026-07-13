@@ -1,5 +1,7 @@
 import sys
 import types
+import json
+from types import SimpleNamespace
 
 
 class _FakeGaugeMetricFamily:
@@ -52,3 +54,37 @@ Inter-|   Receive                                                |  Transmit
     )
 
     assert parsed == [("lo", 100, 200), ("eth0", 12345, 67890)]
+
+
+def test_wireguard_dump_is_mapped_to_connection_marker(monkeypatch, tmp_path) -> None:  # noqa: ANN001
+    from tracegate.agent import metrics as m
+
+    state_path = tmp_path / "desired-state.json"
+    state_path.write_text(
+        json.dumps(
+            {
+                "wireguardWSTunnel": [
+                    {
+                        "variant": "V0",
+                        "userId": "123",
+                        "connectionId": "conn-1",
+                        "wireguard": {"clientPublicKey": "peer-key"},
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        m.subprocess,
+        "run",
+        lambda *args, **kwargs: SimpleNamespace(
+            returncode=0,
+            stdout="peer-key\t(none)\t192.0.2.1:1234\t10.0.0.2/32\t1\t12000000\t34000000\t25\n",
+            stderr="",
+        ),
+    )
+
+    assert m._wireguard_connection_traffic_bytes(state_path) == {
+        "V0 - 123 - conn-1": (12000000, 34000000)
+    }

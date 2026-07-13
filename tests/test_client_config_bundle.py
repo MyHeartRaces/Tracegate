@@ -123,16 +123,16 @@ def test_client_config_bundle_collects_universal_links_artifacts_and_singbox() -
     }
 
     ss_outbound = next(outbound for outbound in bundle["singbox"]["outbounds"] if outbound["type"] == "shadowsocks")
-    assert ss_outbound["detour"].startswith("tg-2-backup-shadowsocks-")
+    assert ss_outbound["detour"].startswith("tg-2-tracegate-experimental-ss2022-")
     assert any(outbound["tag"] == ss_outbound["detour"] for outbound in bundle["singbox"]["outbounds"])
 
     profiles = {profile["profile"]: profile for profile in bundle["profiles"]}
-    assert profiles["Backup-VLESS+WebSocket"]["singbox"]["supported"] is True
-    assert profiles["Backup-Shadowsocks"]["artifacts"][0]["kind"] == "sing-box-config"
-    assert profiles["Backup-WGWS"]["singbox"]["supported"] is False
-    assert profiles["Backup-WGWS"]["artifacts"][0]["kind"] == "wgws-config"
-    assert profiles["Backup-WGWS"]["artifacts"][0]["json"]["type"] == "wgws"
-    assert profiles["Backup-WGWS"]["warnings"] == ["wireguard_wstunnel_requires_wgws_transport"]
+    assert profiles["Tracegate-Backup(WebSocket)"]["singbox"]["supported"] is True
+    assert profiles["Tracegate-Experimental(SS2022)"]["artifacts"][0]["kind"] == "sing-box-config"
+    assert profiles["Tracegate-Experimental(WGWS)"]["singbox"]["supported"] is False
+    assert profiles["Tracegate-Experimental(WGWS)"]["artifacts"][0]["kind"] == "wgws-config"
+    assert profiles["Tracegate-Experimental(WGWS)"]["artifacts"][0]["json"]["type"] == "wgws"
+    assert profiles["Tracegate-Experimental(WGWS)"]["warnings"] == ["wireguard_wstunnel_requires_wgws_transport"]
 
 
 def test_client_config_bundle_routes_connect_host_direct_without_fake_sni_bypass() -> None:

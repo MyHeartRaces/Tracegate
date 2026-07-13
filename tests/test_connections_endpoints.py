@@ -140,7 +140,7 @@ async def test_create_connection_rejects_device_connection_limit() -> None:
         )
 
     assert exc_info.value.status_code == 400
-    assert "Connection limit reached for device (7)" in str(exc_info.value.detail)
+    assert "Connection limit reached for device (5)" in str(exc_info.value.detail)
     assert session.commits == 0
 
 

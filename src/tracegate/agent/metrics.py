@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 import re
+import subprocess
 
 from prometheus_client import REGISTRY
 from prometheus_client.core import GaugeMetricFamily
@@ -79,6 +80,72 @@ def _fetch_hysteria_traffic_bytes(url: str, secret: str) -> dict[str, dict[str, 
             continue
         out[marker] = {"tx": tx, "rx": rx}
     return out
+
+
+def _fetch_mtproto_user_traffic_bytes(url: str) -> dict[str, int]:
+    """Read Telemt per-user octet counters without exposing proxy secrets."""
+    import httpx
+
+    response = httpx.get(str(url or "").strip(), timeout=5)
+    response.raise_for_status()
+    payload = response.json()
+    if isinstance(payload, dict) and isinstance(payload.get("data"), dict):
+        payload = payload["data"]
+    rows = payload.get("users") if isinstance(payload, dict) else payload
+    if isinstance(rows, dict):
+        rows = [{"username": key, **(value if isinstance(value, dict) else {})} for key, value in rows.items()]
+    if not isinstance(rows, list):
+        return {}
+    result: dict[str, int] = {}
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        username = str(row.get("username") or row.get("user") or "").strip()
+        if not username.startswith("tg_") or not username[3:].isdigit():
+            continue
+        try:
+            result[username[3:]] = max(0, int(row.get("total_octets") or row.get("totalOctets") or 0))
+        except (TypeError, ValueError):
+            continue
+    return result
+
+
+def _wireguard_connection_traffic_bytes(state_path: Path) -> dict[str, tuple[int, int]]:
+    """Map `wg show all dump` peer counters to Tracegate connection markers."""
+    state = _load_json_mapping(state_path)
+    peers: dict[str, str] = {}
+    for row in _list_value(state, "wireguardWSTunnel"):
+        if not isinstance(row, dict):
+            continue
+        wireguard = row.get("wireguard") if isinstance(row.get("wireguard"), dict) else {}
+        public_key = str(wireguard.get("clientPublicKey") or "").strip()
+        variant = str(row.get("variant") or "V0").strip() or "V0"
+        user_id = str(row.get("userId") or "").strip()
+        connection_id = str(row.get("connectionId") or "").strip()
+        if public_key and user_id and connection_id:
+            peers[public_key] = f"{variant} - {user_id} - {connection_id}"
+    if not peers:
+        return {}
+    completed = subprocess.run(
+        ["wg", "show", "all", "dump"],
+        check=False,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        timeout=5,
+    )
+    if completed.returncode != 0:
+        raise RuntimeError(completed.stderr.strip() or "wg dump failed")
+    result: dict[str, tuple[int, int]] = {}
+    for line in completed.stdout.splitlines():
+        fields = line.split("\t")
+        if len(fields) < 8 or fields[0] not in peers:
+            continue
+        try:
+            result[peers[fields[0]]] = (max(0, int(fields[5])), max(0, int(fields[6])))
+        except (TypeError, ValueError):
+            continue
+    return result
 
 
 def _read_loadavg() -> tuple[float, float, float] | None:
@@ -359,6 +426,57 @@ class AgentMetricsCollector:
         yield xray_ok
         yield xray_rx
         yield xray_tx
+
+        mtproto_ok = GaugeMetricFamily(
+            "tracegate_mtproto_stats_scrape_ok",
+            "Telemt per-user traffic stats scrape status (1=ok, 0=error)",
+        )
+        mtproto_traffic = GaugeMetricFamily(
+            "tracegate_mtproto_user_traffic_bytes",
+            "Telegram Proxy traffic octets by account",
+            labels=["telegram_id"],
+        )
+        try:
+            mtproto_rows = _fetch_mtproto_user_traffic_bytes(
+                getattr(self.settings, "agent_mtproto_stats_url", "http://127.0.0.1:9091/v1/stats/users")
+            )
+            mtproto_ok.add_metric([], 1)
+        except Exception:
+            mtproto_rows = {}
+            mtproto_ok.add_metric([], 0)
+        for telegram_id, total_octets in mtproto_rows.items():
+            mtproto_traffic.add_metric([telegram_id], total_octets)
+        yield mtproto_ok
+        yield mtproto_traffic
+
+        wg_ok = GaugeMetricFamily(
+            "tracegate_wireguard_stats_scrape_ok",
+            "WireGuard peer traffic stats scrape status (1=ok, 0=error)",
+        )
+        wg_rx = GaugeMetricFamily(
+            "tracegate_wireguard_connection_rx_bytes",
+            "WGWS connection received bytes (server RX)",
+            labels=["connection_marker"],
+        )
+        wg_tx = GaugeMetricFamily(
+            "tracegate_wireguard_connection_tx_bytes",
+            "WGWS connection transmitted bytes (server TX)",
+            labels=["connection_marker"],
+        )
+        role_lower = str(self.settings.agent_role or "").strip().lower()
+        wg_state_path = Path(effective_private_runtime_root(self.settings)) / "profiles" / role_lower / "desired-state.json"
+        try:
+            wg_rows = _wireguard_connection_traffic_bytes(wg_state_path)
+            wg_ok.add_metric([], 1)
+        except Exception:
+            wg_rows = {}
+            wg_ok.add_metric([], 0)
+        for marker, (rx_bytes, tx_bytes) in wg_rows.items():
+            wg_rx.add_metric([marker], rx_bytes)
+            wg_tx.add_metric([marker], tx_bytes)
+        yield wg_ok
+        yield wg_rx
+        yield wg_tx
 
         is_transit = str(self.settings.agent_role) == "TRANSIT"
         if not is_transit and self.runtime_contract.hysteria_metrics_source != "xray_stats":

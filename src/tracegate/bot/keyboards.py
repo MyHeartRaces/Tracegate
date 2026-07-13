@@ -23,7 +23,6 @@ def main_menu_keyboard(*, is_admin: bool = False) -> InlineKeyboardMarkup:
     rows = [
         [InlineKeyboardButton(text="🔌 Подключения", callback_data="connections")],
         [InlineKeyboardButton(text="📚 Справка", callback_data="guide_open")],
-        [InlineKeyboardButton(text="🔐 Telegram Proxy", callback_data="mtproto_open")],
         [InlineKeyboardButton(text="📊 Grafana", callback_data="grafana_otp")],
         [InlineKeyboardButton(text="💬 Обратная связь", callback_data="feedback_start")],
     ]
@@ -136,7 +135,7 @@ def mtproto_delivery_keyboard(*, allow_revoke: bool = True) -> InlineKeyboardMar
     ]
     if allow_revoke:
         rows.append([InlineKeyboardButton(text="⛔ Отозвать доступ", callback_data="mtproto_revoke")])
-    rows.append([InlineKeyboardButton(text="🏠 Меню", callback_data="menu")])
+    rows.append([InlineKeyboardButton(text="↩️ Подключения", callback_data="connections")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -153,6 +152,7 @@ def devices_keyboard(devices: list[dict], *, active_device_id: str | None = None
     ]
     if len(devices) < MAX_DEVICES_PER_USER:
         rows.append([InlineKeyboardButton(text="➕ Добавить устройство", callback_data="add_device")])
+    rows.append([InlineKeyboardButton(text="🔐 Telegram Proxy", callback_data="mtproto_open")])
     rows.append([InlineKeyboardButton(text="🏠 Меню", callback_data="menu")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
@@ -163,7 +163,7 @@ def _connection_button_label(connection: dict) -> str:
         overrides = connection.get("custom_overrides_json") or {}
         if str(connection.get("protocol") or "").lower() == "hysteria2" and "hysteria_obfs" in overrides:
             obfs_type = str(overrides.get("hysteria_obfs") or "gecko")
-            label = f"{label} ({obfs_type.capitalize()})"
+            label = f"Tracegate-Hysteria({obfs_type.capitalize()})"
     except Exception:
         label = f"{connection.get('variant')} ({connection.get('protocol')})"
     alias = str(connection.get("alias") or "").strip()
@@ -215,13 +215,8 @@ def connection_create_categories_keyboard_for(
     return InlineKeyboardMarkup(
         inline_keyboard=[
             *(
-                [[InlineKeyboardButton(text="Direct-VLESS", callback_data=f"new:reality:{device_id}")]]
-                if enabled is None or "reality" in enabled
-                else []
-            ),
-            *(
-                [[InlineKeyboardButton(text="Direct-Hysteria", callback_data=f"new:hysteria:{device_id}")]]
-                if enabled is None or "hysteria" in enabled
+                [[InlineKeyboardButton(text="Direct", callback_data=f"conncat:direct:{device_id}")]]
+                if enabled is None or enabled & {"reality", "hysteria"}
                 else []
             ),
             *(
@@ -231,7 +226,12 @@ def connection_create_categories_keyboard_for(
             ),
             *(
                 [[InlineKeyboardButton(text="Backup", callback_data=f"conncat:backup:{device_id}")]]
-                if enabled is None or enabled & {"backup-grpc", "backup-ws", "backup-shadowtls", "backup-wgws"}
+                if enabled is None or enabled & {"backup-grpc", "backup-ws"}
+                else []
+            ),
+            *(
+                [[InlineKeyboardButton(text="Experimental", callback_data=f"conncat:experimental:{device_id}")]]
+                if enabled is None or enabled & {"backup-shadowtls", "backup-wgws"}
                 else []
             ),
             [InlineKeyboardButton(text="↩️ Назад", callback_data=f"device:{device_id}")],
@@ -250,11 +250,15 @@ def connection_create_profiles_keyboard(
             rows.append([InlineKeyboardButton(text=text, callback_data=f"new:{spec}:{device_id}")])
 
     rows: list[list[InlineKeyboardButton]] = []
-    if category == "backup":
-        add_row(rows, "backup-grpc", "Backup-VLESS+gRPC")
-        add_row(rows, "backup-ws", "Backup-VLESS+WebSocket")
-        add_row(rows, "backup-shadowtls", "Backup-Shadowsocks")
-        add_row(rows, "backup-wgws", "Backup-WGWS")
+    if category == "direct":
+        add_row(rows, "reality", "Reality")
+        add_row(rows, "hysteria", "Hysteria")
+    elif category == "backup":
+        add_row(rows, "backup-grpc", "VLESS+gRPC")
+        add_row(rows, "backup-ws", "VLESS+WebSocket")
+    elif category == "experimental":
+        add_row(rows, "backup-shadowtls", "Shadowsocks-2022+ShadowTLS1.3")
+        add_row(rows, "backup-wgws", "Wireguard-over-WebSocket (WGWS)")
     rows.append([InlineKeyboardButton(text="↩️ Назад", callback_data=f"conn_create:{device_id}")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 

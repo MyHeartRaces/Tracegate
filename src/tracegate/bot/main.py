@@ -786,7 +786,7 @@ def _connection_profile_label(connection: dict) -> str:
         overrides = connection.get("custom_overrides_json") or {}
         if protocol == "hysteria2" and "hysteria_obfs" in overrides:
             obfs_type = str(overrides.get("hysteria_obfs") or "gecko")
-            label = f"{label} ({obfs_type.capitalize()})"
+            label = f"Tracegate-Hysteria({obfs_type.capitalize()})"
         return label
     except Exception:
         return f"{variant} | {_connection_family_name(protocol, mode)}"
@@ -1100,7 +1100,7 @@ async def _send_client_config(callback: CallbackQuery, revision: dict, *, contex
                 exported.attachment_filename.endswith(".xray.json")
                 or (
                     exported.attachment_filename.endswith(".singbox.json")
-                    and client_profile_name(effective) == "Backup-Shadowsocks"
+                    and client_profile_name(effective) == "Tracegate-Experimental(SS2022)"
                 )
             )
         )
@@ -1586,16 +1586,21 @@ async def connection_create_category(callback: CallbackQuery) -> None:
     if device is None:
         await callback.answer(_msg_warn("Устройство не найдено."), show_alert=True)
         return
-    if category != "backup":
+    category_specs_by_name = {
+        "direct": {"reality", "hysteria"},
+        "backup": {"backup-grpc", "backup-ws"},
+        "experimental": {"backup-shadowtls", "backup-wgws"},
+    }
+    if category not in category_specs_by_name:
         await callback.answer(_msg_warn("Неизвестный тип подключения."), show_alert=True)
         return
     enabled_specs = _enabled_profile_specs()
-    category_specs = {"backup-grpc", "backup-ws", "backup-shadowtls", "backup-wgws"}
+    category_specs = category_specs_by_name[category]
     if not (enabled_specs & category_specs):
         await callback.answer(_msg_warn("Эта категория сейчас отключена."), show_alert=True)
         return
     await _safe_edit_text(callback.message,
-        "🔌 Backup\n\n"
+        f"🔌 {category.capitalize()}\n\n"
         f"Устройство: {device.get('name')}\n"
         "Выберите резервный профиль:",
         reply_markup=connection_create_profiles_keyboard(

@@ -187,19 +187,19 @@ def test_provider_label_uses_public_provider_caption() -> None:
 
 
 def test_connection_profile_label_uses_variant_and_family() -> None:
-    assert main._connection_profile_label({"protocol": "vless_reality", "mode": "direct", "variant": "V1"}) == "Direct-VLESS"
-    assert main._connection_profile_label({"protocol": "hysteria2", "mode": "direct", "variant": "V2"}) == "Direct-Hysteria"
-    assert main._connection_profile_label({"protocol": "vless_grpc_tls", "mode": "direct", "variant": "V0"}) == "Backup-VLESS+gRPC"
-    assert main._connection_profile_label({"protocol": "vless_ws_tls", "mode": "direct", "variant": "V0"}) == "Backup-VLESS+WebSocket"
+    assert main._connection_profile_label({"protocol": "vless_reality", "mode": "direct", "variant": "V1"}) == "Tracegate-Reality"
+    assert main._connection_profile_label({"protocol": "hysteria2", "mode": "direct", "variant": "V2"}) == "Tracegate-Hysteria"
+    assert main._connection_profile_label({"protocol": "vless_grpc_tls", "mode": "direct", "variant": "V0"}) == "Tracegate-Backup(gRPC)"
+    assert main._connection_profile_label({"protocol": "vless_ws_tls", "mode": "direct", "variant": "V0"}) == "Tracegate-Backup(WebSocket)"
     assert (
         main._connection_profile_label(
             {"protocol": "shadowsocks2022_shadowtls", "mode": "direct", "variant": "V3"}
         )
-        == "Backup-Shadowsocks"
+        == "Tracegate-Experimental(SS2022)"
     )
     assert (
         main._connection_profile_label({"protocol": "wireguard_wstunnel", "mode": "direct", "variant": "V0"})
-        == "Backup-WGWS"
+        == "Tracegate-Experimental(WGWS)"
     )
 
 
@@ -241,9 +241,9 @@ async def test_render_device_page_uses_device_context_and_connection_cards(monke
     assert "🔌 Устройство" in text
     assert "Имя: Laptop" in text
     assert "Подключений: 3" in text
-    assert "• Direct-VLESS" in text
-    assert "• Chain" in text
-    assert "• Backup-Shadowsocks" in text
+    assert "• Tracegate-Reality" in text
+    assert "• Tracegate-Chain" in text
+    assert "• Tracegate-Experimental(SS2022)" in text
     assert "ID: conn-1" in text
 
 
@@ -277,7 +277,7 @@ async def test_render_revisions_page_humanizes_revision_rows(monkeypatch: pytest
     text, _keyboard = await main.render_revisions_page("conn-1")
 
     assert "🧩 Ревизии" in text
-    assert "Профиль: Direct-VLESS" in text
+    assert "Профиль: Tracegate-Reality" in text
     assert "Устройство: Laptop" in text
     assert "Текущая ревизия: слот 0 · rev-1" in text
     assert "Слот 0 · активна" in text
@@ -587,7 +587,7 @@ async def test_send_client_config_sends_shadowsocks_uri_and_prefers_singbox_atta
     exported = SimpleNamespace(
         kind="uri",
         title="Shadowsocks-2022 + ShadowTLS",
-        content="ss://example#Backup-Shadowsocks",
+        content="ss://example#Tracegate-Experimental(SS2022)",
         alternate_title=None,
         alternate_content=None,
         extra_messages=(
