@@ -11,6 +11,12 @@ def test_entry_opens_udp_4443_for_hysteria_chain_ingress() -> None:
     assert "udp dport 8443 drop" in conf
 
 
+def test_entry_haproxy_does_not_claim_loopback_443() -> None:
+    conf = Path("bundles/base-entry/haproxy.cfg").read_text(encoding="utf-8")
+    assert "bind REPLACE_ENTRY_BIND_HOST:443" in conf
+    assert "bind :443" not in conf
+
+
 def test_tracegate2_firewalls_do_not_depend_on_cluster_runtime_or_wireguard() -> None:
     conf_t = Path("bundles/base-transit/nftables.conf").read_text(encoding="utf-8")
     conf_e = Path("bundles/base-entry/nftables.conf").read_text(encoding="utf-8")
@@ -53,7 +59,6 @@ def test_entry_and_transit_bundles_define_proxy_fronting_stack() -> None:
     transit_nginx = Path("bundles/base-transit/nginx.conf").read_text(encoding="utf-8")
 
     for haproxy_conf in (entry_haproxy, transit_haproxy):
-        assert "bind :443" in haproxy_conf
         assert "127.0.0.1:2443" in haproxy_conf
         assert "127.0.0.1:10443" in haproxy_conf
         assert "timeout client 5m" in haproxy_conf
@@ -63,6 +68,9 @@ def test_entry_and_transit_bundles_define_proxy_fronting_stack() -> None:
         assert "REPLACE_REALITY_ACLS" in haproxy_conf
         assert "REPLACE_REALITY_ROUTES" in haproxy_conf
         assert "REPLACE_REALITY_BACKENDS" in haproxy_conf
+
+    assert "bind REPLACE_ENTRY_BIND_HOST:443" in entry_haproxy
+    assert "bind :443" in transit_haproxy
 
     assert "REPLACE_MTPROTO_ACL" in transit_haproxy
     assert "REPLACE_MTPROTO_ROUTE" in transit_haproxy

@@ -276,6 +276,8 @@ def test_render_materialized_bundles_rewrites_runtime_files(tmp_path: Path) -> N
     assert not (ctx.materialized_root / "base-transit" / "hysteria.yaml").exists()
 
     assert "REPLACE_TLS_SERVER_NAME" not in entry_haproxy
+    assert "REPLACE_ENTRY_BIND_HOST" not in entry_haproxy
+    assert "bind entry.tracegate.test:443" in entry_haproxy
     assert "REPLACE_TLS_SERVER_NAME" not in transit_haproxy
     assert "REPLACE_TLS_SERVER_NAME" not in entry_nginx
     assert "REPLACE_TLS_SERVER_NAME" not in transit_nginx
