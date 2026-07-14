@@ -14,9 +14,10 @@ SYSTEMD_DIR="${TRACEGATE_SYSTEMD_DIR:-/etc/systemd/system}"
 python3 "${SOURCE_ROOT}/scripts/check_host_runtime.py" --root "${SOURCE_ROOT}"
 python3 "${SOURCE_ROOT}/scripts/check_host_deploy.py" --root "${SOURCE_ROOT}"
 
-target="${INSTALL_ROOT}/releases/${VERSION}"
+release_root="${INSTALL_ROOT}/releases/${VERSION}"
+target="${release_root}/runtime"
 [ ! -e "${target}" ] || { echo "release already installed: ${target}" >&2; exit 2; }
-install -d -m 0755 "${INSTALL_ROOT}/releases"
+install -d -m 0755 "${release_root}"
 mkdir "${target}"
 cp -a "${SOURCE_ROOT}/bundles" "${SOURCE_ROOT}/deploy" "${SOURCE_ROOT}/scripts" "${target}/"
 chmod 0755 "${target}/deploy/host/tracegate-host-deploy" "${target}/deploy/host/tracegate-host-install"

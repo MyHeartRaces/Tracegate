@@ -18,9 +18,11 @@ Never copy those files into the public checkout or release archive.
 
 1. Verify `SHA256SUMS`, then extract `tracegate-host-runtime-VERSION.tar.gz`.
 2. Run `sudo deploy/host/tracegate-host-install VERSION` from the extracted
-   directory. Installation updates `/opt/tracegate/current` atomically, installs
-   the canonical host systemd units and helper scripts, but does not enable or
-   start data-plane services.
+   directory. Installation stores the host bundle under
+   `/opt/tracegate/releases/VERSION/runtime`, updates `/opt/tracegate/current`
+   atomically, installs the canonical host systemd units and helper scripts,
+   but does not enable or start data-plane services. The sibling `app` and
+   `venv` directories remain available to native control-plane deployments.
 3. Place the private files above and run
    `/opt/tracegate/current/deploy/host/tracegate-host-deploy preflight`.
 4. Enable `tracegate-host.service` for the control-plane host. Add the
