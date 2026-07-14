@@ -1164,7 +1164,10 @@ def render_materialized_bundles(ctx: MaterializedBundleRenderContext) -> None:
         "REPLACE_TLS_SERVER_NAME",
         ctx.entry_tls_server_name,
     )
-    entry_haproxy = entry_haproxy.replace("REPLACE_ENTRY_BIND_HOST", ctx.entry_host)
+    entry_haproxy = entry_haproxy.replace(
+        "REPLACE_ENTRY_BIND_HOST",
+        ctx.entry_hysteria_listen_host,
+    )
     entry_mtproto_acl = ""
     entry_mtproto_route = ""
     entry_mtproto_backend = ""
