@@ -346,6 +346,7 @@ def test_render_materialized_bundles_routes_entry_local_mtproto_through_endpoint
     render_materialized_bundles(ctx)
 
     entry_xray = json.loads((ctx.materialized_root / "base-entry" / "xray.json").read_text(encoding="utf-8"))
+    transit_xray = json.loads((ctx.materialized_root / "base-transit" / "xray.json").read_text(encoding="utf-8"))
     entry_haproxy = (ctx.materialized_root / "base-entry" / "haproxy.cfg").read_text(encoding="utf-8")
     transit_haproxy = (ctx.materialized_root / "base-transit" / "haproxy.cfg").read_text(encoding="utf-8")
     manifest = json.loads((ctx.materialized_root / ".tracegate-deploy-manifest.json").read_text(encoding="utf-8"))
@@ -354,6 +355,7 @@ def test_render_materialized_bundles_routes_entry_local_mtproto_through_endpoint
     entry_outbounds = {row["tag"]: row for row in entry_xray["outbounds"]}
     mtproto_socks = entry_inbounds["mtproto-egress-socks-in"]
     mtproto_backhaul = entry_outbounds["mtproto-egress-endpoint-ws"]
+    transit_ws = next(row for row in transit_xray["inbounds"] if row["tag"] == "vless-ws-in")
 
     assert mtproto_socks["listen"] == "127.0.0.1"
     assert mtproto_socks["port"] == 11084
@@ -363,6 +365,10 @@ def test_render_materialized_bundles_routes_entry_local_mtproto_through_endpoint
     assert mtproto_backhaul["streamSettings"]["network"] == "ws"
     assert mtproto_backhaul["streamSettings"]["tlsSettings"]["serverName"] == "tls-transit.example"
     assert mtproto_backhaul["streamSettings"]["wsSettings"]["path"] == "/stealth/ws"
+    assert {
+        "id": "11111111-1111-4111-8111-111111111111",
+        "email": "mtproto-entry-egress",
+    } in transit_ws["settings"]["clients"]
     assert entry_xray["routing"]["rules"][0] == {
         "type": "field",
         "inboundTag": ["mtproto-egress-socks-in"],

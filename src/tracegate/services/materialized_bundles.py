@@ -1217,6 +1217,15 @@ def render_materialized_bundles(ctx: MaterializedBundleRenderContext) -> None:
         if tag == "vless-ws-in":
             ws_settings = inbound.setdefault("streamSettings", {}).setdefault("wsSettings", {})
             ws_settings["path"] = ctx.ws_path
+            if ctx.mtproto_route_mode == "entry-local-endpoint-egress" and ctx.mtproto_domain:
+                clients = inbound.setdefault("settings", {}).setdefault("clients", [])
+                if not any(str(client.get("id") or "") == ctx.mtproto_entry_backhaul_uuid for client in clients):
+                    clients.append(
+                        {
+                            "id": ctx.mtproto_entry_backhaul_uuid,
+                            "email": "mtproto-entry-egress",
+                        }
+                    )
     _materialize_reality_groups(
         transit_xray,
         source_tag="vless-reality-in",
