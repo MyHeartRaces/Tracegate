@@ -47,6 +47,19 @@ def check_host_runtime(root: Path) -> None:
     if roles != {"Entry", "Endpoint"}:
         raise HostRuntimeCheckError(f"host bundles must cover Entry and Endpoint, got {sorted(roles)}")
 
+    quic_sysctl = _read(root / "deploy/host/90-tracegate-quic.conf")
+    for key in (
+        "net.core.rmem_default",
+        "net.core.rmem_max",
+        "net.core.wmem_default",
+        "net.core.wmem_max",
+    ):
+        _require(quic_sysctl, f"{key} = 16777216", label="host QUIC sysctl profile")
+
+    host_install = _read(root / "deploy/host/tracegate-host-install")
+    _require(host_install, "90-tracegate-quic.conf", label="host installer")
+    _require(host_install, '"${SYSCTL_BIN}" -p', label="host installer")
+
     nginx = _read(root / "bundles/base-transit/nginx.conf")
     wgws_match = re.search(r"location\s+/wgws\s*\{(?P<body>.*?)\n\s*\}", nginx, re.DOTALL)
     if wgws_match is None:

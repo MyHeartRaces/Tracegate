@@ -21,8 +21,10 @@ Never copy those files into the public checkout or release archive.
    directory. Installation stores the host bundle under
    `/opt/tracegate/releases/VERSION/runtime`, updates `/opt/tracegate/current`
    atomically, installs the canonical host systemd units and helper scripts,
-   but does not enable or start data-plane services. The sibling `app` and
-   `venv` directories remain available to native control-plane deployments.
+   and persists the required QUIC socket-buffer tuning as
+   `/etc/sysctl.d/90-tracegate-quic.conf`. It does not enable or start
+   data-plane services. The sibling `app` and `venv` directories remain
+   available to native control-plane deployments.
 3. Place the private files above and run
    `/opt/tracegate/current/deploy/host/tracegate-host-deploy preflight`.
 4. Enable `tracegate-host.service` for the control-plane host. Add the

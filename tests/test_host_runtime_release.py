@@ -9,6 +9,15 @@ def test_tracked_host_runtime_contract_is_complete() -> None:
     check_host_runtime(Path(__file__).resolve().parents[1])
 
 
+def test_host_release_preserves_quic_socket_buffer_tuning() -> None:
+    root = Path(__file__).resolve().parents[1]
+    profile = (root / "deploy/host/90-tracegate-quic.conf").read_text(encoding="utf-8")
+    assert profile.count("= 16777216") == 4
+
+    installer = (root / "deploy/host/tracegate-host-install").read_text(encoding="utf-8")
+    assert '"${SYSCTL_BIN}" -p "${SYSCTL_DIR}/90-tracegate-quic.conf"' in installer
+
+
 def test_host_runtime_check_cli_succeeds() -> None:
     root = Path(__file__).resolve().parents[1]
     result = subprocess.run(

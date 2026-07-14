@@ -5,6 +5,8 @@ SOURCE_ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"
 VERSION="${1:-}"
 INSTALL_ROOT="${TRACEGATE_INSTALL_ROOT:-/opt/tracegate}"
 SYSTEMD_DIR="${TRACEGATE_SYSTEMD_DIR:-/etc/systemd/system}"
+SYSCTL_DIR="${TRACEGATE_SYSCTL_DIR:-/etc/sysctl.d}"
+SYSCTL_BIN="${TRACEGATE_SYSCTL_BIN:-/sbin/sysctl}"
 
 [ "$(id -u)" -eq 0 ] || { echo "tracegate host install: run as root" >&2; exit 2; }
 [[ "${VERSION}" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][A-Za-z0-9.]+)?$ ]] || {
@@ -24,6 +26,17 @@ chmod 0755 "${target}/deploy/host/tracegate-host-deploy" "${target}/deploy/host/
 chmod 0755 \
   "${target}/deploy/systemd/tracegate-shadowtls-env" \
   "${target}/deploy/systemd/tracegate-telemt-permissions"
+
+# Preserve the QUIC socket-buffer tuning that was part of the retired k3s
+# host bootstrap. Without it Linux falls back to ~208 KiB UDP receive buffers
+# after a reboot, which can drop bursts and tear down otherwise healthy QUIC
+# sessions. Apply it before any data-plane service can be restarted.
+install -d -m 0755 "${SYSCTL_DIR}"
+install -m 0644 \
+  "${target}/deploy/host/90-tracegate-quic.conf" \
+  "${SYSCTL_DIR}/90-tracegate-quic.conf"
+"${SYSCTL_BIN}" -p "${SYSCTL_DIR}/90-tracegate-quic.conf"
+
 ln -s "${target}" "${INSTALL_ROOT}/current.new"
 mv -Tf "${INSTALL_ROOT}/current.new" "${INSTALL_ROOT}/current"
 
