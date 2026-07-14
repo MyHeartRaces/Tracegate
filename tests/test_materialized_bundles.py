@@ -24,6 +24,12 @@ def _base_env(tmp_path: Path) -> dict[str, str]:
         "HYSTERIA_GECKO_PASSWORD_TRANSIT": "transit-gecko-secret",
         "HYSTERIA_STATS_SECRET_ENTRY": "entry-stats-secret",
         "HYSTERIA_STATS_SECRET_TRANSIT": "transit-stats-secret",
+        "HYSTERIA_LISTEN_HOST_ENTRY": "192.0.2.10",
+        "HYSTERIA_LISTEN_HOST_TRANSIT": "192.0.2.20",
+        "HYSTERIA_TLS_CERT_FILE_ENTRY": "/etc/tls/entry.crt",
+        "HYSTERIA_TLS_KEY_FILE_ENTRY": "/etc/tls/entry.key",
+        "HYSTERIA_TLS_CERT_FILE_TRANSIT": "/etc/tls/transit.crt",
+        "HYSTERIA_TLS_KEY_FILE_TRANSIT": "/etc/tls/transit.key",
         "REALITY_PUBLIC_KEY_TRANSIT": "transit-public-key",
         "REALITY_SHORT_ID_ENTRY": "entry-short-id",
         "REALITY_SHORT_ID_TRANSIT": "transit-short-id",
@@ -83,6 +89,10 @@ def test_context_uses_shared_defaults_and_fallback_values(tmp_path: Path) -> Non
     assert ctx.transit_hysteria_stats_secret == "transit-stats-secret"
     assert ctx.entry_hysteria_auth_url == "http://127.0.0.1:8070/v1/hysteria/auth"
     assert ctx.transit_hysteria_auth_url == "http://127.0.0.1:8070/v1/hysteria/auth"
+    assert ctx.entry_hysteria_listen_host == "192.0.2.10"
+    assert ctx.transit_hysteria_listen_host == "192.0.2.20"
+    assert ctx.entry_hysteria_tls_cert_file == "/etc/tls/entry.crt"
+    assert ctx.transit_hysteria_tls_key_file == "/etc/tls/transit.key"
     assert ctx.hysteria_chain_client_rate_limit_enabled is True
     assert ctx.hysteria_chain_client_max_mbit == 10
     assert ctx.hysteria_chain_client_require_declared_tx is True
@@ -211,7 +221,9 @@ def test_render_materialized_bundles_rewrites_runtime_files(tmp_path: Path) -> N
 
     assert "hy2-in" not in {inbound["tag"] for inbound in entry_xray["inbounds"]}
     assert "hy2-in" not in {inbound["tag"] for inbound in transit_xray["inbounds"]}
-    assert "listen: :443" in entry_hysteria
+    assert "listen: \"192.0.2.10:443\"" in entry_hysteria
+    assert "cert: \"/etc/tls/entry.crt\"" in entry_hysteria
+    assert "key: \"/etc/tls/entry.key\"" in entry_hysteria
     assert "type: gecko" in entry_hysteria
     assert "minPacketSize: 512" in entry_hysteria
     assert "maxPacketSize: 1200" in entry_hysteria
@@ -223,6 +235,9 @@ def test_render_materialized_bundles_rewrites_runtime_files(tmp_path: Path) -> N
     assert "ignoreClientBandwidth: false" in entry_hysteria
     assert "password: \"transit-gecko-secret\"" in transit_hysteria
     assert "secret: \"transit-stats-secret\"" in transit_hysteria
+    assert "listen: \"192.0.2.20:443\"" in transit_hysteria
+    assert "cert: \"/etc/tls/transit.crt\"" in transit_hysteria
+    assert "key: \"/etc/tls/transit.key\"" in transit_hysteria
     assert "server transit_mtproto 127.0.0.1:9443 check send-proxy-v2" in transit_haproxy
     assert "bandwidth:" not in transit_hysteria
     assert "ignoreClientBandwidth: true" in transit_hysteria

@@ -347,6 +347,12 @@ class MaterializedBundleRenderContext:
     transit_hysteria_stats_secret: str
     entry_hysteria_auth_url: str
     transit_hysteria_auth_url: str
+    entry_hysteria_listen_host: str
+    transit_hysteria_listen_host: str
+    entry_hysteria_tls_cert_file: str
+    entry_hysteria_tls_key_file: str
+    transit_hysteria_tls_cert_file: str
+    transit_hysteria_tls_key_file: str
     hysteria_chain_client_rate_limit_enabled: bool
     hysteria_chain_client_max_mbit: int
     hysteria_chain_client_require_declared_tx: bool
@@ -558,6 +564,32 @@ class MaterializedBundleRenderContext:
         )
         tls_cert_file = _first(env, "XRAY_CENTRIC_TLS_CERT_FILE", default="/etc/tracegate/tls/ws.crt") or "/etc/tracegate/tls/ws.crt"
         tls_key_file = _first(env, "XRAY_CENTRIC_TLS_KEY_FILE", default="/etc/tracegate/tls/ws.key") or "/etc/tracegate/tls/ws.key"
+        entry_hysteria_listen_host = _first(env, "HYSTERIA_LISTEN_HOST_ENTRY", "HYSTERIA_LISTEN_HOST")
+        transit_hysteria_listen_host = _first(env, "HYSTERIA_LISTEN_HOST_TRANSIT", "HYSTERIA_LISTEN_HOST")
+        entry_hysteria_tls_cert_file = _first(
+            env,
+            "HYSTERIA_TLS_CERT_FILE_ENTRY",
+            "HYSTERIA_TLS_CERT_FILE",
+            default=tls_cert_file,
+        ) or tls_cert_file
+        entry_hysteria_tls_key_file = _first(
+            env,
+            "HYSTERIA_TLS_KEY_FILE_ENTRY",
+            "HYSTERIA_TLS_KEY_FILE",
+            default=tls_key_file,
+        ) or tls_key_file
+        transit_hysteria_tls_cert_file = _first(
+            env,
+            "HYSTERIA_TLS_CERT_FILE_TRANSIT",
+            "HYSTERIA_TLS_CERT_FILE",
+            default=tls_cert_file,
+        ) or tls_cert_file
+        transit_hysteria_tls_key_file = _first(
+            env,
+            "HYSTERIA_TLS_KEY_FILE_TRANSIT",
+            "HYSTERIA_TLS_KEY_FILE",
+            default=tls_key_file,
+        ) or tls_key_file
         entry_finalmask = _load_optional_json_file(
             _first(env, "XRAY_HYSTERIA_FINALMASK_ENTRY_FILE", "XRAY_HYSTERIA_FINALMASK_FILE"),
             label="entry FinalMask",
@@ -591,6 +623,12 @@ class MaterializedBundleRenderContext:
             transit_hysteria_stats_secret=transit_hysteria_stats_secret,
             entry_hysteria_auth_url=entry_hysteria_auth_url,
             transit_hysteria_auth_url=transit_hysteria_auth_url,
+            entry_hysteria_listen_host=entry_hysteria_listen_host,
+            transit_hysteria_listen_host=transit_hysteria_listen_host,
+            entry_hysteria_tls_cert_file=entry_hysteria_tls_cert_file,
+            entry_hysteria_tls_key_file=entry_hysteria_tls_key_file,
+            transit_hysteria_tls_cert_file=transit_hysteria_tls_cert_file,
+            transit_hysteria_tls_key_file=transit_hysteria_tls_key_file,
             hysteria_chain_client_rate_limit_enabled=hysteria_chain_client_rate_limit_enabled,
             hysteria_chain_client_max_mbit=hysteria_chain_client_max_mbit,
             hysteria_chain_client_require_declared_tx=hysteria_chain_client_require_declared_tx,
@@ -902,6 +940,7 @@ def _yaml_scalar(value: object) -> str:
 
 def _render_hysteria_server_yaml(
     *,
+    listen_host: str,
     listen_port: int,
     tls_cert_file: str,
     tls_key_file: str,
@@ -912,8 +951,9 @@ def _render_hysteria_server_yaml(
     chain_client_rate_limit_enabled: bool = False,
     chain_client_max_mbit: int = 10,
 ) -> str:
+    listen_address = f"{listen_host}:{listen_port}" if listen_host else f":{listen_port}"
     lines = [
-        f"listen: :{listen_port}",
+        f"listen: {_yaml_scalar(listen_address)}",
         "tls:",
         f"  cert: {_yaml_scalar(tls_cert_file)}",
         f"  key: {_yaml_scalar(tls_key_file)}",
@@ -969,13 +1009,25 @@ def _render_hysteria_server_yaml(
 def _write_hysteria_server_configs(ctx: MaterializedBundleRenderContext) -> None:
     if ctx.runtime_profile != "tracegate-3":
         return
-    for bundle_name, auth_url, salamander_password, stats_secret, chain_client_rate_limit_enabled in (
+    for (
+        bundle_name,
+        auth_url,
+        salamander_password,
+        stats_secret,
+        chain_client_rate_limit_enabled,
+        listen_host,
+        tls_cert_file,
+        tls_key_file,
+    ) in (
         (
             "base-entry",
             ctx.entry_hysteria_auth_url,
             ctx.entry_hysteria_salamander_password,
             ctx.entry_hysteria_stats_secret,
             ctx.hysteria_chain_client_rate_limit_enabled,
+            ctx.entry_hysteria_listen_host,
+            ctx.entry_hysteria_tls_cert_file,
+            ctx.entry_hysteria_tls_key_file,
         ),
         (
             "base-transit",
@@ -983,15 +1035,19 @@ def _write_hysteria_server_configs(ctx: MaterializedBundleRenderContext) -> None
             ctx.transit_hysteria_salamander_password,
             ctx.transit_hysteria_stats_secret,
             False,
+            ctx.transit_hysteria_listen_host,
+            ctx.transit_hysteria_tls_cert_file,
+            ctx.transit_hysteria_tls_key_file,
         ),
     ):
         target = ctx.materialized_root / bundle_name / "hysteria" / "server.yaml"
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(
             _render_hysteria_server_yaml(
+                listen_host=listen_host,
                 listen_port=ctx.hysteria_udp_port,
-                tls_cert_file=ctx.tls_cert_file,
-                tls_key_file=ctx.tls_key_file,
+                tls_cert_file=tls_cert_file,
+                tls_key_file=tls_key_file,
                 auth_url=auth_url,
                 salamander_password=salamander_password,
                 stats_secret=stats_secret,
