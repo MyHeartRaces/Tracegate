@@ -1,0 +1,17 @@
+[Unit]
+Description=Tracegate Hysteria2 Salamander (transit)
+After=docker.service network-online.target tracegate-agent.service
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Restart=always
+RestartSec=3
+TimeoutStopSec=20
+ExecStartPre=/usr/bin/docker pull docker.io/tobyxdd/hysteria:latest
+ExecStartPre=-/usr/bin/docker rm -f tracegate-hysteria-salamander-transit
+ExecStart=/usr/bin/docker run --rm --name tracegate-hysteria-salamander-transit --network host --read-only --cap-drop ALL --security-opt no-new-privileges:true -v /var/lib/tracegate/agent-transit/runtime/hysteria/salamander-server.yaml:/etc/hysteria/server.yaml:ro -v /etc/letsencrypt:/etc/letsencrypt:ro -v /var/www/decoy:/var/www/decoy:ro docker.io/tobyxdd/hysteria:latest server -c /etc/hysteria/server.yaml
+ExecStop=/usr/bin/docker stop tracegate-hysteria-salamander-transit
+
+[Install]
+WantedBy=multi-user.target

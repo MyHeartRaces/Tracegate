@@ -729,6 +729,16 @@ def test_reconcile_xray_populates_xray_native_shadowsocks2022_clients(tmp_path: 
     ]
     assert reconcile_all(settings) == []
 
+    (tmp_path / "users/123/connection-conn-v3.json").unlink()
+    (tmp_path / "runtime/artifact-index.json").unlink()
+
+    revoked = reconcile_all(settings)
+
+    assert "xray" in revoked
+    runtime_after_revoke = json.loads((tmp_path / "runtime/xray/config.json").read_text(encoding="utf-8"))
+    inbound_after_revoke = next(row for row in runtime_after_revoke["inbounds"] if row.get("tag") == "ss2022-in")
+    assert inbound_after_revoke["settings"]["clients"] == []
+
 
 def test_reconcile_xray_centric_prunes_stale_hysteria_runtime_state(tmp_path: Path) -> None:
     settings = Settings(

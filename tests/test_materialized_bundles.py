@@ -34,6 +34,7 @@ def _base_env(tmp_path: Path) -> dict[str, str]:
         "ENTRY_TLS_SERVER_NAME": "tls-entry.example",
         "TRANSIT_TLS_SERVER_NAME": "tls-transit.example",
         "SHADOWTLS_SERVER_NAME_TRANSIT": "shadowtls.example",
+        "SHADOWSOCKS2022_PASSWORD_TRANSIT": "ss2022-server-key",
         "MTPROTO_DOMAIN": "proxied.tracegate.test",
         "XRAY_CENTRIC_DECOY_DIR": "/srv/decoy",
     }
@@ -96,6 +97,7 @@ def test_context_uses_shared_defaults_and_fallback_values(tmp_path: Path) -> Non
     assert ctx.entry_tls_server_name == "entry.tracegate.test"
     assert ctx.transit_tls_server_name == "transit.tracegate.test"
     assert ctx.shadowtls_server_name_transit == "shadowtls.example"
+    assert ctx.shadowsocks2022_password_transit == "ss2022-server-key"
     assert ctx.mtproto_domain == "proxied.tracegate.test"
     assert ctx.mtproto_tls_domain == "proxied.tracegate.test"
     assert ctx.mtproto_upstream == "127.0.0.1:9443"
@@ -169,6 +171,7 @@ def test_render_materialized_bundles_rewrites_runtime_files(tmp_path: Path) -> N
     transit_reality_inbound = next(inbound for inbound in transit_xray["inbounds"] if inbound["tag"] == "vless-reality-in")
     transit_ws_inbound = next(inbound for inbound in transit_xray["inbounds"] if inbound["tag"] == "vless-ws-in")
     transit_grpc_inbound = next(inbound for inbound in transit_xray["inbounds"] if inbound["tag"] == "vless-grpc-in")
+    transit_ss2022_inbound = next(inbound for inbound in transit_xray["inbounds"] if inbound["tag"] == "ss2022-in")
 
     assert entry_inbound["streamSettings"]["realitySettings"]["dest"] == "origin-entry.example:443"
     assert entry_inbound["streamSettings"]["realitySettings"]["serverNames"] == ["origin-entry.example"]
@@ -197,6 +200,14 @@ def test_render_materialized_bundles_rewrites_runtime_files(tmp_path: Path) -> N
     assert transit_ws_inbound["streamSettings"]["wsSettings"]["path"] == "/stealth/ws"
     assert transit_ws_inbound["streamSettings"]["wsSettings"]["heartbeatPeriod"] == 15
     assert transit_grpc_inbound["streamSettings"]["grpcSettings"]["serviceName"] == "tracegate.v1.Edge"
+    assert transit_ss2022_inbound["listen"] == "127.0.0.1"
+    assert transit_ss2022_inbound["port"] == 18443
+    assert transit_ss2022_inbound["settings"] == {
+        "network": "tcp",
+        "method": "2022-blake3-aes-128-gcm",
+        "password": "ss2022-server-key",
+        "clients": [],
+    }
 
     assert "hy2-in" not in {inbound["tag"] for inbound in entry_xray["inbounds"]}
     assert "hy2-in" not in {inbound["tag"] for inbound in transit_xray["inbounds"]}
@@ -228,7 +239,7 @@ def test_render_materialized_bundles_rewrites_runtime_files(tmp_path: Path) -> N
         if isinstance(rule, dict)
     )
     assert any(
-        rule.get("inboundTag") == ["vless-reality-in", "vless-ws-in", "vless-grpc-in"]
+        rule.get("inboundTag") == ["vless-reality-in", "vless-ws-in", "vless-grpc-in", "ss2022-in"]
         and rule.get("protocol") == ["bittorrent"]
         and rule.get("outboundTag") == "block"
         for rule in transit_xray["routing"]["rules"]

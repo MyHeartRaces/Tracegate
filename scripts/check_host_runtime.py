@@ -60,10 +60,32 @@ def check_host_runtime(root: Path) -> None:
     for placeholder in ("REPLACE_SHADOWTLS_ACL", "REPLACE_SHADOWTLS_ROUTE", "REPLACE_SHADOWTLS_BACKEND"):
         _require(haproxy, placeholder, label="Endpoint HAProxy bundle")
 
+    xray = _read(root / "bundles/base-transit/xray.json")
+    _require(xray, '"tag": "ss2022-in"', label="Endpoint Xray bundle")
+    _require(xray, '"method": "2022-blake3-aes-128-gcm"', label="Endpoint Xray bundle")
+    _require(xray, '"password": "REPLACE_SHADOWSOCKS2022_SERVER_KEY"', label="Endpoint Xray bundle")
+
     sync_unit = _read(root / "deploy/systemd/tracegate-wireguard-sync.service")
     _require(sync_unit, "tracegate-wireguard-sync-runner", label="WireGuard peer synchronizer unit")
     _require(sync_unit, "desired-state.json", label="WireGuard peer synchronizer unit")
     _require(sync_unit, "WIREGUARD_SYNC_KEEP_STALE_PEERS=false", label="WireGuard peer synchronizer unit")
+
+    latest_units = (
+        "tracegate-xray@.service",
+        "tracegate-hysteria@.service",
+        "tracegate-hysteria-salamander.service",
+        "tracegate-shadowtls.service",
+        "tracegate-wstunnel-wireguard.service",
+        "tracegate-mtproto@.service",
+        "tracegate-prometheus.service",
+        "tracegate-grafana.service",
+    )
+    for unit_name in latest_units:
+        unit = _read(root / "deploy/systemd" / unit_name)
+        _require(unit, ":latest", label=unit_name)
+        _require(unit, "docker pull", label=unit_name)
+        if "@sha256:" in unit:
+            raise HostRuntimeCheckError(f"{unit_name} must not lock an image digest")
 
     mtproto_path = root / "src/tracegate/services/mtproto.py"
     if mtproto_path.exists():

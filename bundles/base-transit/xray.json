@@ -128,6 +128,25 @@
       }
     },
     {
+      "tag": "ss2022-in",
+      "listen": "127.0.0.1",
+      "port": 18443,
+      "protocol": "shadowsocks",
+      "settings": {
+        "network": "tcp",
+        "method": "2022-blake3-aes-128-gcm",
+        "password": "REPLACE_SHADOWSOCKS2022_SERVER_KEY",
+        "clients": []
+      },
+      "sniffing": {
+        "enabled": true,
+        "destOverride": [
+          "http",
+          "tls"
+        ]
+      }
+    },
+    {
       "tag": "hy2-in",
       "listen": "0.0.0.0",
       "port": 443,
@@ -205,6 +224,7 @@
           "vless-reality-in",
           "vless-ws-in",
           "vless-grpc-in",
+          "ss2022-in",
           "hy2-in"
         ],
         "protocol": [
@@ -217,7 +237,8 @@
         "inboundTag": [
           "vless-reality-in",
           "vless-ws-in",
-          "vless-grpc-in"
+          "vless-grpc-in",
+          "ss2022-in"
         ],
         "outboundTag": "direct"
       },

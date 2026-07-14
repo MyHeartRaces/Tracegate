@@ -1,0 +1,14 @@
+[Unit]
+Description=Tracegate WireGuard server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/bin/wg-quick up /etc/tracegate/private/wireguard/wg.conf
+ExecStartPost=/bin/sh -c "/usr/sbin/iptables -t nat -C POSTROUTING -s 10.70.0.0/16 -o eth0 -j MASQUERADE 2>/dev/null || /usr/sbin/iptables -t nat -A POSTROUTING -s 10.70.0.0/16 -o eth0 -j MASQUERADE"
+ExecStop=/usr/bin/wg-quick down /etc/tracegate/private/wireguard/wg.conf
+
+[Install]
+WantedBy=multi-user.target

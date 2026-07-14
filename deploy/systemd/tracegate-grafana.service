@@ -1,0 +1,17 @@
+[Unit]
+Description=Tracegate Grafana
+After=docker.service network-online.target
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Restart=always
+RestartSec=3
+TimeoutStopSec=20
+ExecStartPre=/usr/bin/docker pull grafana/grafana:latest
+ExecStartPre=-/usr/bin/docker rm -f tracegate-grafana
+ExecStart=/usr/bin/docker run --rm --name tracegate-grafana --network host --read-only --cap-drop ALL --security-opt no-new-privileges:true --tmpfs /tmp:rw,nosuid,nodev,noexec,size=64m --env-file /etc/tracegate/grafana.env -v /var/lib/tracegate/grafana:/var/lib/grafana grafana/grafana:latest
+ExecStop=/usr/bin/docker stop tracegate-grafana
+
+[Install]
+WantedBy=multi-user.target

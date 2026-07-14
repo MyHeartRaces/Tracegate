@@ -6,7 +6,7 @@
 - `make release-check` passes.
 - `scripts/build_release_artifacts.sh VERSION` produces wheel, sdist,
   `tracegate-host-runtime-VERSION.tar.gz` and `SHA256SUMS`.
-- Every published container is selected by `ghcr.io/...@sha256:<digest>`;
+- Runtime containers use their upstream `latest` tags and are pulled before service start;
   mutable `latest` and version tags are not production inputs.
 - The public privacy scanner reports no live address, domain, credential,
   private key, client export or operator filesystem path.

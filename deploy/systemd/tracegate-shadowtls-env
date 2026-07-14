@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+runtime_env="${TRACEGATE_ENV_FILE:-/etc/tracegate/tracegate.env}"
+target_env="${TRACEGATE_SHADOWTLS_ENV_FILE:-/etc/tracegate/private/shadowtls/transit.env}"
+
+test -f "${runtime_env}" || {
+  echo "tracegate shadowtls env: missing ${runtime_env}" >&2
+  exit 1
+}
+
+set -a
+# shellcheck disable=SC1090
+source "${runtime_env}"
+set +a
+
+tls_target="${SHADOWTLS_TLS_TARGET:-${SHADOWTLS_SERVER_NAME_TRANSIT:-${SHADOWTLS_SERVER_NAME:-}}}"
+password="${SHADOWTLS_PASSWORD:-${SHADOWTLS_PASSWORD_TRANSIT:-}}"
+if [[ "${tls_target}" != *:* ]]; then
+  tls_target="${tls_target}:443"
+fi
+test -n "${tls_target%%:*}" || {
+  echo "tracegate shadowtls env: TLS target is missing" >&2
+  exit 1
+}
+test -n "${password}" || {
+  echo "tracegate shadowtls env: password is missing" >&2
+  exit 1
+}
+
+install -d -m 0700 "$(dirname -- "${target_env}")"
+tmp="${target_env}.tmp"
+umask 077
+printf 'SHADOWTLS_TLS_TARGET=%q\nSHADOWTLS_PASSWORD=%q\n' "${tls_target}" "${password}" >"${tmp}"
+chmod 0600 "${tmp}"
+mv -f "${tmp}" "${target_env}"

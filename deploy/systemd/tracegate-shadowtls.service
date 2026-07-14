@@ -1,0 +1,18 @@
+[Unit]
+Description=Tracegate ShadowTLS v3
+After=docker.service network-online.target
+Requires=docker.service
+
+[Service]
+EnvironmentFile=/etc/tracegate/private/shadowtls/transit.env
+Restart=always
+RestartSec=3
+TimeoutStopSec=20
+ExecStartPre=/opt/tracegate/current/deploy/systemd/tracegate-shadowtls-env
+ExecStartPre=/usr/bin/docker pull ghcr.io/ihciah/shadow-tls:latest
+ExecStartPre=-/usr/bin/docker rm -f tracegate-shadowtls
+ExecStart=/usr/bin/docker run --rm --name tracegate-shadowtls --network host --read-only --cap-drop ALL --security-opt no-new-privileges:true --entrypoint shadow-tls ghcr.io/ihciah/shadow-tls:latest --v3 server --listen 127.0.0.1:14443 --server 127.0.0.1:18443 --tls $SHADOWTLS_TLS_TARGET --password $SHADOWTLS_PASSWORD
+ExecStop=/usr/bin/docker stop tracegate-shadowtls
+
+[Install]
+WantedBy=multi-user.target

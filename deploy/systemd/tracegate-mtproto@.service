@@ -1,0 +1,19 @@
+[Unit]
+Description=Tracegate MTProto Telemt (%i)
+After=docker.service network-online.target tracegate-agent.service
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Restart=always
+RestartSec=3
+TimeoutStopSec=20
+ExecStartPre=/usr/bin/docker pull ghcr.io/telemt/telemt:latest
+ExecStartPre=-/usr/bin/docker rm -f tracegate-mtproto-%i
+ExecStartPre=/opt/tracegate/current/deploy/systemd/tracegate-telemt-permissions
+ExecStart=/usr/bin/docker run --rm --name tracegate-mtproto-%i --network host --read-only --cap-drop ALL --security-opt no-new-privileges:true --tmpfs /tmp:rw,nosuid,nodev,noexec,size=64m --ulimit nofile=65536:65536 -v /var/lib/tracegate/private/mtproto:/var/lib/tracegate/private/mtproto:rw ghcr.io/telemt/telemt:latest --data-path /var/lib/tracegate/private/mtproto/runtime /var/lib/tracegate/private/mtproto/runtime/config.toml
+ExecReload=/usr/bin/docker kill --signal=HUP tracegate-mtproto-%i
+ExecStop=/usr/bin/docker stop tracegate-mtproto-%i
+
+[Install]
+WantedBy=multi-user.target

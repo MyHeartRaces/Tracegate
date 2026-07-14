@@ -20,11 +20,35 @@ install -d -m 0755 "${INSTALL_ROOT}/releases"
 mkdir "${target}"
 cp -a "${SOURCE_ROOT}/bundles" "${SOURCE_ROOT}/deploy" "${SOURCE_ROOT}/scripts" "${target}/"
 chmod 0755 "${target}/deploy/host/tracegate-host-deploy" "${target}/deploy/host/tracegate-host-install"
+chmod 0755 \
+  "${target}/deploy/systemd/tracegate-shadowtls-env" \
+  "${target}/deploy/systemd/tracegate-telemt-permissions"
 ln -s "${target}" "${INSTALL_ROOT}/current.new"
 mv -Tf "${INSTALL_ROOT}/current.new" "${INSTALL_ROOT}/current"
 
 install -m 0644 "${target}/deploy/host/tracegate-host.service" "${SYSTEMD_DIR}/tracegate-host.service"
-install -m 0644 "${target}/deploy/systemd/tracegate-wireguard-sync.service" \
-  "${SYSTEMD_DIR}/tracegate-wireguard-sync.service"
+for unit in \
+  tracegate-grafana.service \
+  tracegate-haproxy@.service \
+  tracegate-hysteria-salamander.service \
+  tracegate-hysteria@.service \
+  tracegate-mtproto@.service \
+  tracegate-nginx@.service \
+  tracegate-prometheus.service \
+  tracegate-shadowtls.service \
+  tracegate-wireguard-sync.service \
+  tracegate-wireguard.service \
+  tracegate-wstunnel-wireguard.service \
+  tracegate-xray@.service
+do
+  install -m 0644 "${target}/deploy/systemd/${unit}" "${SYSTEMD_DIR}/${unit}"
+done
+
+# The ShadowTLS service reads a root-only derived environment file. Generate it
+# before systemd parses the unit so no secret has to be embedded in this public
+# release or the unit file itself.
+if [ -f /etc/tracegate/tracegate.env ]; then
+  "${target}/deploy/systemd/tracegate-shadowtls-env"
+fi
 systemctl daemon-reload
 echo "installed Tracegate host release ${VERSION}; run tracegate-host-deploy preflight before activation"

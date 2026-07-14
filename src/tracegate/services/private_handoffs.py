@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from typing import Any
 
@@ -75,6 +76,12 @@ def _write_secret_text_if_changed(path: Path, content: str) -> bool:
         path.chmod(0o600)
         changed = True
     return changed
+
+
+def _set_private_owner(path: Path, *, uid: int, gid: int) -> None:
+    if uid < 0 or gid < 0 or not hasattr(os, "chown") or os.geteuid() != 0:
+        return
+    os.chown(path, uid, gid)
 
 
 def _remove_if_exists(path: Path) -> bool:
@@ -1599,6 +1606,12 @@ def _write_mtproto_state(
             changed = _write_secret_text_if_changed(profile_path, _json_text(profile_payload)) or changed
             if mtproto_runtime in {"mtg", "telemt"} and mtg_config is not None:
                 changed = _write_secret_text_if_changed(mtproto_config_file, mtg_config.config_text) or changed
+                if mtproto_runtime == "telemt":
+                    _set_private_owner(
+                        mtproto_config_file,
+                        uid=int(settings.private_mtproto_runtime_uid),
+                        gid=int(settings.private_mtproto_runtime_gid),
+                    )
             else:
                 changed = _remove_if_exists(mtproto_config_file) or changed
     else:

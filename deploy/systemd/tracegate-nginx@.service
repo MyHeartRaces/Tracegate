@@ -1,0 +1,16 @@
+[Unit]
+Description=Tracegate nginx (%i)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+Restart=always
+RestartSec=3
+ExecStartPre=/usr/sbin/nginx -t -c /var/lib/tracegate/agent-%i/runtime/nginx/nginx.conf
+ExecStart=/usr/sbin/nginx -g "daemon off;" -c /var/lib/tracegate/agent-%i/runtime/nginx/nginx.conf
+ExecReload=/usr/sbin/nginx -s reload -c /var/lib/tracegate/agent-%i/runtime/nginx/nginx.conf
+KillMode=mixed
+
+[Install]
+WantedBy=multi-user.target

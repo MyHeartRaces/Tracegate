@@ -334,7 +334,7 @@ def build_mtproto_telemt_config(
     public_host: str = "",
     public_port: int = 443,
     listen_ip: str = "127.0.0.1",
-    metrics_port: int = 9090,
+    metrics_port: int = 9190,
     tls_front_dir: str = "/var/lib/tracegate/private/mtproto/tlsfront",
 ) -> MTProtoTelemtConfig:
     """Build a strict Telemt FakeTLS configuration for the shared L4 demux.

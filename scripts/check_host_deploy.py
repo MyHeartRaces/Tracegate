@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
-import re
 import subprocess
 
 import yaml
@@ -29,8 +28,8 @@ def check(root: Path, *, compose_runtime: bool = False) -> None:
         {"postgres", "migrate", "api", "dispatcher", "bot", "agent", "wireguard-sync"}.issubset(services),
         "host compose is missing required services",
     )
-    _require("TRACEGATE_IMAGE:?" in compose_text, "host compose must require an application image")
-    _require("POSTGRES_IMAGE:?" in compose_text, "host compose must require a PostgreSQL image")
+    _require("TRACEGATE_IMAGE:-" in compose_text, "host compose must default to a tagged application image")
+    _require("POSTGRES_IMAGE:-" in compose_text, "host compose must default to a tagged PostgreSQL image")
     _require(services["migrate"].get("command") == "tracegate-migrate-db", "migration gate is not configured")
     for service_name in ("postgres", "migrate", "api", "dispatcher", "bot"):
         _require("control" in services[service_name].get("profiles", []), f"{service_name} must be control-only")
@@ -59,7 +58,7 @@ def check(root: Path, *, compose_runtime: bool = False) -> None:
         "compose pull",
         "rollback",
         "deploy.env.previous",
-        "@sha256:",
+        "compose pull",
     ):
         _require(token in deploy_script, f"host deploy script is missing contract: {token}")
     _require("database migrations are not downgraded" in deploy_script, "rollback migration warning is missing")
@@ -69,22 +68,31 @@ def check(root: Path, *, compose_runtime: bool = False) -> None:
     _require("tracegate-host-deploy up" in unit, "systemd unit start command is missing")
 
     installer = install_path.read_text()
-    for token in ("check_host_runtime.py", "check_host_deploy.py", "/releases/", "current.new", "systemctl daemon-reload"):
+    for token in (
+        "check_host_runtime.py",
+        "check_host_deploy.py",
+        "/releases/",
+        "current.new",
+        "tracegate-xray@.service",
+        "tracegate-mtproto@.service",
+        "tracegate-prometheus.service",
+        "tracegate-grafana.service",
+        "tracegate-shadowtls-env",
+        "tracegate-telemt-permissions",
+        "systemctl daemon-reload",
+    ):
         _require(token in installer, f"host installer is missing contract: {token}")
 
     env_example = env_example_path.read_text()
     _require("REPLACE_ME" not in env_example, "deployment example uses a forbidden secret placeholder")
-    _require(
-        len(re.findall(r"@sha256:REPLACE_WITH_64_HEX_DIGEST", env_example)) == 2,
-        "deployment example must document both immutable image pins",
-    )
+    _require("TRACEGATE_IMAGE=ghcr.io/myheartraces/tracegate:latest" in env_example, "latest application image is not documented")
+    _require("POSTGRES_IMAGE=postgres:latest" in env_example, "latest PostgreSQL image is not documented")
 
     dockerfile_path = root / "Dockerfile"
     if dockerfile_path.exists():
         dockerfile = dockerfile_path.read_text()
-        _require("ARG XRAY_VERSION=latest" not in dockerfile, "Xray build input must not use latest")
-        _require("ARG XRAY_SHA256=" in dockerfile, "Xray archive checksum pin is missing")
-        _require("sha256sum -c -" in dockerfile, "Xray archive checksum is not verified")
+        _require("FROM ghcr.io/xtls/xray-core:latest AS xray-runtime" in dockerfile, "Xray runtime must track latest")
+        _require("@sha256:" not in dockerfile, "Dockerfile must not lock runtime images by digest")
 
     if compose_runtime:
         subprocess.run(

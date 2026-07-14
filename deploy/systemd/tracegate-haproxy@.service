@@ -1,0 +1,17 @@
+[Unit]
+Description=Tracegate HAProxy (%i)
+After=network-online.target tracegate-xray@%i.service tracegate-nginx@%i.service
+Wants=network-online.target
+
+[Service]
+Type=notify
+Restart=always
+RestartSec=3
+ExecStartPre=/usr/sbin/haproxy -c -f /var/lib/tracegate/agent-%i/runtime/haproxy/haproxy.cfg
+ExecStart=/usr/sbin/haproxy -Ws -f /var/lib/tracegate/agent-%i/runtime/haproxy/haproxy.cfg -p /run/tracegate-haproxy-%i.pid
+ExecReload=/usr/sbin/haproxy -c -f /var/lib/tracegate/agent-%i/runtime/haproxy/haproxy.cfg
+ExecReload=/bin/kill -USR2 $MAINPID
+KillMode=mixed
+
+[Install]
+WantedBy=multi-user.target

@@ -364,6 +364,7 @@ class MaterializedBundleRenderContext:
     entry_tls_server_name: str
     transit_tls_server_name: str
     shadowtls_server_name_transit: str
+    shadowsocks2022_password_transit: str
     mtproto_domain: str
     mtproto_tls_domain: str
     mtproto_upstream: str
@@ -516,6 +517,11 @@ class MaterializedBundleRenderContext:
         entry_tls_server_name = _first(env, "ENTRY_TLS_SERVER_NAME", default=entry_host)
         transit_tls_server_name = _first(env, "TRANSIT_TLS_SERVER_NAME", default=transit_host)
         shadowtls_server_name_transit = _first(env, "SHADOWTLS_SERVER_NAME_TRANSIT", "SHADOWTLS_SERVER_NAME")
+        shadowsocks2022_password_transit = _first(
+            env,
+            "SHADOWSOCKS2022_PASSWORD_TRANSIT",
+            "SHADOWSOCKS2022_PASSWORD",
+        )
         mtproto_domain = _first(env, "MTPROTO_DOMAIN")
         mtproto_tls_domain = _first(env, "MTPROTO_TLS_DOMAIN", default=mtproto_domain)
         mtproto_upstream = _haproxy_server_address(
@@ -602,6 +608,7 @@ class MaterializedBundleRenderContext:
             entry_tls_server_name=entry_tls_server_name,
             transit_tls_server_name=transit_tls_server_name,
             shadowtls_server_name_transit=shadowtls_server_name_transit,
+            shadowsocks2022_password_transit=shadowsocks2022_password_transit,
             mtproto_domain=mtproto_domain,
             mtproto_tls_domain=mtproto_tls_domain,
             mtproto_upstream=mtproto_upstream,
@@ -1150,6 +1157,12 @@ def render_materialized_bundles(ctx: MaterializedBundleRenderContext) -> None:
         if tag == "vless-ws-in":
             ws_settings = inbound.setdefault("streamSettings", {}).setdefault("wsSettings", {})
             ws_settings["path"] = ctx.ws_path
+        if tag == "ss2022-in":
+            if not ctx.shadowsocks2022_password_transit:
+                raise MaterializedBundleRenderError(
+                    "SHADOWSOCKS2022_PASSWORD_TRANSIT or SHADOWSOCKS2022_PASSWORD is required for ss2022-in"
+                )
+            inbound.setdefault("settings", {})["password"] = ctx.shadowsocks2022_password_transit
     _materialize_reality_groups(
         transit_xray,
         source_tag="vless-reality-in",

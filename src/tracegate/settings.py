@@ -381,6 +381,8 @@ class Settings(BaseSettings):
     private_mtproto_upstream_port: int = 0
     private_mtproto_secret_file: str = "/etc/tracegate/private/mtproto/secret.txt"
     private_mtproto_runtime: str = "mtg"
+    private_mtproto_runtime_uid: int = 65532
+    private_mtproto_runtime_gid: int = 65532
     # Future private MTProto/fronting hints exposed via runtime-contract.json for host-local wrappers.
     # Keep MTProto on a dedicated real domain and avoid claiming the public UDP/Hysteria surface in the private TCP demux layer.
     mtproto_domain: str = ""

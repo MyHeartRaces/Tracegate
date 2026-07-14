@@ -21,3 +21,14 @@ WireGuard or WSTunnel data plane.
 
 Before packaging or rollout, run `python3 scripts/check_host_runtime.py` and
 `tracegate-host-private-preflight` for each role-specific private profile tree.
+
+The units in this directory are the canonical host data-plane runtime. They
+pull upstream `latest` images before every start. Environment-specific values
+stay outside the release. `tracegate-shadowtls-env` derives the root-only
+ShadowTLS service environment from `/etc/tracegate/tracegate.env`; the example
+file documents the two resulting fields without containing a real secret.
+
+Shadowsocks-2022 is terminated by the `ss2022-in` Xray inbound. The agent owns
+its per-connection users through HandlerService, so issuing or revoking a
+connection does not restart Xray. The former standalone `ssserver` unit must
+not run on the same host because Xray owns `127.0.0.1:18443`.

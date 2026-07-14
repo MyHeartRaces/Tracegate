@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+import sysconfig
 
 from alembic import command
 from alembic.config import Config
@@ -23,6 +24,8 @@ def _alembic_config(*, sync_database_url: str) -> Config:
     path = Path(ini_path)
     if not path.is_absolute():
         path = Path.cwd() / path
+    if not path.exists() and not os.getenv("TRACEGATE_ALEMBIC_INI"):
+        path = Path(sysconfig.get_path("data")) / "share" / "tracegate" / "alembic.ini"
     if not path.exists():
         raise RuntimeError(f"alembic.ini not found: {path}")
 

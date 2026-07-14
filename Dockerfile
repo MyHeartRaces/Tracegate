@@ -1,29 +1,6 @@
-FROM debian:bookworm-slim AS xray-builder
+FROM ghcr.io/xtls/xray-core:latest AS xray-runtime
 
-ARG XRAY_VERSION=v26.3.27
-ARG XRAY_SHA256=23cd9af937744d97776ee35ecad4972cf4b2109d1e0fe6be9930467608f7c8ae
-
-RUN apt-get update \
-    && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-        ca-certificates \
-        curl \
-        unzip \
-    && rm -rf /var/lib/apt/lists/*
-
-WORKDIR /src
-
-RUN set -eux; \
-    version="${XRAY_VERSION}"; \
-    zip_url="https://github.com/XTLS/Xray-core/releases/download/${version}/Xray-linux-64.zip"; \
-    curl -fsSL -o /tmp/xray-linux-64.zip "$zip_url"; \
-    echo "${XRAY_SHA256}  /tmp/xray-linux-64.zip" | sha256sum -c -; \
-    unzip -j /tmp/xray-linux-64.zip xray geoip.dat geosite.dat -d /out; \
-    chmod +x /out/xray; \
-    rm -f /tmp/xray-linux-64.zip
-
-FROM nineseconds/mtg@sha256:c082586a19886e4822f92aa8c1949a771df3519053d64b1b5505a9a280a3929d AS mtg-runtime
-
-FROM python:3.12-slim
+FROM python:slim
 
 ARG VCS_REF=""
 LABEL org.opencontainers.image.title="tracegate" \
@@ -35,10 +12,9 @@ ENV PYTHONUNBUFFERED=1 \
 
 WORKDIR /app
 
-COPY --from=xray-builder /out/xray /usr/local/bin/xray
-COPY --from=xray-builder /out/geoip.dat /usr/local/bin/geoip.dat
-COPY --from=xray-builder /out/geosite.dat /usr/local/bin/geosite.dat
-COPY --from=mtg-runtime /mtg /mtg
+COPY --from=xray-runtime /usr/local/bin/xray /usr/local/bin/xray
+COPY --from=xray-runtime /usr/local/share/xray/geoip.dat /usr/local/bin/geoip.dat
+COPY --from=xray-runtime /usr/local/share/xray/geosite.dat /usr/local/bin/geosite.dat
 
 COPY pyproject.toml /app/
 COPY alembic.ini /app/

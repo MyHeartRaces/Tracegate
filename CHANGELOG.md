@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+## v3.1.3 - 2026-07-14
+
+- Replaced version-locked data-plane container references with rolling `latest`
+  upstream images and mandatory pulls at service start for Xray, Hysteria,
+  ShadowTLS, WSTunnel, Telemt, Prometheus and Grafana.
+- Moved SS2022 termination into the managed Xray runtime so per-account clients
+  are hot-added, revoked and exported through the existing Xray traffic metrics;
+  the retired shared-password `ssserver` must no longer run beside Xray.
+- Completed the host release installer with canonical systemd units, root-only
+  ShadowTLS environment materialization and non-root Telemt runtime ownership.
+- Corrected the Telemt metrics listener collision with Prometheus and packaged
+  the Alembic migration tree and public runtime bundles in the wheel.
+- Revoked and removed all previously issued Telegram Proxy grants before the
+  production rollout; affected users must explicitly request fresh access.
+
 ## v3.1.2 - 2026-07-13
 
 - Pinned the bundled Xray runtime binary by version and SHA-256 so branch and

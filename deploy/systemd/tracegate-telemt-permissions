@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+runtime_root="${TRACEGATE_MTPROTO_RUNTIME_ROOT:-/var/lib/tracegate/private/mtproto/runtime}"
+runtime_uid="${TRACEGATE_MTPROTO_RUNTIME_UID:-65532}"
+runtime_gid="${TRACEGATE_MTPROTO_RUNTIME_GID:-65532}"
+
+install -d -m 0711 "$(dirname -- "${runtime_root}")"
+chmod 0711 "$(dirname -- "${runtime_root}")"
+install -d -m 0700 -o "${runtime_uid}" -g "${runtime_gid}" "${runtime_root}"
+chown -R "${runtime_uid}:${runtime_gid}" "${runtime_root}"
+find "${runtime_root}" -type d -exec chmod 0700 {} +
+find "${runtime_root}" -type f -exec chmod 0600 {} +

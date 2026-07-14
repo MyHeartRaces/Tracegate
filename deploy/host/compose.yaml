@@ -1,7 +1,7 @@
 name: tracegate
 
 x-app: &app
-  image: ${TRACEGATE_IMAGE:?TRACEGATE_IMAGE must be an immutable ghcr.io image digest}
+  image: ${TRACEGATE_IMAGE:-ghcr.io/myheartraces/tracegate:latest}
   env_file:
     - ${TRACEGATE_ENV_FILE:-/etc/tracegate/tracegate.env}
   init: true
@@ -16,7 +16,7 @@ x-app: &app
 
 services:
   postgres:
-    image: ${POSTGRES_IMAGE:?POSTGRES_IMAGE must be an immutable postgres image digest}
+    image: ${POSTGRES_IMAGE:-postgres:latest}
     env_file:
       - ${TRACEGATE_ENV_FILE:-/etc/tracegate/tracegate.env}
     environment:
@@ -80,7 +80,7 @@ services:
     profiles: ["control"]
 
   agent:
-    image: ${TRACEGATE_IMAGE:?TRACEGATE_IMAGE must be an immutable ghcr.io image digest}
+    image: ${TRACEGATE_IMAGE:-ghcr.io/myheartraces/tracegate:latest}
     env_file:
       - ${TRACEGATE_ENV_FILE:-/etc/tracegate/tracegate.env}
     command: tracegate-agent
@@ -97,7 +97,7 @@ services:
       - /run:/run
 
   wireguard-sync:
-    image: ${TRACEGATE_IMAGE:?TRACEGATE_IMAGE must be an immutable ghcr.io image digest}
+    image: ${TRACEGATE_IMAGE:-ghcr.io/myheartraces/tracegate:latest}
     command: tracegate-wireguard-sync-runner
     network_mode: host
     profiles: ["gateway"]

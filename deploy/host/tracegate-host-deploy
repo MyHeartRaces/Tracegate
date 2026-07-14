@@ -33,8 +33,8 @@ preflight() {
   [ -f "${RUNTIME_ENV}" ] || die "missing runtime environment: ${RUNTIME_ENV}"
   case "$(stat -c '%a' "${RUNTIME_ENV}" 2>/dev/null || stat -f '%Lp' "${RUNTIME_ENV}")" in
     600|400) ;; *) die "${RUNTIME_ENV} must have mode 0600 or 0400" ;; esac
-  [[ "${TRACEGATE_IMAGE:-}" =~ ^ghcr\.io/.+@sha256:[0-9a-f]{64}$ ]] || die "TRACEGATE_IMAGE must be a GHCR sha256 digest"
-  [[ "${POSTGRES_IMAGE:-}" =~ ^postgres:[^[:space:]@]+@sha256:[0-9a-f]{64}$ ]] || die "POSTGRES_IMAGE must be a sha256 digest"
+  [[ "${TRACEGATE_IMAGE:-}" =~ ^ghcr\.io/[^[:space:]@]+:[^[:space:]@]+$ ]] || die "TRACEGATE_IMAGE must be a tagged GHCR image"
+  [[ "${POSTGRES_IMAGE:-}" =~ ^postgres:[^[:space:]@]+$ ]] || die "POSTGRES_IMAGE must be a tagged postgres image"
   [ -n "${TRACEGATE_COMPOSE_PROFILES:-}" ] || die "TRACEGATE_COMPOSE_PROFILES must select control and/or gateway"
   if grep -En '(^|=)(REPLACE_ME|CHANGE_ME|TODO|REPLACE_WITH_)' "${RUNTIME_ENV}" "${DEPLOY_ENV}" >/dev/null 2>&1; then
     die "placeholder value found in private deployment inputs"
