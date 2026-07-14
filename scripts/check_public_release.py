@@ -47,11 +47,17 @@ def _blocked_needles() -> tuple[str, ...]:
 
 
 def _tracked_files(root: Path) -> list[Path]:
-    result = subprocess.run(
-        ["git", "-C", str(root), "ls-files", "--cached", "--others", "--exclude-standard", "-z"],
-        check=True,
-        capture_output=True,
-    )
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(root), "ls-files", "--cached", "--others", "--exclude-standard", "-z"],
+            check=True,
+            capture_output=True,
+        )
+    except (FileNotFoundError, subprocess.CalledProcessError):
+        # Release archives intentionally contain no Git metadata. Treat the
+        # extracted tree as the complete release input instead of making the
+        # privacy gate unusable outside a checkout.
+        return _all_files(root)
     return [root / value.decode("utf-8") for value in result.stdout.split(b"\0") if value]
 
 
