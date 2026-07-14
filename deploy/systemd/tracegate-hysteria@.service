@@ -10,7 +10,7 @@ RestartSec=3
 TimeoutStopSec=20
 ExecStartPre=/usr/bin/docker pull docker.io/tobyxdd/hysteria:latest
 ExecStartPre=-/usr/bin/docker rm -f tracegate-hysteria-%i
-ExecStart=/usr/bin/docker run --rm --name tracegate-hysteria-%i --network host --read-only --cap-drop ALL --security-opt no-new-privileges:true -v /var/lib/tracegate/agent-%i/runtime/hysteria/server.yaml:/etc/hysteria/server.yaml:ro -v /etc/letsencrypt:/etc/letsencrypt:ro -v /var/www/decoy:/var/www/decoy:ro docker.io/tobyxdd/hysteria:latest server -c /etc/hysteria/server.yaml
+ExecStart=/usr/bin/docker run --rm --name tracegate-hysteria-%i --network host --user 0:0 --read-only --cap-drop ALL --cap-add NET_BIND_SERVICE --security-opt no-new-privileges:true -v /var/lib/tracegate/agent-%i/runtime/hysteria/server.yaml:/etc/hysteria/server.yaml:ro -v /etc/letsencrypt:/etc/letsencrypt:ro -v /var/www/decoy:/var/www/decoy:ro docker.io/tobyxdd/hysteria:latest server -c /etc/hysteria/server.yaml
 ExecStop=/usr/bin/docker stop tracegate-hysteria-%i
 
 [Install]

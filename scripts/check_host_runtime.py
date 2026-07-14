@@ -86,6 +86,9 @@ def check_host_runtime(root: Path) -> None:
         _require(unit, "docker pull", label=unit_name)
         if "@sha256:" in unit:
             raise HostRuntimeCheckError(f"{unit_name} must not lock an image digest")
+        if unit_name.startswith("tracegate-hysteria"):
+            _require(unit, "--user 0:0", label=unit_name)
+            _require(unit, "--cap-drop ALL --cap-add NET_BIND_SERVICE", label=unit_name)
 
     mtproto_path = root / "src/tracegate/services/mtproto.py"
     if mtproto_path.exists():
