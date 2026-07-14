@@ -1805,6 +1805,65 @@ def remove_connection_artifact_index(settings: Settings, connection_id: str) -> 
         _save_index(paths, index)
 
 
+def reconcile_xray_ss2022(settings: Settings) -> bool:
+    """Render the isolated SS2022 Xray runtime from active artifacts.
+
+    Xray's Shadowsocks-2022 inbound is not a HandlerService UserManager, so its
+    user list cannot be changed live. Keeping it in a dedicated process lets us
+    restart only the experimental SS surface without touching VLESS sessions.
+    """
+    paths = AgentPaths.from_settings(settings)
+    base_path = paths.base / "xray-ss2022" / "config.json"
+    runtime_path = paths.runtime / "xray-ss2022" / "config.json"
+    if not base_path.exists():
+        return False
+
+    rendered = _load_json(base_path)
+    clients: list[dict[str, str]] = []
+    role_upper = str(settings.agent_role or "").strip().upper()
+    for row in load_all_user_artifacts(paths):
+        if not _artifact_applies_to_xray_public_runtime(settings, row):
+            continue
+        if str(row.get("protocol") or "").strip().lower() != "shadowsocks2022_shadowtls":
+            continue
+        mode = str(row.get("mode") or "").strip().lower()
+        if (mode == "chain" and role_upper != "ENTRY") or (mode != "chain" and role_upper != "TRANSIT"):
+            continue
+        cfg = row.get("config") if isinstance(row.get("config"), dict) else {}
+        password = str(cfg.get("password") or "").strip()
+        user_key = password.rpartition(":")[2].strip() if ":" in password else password
+        if not user_key:
+            continue
+        variant = str(row.get("variant") or "").strip() or "V?"
+        user_id = str(row.get("user_id") or "").strip() or "?"
+        connection_id = str(row.get("connection_id") or "").strip() or "?"
+        clients.append(
+            {
+                "password": user_key,
+                "email": f"{variant} - {user_id} - {connection_id}",
+            }
+        )
+    clients.sort(key=lambda row: str(row.get("email") or row.get("password") or ""))
+
+    inbound = next(
+        (
+            row
+            for row in rendered.get("inbounds", [])
+            if isinstance(row, dict) and str(row.get("tag") or "").strip() == "ss2022-in"
+        ),
+        None,
+    )
+    if inbound is None:
+        raise ValueError("isolated Xray SS2022 base config is missing ss2022-in")
+    inbound.setdefault("settings", {})["clients"] = clients
+
+    current = _load_json(runtime_path) if runtime_path.exists() else None
+    if current == rendered:
+        return False
+    _safe_dump_json(runtime_path, rendered)
+    return True
+
+
 def reconcile_xray(settings: Settings) -> ReconcileXrayResult:
     # Optional fast-path: if API mode is enabled, we still write the runtime config
     # for persistence across Xray restarts, but we apply user changes live via gRPC.
@@ -2488,6 +2547,8 @@ def _reconcile_all_result(settings: Settings) -> ReconcileAllResult:
         if xray_result.changed:
             changed.append("xray")
         force_xray_reload = xray_result.force_reload
+        if reconcile_xray_ss2022(settings):
+            changed.append("xray-ss2022")
     if settings.agent_role in {"TRANSIT", "ENTRY"}:
         if contract.manages_component("haproxy") and _reconcile_passthrough_component(
             settings=settings, component="haproxy", source_name="haproxy.cfg"

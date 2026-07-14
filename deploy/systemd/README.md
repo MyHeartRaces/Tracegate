@@ -28,7 +28,9 @@ stay outside the release. `tracegate-shadowtls-env` derives the root-only
 ShadowTLS service environment from `/etc/tracegate/tracegate.env`; the example
 file documents the two resulting fields without containing a real secret.
 
-Shadowsocks-2022 is terminated by the `ss2022-in` Xray inbound. The agent owns
-its per-connection users through HandlerService, so issuing or revoking a
-connection does not restart Xray. The former standalone `ssserver` unit must
-not run on the same host because Xray owns `127.0.0.1:18443`.
+Shadowsocks-2022 is terminated by the `ss2022-in` inbound in the isolated
+`tracegate-xray-ss2022` process. Xray cannot mutate Shadowsocks-2022 users with
+HandlerService, so the agent restarts only this dedicated runtime when an SS
+connection is issued or revoked. Primary VLESS/REALITY sessions are unaffected.
+The former standalone `ssserver` unit must not run because the isolated Xray
+runtime owns `127.0.0.1:18443`.

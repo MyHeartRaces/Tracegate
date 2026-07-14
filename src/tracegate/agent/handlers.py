@@ -142,6 +142,8 @@ def _reload_commands_for_changed(
     cmds: list[str] = []
     if contract.manages_component("xray") and "xray" in changed and (force_xray_reload or not settings.agent_xray_api_enabled):
         cmds.append(settings.agent_reload_xray_cmd)
+    if "xray-ss2022" in changed:
+        cmds.append(settings.agent_reload_xray_ss2022_cmd)
     if contract.manages_component("hysteria") and "hysteria" in changed:
         cmds.append(settings.agent_reload_hysteria_cmd)
     if contract.manages_component("haproxy") and "haproxy" in changed:
@@ -163,14 +165,24 @@ def _reload_commands_for_changed(
 
 def _reconcile_user_lifecycle_without_reload(settings: Settings) -> ReconcileAllResult:
     """
-    Apply user/connection state to live-managed surfaces without process reloads.
+    Apply user/connection state to live-managed surfaces without primary process reloads.
 
     User lifecycle events are allowed to update runtime state, Xray HandlerService
     clients, Hysteria HTTP-auth artifacts, and private desired-state handoffs. They
-    must not execute reload hooks, because those hooks can restart protocol
-    processes and drop existing client sessions.
+    The isolated SS2022 process is the sole exception: Xray cannot mutate its
+    Shadowsocks user list through HandlerService, and restarting that dedicated
+    process cannot drop VLESS/REALITY sessions.
     """
     return _reconcile_all_result(settings)
+
+
+def _run_isolated_user_lifecycle_reloads(settings: Settings, result: ReconcileAllResult) -> int:
+    commands: list[str] = []
+    if "xray-ss2022" in result.changed and str(settings.agent_reload_xray_ss2022_cmd or "").strip():
+        commands.append(settings.agent_reload_xray_ss2022_cmd)
+    if commands:
+        _run_reload_commands(settings, commands)
+    return len(commands)
 
 
 def _apply_firewall_bundle(settings: Settings, *, bundle_root: Path) -> bool:
@@ -213,6 +225,7 @@ def _sync_base_configs_from_bundle(
     contract = resolve_runtime_contract(settings.agent_runtime_profile)
     mapping = {
         "xray.json": ("base/xray/config.json", "xray"),
+        "xray-ss2022.json": ("base/xray-ss2022/config.json", "xray-ss2022"),
         "hysteria/server.yaml": ("base/hysteria/server.yaml", "hysteria"),
         "haproxy.cfg": ("base/haproxy/haproxy.cfg", "haproxy"),
         "nginx.conf": ("base/nginx/nginx.conf", "nginx"),
@@ -228,7 +241,7 @@ def _sync_base_configs_from_bundle(
     to_write: dict[str, BundleFilePayload] = {}
     changed_components: set[str] = set()
     for source_name, (dest_rel, component) in mapping.items():
-        if not contract.manages_component(component):
+        if component != "xray-ss2022" and not contract.manages_component(component):
             continue
         raw = files.get(source_name)
         if not isinstance(raw, str):
@@ -353,8 +366,9 @@ def handle_upsert_user(settings: Settings, payload: dict[str, Any]) -> str:
     upsert_user_artifact_index(settings, payload)
 
     reconcile_result = _reconcile_user_lifecycle_without_reload(settings)
+    reload_count = _run_isolated_user_lifecycle_reloads(settings, reconcile_result)
     reconciled = ",".join(sorted(reconcile_result.changed))
-    suffix = f"; live_reconciled={reconciled}; reloads=0" if reconciled else "; reloads=0"
+    suffix = f"; live_reconciled={reconciled}; reloads={reload_count}" if reconciled else f"; reloads={reload_count}"
 
     return f"upserted user payload for user={user_id} connection={connection_id}{suffix}"
 
@@ -370,8 +384,9 @@ def handle_revoke_user(settings: Settings, payload: dict[str, Any]) -> str:
     remove_user_artifact_index(settings, user_id)
 
     reconcile_result = _reconcile_user_lifecycle_without_reload(settings)
+    reload_count = _run_isolated_user_lifecycle_reloads(settings, reconcile_result)
     reconciled = ",".join(sorted(reconcile_result.changed))
-    suffix = f"; live_reconciled={reconciled}; reloads=0" if reconciled else "; reloads=0"
+    suffix = f"; live_reconciled={reconciled}; reloads={reload_count}" if reconciled else f"; reloads={reload_count}"
 
     return f"revoked user artifacts for {user_id}{suffix}"
 
@@ -418,8 +433,9 @@ def handle_revoke_connection(settings: Settings, payload: dict[str, Any]) -> str
     )
 
     reconcile_result = _reconcile_user_lifecycle_without_reload(settings)
+    reload_count = _run_isolated_user_lifecycle_reloads(settings, reconcile_result)
     reconciled = ",".join(sorted(reconcile_result.changed))
-    suffix = f"; live_reconciled={reconciled}; reloads=0" if reconciled else "; reloads=0"
+    suffix = f"; live_reconciled={reconciled}; reloads={reload_count}" if reconciled else f"; reloads={reload_count}"
 
     return f"revoked connection artifacts for user={user_id_s} connection={connection_id_s}{suffix}"
 

@@ -38,7 +38,19 @@ def _query_xray_user_traffic_bytes(settings: Settings) -> dict[str, dict[str, in
     # Local import keeps agent startup lighter when Xray isn't present/enabled.
     from .xray_api import query_user_traffic_bytes
 
-    return query_user_traffic_bytes(settings, reset=False)
+    merged = query_user_traffic_bytes(settings, reset=False)
+    if str(settings.agent_role or "").strip().upper() != "TRANSIT":
+        return merged
+    secondary_target = str(settings.agent_xray_ss2022_api_server or "").strip()
+    if not secondary_target or secondary_target == str(settings.agent_xray_api_server or "").strip():
+        return merged
+    secondary_settings = settings.model_copy(update={"agent_xray_api_server": secondary_target})
+    secondary = query_user_traffic_bytes(secondary_settings, reset=False)
+    for marker, row in secondary.items():
+        bucket = merged.setdefault(marker, {"uplink": 0, "downlink": 0})
+        bucket["uplink"] = int(bucket.get("uplink") or 0) + int(row.get("uplink") or 0)
+        bucket["downlink"] = int(bucket.get("downlink") or 0) + int(row.get("downlink") or 0)
+    return merged
 
 
 def _query_xray_inbound_traffic_bytes(settings: Settings) -> dict[str, dict[str, int]]:

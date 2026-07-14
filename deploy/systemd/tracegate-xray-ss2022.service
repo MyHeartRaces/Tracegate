@@ -1,0 +1,17 @@
+[Unit]
+Description=Tracegate isolated Xray Shadowsocks-2022 runtime
+After=docker.service network-online.target
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Restart=always
+RestartSec=3
+TimeoutStopSec=20
+ExecStartPre=/usr/bin/docker pull ghcr.io/xtls/xray-core:latest
+ExecStartPre=-/usr/bin/docker rm -f tracegate-xray-ss2022
+ExecStart=/usr/bin/docker run --rm --name tracegate-xray-ss2022 --network host --read-only --cap-drop ALL --security-opt no-new-privileges:true -v /var/lib/tracegate/agent-transit/runtime/xray-ss2022/config.json:/etc/xray/config.json:ro ghcr.io/xtls/xray-core:latest run -c /etc/xray/config.json
+ExecStop=/usr/bin/docker stop tracegate-xray-ss2022
+
+[Install]
+WantedBy=multi-user.target

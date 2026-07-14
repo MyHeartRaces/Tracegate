@@ -670,9 +670,9 @@ def test_reconcile_xray_populates_xray_native_hysteria_inbound_clients(tmp_path:
     assert changed2 == []
 
 
-def test_reconcile_xray_populates_xray_native_shadowsocks2022_clients(tmp_path: Path) -> None:
+def test_reconcile_isolated_xray_populates_shadowsocks2022_clients(tmp_path: Path) -> None:
     _write(
-        tmp_path / "base/xray/config.json",
+        tmp_path / "base/xray-ss2022/config.json",
         json.dumps(
             {
                 "inbounds": [
@@ -718,8 +718,8 @@ def test_reconcile_xray_populates_xray_native_shadowsocks2022_clients(tmp_path: 
 
     changed = reconcile_all(settings)
 
-    assert "xray" in changed
-    runtime = json.loads((tmp_path / "runtime/xray/config.json").read_text(encoding="utf-8"))
+    assert "xray-ss2022" in changed
+    runtime = json.loads((tmp_path / "runtime/xray-ss2022/config.json").read_text(encoding="utf-8"))
     inbound = next(row for row in runtime["inbounds"] if row.get("tag") == "ss2022-in")
     assert inbound["settings"]["clients"] == [
         {
@@ -734,8 +734,8 @@ def test_reconcile_xray_populates_xray_native_shadowsocks2022_clients(tmp_path: 
 
     revoked = reconcile_all(settings)
 
-    assert "xray" in revoked
-    runtime_after_revoke = json.loads((tmp_path / "runtime/xray/config.json").read_text(encoding="utf-8"))
+    assert "xray-ss2022" in revoked
+    runtime_after_revoke = json.loads((tmp_path / "runtime/xray-ss2022/config.json").read_text(encoding="utf-8"))
     inbound_after_revoke = next(row for row in runtime_after_revoke["inbounds"] if row.get("tag") == "ss2022-in")
     assert inbound_after_revoke["settings"]["clients"] == []
 

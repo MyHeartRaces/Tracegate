@@ -129,6 +129,20 @@ def test_reload_commands_include_private_link_crypto_hook_when_changed() -> None
     assert cmds == ["reload-link-crypto"]
 
 
+def test_user_lifecycle_restarts_only_isolated_ss2022_runtime(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[list[str]] = []
+    monkeypatch.setattr(handlers, "_run_reload_commands", lambda _settings, commands: calls.append(commands))
+    settings = Settings(agent_reload_xray_ss2022_cmd="restart-ss2022", agent_reload_xray_cmd="reload-primary")
+
+    count = handlers._run_isolated_user_lifecycle_reloads(
+        settings,
+        handlers.ReconcileAllResult(changed=["xray", "xray-ss2022"], force_xray_reload=True),
+    )
+
+    assert count == 1
+    assert calls == [["restart-ss2022"]]
+
+
 def test_reload_commands_force_xray_reload_even_when_api_mode_is_enabled() -> None:
     settings = Settings(
         agent_runtime_mode="systemd",

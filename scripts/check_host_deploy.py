@@ -74,6 +74,7 @@ def check(root: Path, *, compose_runtime: bool = False) -> None:
         "/releases/",
         "current.new",
         "tracegate-xray@.service",
+        "tracegate-xray-ss2022.service",
         "tracegate-mtproto@.service",
         "tracegate-prometheus.service",
         "tracegate-grafana.service",

@@ -1213,12 +1213,6 @@ def render_materialized_bundles(ctx: MaterializedBundleRenderContext) -> None:
         if tag == "vless-ws-in":
             ws_settings = inbound.setdefault("streamSettings", {}).setdefault("wsSettings", {})
             ws_settings["path"] = ctx.ws_path
-        if tag == "ss2022-in":
-            if not ctx.shadowsocks2022_password_transit:
-                raise MaterializedBundleRenderError(
-                    "SHADOWSOCKS2022_PASSWORD_TRANSIT or SHADOWSOCKS2022_PASSWORD is required for ss2022-in"
-                )
-            inbound.setdefault("settings", {})["password"] = ctx.shadowsocks2022_password_transit
     _materialize_reality_groups(
         transit_xray,
         source_tag="vless-reality-in",
@@ -1227,6 +1221,25 @@ def render_materialized_bundles(ctx: MaterializedBundleRenderContext) -> None:
     if ctx.runtime_profile == "tracegate-3":
         _strip_xray_hysteria_runtime(transit_xray)
     _write_json(transit_xray_path, transit_xray)
+
+    transit_ss2022_path = ctx.materialized_root / "base-transit" / "xray-ss2022.json"
+    transit_ss2022 = json.loads(transit_ss2022_path.read_text(encoding="utf-8"))
+    if not ctx.shadowsocks2022_password_transit:
+        raise MaterializedBundleRenderError(
+            "SHADOWSOCKS2022_PASSWORD_TRANSIT or SHADOWSOCKS2022_PASSWORD is required for ss2022-in"
+        )
+    ss2022_inbound = next(
+        (
+            inbound
+            for inbound in transit_ss2022.get("inbounds", [])
+            if isinstance(inbound, dict) and str(inbound.get("tag") or "") == "ss2022-in"
+        ),
+        None,
+    )
+    if ss2022_inbound is None:
+        raise MaterializedBundleRenderError("base-transit/xray-ss2022.json is missing ss2022-in")
+    ss2022_inbound.setdefault("settings", {})["password"] = ctx.shadowsocks2022_password_transit
+    _write_json(transit_ss2022_path, transit_ss2022)
 
     transit_haproxy_path = ctx.materialized_root / "base-transit" / "haproxy.cfg"
     transit_reality_acls, transit_reality_routes, transit_reality_backends = _render_reality_demux(

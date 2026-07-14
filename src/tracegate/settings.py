@@ -257,6 +257,9 @@ class Settings(BaseSettings):
     # This is required for true "zero-downtime" connection issuance/revocation.
     agent_xray_api_enabled: bool = False
     agent_xray_api_server: str = "127.0.0.1:8080"
+    # SS2022 is isolated because its Xray inbound cannot apply HandlerService
+    # user changes. Restarting this process leaves primary VLESS sessions intact.
+    agent_xray_ss2022_api_server: str = "127.0.0.1:10086"
     agent_xray_api_timeout_seconds: int = 3
     # Run Entry REALITY inbounds on a dedicated in-pod Xray sidecar built from
     # the Tracegate image when the upstream Xray image misbehaves.
@@ -271,6 +274,7 @@ class Settings(BaseSettings):
     agent_reload_xray_cmd: str = (
         "sh -lc '(flock 9; sleep 1; pkill -HUP xray || true) 9>/tmp/xray-reload.lock'"
     )
+    agent_reload_xray_ss2022_cmd: str = ""
     # Optional managed fronting layer for server-side TCP mux / TLS termination.
     agent_reload_haproxy_cmd: str = ""
     agent_reload_nginx_cmd: str = ""

@@ -165,6 +165,9 @@ def test_render_materialized_bundles_rewrites_runtime_files(tmp_path: Path) -> N
 
     entry_xray = json.loads((ctx.materialized_root / "base-entry" / "xray.json").read_text(encoding="utf-8"))
     transit_xray = json.loads((ctx.materialized_root / "base-transit" / "xray.json").read_text(encoding="utf-8"))
+    transit_ss2022_xray = json.loads(
+        (ctx.materialized_root / "base-transit" / "xray-ss2022.json").read_text(encoding="utf-8")
+    )
     entry_haproxy = (ctx.materialized_root / "base-entry" / "haproxy.cfg").read_text(encoding="utf-8")
     transit_haproxy = (ctx.materialized_root / "base-transit" / "haproxy.cfg").read_text(encoding="utf-8")
     entry_nginx = (ctx.materialized_root / "base-entry" / "nginx.conf").read_text(encoding="utf-8")
@@ -181,7 +184,9 @@ def test_render_materialized_bundles_rewrites_runtime_files(tmp_path: Path) -> N
     transit_reality_inbound = next(inbound for inbound in transit_xray["inbounds"] if inbound["tag"] == "vless-reality-in")
     transit_ws_inbound = next(inbound for inbound in transit_xray["inbounds"] if inbound["tag"] == "vless-ws-in")
     transit_grpc_inbound = next(inbound for inbound in transit_xray["inbounds"] if inbound["tag"] == "vless-grpc-in")
-    transit_ss2022_inbound = next(inbound for inbound in transit_xray["inbounds"] if inbound["tag"] == "ss2022-in")
+    transit_ss2022_inbound = next(
+        inbound for inbound in transit_ss2022_xray["inbounds"] if inbound["tag"] == "ss2022-in"
+    )
 
     assert entry_inbound["streamSettings"]["realitySettings"]["dest"] == "origin-entry.example:443"
     assert entry_inbound["streamSettings"]["realitySettings"]["serverNames"] == ["origin-entry.example"]
@@ -254,10 +259,17 @@ def test_render_materialized_bundles_rewrites_runtime_files(tmp_path: Path) -> N
         if isinstance(rule, dict)
     )
     assert any(
-        rule.get("inboundTag") == ["vless-reality-in", "vless-ws-in", "vless-grpc-in", "ss2022-in"]
+        rule.get("inboundTag") == ["vless-reality-in", "vless-ws-in", "vless-grpc-in"]
         and rule.get("protocol") == ["bittorrent"]
         and rule.get("outboundTag") == "block"
         for rule in transit_xray["routing"]["rules"]
+        if isinstance(rule, dict)
+    )
+    assert any(
+        rule.get("inboundTag") == ["ss2022-in"]
+        and rule.get("protocol") == ["bittorrent"]
+        and rule.get("outboundTag") == "block"
+        for rule in transit_ss2022_xray["routing"]["rules"]
         if isinstance(rule, dict)
     )
     assert not (ctx.materialized_root / "base-entry" / "hysteria.yaml").exists()

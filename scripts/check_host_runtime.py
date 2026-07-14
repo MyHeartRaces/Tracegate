@@ -61,9 +61,16 @@ def check_host_runtime(root: Path) -> None:
         _require(haproxy, placeholder, label="Endpoint HAProxy bundle")
 
     xray = _read(root / "bundles/base-transit/xray.json")
-    _require(xray, '"tag": "ss2022-in"', label="Endpoint Xray bundle")
-    _require(xray, '"method": "2022-blake3-aes-128-gcm"', label="Endpoint Xray bundle")
-    _require(xray, '"password": "REPLACE_SHADOWSOCKS2022_SERVER_KEY"', label="Endpoint Xray bundle")
+    if '"tag": "ss2022-in"' in xray:
+        raise HostRuntimeCheckError("primary Endpoint Xray bundle must not own SS2022")
+    ss2022_xray = _read(root / "bundles/base-transit/xray-ss2022.json")
+    _require(ss2022_xray, '"tag": "ss2022-in"', label="isolated Endpoint SS2022 Xray bundle")
+    _require(ss2022_xray, '"method": "2022-blake3-aes-128-gcm"', label="isolated Endpoint SS2022 Xray bundle")
+    _require(
+        ss2022_xray,
+        '"password": "REPLACE_SHADOWSOCKS2022_SERVER_KEY"',
+        label="isolated Endpoint SS2022 Xray bundle",
+    )
 
     sync_unit = _read(root / "deploy/systemd/tracegate-wireguard-sync.service")
     _require(sync_unit, "tracegate-wireguard-sync-runner", label="WireGuard peer synchronizer unit")
@@ -72,6 +79,7 @@ def check_host_runtime(root: Path) -> None:
 
     latest_units = (
         "tracegate-xray@.service",
+        "tracegate-xray-ss2022.service",
         "tracegate-hysteria@.service",
         "tracegate-hysteria-salamander.service",
         "tracegate-shadowtls.service",

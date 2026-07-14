@@ -40,7 +40,8 @@ for unit in \
   tracegate-wireguard-sync.service \
   tracegate-wireguard.service \
   tracegate-wstunnel-wireguard.service \
-  tracegate-xray@.service
+  tracegate-xray@.service \
+  tracegate-xray-ss2022.service
 do
   install -m 0644 "${target}/deploy/systemd/${unit}" "${SYSTEMD_DIR}/${unit}"
 done
