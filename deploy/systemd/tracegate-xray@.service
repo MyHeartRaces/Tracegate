@@ -10,7 +10,7 @@ RestartSec=3
 TimeoutStopSec=20
 ExecStartPre=/usr/bin/docker pull ghcr.io/xtls/xray-core:latest
 ExecStartPre=-/usr/bin/docker rm -f tracegate-xray-%i
-ExecStart=/usr/bin/docker run --rm --name tracegate-xray-%i --network host --read-only --cap-drop ALL --security-opt no-new-privileges:true -v /var/lib/tracegate/agent-%i/runtime/xray/config.json:/etc/xray/config.json:ro ghcr.io/xtls/xray-core:latest run -c /etc/xray/config.json
+ExecStart=/usr/bin/docker run --rm --name tracegate-xray-%i --network host --read-only --user 0:0 --cap-drop ALL --security-opt no-new-privileges:true -v /var/lib/tracegate/agent-%i/runtime/xray/config.json:/etc/xray/config.json:ro ghcr.io/xtls/xray-core:latest run -c /etc/xray/config.json
 ExecReload=/usr/bin/docker kill --signal=HUP tracegate-xray-%i
 ExecStop=/usr/bin/docker stop tracegate-xray-%i
 
