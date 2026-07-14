@@ -105,6 +105,7 @@ def _ds(uid: str) -> dict[str, str]:
 
 def _dashboard_megabytes(builder):  # noqa: ANN001, ANN201
     """Render byte-valued dashboard panels in fixed decimal MB/MB/s units."""
+
     def wrapped(*args, **kwargs):  # noqa: ANN002, ANN003, ANN202
         dashboard = builder(*args, **kwargs)
         uid = str(dashboard.get("uid") or "")
@@ -113,7 +114,16 @@ def _dashboard_megabytes(builder):  # noqa: ANN001, ANN201
             user_scoped = uid == "tracegate-user"
             user_filter = '{user_pid="${__user.login}"}' if user_scoped else ""
             panels = dashboard.setdefault("panels", [])
-            max_y = max((int((panel.get("gridPos") or {}).get("y") or 0) for panel in panels), default=0) + 8
+            max_y = (
+                max(
+                    (
+                        int((panel.get("gridPos") or {}).get("y") or 0)
+                        for panel in panels
+                    ),
+                    default=0,
+                )
+                + 8
+            )
             panels.extend(
                 [
                     {
@@ -122,8 +132,24 @@ def _dashboard_megabytes(builder):  # noqa: ANN001, ANN201
                         "title": "WGWS traffic RX/TX",
                         "datasource": _ds(ds_uid),
                         "targets": [
-                            {"refId": "A", "expr": _connection_rate_expr("tracegate_wireguard_connection_rx_bytes", user_scoped=user_scoped, protocol_regex="wireguard_wstunnel"), "legendFormat": "{{connection_label}} RX"},
-                            {"refId": "B", "expr": _connection_rate_expr("tracegate_wireguard_connection_tx_bytes", user_scoped=user_scoped, protocol_regex="wireguard_wstunnel"), "legendFormat": "{{connection_label}} TX"},
+                            {
+                                "refId": "A",
+                                "expr": _connection_rate_expr(
+                                    "tracegate_wireguard_connection_rx_bytes",
+                                    user_scoped=user_scoped,
+                                    protocol_regex="wireguard_wstunnel",
+                                ),
+                                "legendFormat": "{{connection_label}} RX",
+                            },
+                            {
+                                "refId": "B",
+                                "expr": _connection_rate_expr(
+                                    "tracegate_wireguard_connection_tx_bytes",
+                                    user_scoped=user_scoped,
+                                    protocol_regex="wireguard_wstunnel",
+                                ),
+                                "legendFormat": "{{connection_label}} TX",
+                            },
                         ],
                         "fieldConfig": {"defaults": {"unit": "Bps"}, "overrides": []},
                         "gridPos": {"h": 8, "w": 12, "x": 0, "y": max_y},
@@ -150,8 +176,16 @@ def _dashboard_megabytes(builder):  # noqa: ANN001, ANN201
                 ]
             )
         for panel in dashboard.get("panels", []):
-            defaults = (panel.get("fieldConfig") or {}).get("defaults") or {}
+            title = str(panel.get("title") or "")
+            rate_title = (
+                "bytes/s" in title.casefold() or "bytes/sec" in title.casefold()
+            )
+            field_config = panel.setdefault("fieldConfig", {})
+            defaults = field_config.setdefault("defaults", {})
+            field_config.setdefault("overrides", [])
             unit = defaults.get("unit")
+            if unit is None and rate_title:
+                unit = "Bps"
             if unit not in {"bytes", "Bps"}:
                 continue
             for target in panel.get("targets", []):
@@ -159,7 +193,9 @@ def _dashboard_megabytes(builder):  # noqa: ANN001, ANN201
                 if expr:
                     target["expr"] = f"({expr}) / 1000000"
             defaults["unit"] = "MB" if unit == "bytes" else "MB/s"
-            panel["title"] = str(panel.get("title") or "").replace("bytes", "MB")
+            panel["title"] = title.replace("bytes/s", "MB/s").replace(
+                "bytes/sec", "MB/s"
+            )
         return dashboard
 
     return wrapped

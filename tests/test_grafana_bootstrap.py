@@ -116,6 +116,15 @@ def test_new_transport_panels_are_account_scoped_and_use_megabytes() -> None:
         assert panel["targets"][0]["legendFormat"] == "{{connection_label}}"
 
 
+def test_connection_rate_panels_use_megabytes_per_second() -> None:
+    for dashboard in (_dashboard_user("prom"), _dashboard_admin("prom")):
+        for panel_id in [11, 12, 13, 14]:
+            panel = _panel_by_id(dashboard, panel_id)
+            assert panel["fieldConfig"]["defaults"]["unit"] == "MB/s"
+            assert "/ 1000000" in panel["targets"][0]["expr"]
+            assert "bytes/s" not in panel["title"].lower()
+
+
 def test_dashboards_only_reference_current_connection_runtimes() -> None:
     dashboards = [
         _dashboard_user("prom"),
@@ -431,7 +440,9 @@ def test_ops_alert_rules_cover_nodes_pods_delivery_and_runtime_health() -> None:
     node_count = by_uid["tg-ops-node-count-low"]
     assert "max_over_time" in node_count["data"][0]["model"]["expr"]
     assert 'job="tracegate-node-exporter"' in node_count["data"][0]["model"]["expr"]
-    assert node_count["data"][1]["model"]["conditions"][0]["evaluator"]["params"] == [2.0]
+    assert node_count["data"][1]["model"]["conditions"][0]["evaluator"]["params"] == [
+        2.0
+    ]
     assert node_count["annotations"] == {
         "summary": "Tracegate sees fewer than 2 infrastructure nodes",
         "description": "Expected Entry and Endpoint node exporters to be up",
