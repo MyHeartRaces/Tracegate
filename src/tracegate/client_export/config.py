@@ -74,7 +74,7 @@ def _safe_filename_fragment(value: str) -> str:
 
 
 def _artifact_filename_fragment(profile_name: str) -> str:
-    """Keep artifact filenames stable for existing importers while labels evolve."""
+    """Keep client-facing artifact filenames aligned with the menu taxonomy."""
     return {
         "Tracegate-Reality": "direct-vless",
         "Tracegate-Hysteria(Salamander)": "direct-hysteria",
@@ -82,8 +82,8 @@ def _artifact_filename_fragment(profile_name: str) -> str:
         "Tracegate-Chain": "chain",
         "Tracegate-Backup(gRPC)": "backup-vless-grpc",
         "Tracegate-Backup(WebSocket)": "backup-vless-websocket",
-        "Tracegate-Experimental(SS2022)": "backup-shadowsocks",
-        "Tracegate-Experimental(WGWS)": "backup-wgws",
+        "Tracegate-Experimental(SS2022)": "experimental-shadowsocks",
+        "Tracegate-Experimental(WGWS)": "experimental-wgws",
     }.get(profile_name, _safe_filename_fragment(profile_name))
 
 

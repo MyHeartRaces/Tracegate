@@ -484,7 +484,7 @@ def test_export_shadowsocks2022_shadowtls_single_line_uri() -> None:
     assert "#Tracegate-Experimental%28SS2022%29" in out.content
     assert out.title == "Shadowsocks-2022 + ShadowTLS"
     assert out.alternate_content is None
-    assert out.attachment_filename == "backup-shadowsocks.singbox.json"
+    assert out.attachment_filename == "experimental-shadowsocks.singbox.json"
     assert out.attachment_mime == "application/json"
     assert dict(out.extra_messages)["Shadowsocks import note"].startswith("Use the attached sing-box JSON first.")
 
@@ -564,7 +564,7 @@ def test_export_wireguard_wstunnel_attachment_requires_local_auth() -> None:
     attachment = json.loads((out.attachment_content or b"").decode("utf-8"))
 
     assert out.kind == "attachment"
-    assert out.attachment_filename == "backup-wgws.wgws.json"
+    assert out.attachment_filename == "experimental-wgws.wgws.json"
     assert dict(out.extra_messages)["WGWS transport"] == "wss://edge.example.com:443/cdn/ws"
     assert dict(out.extra_messages)["WG local UDP"] == "127.0.0.1:51820"
     assert "Local SOCKS5 credentials" in dict(out.extra_messages)

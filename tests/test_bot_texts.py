@@ -597,7 +597,7 @@ async def test_send_client_config_sends_shadowsocks_uri_and_prefers_singbox_atta
             ),
         ),
         attachment_content=b'{"log":{"level":"warn"}}',
-        attachment_filename="backup-shadowsocks.singbox.json",
+        attachment_filename="experimental-shadowsocks.singbox.json",
         attachment_mime="application/json",
     )
 
