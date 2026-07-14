@@ -151,10 +151,18 @@ def _wireguard_connection_traffic_bytes(state_path: Path) -> dict[str, tuple[int
     result: dict[str, tuple[int, int]] = {}
     for line in completed.stdout.splitlines():
         fields = line.split("\t")
-        if len(fields) < 8 or fields[0] not in peers:
+        # `wg show all dump` prefixes peer rows with the interface name, while
+        # `wg show <interface> dump` starts directly with the public key.
+        if len(fields) >= 9 and fields[1] in peers:
+            public_key = fields[1]
+            rx_index, tx_index = 6, 7
+        elif len(fields) >= 8 and fields[0] in peers:
+            public_key = fields[0]
+            rx_index, tx_index = 5, 6
+        else:
             continue
         try:
-            result[peers[fields[0]]] = (max(0, int(fields[5])), max(0, int(fields[6])))
+            result[peers[public_key]] = (max(0, int(fields[rx_index])), max(0, int(fields[tx_index])))
         except (TypeError, ValueError):
             continue
     return result

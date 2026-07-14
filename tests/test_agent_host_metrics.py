@@ -80,7 +80,7 @@ def test_wireguard_dump_is_mapped_to_connection_marker(monkeypatch, tmp_path) ->
         "run",
         lambda *args, **kwargs: SimpleNamespace(
             returncode=0,
-            stdout="peer-key\t(none)\t192.0.2.1:1234\t10.0.0.2/32\t1\t12000000\t34000000\t25\n",
+            stdout="wg\tpeer-key\t(none)\t192.0.2.1:1234\t10.0.0.2/32\t1\t12000000\t34000000\t25\n",
             stderr="",
         ),
     )

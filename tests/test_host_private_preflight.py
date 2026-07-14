@@ -57,7 +57,7 @@ def test_host_private_preflight_accepts_role_scoped_secret_files(tmp_path: Path,
             [
                 "[Interface]",
                 "PrivateKey = server-private-key",
-                "Address = 10.7.0.1/24",
+                "Address = 10.70.0.1/16",
                 "ListenPort = 51820",
                 "",
             ]
@@ -230,7 +230,7 @@ def test_host_private_preflight_rejects_wireguard_hooks(tmp_path: Path) -> None:
             [
                 "[Interface]",
                 "PrivateKey = server-private-key",
-                "Address = 10.7.0.1/24",
+                "Address = 10.70.0.1/16",
                 "PostUp = iptables -F",
                 "",
             ]
@@ -247,9 +247,25 @@ def test_host_private_preflight_rejects_wireguard_hooks(tmp_path: Path) -> None:
 
 
 def test_host_private_preflight_rejects_incomplete_wireguard_config(tmp_path: Path) -> None:
-    _write(tmp_path, "wireguard/wg.conf", "[Interface]\nAddress = 10.7.0.1/24\n")
+    _write(tmp_path, "wireguard/wg.conf", "[Interface]\nAddress = 10.70.0.1/16\n")
 
     with pytest.raises(HostPrivatePreflightError, match="PrivateKey"):
+        validate_private_mount(
+            root=tmp_path,
+            role="TRANSIT",
+            required_files=["wireguard/wg.conf"],
+            zapret_files=[],
+        )
+
+
+def test_host_private_preflight_rejects_legacy_wireguard_server_pool(tmp_path: Path) -> None:
+    _write(
+        tmp_path,
+        "wireguard/wg.conf",
+        "[Interface]\nPrivateKey = server-private-key\nAddress = 10.7.0.1/24\nListenPort = 51820\nMTU = 1280\n",
+    )
+
+    with pytest.raises(HostPrivatePreflightError, match="10.70.0.1/16"):
         validate_private_mount(
             root=tmp_path,
             role="TRANSIT",
@@ -266,7 +282,7 @@ def test_host_private_preflight_rejects_wireguard_default_route(tmp_path: Path) 
             [
                 "[Interface]",
                 "PrivateKey = server-private-key",
-                "Address = 10.7.0.1/24",
+                "Address = 10.70.0.1/16",
                 "ListenPort = 51820",
                 "",
                 "[Peer]",
@@ -294,7 +310,7 @@ def test_host_private_preflight_rejects_wireguard_split_default_route(tmp_path: 
             [
                 "[Interface]",
                 "PrivateKey = server-private-key",
-                "Address = 10.7.0.1/24",
+                "Address = 10.70.0.1/16",
                 "ListenPort = 51820",
                 "",
                 "[Peer]",
@@ -322,7 +338,7 @@ def test_host_private_preflight_rejects_wireguard_dns_side_effect(tmp_path: Path
             [
                 "[Interface]",
                 "PrivateKey = server-private-key",
-                "Address = 10.7.0.1/24",
+                "Address = 10.70.0.1/16",
                 "ListenPort = 51820",
                 "DNS = 1.1.1.1",
                 "",
@@ -347,7 +363,7 @@ def test_host_private_preflight_rejects_wireguard_unsafe_mtu(tmp_path: Path) -> 
             [
                 "[Interface]",
                 "PrivateKey = server-private-key",
-                "Address = 10.7.0.1/24",
+                "Address = 10.70.0.1/16",
                 "ListenPort = 51820",
                 "MTU = 1500",
                 "",
@@ -377,7 +393,7 @@ def test_host_private_preflight_rejects_wireguard_unsafe_keepalive(tmp_path: Pat
             [
                 "[Interface]",
                 "PrivateKey = server-private-key",
-                "Address = 10.7.0.1/24",
+                "Address = 10.70.0.1/16",
                 "ListenPort = 51820",
                 "MTU = 1280",
                 "",

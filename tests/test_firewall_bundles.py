@@ -30,6 +30,13 @@ def test_transit_accepts_public_80_443_and_udp_4443_for_data_plane() -> None:
     assert "udp dport 8443 drop" in conf_t
 
 
+def test_transit_forwards_and_masquerades_generated_wgws_pool() -> None:
+    conf = Path("bundles/base-transit/nftables.conf").read_text(encoding="utf-8")
+    assert 'iifname "wg" ip saddr 10.70.0.0/16 accept' in conf
+    assert "table ip tracegate_wg_nat" in conf
+    assert 'ip saddr 10.70.0.0/16 oifname "eth0" masquerade' in conf
+
+
 def test_firewalls_explicitly_drop_crossed_hysteria_ports_before_accept_rules() -> None:
     for path in ("bundles/base-entry/nftables.conf", "bundles/base-transit/nftables.conf"):
         conf = Path(path).read_text(encoding="utf-8")

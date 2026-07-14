@@ -370,6 +370,17 @@ def _validate_wireguard_config(path: Path, content: str, *, label: str) -> None:
         raise HostPrivatePreflightError(
             f"{label} WireGuard config contains wg-quick host-network side effects: {', '.join(forbidden)}"
         )
+    if path.name.lower() in {"wg.conf", "wg0.conf"}:
+        addresses = values.get("interface", {}).get("address", [])
+        address_tokens = [token for value in addresses for token in re.split(r"[\s,]+", value) if token]
+        try:
+            interfaces = [ipaddress.ip_interface(token) for token in address_tokens]
+        except ValueError as exc:
+            raise HostPrivatePreflightError(f"{label} WireGuard Interface Address is invalid") from exc
+        if not any(str(interface) == "10.70.0.1/16" for interface in interfaces):
+            raise HostPrivatePreflightError(
+                f"{label} WireGuard server must use 10.70.0.1/16 for generated WGWS peers: {path}"
+            )
     _validate_wireguard_mtu(values.get("interface", {}).get("mtu", []), label=label)
     for peer_values in [section for section_name, section in values.items() if section_name == "peer"]:
         _validate_wireguard_allowed_ips(peer_values.get("allowedips", []), label=label, path=path)

@@ -601,11 +601,15 @@ def test_export_wireguard_wstunnel_attachment_requires_local_auth() -> None:
     }
     endpoint = attachment["singbox"]["endpoints"][0]
     assert endpoint["type"] == "wireguard"
+    assert endpoint["detour"] == "direct"
     assert endpoint["address"] == ["10.70.0.2/32"]
     assert endpoint["peers"][0]["address"] == "127.0.0.1"
     assert endpoint["peers"][0]["port"] == 51820
     assert endpoint["peers"][0]["pre_shared_key"] == "wg-psk"
     assert endpoint["peers"][0]["allowed_ips"] == ["0.0.0.0/0"]
+    assert attachment["singbox"]["outbounds"] == [
+        {"type": "direct", "tag": "direct", "inet4_bind_address": "127.0.0.1"}
+    ]
 
 
 def test_export_wireguard_wstunnel_client_command_uses_canonical_tls_name() -> None:

@@ -496,6 +496,10 @@ def _build_wgws_client_attachment(
     endpoint: dict[str, Any] = {
         "type": "wireguard",
         "tag": "proxy",
+        # The peer is the loopback UDP listener owned by wstunnel. Without an
+        # explicit direct detour, sing-box 1.13 can recursively route its own
+        # WireGuard handshake into the WireGuard endpoint.
+        "detour": "direct",
         "system": False,
         "address": local_addresses,
         "private_key": private_key,
@@ -515,7 +519,16 @@ def _build_wgws_client_attachment(
             }
         ],
         "endpoints": [endpoint],
-        "outbounds": [{"type": "direct", "tag": "direct"}],
+        # A completely empty direct outbound is rejected as an endpoint detour
+        # by sing-box 1.13. Binding to loopback is portable and also guarantees
+        # that WG packets cannot bypass the local wstunnel listener.
+        "outbounds": [
+            {
+                "type": "direct",
+                "tag": "direct",
+                "inet4_bind_address": local_udp_host,
+            }
+        ],
         "route": {"auto_detect_interface": True, "final": "proxy"},
     }
     local_address_families = _ip_prefix_families(local_addresses)
