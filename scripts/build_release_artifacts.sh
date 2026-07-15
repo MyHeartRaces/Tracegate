@@ -51,7 +51,7 @@ cp -a "${wheel}" "${HOST_STAGE}/packages/"
   printf 'GIT_COMMIT=%s\n' "$(git -C "${ROOT}" rev-parse HEAD)"
   printf 'RUNTIME=native-systemd\n'
 } >"${HOST_STAGE}/BUILD-INFO"
-COPYFILE_DISABLE=1 tar -C "${TMP_DIR}" -czf "${OUT_DIR}/tracegate-host-runtime-${VERSION}.tar.gz" "tracegate-host-runtime-${VERSION}"
+COPYFILE_DISABLE=1 tar --no-xattrs -C "${TMP_DIR}" -czf "${OUT_DIR}/tracegate-host-runtime-${VERSION}.tar.gz" "tracegate-host-runtime-${VERSION}"
 
 for archive in "${OUT_DIR}"/*.tar.gz; do
   target="${INSPECT_DIR}/$(basename "${archive}")"
