@@ -3,7 +3,7 @@ set -euo pipefail
 
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 PYTHON="${PYTHON:-python3}"
-PYTHON_BIN="$(command -v "${PYTHON}")"
+PYTHON_BIN="$("${PYTHON}" -c 'import pathlib,sys; print(pathlib.Path(sys.executable).resolve())')"
 VERSION="${1:-}"
 
 if [ -z "${VERSION}" ]; then
