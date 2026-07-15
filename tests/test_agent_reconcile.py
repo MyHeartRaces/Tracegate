@@ -2670,7 +2670,13 @@ def test_reconcile_entry_adds_sticky_transit_outbounds_per_v2_connection(tmp_pat
     outbounds = {str(row.get("tag")): row for row in rendered["outbounds"]}
     assert outbounds["to-transit"]["settings"]["vnext"][0]["address"] == "transit.example.com"
     assert outbounds["to-transit"]["settings"]["vnext"][0]["port"] == 443
+    assert outbounds["to-transit"]["streamSettings"]["network"] == "raw"
+    assert "xhttpSettings" not in outbounds["to-transit"]["streamSettings"]
     assert set(outbounds) == {"direct", "to-transit"}
+    assert not any(
+        rule.get("outboundTag") == "direct" and "entry-in" in (rule.get("inboundTag") or [])
+        for rule in rendered["routing"]["rules"]
+    )
 
 
 def test_reconcile_entry_reality_dest_follows_latest_selected_sni(tmp_path: Path) -> None:

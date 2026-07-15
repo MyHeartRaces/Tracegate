@@ -6817,12 +6817,12 @@ def validate_runtime_contract_single(
                     "tracegate-3 contracts must declare hysteria as the public UDP runtime component",
                 )
             )
-        if _xray_backhaul_allowed(contract):
+        if not _xray_backhaul_allowed(contract):
             findings.append(
                 _finding(
                     "error",
                     f"{role_prefix}-tracegate22-xray-backhaul",
-                    "tracegate-3 contracts must keep xrayBackhaulAllowed=false",
+                    "tracegate-3 contracts must keep the RAW/TCP Xray backhaul enabled",
                 )
             )
         xray_tags = _string_list(_xray_block(contract).get("hysteriaInboundTags"))
@@ -6951,12 +6951,12 @@ def validate_runtime_contract_pair(
                         f"{role_name} tracegate-3 contract must declare hysteria as the public UDP runtime component",
                     )
                 )
-            if _xray_backhaul_allowed(contract):
+            if not _xray_backhaul_allowed(contract):
                 findings.append(
                     _finding(
                         "error",
                         f"{role_name}-tracegate22-xray-backhaul",
-                        f"{role_name} tracegate-3 contract must keep xrayBackhaulAllowed=false",
+                        f"{role_name} tracegate-3 contract must keep the RAW/TCP Xray backhaul enabled",
                     )
                 )
             xray_tags = _string_list(_xray_block(contract).get("hysteriaInboundTags"))

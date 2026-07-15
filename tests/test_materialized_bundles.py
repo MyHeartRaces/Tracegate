@@ -127,6 +127,16 @@ def test_context_does_not_require_legacy_transit_stats_secret(tmp_path: Path) ->
     assert ctx.bootstrap_password == "bootstrap-secret"
 
 
+def test_context_rejects_bracketed_reality_sni_group(tmp_path: Path) -> None:
+    env = _base_env(tmp_path)
+    env["REALITY_MULTI_INBOUND_GROUPS"] = json.dumps(
+        [{"id": "broken", "port": 2501, "dest": "example.com:443", "snis": ["[example.com]"]}]
+    )
+
+    with pytest.raises(MaterializedBundleRenderError, match="invalid SNI"):
+        MaterializedBundleRenderContext.from_environ(env)
+
+
 def test_context_loads_private_hysteria_feature_files(tmp_path: Path) -> None:
     env = _base_env(tmp_path)
     entry_finalmask_path = tmp_path / "entry-finalmask.json"
@@ -192,6 +202,7 @@ def test_render_materialized_bundles_rewrites_runtime_files(tmp_path: Path) -> N
     assert entry_inbound["streamSettings"]["realitySettings"]["serverNames"] == ["origin-entry.example"]
     assert entry_inbound["streamSettings"]["realitySettings"]["privateKey"] == "entry-private-key"
     assert entry_inbound["streamSettings"]["realitySettings"]["shortIds"] == ["entry-short-id"]
+    assert entry_inbound["streamSettings"]["network"] == "raw"
     assert entry_xray["policy"]["levels"]["0"]["handshake"] == 4
     assert entry_xray["policy"]["levels"]["0"]["connIdle"] == 300
     assert entry_xray["policy"]["levels"]["0"]["uplinkOnly"] == 2
@@ -203,6 +214,8 @@ def test_render_materialized_bundles_rewrites_runtime_files(tmp_path: Path) -> N
     assert to_transit["streamSettings"]["realitySettings"]["serverName"] == "origin-transit.example"
     assert to_transit["streamSettings"]["realitySettings"]["publicKey"] == "transit-public-key"
     assert to_transit["streamSettings"]["realitySettings"]["shortId"] == "transit-short-id"
+    assert to_transit["streamSettings"]["network"] == "raw"
+    assert "xhttpSettings" not in to_transit["streamSettings"]
 
     assert transit_reality_inbound["streamSettings"]["realitySettings"]["dest"] == "origin-transit.example:443"
     assert transit_reality_inbound["streamSettings"]["realitySettings"]["serverNames"] == ["origin-transit.example"]

@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+## v3.1.10 - 2026-07-15
+
+- Standardized both Reality Chain legs on VLESS/REALITY RAW/TCP: client to
+  Entry and Entry to Endpoint. Removed the retired split-HTTP transport from
+  the Entry bundle and made agent reconciliation repair stale bundles before
+  they reach Xray.
+- Made the host contract fail when a packaged Reality leg is not RAW/TCP and
+  reject malformed bracketed Reality SNI groups before rendering HAProxy.
+
 ## v3.1.9 - 2026-07-15
 
 - Keep the primary Xray and fronting dependencies ahead of agent reconciliation

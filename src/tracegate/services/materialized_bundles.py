@@ -155,6 +155,27 @@ class MaterializedRealityInboundGroup:
     snis: tuple[str, ...]
 
 
+def _normalize_reality_sni(value: object, *, label: str) -> str:
+    raw = str(value or "").strip().lower()
+    try:
+        ascii_name = raw.encode("idna").decode("ascii")
+    except UnicodeError as exc:
+        raise MaterializedBundleRenderError(f"{label} contains an invalid SNI") from exc
+    labels = ascii_name.rstrip(".").split(".")
+    if (
+        len(ascii_name) > 253
+        or len(labels) < 2
+        or any(
+            not part
+            or len(part) > 63
+            or re.fullmatch(r"[a-z0-9](?:[a-z0-9-]*[a-z0-9])?", part) is None
+            for part in labels
+        )
+    ):
+        raise MaterializedBundleRenderError(f"{label} contains an invalid SNI")
+    return ascii_name.rstrip(".")
+
+
 def _load_reality_multi_inbound_groups(environ: dict[str, str]) -> tuple[MaterializedRealityInboundGroup, ...]:
     raw = _env(environ, "REALITY_MULTI_INBOUND_GROUPS")
     if not raw:
@@ -194,8 +215,11 @@ def _load_reality_multi_inbound_groups(environ: dict[str, str]) -> tuple[Materia
             raise MaterializedBundleRenderError(f"REALITY_MULTI_INBOUND_GROUPS[{idx}] must include snis[]")
         group_snis: list[str] = []
         local_seen: set[str] = set()
-        for sni_raw in snis_raw:
-            sni = str(sni_raw or "").strip().lower()
+        for sni_idx, sni_raw in enumerate(snis_raw):
+            sni = _normalize_reality_sni(
+                sni_raw,
+                label=f"REALITY_MULTI_INBOUND_GROUPS[{idx}].snis[{sni_idx}]",
+            )
             if not sni or sni in local_seen:
                 continue
             if sni in seen_snis:

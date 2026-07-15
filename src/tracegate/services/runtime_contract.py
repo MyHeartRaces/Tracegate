@@ -193,7 +193,7 @@ _TRACEGATE3_CONTRACT = AgentRuntimeContract(
         RuntimeProcessCheck(name="process haproxy", mode="all", process_names=("haproxy",)),
     ),
     transit_stats_provider="hysteria",
-    xray_backhaul_allowed=False,
+    xray_backhaul_allowed=True,
     client_profiles=TRACEGATE3_CLIENT_PROFILES,
 )
 

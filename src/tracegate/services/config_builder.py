@@ -371,19 +371,20 @@ def _entry_transit_private_relay(
     inner_transport: str,
 ) -> dict[str, Any]:
     is_udp = inner_transport == "hysteria2-quic"
+    is_reality_raw = inner_transport == "vless-reality-raw"
     relay = {
         "type": "entry_transit_private_relay",
         "entry": endpoints.entry_host,
         "transit": endpoints.transit_host,
         "link_class": "entry-transit-udp" if is_udp else "entry-transit",
-        "carrier": "hysteria2-gecko" if is_udp else "shadowsocks2022-shadowtls-v3",
-        "preferred_outer": "udp-quic-gecko" if is_udp else "shadowtls-v3",
-        "outer_carrier": "udp-quic" if is_udp else "tcp-shadowtls-v3",
+        "carrier": "hysteria2-gecko" if is_udp else ("vless-reality-raw" if is_reality_raw else "shadowsocks2022-shadowtls-v3"),
+        "preferred_outer": "udp-quic-gecko" if is_udp else ("raw-tcp-reality" if is_reality_raw else "shadowtls-v3"),
+        "outer_carrier": "udp-quic" if is_udp else ("raw-tcp" if is_reality_raw else "tcp-shadowtls-v3"),
         "optional_packet_shaping": "paired-udp-obfs" if is_udp else None,
-        "managed_by": "link-crypto",
+        "managed_by": "xray" if is_reality_raw else "link-crypto",
         "selected_profiles": udp_chain_selected_profiles() if is_udp else tcp_chain_selected_profiles(),
         "inner_transport": inner_transport,
-        "xray_backhaul": False,
+        "xray_backhaul": is_reality_raw,
         "udp_capable": is_udp,
         "gecko_required": is_udp,
         "paired_obfs_supported": is_udp,
@@ -398,7 +399,7 @@ def _entry_transit_private_relay(
         },
         "dpi_resistance": {
             "required": is_udp,
-            "mode": "gecko-fragmented-quic" if is_udp else "shadowsocks2022-shadowtls-v3",
+            "mode": "gecko-fragmented-quic" if is_udp else ("reality-raw-tcp" if is_reality_raw else "shadowsocks2022-shadowtls-v3"),
             "forbid_udp_443": False,
             "forbid_tcp_8443": is_udp,
         },
@@ -513,14 +514,14 @@ def build_effective_config(
                 "server": endpoints.entry_host,
                 "chain": _entry_transit_private_relay(
                     endpoints=endpoints,
-                    inner_transport="shadowsocks2022-shadowtls-v3",
+                    inner_transport="vless-reality-raw",
                 ),
                 "design_constraints": {
                     "fixed_port_tcp": 443,
                     "entry_role_required": True,
                     "transit_role_required": True,
-                    "private_interconnect": "shadowsocks2022-shadowtls-v3",
-                    "backhaul_outside_xray": True,
+                    "private_interconnect": "vless-reality-raw",
+                    "backhaul_outside_xray": False,
                 },
             }
 

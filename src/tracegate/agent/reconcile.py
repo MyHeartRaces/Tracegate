@@ -1326,6 +1326,51 @@ def _set_vless_outbound_target(outbound: dict, *, host: str, port: int) -> None:
         hop["port"] = int(port)
 
 
+def _enforce_reality_raw_transport(config: dict) -> None:
+    """Keep every VLESS/REALITY leg on RAW/TCP.
+
+    Tracegate does not support XHTTP on either the public Reality ingress or
+    the Entry -> Endpoint backhaul. Normalizing here also repairs a persisted
+    base bundle produced by an older release before it reaches the live Xray
+    runtime.
+    """
+
+    for section in ("inbounds", "outbounds"):
+        rows = config.get(section)
+        if not isinstance(rows, list):
+            continue
+        for row in rows:
+            if not isinstance(row, dict) or str(row.get("protocol") or "").strip().lower() != "vless":
+                continue
+            stream = row.get("streamSettings")
+            if not isinstance(stream, dict) or str(stream.get("security") or "").strip().lower() != "reality":
+                continue
+            stream["network"] = "raw"
+            stream.pop("xhttpSettings", None)
+            stream.pop("splithttpSettings", None)
+
+
+def _strip_entry_direct_egress_bypasses(config: dict) -> None:
+    if not any(
+        isinstance(row, dict) and str(row.get("tag") or "").strip() == "to-transit"
+        for row in config.get("outbounds", [])
+    ):
+        return
+    routing = config.get("routing")
+    rules = routing.get("rules") if isinstance(routing, dict) else None
+    if not isinstance(rules, list):
+        return
+    routing["rules"] = [
+        rule
+        for rule in rules
+        if not (
+            isinstance(rule, dict)
+            and str(rule.get("outboundTag") or "").strip() == "direct"
+            and "entry-in" in {str(tag).strip() for tag in rule.get("inboundTag", [])}
+        )
+    ]
+
+
 def _strip_xray_entry_transit_backhaul(base: dict) -> None:
     outbounds = base.get("outbounds")
     if isinstance(outbounds, list):
@@ -1882,6 +1927,9 @@ def reconcile_xray(settings: Settings) -> ReconcileXrayResult:
         return ReconcileXrayResult(changed=False, force_reload=False)
 
     base = _load_json(base_path)
+    _enforce_reality_raw_transport(base)
+    if str(settings.agent_role or "").strip().upper() == "ENTRY" and contract.xray_backhaul_allowed:
+        _strip_entry_direct_egress_bypasses(base)
     artifacts = load_all_user_artifacts(paths)
     groups = _load_reality_multi_inbound_groups(settings)
     group_by_id = {g.id: g for g in groups}

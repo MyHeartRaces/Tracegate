@@ -71,14 +71,14 @@ def test_chain_reality_enters_via_entry_and_points_to_transit() -> None:
     assert cfg["chain"]["type"] == "entry_transit_private_relay"
     assert cfg["chain"]["entry"] == "entry.example.com"
     assert cfg["chain"]["transit"] == "transit.example.com"
-    assert cfg["chain"]["carrier"] == "shadowsocks2022-shadowtls-v3"
+    assert cfg["chain"]["carrier"] == "vless-reality-raw"
     assert cfg["chain"]["optional_packet_shaping"] is None
-    assert cfg["chain"]["managed_by"] == "link-crypto"
+    assert cfg["chain"]["managed_by"] == "xray"
     assert cfg["chain"]["selected_profiles"] == ["V1", "V3"]
-    assert cfg["chain"]["inner_transport"] == "shadowsocks2022-shadowtls-v3"
-    assert cfg["chain"]["xray_backhaul"] is False
-    assert cfg["design_constraints"]["private_interconnect"] == "shadowsocks2022-shadowtls-v3"
-    assert cfg["design_constraints"]["backhaul_outside_xray"] is True
+    assert cfg["chain"]["inner_transport"] == "vless-reality-raw"
+    assert cfg["chain"]["xray_backhaul"] is True
+    assert cfg["design_constraints"]["private_interconnect"] == "vless-reality-raw"
+    assert cfg["design_constraints"]["backhaul_outside_xray"] is False
     assert cfg["local_socks"]["auth"]["required"] is True
     assert cfg["local_socks"]["auth"]["mode"] == "username_password"
     assert cfg["local_socks"]["auth"]["username"].startswith("tg_v1_")

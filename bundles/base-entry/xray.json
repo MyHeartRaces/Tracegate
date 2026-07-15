@@ -48,7 +48,7 @@
         "decryption": "none"
       },
       "streamSettings": {
-        "network": "xhttp",
+        "network": "raw",
         "security": "reality",
         "realitySettings": {
           "show": false,
@@ -61,10 +61,6 @@
           "shortIds": [
             "fedcba9876543210"
           ]
-        },
-        "xhttpSettings": {
-          "mode": "auto",
-          "path": "/api/v1/update"
         }
       },
       "sniffing": {
@@ -204,17 +200,13 @@
         ]
       },
       "streamSettings": {
-        "network": "xhttp",
+        "network": "raw",
         "security": "reality",
         "realitySettings": {
           "fingerprint": "chrome",
           "serverName": "public-api.reviews.example.net",
           "publicKey": "REPLACE_TRANSIT_PUBLIC_KEY",
           "shortId": "0123456789abcdef"
-        },
-        "xhttpSettings": {
-          "mode": "auto",
-          "path": "/api/v1/update"
         }
       }
     },
@@ -245,36 +237,6 @@
           "bittorrent"
         ],
         "outboundTag": "block"
-      },
-      {
-        "type": "field",
-        "inboundTag": [
-          "entry-in",
-          "vless-ws-in",
-          "vless-grpc-in",
-          "hy2-in"
-        ],
-        "domain": [
-          "geosite:category-ru",
-          "full:cp.cloudflare.com",
-          "regexp:(?i)\\.ru$",
-          "regexp:(?i)\\.su$",
-          "regexp:(?i)\\.xn--p1ai$"
-        ],
-        "outboundTag": "direct"
-      },
-      {
-        "type": "field",
-        "inboundTag": [
-          "entry-in",
-          "vless-ws-in",
-          "vless-grpc-in",
-          "hy2-in"
-        ],
-        "ip": [
-          "geoip:ru"
-        ],
-        "outboundTag": "direct"
       },
       {
         "type": "field",

@@ -107,7 +107,7 @@ def _runtime_contract(
         "localSocksAuth": local_socks_auth or "disabled",
         "contract": {
             "managedComponents": managed_components if managed_components is not None else default_managed_components,
-            "xrayBackhaulAllowed": runtime_profile not in {"tracegate-2.1", "tracegate-3"},
+            "xrayBackhaulAllowed": runtime_profile != "tracegate-2.1",
             "forbiddenPorts": [
                 {"protocol": "tcp", "port": TRACEGATE_FORBIDDEN_PUBLIC_TCP_PORT, "name": "blocked tcp/8443"},
             ],
@@ -1835,6 +1835,17 @@ def test_validate_runtime_contract_pair_rejects_tracegate21_xray_backhaul_flag()
 
     by_code = {finding.code: finding for finding in findings}
     assert by_code["entry-tracegate21-xray-backhaul"].severity == "error"
+
+
+def test_validate_runtime_contract_pair_rejects_tracegate3_without_raw_xray_backhaul() -> None:
+    entry = _runtime_contract(role="ENTRY", runtime_profile="tracegate-3")
+    transit = _runtime_contract(role="TRANSIT", runtime_profile="tracegate-3")
+    entry["contract"]["xrayBackhaulAllowed"] = False
+
+    findings = validate_runtime_contract_pair(entry, transit)
+
+    by_code = {finding.code: finding for finding in findings}
+    assert by_code["entry-tracegate22-xray-backhaul"].severity == "error"
 
 
 def test_validate_runtime_contract_pair_rejects_unsafe_host_rollout() -> None:

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 from pathlib import Path
 import re
 import tomllib
@@ -74,6 +75,57 @@ def check_host_runtime(root: Path) -> None:
     haproxy = _read(root / "bundles/base-transit/haproxy.cfg")
     for placeholder in ("REPLACE_SHADOWTLS_ACL", "REPLACE_SHADOWTLS_ROUTE", "REPLACE_SHADOWTLS_BACKEND"):
         _require(haproxy, placeholder, label="Endpoint HAProxy bundle")
+
+    for role in ("entry", "transit"):
+        xray_path = root / f"bundles/base-{role}/xray.json"
+        xray_text = _read(xray_path)
+        if re.search(r"(?i)xhttp|splithttp", xray_text):
+            raise HostRuntimeCheckError(f"{role} Xray bundle contains forbidden XHTTP transport")
+        xray_payload = json.loads(xray_text)
+        for section in ("inbounds", "outbounds"):
+            for row in xray_payload.get(section, []):
+                stream = row.get("streamSettings") if isinstance(row, dict) else None
+                if (
+                    isinstance(stream, dict)
+                    and str(row.get("protocol") or "").strip().lower() == "vless"
+                    and str(stream.get("security") or "").strip().lower() == "reality"
+                    and str(stream.get("network") or "").strip().lower() != "raw"
+                ):
+                    raise HostRuntimeCheckError(
+                        f"{role} VLESS/REALITY {section[:-1]} must use RAW/TCP"
+                    )
+        if role == "entry":
+            outbounds = {
+                str(row.get("tag") or ""): row
+                for row in xray_payload.get("outbounds", [])
+                if isinstance(row, dict)
+            }
+            backhaul = outbounds.get("to-transit")
+            backhaul_stream = backhaul.get("streamSettings") if isinstance(backhaul, dict) else None
+            if (
+                not isinstance(backhaul, dict)
+                or str(backhaul.get("protocol") or "").strip().lower() != "vless"
+                or not isinstance(backhaul_stream, dict)
+                or str(backhaul_stream.get("security") or "").strip().lower() != "reality"
+                or str(backhaul_stream.get("network") or "").strip().lower() != "raw"
+            ):
+                raise HostRuntimeCheckError("Entry bundle is missing the VLESS/REALITY RAW Endpoint backhaul")
+            has_default_backhaul = False
+            for rule in xray_payload.get("routing", {}).get("rules", []):
+                if not isinstance(rule, dict):
+                    continue
+                inbound_tags = {str(tag) for tag in rule.get("inboundTag", [])}
+                if "entry-in" not in inbound_tags:
+                    continue
+                if str(rule.get("outboundTag") or "") == "direct":
+                    raise HostRuntimeCheckError("Entry Chain routing must not bypass Endpoint egress")
+                if (
+                    str(rule.get("outboundTag") or "") == "to-transit"
+                    and not any(key in rule for key in ("domain", "ip", "port", "network", "protocol"))
+                ):
+                    has_default_backhaul = True
+            if not has_default_backhaul:
+                raise HostRuntimeCheckError("Entry Chain routing is missing the default Endpoint backhaul rule")
 
     xray = _read(root / "bundles/base-transit/xray.json")
     if '"tag": "ss2022-in"' in xray:

@@ -52,7 +52,7 @@ def test_tracegate22_runtime_contract_is_default_profile() -> None:
     assert contract.manages_component("hysteria") is True
     assert contract.hysteria_auth_mode == "userpass"
     assert contract.hysteria_metrics_source == "hysteria_stats"
-    assert contract.xray_backhaul_allowed is False
+    assert contract.xray_backhaul_allowed is True
     assert contract.client_profiles == TRACEGATE22_CLIENT_PROFILES
     assert contract.requires_transit_stats_secret("ENTRY") is False
     assert contract.requires_transit_stats_secret("TRANSIT") is True

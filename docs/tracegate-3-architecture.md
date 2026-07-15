@@ -18,8 +18,9 @@ without restarting WireGuard or WSTunnel.
 ## Entry
 
 Entry provides the Chain ingress. Its public listener forwards client traffic
-to Endpoint through the private interconnect while Endpoint remains the only
-internet egress role.
+to Endpoint through a dedicated VLESS/REALITY RAW/TCP backhaul while Endpoint
+remains the only internet egress role. Both Reality legs use RAW/TCP; the
+retired split-HTTP transport is forbidden by the host runtime check.
 
 ## Client profiles
 
