@@ -8,6 +8,7 @@ Requires=docker.service
 Restart=always
 RestartSec=3
 TimeoutStopSec=20
+SuccessExitStatus=143
 ExecStartPre=/usr/bin/docker pull ghcr.io/telemt/telemt:latest
 ExecStartPre=-/usr/bin/docker rm -f tracegate-mtproto-%i
 ExecStartPre=/opt/tracegate/current/deploy/systemd/tracegate-telemt-permissions

@@ -8,6 +8,7 @@ EnvironmentFile=/etc/tracegate/private/shadowtls/transit.env
 Restart=always
 RestartSec=3
 TimeoutStopSec=20
+SuccessExitStatus=143
 ExecStartPre=/opt/tracegate/current/deploy/systemd/tracegate-shadowtls-env
 ExecStartPre=/usr/bin/docker pull ghcr.io/ihciah/shadow-tls:latest
 ExecStartPre=-/usr/bin/docker rm -f tracegate-shadowtls

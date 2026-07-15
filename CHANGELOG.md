@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## v3.1.6 - 2026-07-15
+
+- Treat the expected Docker SIGTERM exit status as successful in every
+  container-backed systemd unit, preventing false service-failure events during
+  native host deployments and controlled restarts.
+
 ## v3.1.5 - 2026-07-15
 
 - Made native systemd the only supported production host runtime and removed

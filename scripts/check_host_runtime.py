@@ -126,6 +126,7 @@ def check_host_runtime(root: Path) -> None:
             continue
         _require(unit, ":latest", label=unit_name)
         _require(unit, "docker pull", label=unit_name)
+        _require(unit, "SuccessExitStatus=143", label=unit_name)
         if "@sha256:" in unit:
             raise HostRuntimeCheckError(f"{unit_name} must not lock an image digest")
         if unit_name.startswith("tracegate-xray"):

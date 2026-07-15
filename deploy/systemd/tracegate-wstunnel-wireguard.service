@@ -7,6 +7,7 @@ Requires=docker.service tracegate-wireguard.service
 Restart=always
 RestartSec=3
 TimeoutStopSec=20
+SuccessExitStatus=143
 ExecStartPre=/usr/bin/docker pull ghcr.io/erebe/wstunnel:latest
 ExecStartPre=-/usr/bin/docker rm -f tracegate-wstunnel-wireguard
 ExecStart=/usr/bin/docker run --rm --name tracegate-wstunnel-wireguard --network host --read-only --cap-drop ALL --security-opt no-new-privileges:true ghcr.io/erebe/wstunnel:latest /home/app/wstunnel server ws://127.0.0.1:51821 --restrict-to 127.0.0.1:51820
