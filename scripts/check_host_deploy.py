@@ -41,6 +41,14 @@ def check(root: Path, *, compose_runtime: bool = False) -> None:
         _require(token in deploy, f"host deploy script is missing contract: {token}")
     for forbidden in ("docker compose", "TRACEGATE_IMAGE", "POSTGRES_IMAGE", "deploy.env.previous"):
         _require(forbidden not in deploy, f"host deploy script still contains retired contract: {forbidden}")
+    _require(
+        deploy.index("tracegate-agent.service") < deploy.index("tracegate-xray@transit.service"),
+        "Endpoint agent must reconcile before the final data-plane restart pass",
+    )
+    _require(
+        deploy.index("tracegate-agent-entry.service") < deploy.index("tracegate-mtproto@entry.service"),
+        "Entry agent must reconcile before the final MTProto restart",
+    )
 
     installer = install_path.read_text()
     for token in (

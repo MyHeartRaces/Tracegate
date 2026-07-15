@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## v3.1.8 - 2026-07-15
+
+- Run the host agent reconciliation before the deployer's final data-plane
+  restart pass, preventing immediate double restarts and Telemt SIGKILL during
+  startup.
+
 ## v3.1.7 - 2026-07-15
 
 - Replaced the obsolete cluster rollout contract with the actual native-systemd

@@ -29,6 +29,7 @@ load_deploy_env() {
       RUNTIME_ENV="${TRACEGATE_RUNTIME_ENV:-${ETC_DIR}/tracegate.env}"
       ROLE_UNITS=(
         tracegate-wireguard.service
+        tracegate-agent.service
         tracegate-xray@transit.service
         tracegate-xray-ss2022.service
         tracegate-hysteria@transit.service
@@ -40,7 +41,6 @@ load_deploy_env() {
         tracegate-wireguard-sync.service
         tracegate-prometheus.service
         tracegate-grafana.service
-        tracegate-agent.service
         tracegate-api.service
         tracegate-dispatcher.service
         tracegate-bot.service
@@ -55,12 +55,12 @@ load_deploy_env() {
       RUNTIME_ENV="${TRACEGATE_ENTRY_RUNTIME_ENV:-${ETC_DIR}/tracegate-entry.env}"
       ROLE_UNITS=(
         tracegate-entry-firewall.service
+        tracegate-agent-entry.service
         tracegate-xray@entry.service
         tracegate-hysteria@entry.service
         tracegate-mtproto@entry.service
         tracegate-nginx@entry.service
         tracegate-haproxy@entry.service
-        tracegate-agent-entry.service
       )
       HEALTH_URLS=("${TRACEGATE_AGENT_HEALTH_URL:-http://127.0.0.1:8070/v1/health}")
       ;;
