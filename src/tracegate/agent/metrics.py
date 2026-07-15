@@ -138,6 +138,10 @@ def _fetch_mtproto_user_traffic_bytes(url: str) -> dict[str, int]:
     return result
 
 
+def _mtproto_stats_enabled(settings: Settings) -> bool:
+    return str(settings.agent_role or "").strip().upper() == "ENTRY"
+
+
 def _wireguard_connection_traffic_bytes(state_path: Path) -> dict[str, tuple[int, int]]:
     """Map `wg show all dump` peer counters to Tracegate connection markers."""
     state = _load_json_mapping(state_path)
@@ -507,31 +511,35 @@ class AgentMetricsCollector:
         yield xray_rx
         yield xray_tx
 
-        mtproto_ok = GaugeMetricFamily(
-            "tracegate_mtproto_stats_scrape_ok",
-            "Telemt per-user traffic stats scrape status (1=ok, 0=error)",
-        )
-        mtproto_traffic = GaugeMetricFamily(
-            "tracegate_mtproto_user_traffic_bytes",
-            "Telegram Proxy traffic octets by account",
-            labels=["telegram_id"],
-        )
-        try:
-            mtproto_rows = _fetch_mtproto_user_traffic_bytes(
-                getattr(
-                    self.settings,
-                    "agent_mtproto_stats_url",
-                    "http://127.0.0.1:9091/v1/stats/users",
-                )
+        # Telemt is an Entry-owned runtime.  Emitting a failed scrape from the
+        # Endpoint agent creates a false-zero series for a component that does
+        # not exist on that host and makes aggregate health checks misleading.
+        if _mtproto_stats_enabled(self.settings):
+            mtproto_ok = GaugeMetricFamily(
+                "tracegate_mtproto_stats_scrape_ok",
+                "Telemt per-user traffic stats scrape status (1=ok, 0=error)",
             )
-            mtproto_ok.add_metric([], 1)
-        except Exception:
-            mtproto_rows = {}
-            mtproto_ok.add_metric([], 0)
-        for telegram_id, total_octets in mtproto_rows.items():
-            mtproto_traffic.add_metric([telegram_id], total_octets)
-        yield mtproto_ok
-        yield mtproto_traffic
+            mtproto_traffic = GaugeMetricFamily(
+                "tracegate_mtproto_user_traffic_bytes",
+                "Telegram Proxy traffic octets by account",
+                labels=["telegram_id"],
+            )
+            try:
+                mtproto_rows = _fetch_mtproto_user_traffic_bytes(
+                    getattr(
+                        self.settings,
+                        "agent_mtproto_stats_url",
+                        "http://127.0.0.1:9091/v1/stats/users",
+                    )
+                )
+                mtproto_ok.add_metric([], 1)
+            except Exception:
+                mtproto_rows = {}
+                mtproto_ok.add_metric([], 0)
+            for telegram_id, total_octets in mtproto_rows.items():
+                mtproto_traffic.add_metric([telegram_id], total_octets)
+            yield mtproto_ok
+            yield mtproto_traffic
 
         wg_ok = GaugeMetricFamily(
             "tracegate_wireguard_stats_scrape_ok",

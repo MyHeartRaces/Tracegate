@@ -3,6 +3,7 @@ import json
 from urllib.parse import parse_qs, urlparse
 
 import pytest
+import yaml
 
 from tracegate.client_export.config import ClientConfigExportError, export_client_config
 
@@ -108,25 +109,23 @@ def test_export_hysteria2_uri() -> None:
     assert out.alternate_title is None
     assert out.alternate_content is None
     assert "Local SOCKS5 credentials" in dict(out.extra_messages)
-    assert "sing-box 1.14.0+" in dict(out.extra_messages)["Client compatibility"]
-    attachment = json.loads((out.attachment_content or b"").decode("utf-8"))
-    assert out.attachment_filename == "direct-hysteria.singbox.json"
-    assert attachment["inbounds"][0]["users"][0]["username"].startswith("tg_")
-    assert attachment["inbounds"][0]["users"][0]["password"]
-    assert attachment["outbounds"][0]["type"] == "hysteria2"
-    assert attachment["outbounds"][0]["up_mbps"] == 100
-    assert attachment["outbounds"][0]["down_mbps"] == 100
-    assert attachment["outbounds"][0]["password"] == "u:p"
-    assert attachment["outbounds"][0]["obfs"] == {
+    assert "sing-box does not support Gecko" in dict(out.extra_messages)["Client compatibility"]
+    attachment = yaml.safe_load((out.attachment_content or b"").decode("utf-8"))
+    assert out.attachment_filename == "direct-hysteria.hysteria.yaml"
+    assert out.attachment_mime == "application/yaml"
+    assert attachment["server"] == "t.example.com:4443"
+    assert attachment["auth"] == "u:p"
+    assert attachment["socks5"]["username"].startswith("tg_")
+    assert attachment["socks5"]["password"]
+    assert attachment["bandwidth"] == {"up": "100 mbps", "down": "100 mbps"}
+    assert attachment["obfs"] == {
         "type": "gecko",
-        "password": "obfs-secret",
-        "min_packet_size": 512,
-        "max_packet_size": 1200,
+        "gecko": {
+            "password": "obfs-secret",
+            "minPacketSize": 512,
+            "maxPacketSize": 1200,
+        },
     }
-    assert attachment["outbounds"][0]["tls"]["alpn"] == ["h3"]
-    assert attachment["route"]["rules"] == [
-        {"domain": ["t.example.com"], "outbound": "direct"}
-    ]
 
 
 def test_export_hysteria2_salamander_uri_and_singbox_attachment() -> None:
@@ -167,10 +166,9 @@ def test_export_hysteria2_chain_caps_stale_bandwidth_to_chain_limit() -> None:
     }
 
     out = export_client_config(effective)
-    attachment = json.loads((out.attachment_content or b"").decode("utf-8"))
+    attachment = yaml.safe_load((out.attachment_content or b"").decode("utf-8"))
 
-    assert attachment["outbounds"][0]["up_mbps"] == 10
-    assert attachment["outbounds"][0]["down_mbps"] == 10
+    assert attachment["bandwidth"] == {"up": "10 mbps", "down": "10 mbps"}
 
 
 def test_export_hysteria2_direct_keeps_explicit_bandwidth_override() -> None:
@@ -187,10 +185,9 @@ def test_export_hysteria2_direct_keeps_explicit_bandwidth_override() -> None:
     }
 
     out = export_client_config(effective)
-    attachment = json.loads((out.attachment_content or b"").decode("utf-8"))
+    attachment = yaml.safe_load((out.attachment_content or b"").decode("utf-8"))
 
-    assert attachment["outbounds"][0]["up_mbps"] == 200
-    assert attachment["outbounds"][0]["down_mbps"] == 200
+    assert attachment["bandwidth"] == {"up": "200 mbps", "down": "200 mbps"}
 
 
 def test_export_hysteria2_rejects_missing_obfs() -> None:
@@ -232,10 +229,10 @@ def test_export_hysteria2_token_uri() -> None:
     assert out.alternate_title is None
     assert out.alternate_content is None
     assert "Local SOCKS5 credentials" in dict(out.extra_messages)
-    attachment = json.loads((out.attachment_content or b"").decode("utf-8"))
-    assert attachment["inbounds"][0]["users"][0]["username"].startswith("tg_")
-    assert attachment["outbounds"][0]["password"] == "client-token:device-token"
-    assert attachment["outbounds"][0]["type"] == "hysteria2"
+    attachment = yaml.safe_load((out.attachment_content or b"").decode("utf-8"))
+    assert attachment["socks5"]["username"].startswith("tg_")
+    assert attachment["auth"] == "client-token:device-token"
+    assert attachment["obfs"]["type"] == "gecko"
 
 
 def test_export_hysteria2_token_uri_falls_back_to_raw_token_when_it_is_not_splitable() -> (
@@ -266,10 +263,10 @@ def test_export_hysteria2_ip_sni_forces_insecure_tls() -> None:
     }
 
     out = export_client_config(effective)
-    attachment = json.loads((out.attachment_content or b"").decode("utf-8"))
+    attachment = yaml.safe_load((out.attachment_content or b"").decode("utf-8"))
 
     assert "insecure=1" in out.content
-    assert attachment["outbounds"][0]["tls"]["insecure"] is True
+    assert attachment["tls"]["insecure"] is True
 
 
 def test_export_mtproto_tls_link() -> None:
@@ -891,6 +888,12 @@ def test_export_wireguard_wstunnel_rejects_unsafe_mtu() -> None:
 )
 def test_exported_local_proxy_attachments_always_require_auth(effective: dict) -> None:
     out = export_client_config(effective)
+    if str(out.attachment_filename or "").endswith(".hysteria.yaml"):
+        attachment = yaml.safe_load((out.attachment_content or b"").decode("utf-8"))
+        assert 20000 <= int(attachment["socks5"]["listen"].rsplit(":", 1)[1]) < 60000
+        assert attachment["socks5"]["username"].startswith("tg_")
+        assert attachment["socks5"]["password"]
+        return
     attachment = json.loads((out.attachment_content or b"").decode("utf-8"))
     inbound = (attachment.get("singbox") or attachment)["inbounds"][0]
 

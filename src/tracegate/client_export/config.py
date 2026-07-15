@@ -8,6 +8,8 @@ from ipaddress import ip_address, ip_network
 from typing import Any
 from urllib.parse import quote, urlencode, urlparse
 
+import yaml
+
 from tracegate.constants import TRACEGATE_PUBLIC_UDP_PORT
 from tracegate.services.mtproto import (
     MTPROTO_FAKE_TLS_PROFILE_NAME,
@@ -530,6 +532,56 @@ def _build_singbox_client_attachment(
     }
     filename = f"{_artifact_filename_fragment(profile_name)}.singbox.json"
     return json.dumps(config, ensure_ascii=True, indent=2).encode("utf-8"), filename
+
+
+def _build_hysteria_client_attachment(
+    effective: dict[str, Any],
+    *,
+    server: str,
+    port: int,
+    auth: str,
+    sni: str,
+    insecure: bool,
+    obfs_password: str,
+    min_packet_size: int,
+    max_packet_size: int,
+) -> tuple[bytes, str]:
+    """Build an official Hysteria client config for Gecko.
+
+    sing-box supports Hysteria2 Salamander but does not implement Gecko.  A
+    Gecko profile must therefore be exported for the official Hysteria client
+    instead of being mislabeled as a usable sing-box attachment.
+    """
+
+    profile_name = client_profile_name(effective)
+    local_host, local_port = _local_socks_endpoint(effective)
+    socks_username, socks_password = _local_socks_auth(effective)
+    config = {
+        "server": f"{server}:{port}",
+        "auth": auth,
+        "tls": {"sni": sni or server, "insecure": insecure},
+        "obfs": {
+            "type": "gecko",
+            "gecko": {
+                "password": obfs_password,
+                "minPacketSize": min_packet_size,
+                "maxPacketSize": max_packet_size,
+            },
+        },
+        "bandwidth": {
+            "up": f'{_hysteria_export_mbps(effective, "up_mbps")} mbps',
+            "down": f'{_hysteria_export_mbps(effective, "down_mbps")} mbps',
+        },
+        "socks5": {
+            "listen": f"{local_host}:{local_port}",
+            "username": socks_username,
+            "password": socks_password,
+            "disableUDP": False,
+        },
+    }
+    filename = f"{_artifact_filename_fragment(profile_name)}.hysteria.yaml"
+    rendered = yaml.safe_dump(config, sort_keys=False, allow_unicode=False)
+    return rendered.encode("utf-8"), filename
 
 
 def _build_wgws_client_attachment(
@@ -1114,31 +1166,35 @@ def _export_hysteria2(effective: dict[str, Any]) -> ExportResult:
     }
     if insecure:
         singbox_tls["insecure"] = True
-    attachment_content, attachment_filename = _build_singbox_client_attachment(
-        effective,
-        {
-            "type": "hysteria2",
-            "tag": "proxy",
-            "server": server,
-            "server_port": port,
-            "up_mbps": _hysteria_export_mbps(effective, "up_mbps"),
-            "down_mbps": _hysteria_export_mbps(effective, "down_mbps"),
-            "password": share_auth,
-            "obfs": {
-                "type": obfs_type,
-                "password": obfs_password,
-                **(
-                    {
-                        "min_packet_size": int(obfs.get("min_packet_size") or 512),
-                        "max_packet_size": int(obfs.get("max_packet_size") or 1200),
-                    }
-                    if obfs_type == "gecko"
-                    else {}
-                ),
+    if obfs_type == "gecko":
+        attachment_content, attachment_filename = _build_hysteria_client_attachment(
+            effective,
+            server=str(server),
+            port=port,
+            auth=share_auth,
+            sni=sni,
+            insecure=insecure,
+            obfs_password=obfs_password,
+            min_packet_size=int(obfs.get("min_packet_size") or 512),
+            max_packet_size=int(obfs.get("max_packet_size") or 1200),
+        )
+        attachment_mime = "application/yaml"
+    else:
+        attachment_content, attachment_filename = _build_singbox_client_attachment(
+            effective,
+            {
+                "type": "hysteria2",
+                "tag": "proxy",
+                "server": server,
+                "server_port": port,
+                "up_mbps": _hysteria_export_mbps(effective, "up_mbps"),
+                "down_mbps": _hysteria_export_mbps(effective, "down_mbps"),
+                "password": share_auth,
+                "obfs": {"type": obfs_type, "password": obfs_password},
+                "tls": singbox_tls,
             },
-            "tls": singbox_tls,
-        },
-    )
+        )
+        attachment_mime = "application/json"
     return ExportResult(
         kind="uri",
         title="Hysteria2 link",
@@ -1148,7 +1204,7 @@ def _export_hysteria2(effective: dict[str, Any]) -> ExportResult:
             (
                 "Client compatibility",
                 (
-                    "Gecko obfs requires Hysteria 2.9.2+ or sing-box 1.14.0+."
+                    "Gecko requires the official Hysteria client with Gecko support; sing-box does not support Gecko."
                     if obfs_type == "gecko"
                     else "Salamander is the broadly compatible Hysteria2 obfs mode."
                 ),
@@ -1156,7 +1212,7 @@ def _export_hysteria2(effective: dict[str, Any]) -> ExportResult:
         ),
         attachment_content=attachment_content,
         attachment_filename=attachment_filename,
-        attachment_mime="application/json",
+        attachment_mime=attachment_mime,
     )
 
 

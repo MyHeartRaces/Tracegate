@@ -226,6 +226,8 @@ def _singbox_outbounds_for_profile(
         warnings.append("vless_transport_not_representable_as_official_singbox_outbound")
     elif proto == "wireguard":
         warnings.append("wireguard_wstunnel_requires_wgws_transport")
+    elif proto == "hysteria2":
+        warnings.append("hysteria_gecko_requires_official_hysteria_client")
     elif proto == "mtproto":
         warnings.append("mtproto_not_representable_as_singbox_outbound")
     return [], None, warnings

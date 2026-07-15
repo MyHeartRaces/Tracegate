@@ -66,6 +66,14 @@ load_deploy_env() {
       ;;
     *) die "TRACEGATE_HOST_ROLE must be endpoint or entry" ;;
   esac
+  case "${TRACEGATE_ENABLE_RTC_CLOCK_SYNC:-false}" in
+    true|TRUE|1|yes|YES)
+      RTC_CLOCK_SYNC_ENABLED=1
+      ROLE_UNITS+=(tracegate-clock-sync-from-rtc.timer)
+      ;;
+    false|FALSE|0|no|NO|"") RTC_CLOCK_SYNC_ENABLED=0 ;;
+    *) die "TRACEGATE_ENABLE_RTC_CLOCK_SYNC must be true or false" ;;
+  esac
 }
 
 release_path() {
@@ -195,6 +203,10 @@ preflight() {
   local version="$1"
   load_deploy_env
   need "${SYSTEMCTL}"; need "${CURL}"; need "${SYSCTL}"; need "${PYTHON}"; need stat
+  if [ "${RTC_CLOCK_SYNC_ENABLED:-0}" -eq 1 ]; then
+    need hwclock
+    [ -e /dev/rtc0 ] || die "RTC clock sync is enabled but /dev/rtc0 is missing"
+  fi
   validate_release "${version}"
   echo "native host preflight passed for ${TRACEGATE_HOST_ROLE} release ${version}"
 }

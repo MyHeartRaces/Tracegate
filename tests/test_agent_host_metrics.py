@@ -108,3 +108,10 @@ def test_mtproto_traffic_parser_accepts_current_telemt_data_list(monkeypatch) ->
     assert m._fetch_mtproto_user_traffic_bytes("http://127.0.0.1/stats") == {
         "123456": 42
     }
+
+
+def test_mtproto_stats_are_only_exported_by_entry() -> None:
+    from tracegate.agent import metrics as m
+
+    assert m._mtproto_stats_enabled(SimpleNamespace(agent_role="ENTRY")) is True
+    assert m._mtproto_stats_enabled(SimpleNamespace(agent_role="TRANSIT")) is False

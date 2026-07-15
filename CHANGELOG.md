@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+## v3.1.11 - 2026-07-15
+
+- Export Hysteria Gecko profiles as official Hysteria YAML instead of an
+  invalid sing-box attachment; Salamander keeps its compatible sing-box JSON.
+- Stop Endpoint agents from publishing a false failed Telemt scrape for the
+  Entry-only runtime.
+- Make the verified RTC clock fallback declarative in native host deployment
+  coordinates for providers that block NTP/UDP 123.
+
 ## v3.1.10 - 2026-07-15
 
 - Standardized both Reality Chain legs on VLESS/REALITY RAW/TCP: client to

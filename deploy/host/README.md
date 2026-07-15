@@ -31,3 +31,9 @@ Private inputs remain outside the public release:
 
 The application wheel is versioned and immutable. Upstream data-plane engines
 continue to track `latest`; their systemd units pull before every start.
+
+When a provider blocks outbound NTP/UDP 123, set
+`TRACEGATE_ENABLE_RTC_CLOCK_SYNC=true` in that host's `deploy.env` only after
+verifying that its UTC RTC is accurate. The deployer then validates `/dev/rtc0`
+and keeps the tracked `tracegate-clock-sync-from-rtc.timer` enabled as part of
+the role lifecycle.
