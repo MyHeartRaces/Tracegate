@@ -9,7 +9,11 @@ from typing import Any
 from urllib.parse import quote, urlencode, urlparse
 
 from tracegate.constants import TRACEGATE_PUBLIC_UDP_PORT
-from tracegate.services.mtproto import MTPROTO_FAKE_TLS_PROFILE_NAME, MTProtoConfigError, build_mtproto_share_links
+from tracegate.services.mtproto import (
+    MTPROTO_FAKE_TLS_PROFILE_NAME,
+    MTProtoConfigError,
+    build_mtproto_share_links,
+)
 
 _LOCAL_SOCKS_PORT_BASE = 20000
 _LOCAL_SOCKS_PORT_SPAN = 40000
@@ -68,7 +72,9 @@ def _normalize_alpn(value: object, *, default: tuple[str, ...]) -> list[str]:
 
 
 def _safe_filename_fragment(value: str) -> str:
-    normalized = "".join(ch.lower() if ch.isalnum() else "-" for ch in str(value or "").strip())
+    normalized = "".join(
+        ch.lower() if ch.isalnum() else "-" for ch in str(value or "").strip()
+    )
     compact = "-".join(part for part in normalized.split("-") if part)
     return compact or "tracegate"
 
@@ -94,20 +100,28 @@ def client_profile_name(effective: dict[str, Any]) -> str:
     if is_chain:
         return "Tracegate-Chain"
     if protocol == "vless" and (
-        transport in {"reality", "reality_raw", "reality-raw", "raw_reality", "raw-tcp-reality"}
+        transport
+        in {"reality", "reality_raw", "reality-raw", "raw_reality", "raw-tcp-reality"}
         or isinstance(effective.get("reality"), dict)
     ):
         return "Tracegate-Reality"
     if protocol == "hysteria2":
         obfs = effective.get("obfs") if isinstance(effective.get("obfs"), dict) else {}
-        obfs_type = str(obfs.get("type") or effective.get("hysteria_obfs") or "salamander").strip().lower()
+        obfs_type = (
+            str(obfs.get("type") or effective.get("hysteria_obfs") or "salamander")
+            .strip()
+            .lower()
+        )
         label = "Gecko" if obfs_type == "gecko" else "Salamander"
         return f"Tracegate-Hysteria({label})"
     if protocol == "vless" and transport in {"ws_tls", "ws+tls", "ws-tls"}:
         return "Tracegate-Backup(WebSocket)"
     if protocol == "vless" and transport in {"grpc_tls", "grpc+tls", "grpc-tls"}:
         return "Tracegate-Backup(gRPC)"
-    if protocol in {"shadowsocks2022", "shadowsocks2022_shadowtls"} or transport == "shadowtls_v3":
+    if (
+        protocol in {"shadowsocks2022", "shadowsocks2022_shadowtls"}
+        or transport == "shadowtls_v3"
+    ):
         return "Tracegate-Experimental(SS2022)"
     if protocol == "wireguard" or transport in {"wireguard_wstunnel", "wstunnel"}:
         return "Tracegate-Experimental(WGWS)"
@@ -153,7 +167,9 @@ def _normalize_route_host(value: object) -> str:
     return raw.strip().strip("[]").rstrip(".").lower()
 
 
-def _singbox_direct_route_rules_for_outbounds(outbounds: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _singbox_direct_route_rules_for_outbounds(
+    outbounds: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
     """Route proxy bearer addresses outside the proxy to avoid TUN/FakeIP loops."""
 
     domains: set[str] = set()
@@ -205,7 +221,9 @@ def _wireguard_default_allowed_ips(local_addresses: list[str]) -> list[str]:
     return allowed or ["0.0.0.0/0"]
 
 
-def _wireguard_allowed_ips_for_local_addresses(allowed_ips: list[str], local_addresses: list[str]) -> list[str]:
+def _wireguard_allowed_ips_for_local_addresses(
+    allowed_ips: list[str], local_addresses: list[str]
+) -> list[str]:
     families = _ip_prefix_families(local_addresses)
     if not families:
         return allowed_ips
@@ -228,19 +246,33 @@ def _client_connect_server(effective: dict[str, Any]) -> str:
 def _default_local_socks_port(effective: dict[str, Any]) -> int:
     seed = "|".join(
         str(effective.get(key) or "")
-        for key in ("protocol", "transport", "profile", "server", "uuid", "device_id", "sni")
+        for key in (
+            "protocol",
+            "transport",
+            "profile",
+            "server",
+            "uuid",
+            "device_id",
+            "sni",
+        )
     ).encode("utf-8")
     digest = hashlib.sha256(seed).digest()
-    return _LOCAL_SOCKS_PORT_BASE + (int.from_bytes(digest[:4], "big") % _LOCAL_SOCKS_PORT_SPAN)
+    return _LOCAL_SOCKS_PORT_BASE + (
+        int.from_bytes(digest[:4], "big") % _LOCAL_SOCKS_PORT_SPAN
+    )
 
 
 def _parse_local_socks_listen(effective: dict[str, Any]) -> tuple[str, int]:
     local_socks = effective.get("local_socks") or {}
-    listen = str(local_socks.get("listen") or f"127.0.0.1:{_default_local_socks_port(effective)}").strip()
+    listen = str(
+        local_socks.get("listen") or f"127.0.0.1:{_default_local_socks_port(effective)}"
+    ).strip()
     if listen.startswith("["):
         host_end = listen.find("]")
         if host_end < 0 or host_end + 1 >= len(listen) or listen[host_end + 1] != ":":
-            raise ClientConfigExportError(f"Invalid local SOCKS5 listen endpoint: {listen}")
+            raise ClientConfigExportError(
+                f"Invalid local SOCKS5 listen endpoint: {listen}"
+            )
         host = listen[1:host_end]
         port_raw = listen[host_end + 2 :]
     else:
@@ -250,17 +282,23 @@ def _parse_local_socks_listen(effective: dict[str, Any]) -> tuple[str, int]:
             port_raw = listen
     host = host.strip() or "127.0.0.1"
     if not _is_loopback_host(host):
-        raise ClientConfigExportError(f"Local SOCKS5 listen must stay on loopback, got {listen}")
+        raise ClientConfigExportError(
+            f"Local SOCKS5 listen must stay on loopback, got {listen}"
+        )
     try:
         port = int(str(port_raw).strip())
     except (TypeError, ValueError):
-        raise ClientConfigExportError(f"Invalid local SOCKS5 listen port: {listen}") from None
+        raise ClientConfigExportError(
+            f"Invalid local SOCKS5 listen port: {listen}"
+        ) from None
     if port < 1 or port > 65535:
         raise ClientConfigExportError(f"Invalid local SOCKS5 listen port: {listen}")
     return "127.0.0.1", port
 
 
-def _parse_loopback_listen_endpoint(raw_value: object, *, label: str, default: str) -> tuple[str, int]:
+def _parse_loopback_listen_endpoint(
+    raw_value: object, *, label: str, default: str
+) -> tuple[str, int]:
     listen = str(raw_value or default).strip()
     if listen.startswith("["):
         host_end = listen.find("]")
@@ -338,15 +376,31 @@ def _local_socks_auth(effective: dict[str, Any]) -> tuple[str, str]:
     if username and password:
         return username, password
     if auth:
-        raise ClientConfigExportError("Local SOCKS5 auth requires username and password")
+        raise ClientConfigExportError(
+            "Local SOCKS5 auth requires username and password"
+        )
 
     seed = "|".join(
         str(effective.get(key) or "")
-        for key in ("protocol", "transport", "profile", "server", "uuid", "device_id", "sni")
+        for key in (
+            "protocol",
+            "transport",
+            "profile",
+            "server",
+            "uuid",
+            "device_id",
+            "sni",
+        )
     ).encode("utf-8")
     digest = hashlib.sha256(seed).digest()
     username = f"tg_{digest[:5].hex()}"
-    password = base64.urlsafe_b64encode(hashlib.sha256(digest + b":attachment-local-socks").digest()).decode("ascii").rstrip("=")
+    password = (
+        base64.urlsafe_b64encode(
+            hashlib.sha256(digest + b":attachment-local-socks").digest()
+        )
+        .decode("ascii")
+        .rstrip("=")
+    )
     return username, password[:32]
 
 
@@ -374,17 +428,37 @@ def _reject_client_management_api(effective: dict[str, Any]) -> None:
         if not isinstance(block, dict):
             continue
         services_raw = block.get("services") or []
-        services = {str(item).strip().lower() for item in services_raw if str(item).strip()} if isinstance(services_raw, list) else set()
-        handler_enabled = bool(block.get("handler_service", False) or block.get("handlerService", False))
+        services = (
+            {str(item).strip().lower() for item in services_raw if str(item).strip()}
+            if isinstance(services_raw, list)
+            else set()
+        )
+        handler_enabled = bool(
+            block.get("handler_service", False) or block.get("handlerService", False)
+        )
         if handler_enabled or "handlerservice" in services:
-            raise ClientConfigExportError("Client-side Xray HandlerService is forbidden")
-        if bool(block.get("reflection_service", False) or block.get("reflectionService", False)) or "reflectionservice" in services:
-            raise ClientConfigExportError("Client-side Xray ReflectionService is forbidden")
+            raise ClientConfigExportError(
+                "Client-side Xray HandlerService is forbidden"
+            )
+        if (
+            bool(
+                block.get("reflection_service", False)
+                or block.get("reflectionService", False)
+            )
+            or "reflectionservice" in services
+        ):
+            raise ClientConfigExportError(
+                "Client-side Xray ReflectionService is forbidden"
+            )
         if bool(block.get("enabled", False)):
-            raise ClientConfigExportError("Client-side Xray API is forbidden for exported profiles")
+            raise ClientConfigExportError(
+                "Client-side Xray API is forbidden for exported profiles"
+            )
 
 
-def _build_xray_client_attachment(effective: dict[str, Any], outbound: dict[str, Any]) -> tuple[bytes, str]:
+def _build_xray_client_attachment(
+    effective: dict[str, Any], outbound: dict[str, Any]
+) -> tuple[bytes, str]:
     profile_name = client_profile_name(effective)
     local_host, local_port = _local_socks_endpoint(effective)
     socks_username, socks_password = _local_socks_auth(effective)
@@ -431,7 +505,14 @@ def _build_singbox_client_attachment(
     config = {
         "log": {"level": "warn"},
         "dns": {
-            "servers": [{"type": "udp", "tag": "cloudflare", "server": "1.1.1.1", "server_port": 53}],
+            "servers": [
+                {
+                    "type": "udp",
+                    "tag": "cloudflare",
+                    "server": "1.1.1.1",
+                    "server_port": 53,
+                }
+            ],
             "final": "cloudflare",
             "strategy": "ipv4_only",
         },
@@ -468,18 +549,28 @@ def _build_wgws_client_attachment(
     ws_server = str(parsed.hostname or "").strip()
     ws_port = int(parsed.port or 443)
     ws_path = parsed.path or "/wgws"
-    wstunnel = effective.get("wstunnel") if isinstance(effective.get("wstunnel"), dict) else {}
-    wireguard = effective.get("wireguard") if isinstance(effective.get("wireguard"), dict) else {}
+    wstunnel = (
+        effective.get("wstunnel") if isinstance(effective.get("wstunnel"), dict) else {}
+    )
+    wireguard = (
+        effective.get("wireguard")
+        if isinstance(effective.get("wireguard"), dict)
+        else {}
+    )
     allowed_ips = wireguard.get("allowed_ips")
     if isinstance(allowed_ips, str):
         allowed_ip_values = [allowed_ips] if allowed_ips else []
     elif isinstance(allowed_ips, (list, tuple)):
-        allowed_ip_values = [str(item).strip() for item in allowed_ips if str(item).strip()]
+        allowed_ip_values = [
+            str(item).strip() for item in allowed_ips if str(item).strip()
+        ]
     else:
         allowed_ip_values = []
     if not allowed_ip_values:
         allowed_ip_values = _wireguard_default_allowed_ips(local_addresses)
-    allowed_ip_values = _wireguard_allowed_ips_for_local_addresses(allowed_ip_values, local_addresses)
+    allowed_ip_values = _wireguard_allowed_ips_for_local_addresses(
+        allowed_ip_values, local_addresses
+    )
 
     local_socks_host, local_socks_port = _local_socks_endpoint(effective)
     socks_username, socks_password = _local_socks_auth(effective)
@@ -534,20 +625,40 @@ def _build_wgws_client_attachment(
     local_address_families = _ip_prefix_families(local_addresses)
     if local_address_families == {4}:
         singbox["dns"] = {
-            "servers": [{"type": "udp", "tag": "cloudflare", "server": "1.1.1.1", "server_port": 53}],
+            "servers": [
+                {
+                    "type": "udp",
+                    "tag": "cloudflare",
+                    "server": "1.1.1.1",
+                    "server_port": 53,
+                }
+            ],
             "final": "cloudflare",
             "strategy": "ipv4_only",
         }
     elif local_address_families == {6}:
         singbox["dns"] = {
-            "servers": [{"type": "udp", "tag": "cloudflare-v6", "server": "2606:4700:4700::1111", "server_port": 53}],
+            "servers": [
+                {
+                    "type": "udp",
+                    "tag": "cloudflare-v6",
+                    "server": "2606:4700:4700::1111",
+                    "server_port": 53,
+                }
+            ],
             "final": "cloudflare-v6",
             "strategy": "ipv6_only",
         }
 
-    tls_server_name = str(wstunnel.get("tls_server_name") or effective.get("sni") or ws_server).strip()
+    tls_server_name = str(
+        wstunnel.get("tls_server_name") or effective.get("sni") or ws_server
+    ).strip()
     host_header = str(wstunnel.get("host") or tls_server_name or ws_server).strip()
-    headers = {str(key): str(value) for key, value in (wstunnel.get("headers") or {}).items()} if isinstance(wstunnel.get("headers"), dict) else {}
+    headers = (
+        {str(key): str(value) for key, value in (wstunnel.get("headers") or {}).items()}
+        if isinstance(wstunnel.get("headers"), dict)
+        else {}
+    )
     if host_header and host_header != ws_server:
         headers.setdefault("Host", host_header)
     local_udp_listen = f"{local_udp_host}:{local_udp_port}"
@@ -562,6 +673,7 @@ def _build_wgws_client_attachment(
     }
     wstunnel_command_parts = [
         "wstunnel client",
+        "--websocket-ping-frequency-sec 15",
         f"--http-upgrade-path-prefix {ws_path.lstrip('/')}",
     ]
     if tls_server_name and tls_server_name != ws_server:
@@ -570,7 +682,7 @@ def _build_wgws_client_attachment(
         wstunnel_command_parts.append(f"-H 'Host: {host_header}'")
     wstunnel_command_parts.extend(
         [
-            f"-L udp://{local_udp_listen}:127.0.0.1:{local_udp_port}",
+            f"-L udp://{local_udp_listen}:127.0.0.1:{local_udp_port}?timeout_sec=0",
             f"wss://{ws_server}:{ws_port}",
         ]
     )
@@ -644,7 +756,11 @@ def _hysteria_chain_limit_mbit(effective: dict[str, Any]) -> int:
 
 def _hysteria_export_mbps(effective: dict[str, Any], field: str) -> int:
     is_chain = _is_hysteria_chain_profile(effective)
-    fallback = _hysteria_chain_limit_mbit(effective) if is_chain else _HYSTERIA_DIRECT_DEFAULT_MBIT
+    fallback = (
+        _hysteria_chain_limit_mbit(effective)
+        if is_chain
+        else _HYSTERIA_DIRECT_DEFAULT_MBIT
+    )
     try:
         value = int(effective.get(field) or fallback)
     except (TypeError, ValueError):
@@ -676,13 +792,21 @@ def export_client_config(effective: dict[str, Any]) -> ExportResult:
                 transport = "grpc_tls"
             elif effective.get("ws"):
                 transport = "ws_tls"
-        if transport in {"reality", "reality_raw", "reality-raw", "raw_reality", "raw-tcp-reality"}:
+        if transport in {
+            "reality",
+            "reality_raw",
+            "reality-raw",
+            "raw_reality",
+            "raw-tcp-reality",
+        }:
             return _export_vless_reality(effective)
         if transport in {"ws_tls", "ws+tls", "ws-tls"}:
             return _export_vless_ws_tls(effective)
         if transport in {"grpc_tls", "grpc+tls", "grpc-tls"}:
             return _export_vless_grpc_tls(effective)
-        raise ClientConfigExportError(f"Unsupported VLESS transport for export: {transport!r}")
+        raise ClientConfigExportError(
+            f"Unsupported VLESS transport for export: {transport!r}"
+        )
     if proto == "hysteria2":
         return _export_hysteria2(effective)
     if proto in {"shadowsocks2022", "shadowsocks"}:
@@ -854,7 +978,10 @@ def _export_vless_grpc_tls(effective: dict[str, Any]) -> ExportResult:
     uuid = effective.get("uuid")
     sni = str(effective.get("sni") or logical_server or server or "").strip()
     grpc = effective.get("grpc") or {}
-    service_name = str(grpc.get("service_name") or "tracegate.v1.Edge").strip() or "tracegate.v1.Edge"
+    service_name = (
+        str(grpc.get("service_name") or "tracegate.v1.Edge").strip()
+        or "tracegate.v1.Edge"
+    )
     authority = str(grpc.get("authority") or sni or server or "").strip()
     tls = effective.get("tls") or {}
     insecure = bool(tls.get("insecure", False))
@@ -948,7 +1075,9 @@ def _export_hysteria2(effective: dict[str, Any]) -> ExportResult:
     if not server:
         raise ClientConfigExportError("Missing fields for Hysteria2 export")
     if obfs_type not in {"gecko", "salamander"} or not obfs_password:
-        raise ClientConfigExportError("Hysteria2 export requires Gecko or Salamander obfs with a password")
+        raise ClientConfigExportError(
+            "Hysteria2 export requires Gecko or Salamander obfs with a password"
+        )
 
     # Keep the URI aligned with the official Hysteria 2 scheme:
     # token auth is a single opaque auth component, percent-encoded as needed.
@@ -966,7 +1095,9 @@ def _export_hysteria2(effective: dict[str, Any]) -> ExportResult:
     name = client_profile_name(effective)
     if auth_type == "userpass":
         if not username or not password:
-            raise ClientConfigExportError("Missing userpass fields for Hysteria2 export")
+            raise ClientConfigExportError(
+                "Missing userpass fields for Hysteria2 export"
+            )
         share_auth = f"{username}:{password}"
         authority = _q(share_auth)
     else:
@@ -1032,9 +1163,19 @@ def _export_hysteria2(effective: dict[str, Any]) -> ExportResult:
 def _export_mtproto(effective: dict[str, Any]) -> ExportResult:
     server = str(effective.get("server") or "").strip()
     port = int(effective.get("port") or 443)
-    profile = str(effective.get("profile") or MTPROTO_FAKE_TLS_PROFILE_NAME).strip() or MTPROTO_FAKE_TLS_PROFILE_NAME
-    transport = str(effective.get("transport") or effective.get("mtproto_transport") or "").strip().lower() or None
-    domain = str(effective.get("domain") or effective.get("mtproto_domain") or server).strip()
+    profile = (
+        str(effective.get("profile") or MTPROTO_FAKE_TLS_PROFILE_NAME).strip()
+        or MTPROTO_FAKE_TLS_PROFILE_NAME
+    )
+    transport = (
+        str(effective.get("transport") or effective.get("mtproto_transport") or "")
+        .strip()
+        .lower()
+        or None
+    )
+    domain = str(
+        effective.get("domain") or effective.get("mtproto_domain") or server
+    ).strip()
     secret = str(
         effective.get("secret")
         or effective.get("secret_hex")
@@ -1057,7 +1198,9 @@ def _export_mtproto(effective: dict[str, Any]) -> ExportResult:
     except MTProtoConfigError as exc:
         raise ClientConfigExportError(str(exc)) from exc
 
-    return ExportResult(kind="uri", title=f"Telegram Proxy link · {profile}", content=links.https_url)
+    return ExportResult(
+        kind="uri", title=f"Telegram Proxy link · {profile}", content=links.https_url
+    )
 
 
 def _export_shadowsocks2022_shadowtls(effective: dict[str, Any]) -> ExportResult:
@@ -1067,11 +1210,15 @@ def _export_shadowsocks2022_shadowtls(effective: dict[str, Any]) -> ExportResult
     password = str(effective.get("password") or "").strip()
     shadowtls = effective.get("shadowtls") or {}
     shadowtls_password = str(shadowtls.get("password") or "").strip()
-    shadowtls_server_name = str(shadowtls.get("server_name") or effective.get("sni") or server).strip()
+    shadowtls_server_name = str(
+        shadowtls.get("server_name") or effective.get("sni") or server
+    ).strip()
     profile = client_profile_name(effective)
 
     if not server or not password or not shadowtls_password:
-        raise ClientConfigExportError("Missing fields for Shadowsocks-2022 + ShadowTLS export")
+        raise ClientConfigExportError(
+            "Missing fields for Shadowsocks-2022 + ShadowTLS export"
+        )
 
     userinfo = _b64url_no_padding(f"{method}:{password}")
     plugin_opts = _encode_query(
@@ -1150,7 +1297,9 @@ def _export_wireguard_wstunnel(effective: dict[str, Any]) -> ExportResult:
         local_addresses = [str(item).strip() for item in address if str(item).strip()]
 
     if not server or not private_key or not peer_public_key or not local_addresses:
-        raise ClientConfigExportError("Missing fields for WireGuard over WSTunnel export")
+        raise ClientConfigExportError(
+            "Missing fields for WireGuard over WSTunnel export"
+        )
 
     wstunnel_url = _validated_wstunnel_url(wstunnel)
     local_udp_host, local_udp_port = _parse_loopback_listen_endpoint(
@@ -1173,7 +1322,11 @@ def _export_wireguard_wstunnel(effective: dict[str, Any]) -> ExportResult:
         mtu=mtu,
     )
     extra_messages = (_local_socks_extra_message(effective),)
-    extra_messages = (("WGWS transport", wstunnel_url), ("WG local UDP", f"{local_udp_host}:{local_udp_port}"), *extra_messages)
+    extra_messages = (
+        ("WGWS transport", wstunnel_url),
+        ("WG local UDP", f"{local_udp_host}:{local_udp_port}"),
+        *extra_messages,
+    )
     return ExportResult(
         kind="attachment",
         title="WGWS config",

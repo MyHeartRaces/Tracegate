@@ -137,7 +137,10 @@ def test_dashboards_only_reference_current_connection_runtimes() -> None:
 
     assert "naiveproxy" not in rendered
     assert "transit node" not in rendered
-    assert "endpoint node network rx/tx" in rendered
+    assert "entry/endpoint network rx/tx" in rendered
+    assert "container_cpu_usage_seconds_total" not in rendered
+    assert "container_memory_working_set_bytes" not in rendered
+    assert "container_network_receive_bytes_total" not in rendered
 
 
 def test_user_panels_scope_queries_by_logged_in_user_pid() -> None:
@@ -327,8 +330,8 @@ def test_operator_dashboard_includes_slo_and_ops_panels() -> None:
     infra_cpu = _panel_by_id(dashboard, 20)
     assert "node_cpu_seconds_total" in infra_cpu["targets"][0]["expr"]
 
-    pod_network = _panel_by_id(dashboard, 29)
-    assert "container_network_receive_bytes_total" in pod_network["targets"][0]["expr"]
+    host_network = _panel_by_id(dashboard, 29)
+    assert "tracegate_host_network_bytes_total" in host_network["targets"][0]["expr"]
 
 
 def test_slo_alert_rules_cover_api_bot_and_agent() -> None:

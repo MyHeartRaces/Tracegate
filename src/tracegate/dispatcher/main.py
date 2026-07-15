@@ -13,7 +13,7 @@ from prometheus_client import Counter, Gauge, Histogram, start_http_server
 from sqlalchemy import and_, func, or_, select
 
 from tracegate.db import get_sessionmaker
-from tracegate.dispatcher.ops import ops_alert_loop, outbox_purge_loop
+from tracegate.dispatcher.ops import ops_alert_loop, ops_metrics_loop, outbox_purge_loop
 from tracegate.enums import DeliveryStatus, OutboxStatus
 from tracegate.models import NodeEndpoint, OutboxDelivery, OutboxEvent
 from tracegate.observability import configure_logging
@@ -48,7 +48,9 @@ def _dispatcher_id() -> str:
     return f"{host}:{os.getpid()}"
 
 
-async def _send_to_agent(client: httpx.AsyncClient, node: NodeEndpoint, event: OutboxEvent, token: str) -> None:
+async def _send_to_agent(
+    client: httpx.AsyncClient, node: NodeEndpoint, event: OutboxEvent, token: str
+) -> None:
     url = f"{node.base_url.rstrip('/')}/v1/events"
     payload = {
         "event_id": str(event.id),
@@ -56,7 +58,9 @@ async def _send_to_agent(client: httpx.AsyncClient, node: NodeEndpoint, event: O
         "event_type": event.event_type.value,
         "payload": event.payload_json,
     }
-    response = await client.post(url, json=payload, headers={"x-agent-token": token}, timeout=20)
+    response = await client.post(
+        url, json=payload, headers={"x-agent-token": token}, timeout=20
+    )
     response.raise_for_status()
 
 
@@ -76,23 +80,30 @@ async def _claim_deliveries(
     lock_until = now + timedelta(seconds=lock_ttl_seconds)
     async with get_sessionmaker()() as session:
         rows = (
-            await session.execute(
-                select(OutboxDelivery)
-                .where(
-                    and_(
-                        OutboxDelivery.next_attempt_at <= now,
-                        or_(
-                            OutboxDelivery.status == DeliveryStatus.PENDING,
-                            OutboxDelivery.status == DeliveryStatus.FAILED,
-                        ),
-                        or_(OutboxDelivery.locked_until.is_(None), OutboxDelivery.locked_until <= now),
+            (
+                await session.execute(
+                    select(OutboxDelivery)
+                    .where(
+                        and_(
+                            OutboxDelivery.next_attempt_at <= now,
+                            or_(
+                                OutboxDelivery.status == DeliveryStatus.PENDING,
+                                OutboxDelivery.status == DeliveryStatus.FAILED,
+                            ),
+                            or_(
+                                OutboxDelivery.locked_until.is_(None),
+                                OutboxDelivery.locked_until <= now,
+                            ),
+                        )
                     )
+                    .order_by(OutboxDelivery.created_at.asc())
+                    .limit(batch_size)
+                    .with_for_update(skip_locked=True)
                 )
-                .order_by(OutboxDelivery.created_at.asc())
-                .limit(batch_size)
-                .with_for_update(skip_locked=True)
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
 
         for row in rows:
             row.locked_until = lock_until
@@ -102,7 +113,9 @@ async def _claim_deliveries(
         return [r.id for r in rows]
 
 
-async def _recompute_event_status(session, event: OutboxEvent, *, last_error: str | None) -> None:
+async def _recompute_event_status(
+    session, event: OutboxEvent, *, last_error: str | None
+) -> None:
     counts = dict(
         (
             await session.execute(
@@ -192,7 +205,9 @@ async def _process_delivery(
                     result_label = "dead"
                 else:
                     row.status = DeliveryStatus.FAILED
-                    row.next_attempt_at = now + timedelta(seconds=_backoff_seconds(row.attempts))
+                    row.next_attempt_at = now + timedelta(
+                        seconds=_backoff_seconds(row.attempts)
+                    )
                     result_label = "failed"
 
             row.locked_until = None
@@ -206,9 +221,9 @@ async def _process_delivery(
         finally:
             _DELIVERY_INFLIGHT.dec()
             _DELIVERY_ATTEMPTS.labels(result_label, event_type_label, node_label).inc()
-            _DELIVERY_LATENCY.labels(result_label, event_type_label, node_label).observe(
-                max(0.0, time.perf_counter() - started)
-            )
+            _DELIVERY_LATENCY.labels(
+                result_label, event_type_label, node_label
+            ).observe(max(0.0, time.perf_counter() - started))
 
 
 async def dispatcher_loop() -> None:
@@ -225,7 +240,10 @@ async def dispatcher_loop() -> None:
     dispatcher_id = _dispatcher_id()
     sem = asyncio.Semaphore(max(1, int(settings.dispatcher_concurrency)))
     if settings.dispatcher_metrics_enabled:
-        start_http_server(int(settings.dispatcher_metrics_port), addr=str(settings.dispatcher_metrics_host))
+        start_http_server(
+            int(settings.dispatcher_metrics_port),
+            addr=str(settings.dispatcher_metrics_host),
+        )
         logger.info(
             "dispatcher_metrics_enabled host=%s port=%s",
             settings.dispatcher_metrics_host,
@@ -233,8 +251,20 @@ async def dispatcher_loop() -> None:
         )
 
     background_tasks: list[asyncio.Task[None]] = []
-    background_tasks.append(asyncio.create_task(ops_alert_loop(settings), name="dispatcher-ops-alerts"))
-    background_tasks.append(asyncio.create_task(outbox_purge_loop(settings), name="dispatcher-outbox-retention"))
+    if settings.dispatcher_metrics_enabled:
+        background_tasks.append(
+            asyncio.create_task(
+                ops_metrics_loop(settings), name="dispatcher-ops-metrics"
+            )
+        )
+    background_tasks.append(
+        asyncio.create_task(ops_alert_loop(settings), name="dispatcher-ops-alerts")
+    )
+    background_tasks.append(
+        asyncio.create_task(
+            outbox_purge_loop(settings), name="dispatcher-outbox-retention"
+        )
+    )
 
     try:
         async with httpx.AsyncClient(cert=cert, verify=verify) as client:
@@ -259,7 +289,11 @@ async def dispatcher_loop() -> None:
 
                 if delivery_ids:
                     await asyncio.gather(*[_run(did) for did in delivery_ids])
-                    logger.info("deliveries_processed count=%s dispatcher_id=%s", len(delivery_ids), dispatcher_id)
+                    logger.info(
+                        "deliveries_processed count=%s dispatcher_id=%s",
+                        len(delivery_ids),
+                        dispatcher_id,
+                    )
 
                 await asyncio.sleep(settings.dispatcher_poll_seconds)
     finally:

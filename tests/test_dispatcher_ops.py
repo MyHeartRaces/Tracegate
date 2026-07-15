@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import sys
 import types
 from datetime import datetime, timedelta, timezone
@@ -7,7 +8,7 @@ from types import SimpleNamespace
 
 import pytest
 
- 
+
 class _MetricStub:
     def labels(self, *args, **kwargs):
         return self
@@ -57,13 +58,27 @@ async def test_process_alerts_sends_immediately_and_resolves(monkeypatch) -> Non
 
     settings = Settings(bot_token="test-token")
     state = ops._OpsState(initialized=True)
-    active = {"disk_high:transit-1": "Disk usage high on transit-1: 92.0% (threshold=80.0%)"}
+    active = {
+        "disk_high:transit-1": "Disk usage high on transit-1: 92.0% (threshold=80.0%)"
+    }
 
-    await ops._process_alerts(settings=settings, state=state, active_alerts=active, instant_events=[], http_client=SimpleNamespace())
+    await ops._process_alerts(
+        settings=settings,
+        state=state,
+        active_alerts=active,
+        instant_events=[],
+        http_client=SimpleNamespace(),
+    )
     assert len(sent) == 1
     assert sent[0].startswith("❗ OPS Alert")
 
-    await ops._process_alerts(settings=settings, state=state, active_alerts={}, instant_events=[], http_client=SimpleNamespace())
+    await ops._process_alerts(
+        settings=settings,
+        state=state,
+        active_alerts={},
+        instant_events=[],
+        http_client=SimpleNamespace(),
+    )
     assert len(sent) == 2
     assert sent[1].startswith("✅ OPS Resolved")
 
@@ -73,9 +88,13 @@ async def test_collect_alerts_merges_outbox_and_disk_checks(monkeypatch) -> None
     async def _outbox_snapshot() -> tuple[dict[str, int], int]:
         return {"DEAD": 2}, 0
 
-    async def _disk_alerts(*, settings: Settings, state: ops._OpsState, http_client) -> dict[str, str]:
+    async def _disk_alerts(
+        *, settings: Settings, state: ops._OpsState, http_client
+    ) -> dict[str, str]:
         assert settings.dispatcher_ops_alerts_disk_enabled is True
-        return {"disk_high:transit-1": "Disk usage high on transit-1: 92.0% (threshold=80.0%)"}
+        return {
+            "disk_high:transit-1": "Disk usage high on transit-1: 92.0% (threshold=80.0%)"
+        }
 
     monkeypatch.setattr(ops, "_outbox_delivery_health_snapshot", _outbox_snapshot)
     monkeypatch.setattr(ops, "_collect_disk_alerts", _disk_alerts)
@@ -95,3 +114,27 @@ async def test_collect_alerts_merges_outbox_and_disk_checks(monkeypatch) -> None
         "outbox_dead": "Outbox DEAD deliveries > threshold: 2 (threshold=0)",
         "disk_high:transit-1": "Disk usage high on transit-1: 92.0% (threshold=80.0%)",
     }
+
+
+@pytest.mark.asyncio
+async def test_ops_metrics_loop_updates_outbox_without_alerts(monkeypatch) -> None:
+    updates: list[tuple[dict[str, int], int]] = []
+
+    async def _outbox_snapshot() -> tuple[dict[str, int], int]:
+        return {"PENDING": 1, "FAILED": 2}, 3
+
+    async def _stop_after_first_tick(_seconds: int) -> None:
+        raise asyncio.CancelledError
+
+    monkeypatch.setattr(ops, "_outbox_delivery_health_snapshot", _outbox_snapshot)
+    monkeypatch.setattr(
+        ops,
+        "_update_outbox_delivery_gauges",
+        lambda counts, pending: updates.append((counts, pending)),
+    )
+    monkeypatch.setattr(ops.asyncio, "sleep", _stop_after_first_tick)
+
+    with pytest.raises(asyncio.CancelledError):
+        await ops.ops_metrics_loop(Settings(dispatcher_ops_alerts_enabled=False))
+
+    assert updates == [({"PENDING": 1, "FAILED": 2}, 3)]

@@ -42,14 +42,21 @@ def _query_xray_user_traffic_bytes(settings: Settings) -> dict[str, dict[str, in
     if str(settings.agent_role or "").strip().upper() != "TRANSIT":
         return merged
     secondary_target = str(settings.agent_xray_ss2022_api_server or "").strip()
-    if not secondary_target or secondary_target == str(settings.agent_xray_api_server or "").strip():
+    if (
+        not secondary_target
+        or secondary_target == str(settings.agent_xray_api_server or "").strip()
+    ):
         return merged
-    secondary_settings = settings.model_copy(update={"agent_xray_api_server": secondary_target})
+    secondary_settings = settings.model_copy(
+        update={"agent_xray_api_server": secondary_target}
+    )
     secondary = query_user_traffic_bytes(secondary_settings, reset=False)
     for marker, row in secondary.items():
         bucket = merged.setdefault(marker, {"uplink": 0, "downlink": 0})
         bucket["uplink"] = int(bucket.get("uplink") or 0) + int(row.get("uplink") or 0)
-        bucket["downlink"] = int(bucket.get("downlink") or 0) + int(row.get("downlink") or 0)
+        bucket["downlink"] = int(bucket.get("downlink") or 0) + int(
+            row.get("downlink") or 0
+        )
     return merged
 
 
@@ -72,7 +79,9 @@ def _fetch_hysteria_traffic_bytes(url: str, secret: str) -> dict[str, dict[str, 
     url_s = str(url or "").strip()
     secret_s = str(secret or "").strip()
     if not url_s or not secret_s:
-        raise ValueError("AGENT_STATS_URL/AGENT_STATS_SECRET are required for hysteria stats scrape")
+        raise ValueError(
+            "AGENT_STATS_URL/AGENT_STATS_SECRET are required for hysteria stats scrape"
+        )
 
     r = httpx.get(url_s, headers={"Authorization": secret_s}, timeout=5)
     r.raise_for_status()
@@ -101,11 +110,16 @@ def _fetch_mtproto_user_traffic_bytes(url: str) -> dict[str, int]:
     response = httpx.get(str(url or "").strip(), timeout=5)
     response.raise_for_status()
     payload = response.json()
-    if isinstance(payload, dict) and isinstance(payload.get("data"), dict):
+    # Telemt currently wraps the rows as {"data": [...]}; older builds used
+    # {"data": {"users": [...]}}.  Accept both response shapes.
+    if isinstance(payload, dict) and isinstance(payload.get("data"), (dict, list)):
         payload = payload["data"]
     rows = payload.get("users") if isinstance(payload, dict) else payload
     if isinstance(rows, dict):
-        rows = [{"username": key, **(value if isinstance(value, dict) else {})} for key, value in rows.items()]
+        rows = [
+            {"username": key, **(value if isinstance(value, dict) else {})}
+            for key, value in rows.items()
+        ]
     if not isinstance(rows, list):
         return {}
     result: dict[str, int] = {}
@@ -116,7 +130,9 @@ def _fetch_mtproto_user_traffic_bytes(url: str) -> dict[str, int]:
         if not username.startswith("tg_") or not username[3:].isdigit():
             continue
         try:
-            result[username[3:]] = max(0, int(row.get("total_octets") or row.get("totalOctets") or 0))
+            result[username[3:]] = max(
+                0, int(row.get("total_octets") or row.get("totalOctets") or 0)
+            )
         except (TypeError, ValueError):
             continue
     return result
@@ -129,7 +145,9 @@ def _wireguard_connection_traffic_bytes(state_path: Path) -> dict[str, tuple[int
     for row in _list_value(state, "wireguardWSTunnel"):
         if not isinstance(row, dict):
             continue
-        wireguard = row.get("wireguard") if isinstance(row.get("wireguard"), dict) else {}
+        wireguard = (
+            row.get("wireguard") if isinstance(row.get("wireguard"), dict) else {}
+        )
         public_key = str(wireguard.get("clientPublicKey") or "").strip()
         variant = str(row.get("variant") or "V0").strip() or "V0"
         user_id = str(row.get("userId") or "").strip()
@@ -162,7 +180,10 @@ def _wireguard_connection_traffic_bytes(state_path: Path) -> dict[str, tuple[int
         else:
             continue
         try:
-            result[peers[public_key]] = (max(0, int(fields[rx_index])), max(0, int(fields[tx_index])))
+            result[peers[public_key]] = (
+                max(0, int(fields[rx_index])),
+                max(0, int(fields[tx_index])),
+            )
         except (TypeError, ValueError):
             continue
     return result
@@ -280,7 +301,12 @@ def _obfuscation_runtime_state(settings: Settings) -> dict[str, object] | None:
     role_lower = str(settings.agent_role or "").strip().lower()
     if not role_lower:
         return None
-    path = Path(effective_private_runtime_root(settings)) / "obfuscation" / role_lower / "runtime-state.json"
+    path = (
+        Path(effective_private_runtime_root(settings))
+        / "obfuscation"
+        / role_lower
+        / "runtime-state.json"
+    )
     return _load_json_mapping(path)
 
 
@@ -292,7 +318,9 @@ class AgentMetricsCollector:
 
     def collect(self):  # noqa: ANN201
         role_label = str(self.settings.agent_role)
-        info = GaugeMetricFamily("tracegate_agent_info", "Tracegate agent info", labels=["role"])
+        info = GaugeMetricFamily(
+            "tracegate_agent_info", "Tracegate agent info", labels=["role"]
+        )
         info.add_metric([role_label], 1)
         yield info
 
@@ -301,7 +329,12 @@ class AgentMetricsCollector:
             "Number of on-disk artifacts managed by the agent",
             labels=["kind"],
         )
-        artifacts.add_metric(["users"], sum(1 for _ in (self.root / "users").rglob("connection-*.json")) if (self.root / "users").exists() else 0)
+        artifacts.add_metric(
+            ["users"],
+            sum(1 for _ in (self.root / "users").rglob("connection-*.json"))
+            if (self.root / "users").exists()
+            else 0,
+        )
         yield artifacts
 
         runtime_contract = _runtime_contract_payload(self.root)
@@ -314,7 +347,9 @@ class AgentMetricsCollector:
             "Whether runtime-contract.json is present and parseable",
             labels=["role"],
         )
-        runtime_contract_present.add_metric([role_label], 1 if runtime_contract is not None else 0)
+        runtime_contract_present.add_metric(
+            [role_label], 1 if runtime_contract is not None else 0
+        )
         yield runtime_contract_present
 
         runtime_profile = GaugeMetricFamily(
@@ -322,7 +357,12 @@ class AgentMetricsCollector:
             "Runtime profile advertised by the current agent",
             labels=["role", "profile"],
         )
-        profile_label = str(runtime_contract.get("runtimeProfile") if runtime_contract else "").strip() or self.runtime_contract.name
+        profile_label = (
+            str(
+                runtime_contract.get("runtimeProfile") if runtime_contract else ""
+            ).strip()
+            or self.runtime_contract.name
+        )
         runtime_profile.add_metric([role_label, profile_label], 1)
         yield runtime_profile
 
@@ -331,10 +371,21 @@ class AgentMetricsCollector:
             "Boolean runtime feature flags derived from runtime-contract.json",
             labels=["role", "feature"],
         )
-        runtime_features.add_metric([role_label, "finalmask"], 1 if bool(xray_block.get("finalMaskEnabled", False)) else 0)
-        runtime_features.add_metric([role_label, "ech"], 1 if bool(xray_block.get("echEnabled", False)) else 0)
-        runtime_features.add_metric([role_label, "mtproto_domain"], 1 if str(fronting_block.get("mtprotoDomain") or "").strip() else 0)
-        runtime_features.add_metric([role_label, "touch_udp_443"], 1 if bool(fronting_block.get("touchUdp443", False)) else 0)
+        runtime_features.add_metric(
+            [role_label, "finalmask"],
+            1 if bool(xray_block.get("finalMaskEnabled", False)) else 0,
+        )
+        runtime_features.add_metric(
+            [role_label, "ech"], 1 if bool(xray_block.get("echEnabled", False)) else 0
+        )
+        runtime_features.add_metric(
+            [role_label, "mtproto_domain"],
+            1 if str(fronting_block.get("mtprotoDomain") or "").strip() else 0,
+        )
+        runtime_features.add_metric(
+            [role_label, "touch_udp_443"],
+            1 if bool(fronting_block.get("touchUdp443", False)) else 0,
+        )
         yield runtime_features
 
         fronting_owner = GaugeMetricFamily(
@@ -358,7 +409,9 @@ class AgentMetricsCollector:
             "Whether the private obfuscation runtime-state.json handoff is present and parseable",
             labels=["role"],
         )
-        obfuscation_state_present.add_metric([role_label], 1 if obfuscation_state is not None else 0)
+        obfuscation_state_present.add_metric(
+            [role_label], 1 if obfuscation_state is not None else 0
+        )
         yield obfuscation_state_present
 
         obfuscation_backend = GaugeMetricFamily(
@@ -366,7 +419,9 @@ class AgentMetricsCollector:
             "Private obfuscation backend advertised by runtime-state.json",
             labels=["role", "backend"],
         )
-        backend = str(obfuscation_state.get("backend") if obfuscation_state else "").strip()
+        backend = str(
+            obfuscation_state.get("backend") if obfuscation_state else ""
+        ).strip()
         if backend:
             obfuscation_backend.add_metric([role_label, backend], 1)
         yield obfuscation_backend
@@ -407,7 +462,9 @@ class AgentMetricsCollector:
             yield host_net
 
         # Xray per-connection traffic stats (bytes are counters exported by StatsService).
-        xray_ok = GaugeMetricFamily("tracegate_xray_stats_scrape_ok", "Xray stats scrape status (1=ok, 0=error)")
+        xray_ok = GaugeMetricFamily(
+            "tracegate_xray_stats_scrape_ok", "Xray stats scrape status (1=ok, 0=error)"
+        )
         xray_rx = GaugeMetricFamily(
             "tracegate_xray_connection_rx_bytes",
             "Xray connection received bytes (uplink, server RX)",
@@ -431,7 +488,10 @@ class AgentMetricsCollector:
             marker_s = str(marker or "").strip()
             if not marker_s or not isinstance(row, dict):
                 continue
-            if self.runtime_contract.hysteria_metrics_source == "xray_stats" and _marker_belongs_to_hysteria(marker_s):
+            if (
+                self.runtime_contract.hysteria_metrics_source == "xray_stats"
+                and _marker_belongs_to_hysteria(marker_s)
+            ):
                 continue
             # Xray uses "uplink/downlink" naming for user stats.
             # Map to server RX/TX to match WG/Hysteria dashboards.
@@ -458,7 +518,11 @@ class AgentMetricsCollector:
         )
         try:
             mtproto_rows = _fetch_mtproto_user_traffic_bytes(
-                getattr(self.settings, "agent_mtproto_stats_url", "http://127.0.0.1:9091/v1/stats/users")
+                getattr(
+                    self.settings,
+                    "agent_mtproto_stats_url",
+                    "http://127.0.0.1:9091/v1/stats/users",
+                )
             )
             mtproto_ok.add_metric([], 1)
         except Exception:
@@ -484,7 +548,12 @@ class AgentMetricsCollector:
             labels=["connection_marker"],
         )
         role_lower = str(self.settings.agent_role or "").strip().lower()
-        wg_state_path = Path(effective_private_runtime_root(self.settings)) / "profiles" / role_lower / "desired-state.json"
+        wg_state_path = (
+            Path(effective_private_runtime_root(self.settings))
+            / "profiles"
+            / role_lower
+            / "desired-state.json"
+        )
         try:
             wg_rows = _wireguard_connection_traffic_bytes(wg_state_path)
             wg_ok.add_metric([], 1)
@@ -499,11 +568,17 @@ class AgentMetricsCollector:
         yield wg_tx
 
         is_transit = str(self.settings.agent_role) == "TRANSIT"
-        if not is_transit and self.runtime_contract.hysteria_metrics_source != "xray_stats":
+        if (
+            not is_transit
+            and self.runtime_contract.hysteria_metrics_source != "xray_stats"
+        ):
             return
 
         # Hysteria2 per-connection traffic stats (bytes are counters reported by Traffic Stats API).
-        hyst_ok = GaugeMetricFamily("tracegate_hysteria_stats_scrape_ok", "Hysteria2 stats scrape status (1=ok, 0=error)")
+        hyst_ok = GaugeMetricFamily(
+            "tracegate_hysteria_stats_scrape_ok",
+            "Hysteria2 stats scrape status (1=ok, 0=error)",
+        )
         hyst_rx = GaugeMetricFamily(
             "tracegate_hysteria_connection_rx_bytes",
             "Hysteria2 connection received bytes (server RX)",
@@ -535,7 +610,11 @@ class AgentMetricsCollector:
             hyst_ok.add_metric([], 1 if xray_scrape_ok and inbound_scrape_ok else 0)
             for marker, row in (traffic or {}).items():
                 marker_s = normalize_hysteria_connection_marker(marker)
-                if not marker_s or not isinstance(row, dict) or not _marker_belongs_to_hysteria(marker_s):
+                if (
+                    not marker_s
+                    or not isinstance(row, dict)
+                    or not _marker_belongs_to_hysteria(marker_s)
+                ):
                     continue
                 try:
                     rx_bytes = int(row.get("uplink") or 0)
@@ -546,7 +625,11 @@ class AgentMetricsCollector:
                 hyst_tx.add_metric([marker_s], tx_bytes)
             for inbound_tag, row in (inbound_traffic or {}).items():
                 inbound_tag_s = str(inbound_tag or "").strip()
-                if not inbound_tag_s or not isinstance(row, dict) or not _inbound_belongs_to_hysteria(inbound_tag_s):
+                if (
+                    not inbound_tag_s
+                    or not isinstance(row, dict)
+                    or not _inbound_belongs_to_hysteria(inbound_tag_s)
+                ):
                     continue
                 try:
                     rx_bytes = int(row.get("uplink") or 0)
@@ -557,7 +640,9 @@ class AgentMetricsCollector:
                 hyst_inbound_tx.add_metric([inbound_tag_s], tx_bytes)
         else:
             try:
-                traffic = _fetch_hysteria_traffic_bytes(self.settings.agent_stats_url, self.settings.agent_stats_secret)
+                traffic = _fetch_hysteria_traffic_bytes(
+                    self.settings.agent_stats_url, self.settings.agent_stats_secret
+                )
                 hyst_ok.add_metric([], 1)
             except Exception:
                 hyst_ok.add_metric([], 0)

@@ -112,7 +112,6 @@ def _dashboard_megabytes(builder):  # noqa: ANN001, ANN201
         ds_uid = str(args[0] if args else kwargs.get("ds_uid") or "")
         if uid in {"tracegate-user", "tracegate-admin-dashboard"}:
             user_scoped = uid == "tracegate-user"
-            user_filter = '{user_pid="${__user.login}"}' if user_scoped else ""
             panels = dashboard.setdefault("panels", [])
             max_y = (
                 max(
@@ -162,10 +161,8 @@ def _dashboard_megabytes(builder):  # noqa: ANN001, ANN201
                         "targets": [
                             {
                                 "refId": "A",
-                                "expr": (
-                                    "sum by (user_handle) (rate(tracegate_mtproto_user_traffic_bytes[5m]) "
-                                    "* on(telegram_id) group_left(user_pid, user_handle) max by "
-                                    f"(telegram_id, user_pid, user_handle) (tracegate_mtproto_access_active{user_filter}))"
+                                "expr": _telegram_proxy_rate_expr(
+                                    user_scoped=user_scoped
                                 ),
                                 "legendFormat": "{{user_handle}}",
                             }
@@ -285,6 +282,48 @@ def _connection_protocol_rate_expr(metric: str, *, direction: str) -> str:
     )
     active_zero = "0 * max by (protocol, mode, variant) (tracegate_connection_active)"
     return f"({measured}) or ({active_zero})"
+
+
+def _telegram_proxy_rate_expr(*, user_scoped: bool) -> str:
+    user_filter = '{user_pid="${__user.login}"}' if user_scoped else ""
+    active = f"tracegate_mtproto_access_active{user_filter}"
+    measured = (
+        "sum by (user_handle) (rate(tracegate_mtproto_user_traffic_bytes[5m]) "
+        "* on(telegram_id) group_left(user_pid, user_handle) max by "
+        f"(telegram_id, user_pid, user_handle) ({active}))"
+    )
+    active_zero = f"0 * max by (user_handle) ({active})"
+    return f"({measured}) or ({active_zero})"
+
+
+_TRACEGATE_PROCESS_SELECTOR = (
+    'namespace="tracegate",job=~"tracegate-(api|bot|agent|dispatcher)"'
+)
+
+
+def _tracegate_process_cpu_expr() -> str:
+    return (
+        "sum by (node, job, instance) "
+        f"(rate(process_cpu_seconds_total{{{_TRACEGATE_PROCESS_SELECTOR}}}[5m]))"
+    )
+
+
+def _tracegate_process_memory_expr() -> str:
+    return (
+        "sum by (node, job, instance) "
+        f"(process_resident_memory_bytes{{{_TRACEGATE_PROCESS_SELECTOR}}})"
+    )
+
+
+def _tracegate_host_network_rate_expr(direction: str, *, nodes: str = ".+") -> str:
+    normalized = str(direction or "").strip().lower()
+    if normalized not in {"rx", "tx"}:
+        raise ValueError(f"unsupported Tracegate host network direction: {direction!r}")
+    return (
+        "sum by (node, interface) "
+        f'(rate(tracegate_host_network_bytes_total{{job="tracegate-agent",node=~"{nodes}",'
+        f'direction="{normalized}",interface!~"lo|docker.*|br-.*|veth.*"}}[5m]))'
+    )
 
 
 _NODE_EXPORTER_SELECTOR = 'job="tracegate-node-exporter"'
@@ -2046,13 +2085,13 @@ def _dashboard_admin(ds_uid: str) -> dict[str, Any]:
             {
                 "id": 17,
                 "type": "timeseries",
-                "title": "Gateway pod CPU usage",
+                "title": "Tracegate process CPU usage",
                 "datasource": _ds(ds_uid),
                 "targets": [
                     {
                         "refId": "A",
-                        "expr": 'sum by (pod, container) (rate(container_cpu_usage_seconds_total{namespace="tracegate",pod=~"tracegate-.*gateway.*",container!="POD",container!=""}[5m]))',
-                        "legendFormat": "{{pod}} / {{container}}",
+                        "expr": _tracegate_process_cpu_expr(),
+                        "legendFormat": "{{node}} / {{job}}",
                     }
                 ],
                 "gridPos": {"h": 8, "w": 12, "x": 0, "y": 74},
@@ -2060,13 +2099,13 @@ def _dashboard_admin(ds_uid: str) -> dict[str, Any]:
             {
                 "id": 18,
                 "type": "timeseries",
-                "title": "Gateway pod memory working set",
+                "title": "Tracegate process resident memory",
                 "datasource": _ds(ds_uid),
                 "targets": [
                     {
                         "refId": "A",
-                        "expr": 'sum by (pod, container) (container_memory_working_set_bytes{namespace="tracegate",pod=~"tracegate-.*gateway.*",container!="POD",container!=""})',
-                        "legendFormat": "{{pod}} / {{container}}",
+                        "expr": _tracegate_process_memory_expr(),
+                        "legendFormat": "{{node}} / {{job}}",
                     }
                 ],
                 "fieldConfig": {"defaults": {"unit": "bytes"}, "overrides": []},
@@ -2075,18 +2114,18 @@ def _dashboard_admin(ds_uid: str) -> dict[str, Any]:
             {
                 "id": 19,
                 "type": "timeseries",
-                "title": "Gateway pod network RX/TX (bytes/s)",
+                "title": "Gateway host network RX/TX (bytes/s)",
                 "datasource": _ds(ds_uid),
                 "targets": [
                     {
                         "refId": "A",
-                        "expr": 'sum by (pod) (rate(container_network_receive_bytes_total{namespace="tracegate",pod=~"tracegate-.*gateway.*"}[5m]))',
-                        "legendFormat": "{{pod}} RX",
+                        "expr": _tracegate_host_network_rate_expr("rx"),
+                        "legendFormat": "{{node}} / {{interface}} RX",
                     },
                     {
                         "refId": "B",
-                        "expr": 'sum by (pod) (rate(container_network_transmit_bytes_total{namespace="tracegate",pod=~"tracegate-.*gateway.*"}[5m]))',
-                        "legendFormat": "{{pod}} TX",
+                        "expr": _tracegate_host_network_rate_expr("tx"),
+                        "legendFormat": "{{node}} / {{interface}} TX",
                     },
                 ],
                 "fieldConfig": {"defaults": {"unit": "Bps"}, "overrides": []},
@@ -2095,18 +2134,22 @@ def _dashboard_admin(ds_uid: str) -> dict[str, Any]:
             {
                 "id": 20,
                 "type": "timeseries",
-                "title": "Endpoint node network RX/TX (MTProto context)",
+                "title": "Entry/Endpoint network RX/TX (MTProto context)",
                 "datasource": _ds(ds_uid),
                 "targets": [
                     {
                         "refId": "A",
-                        "expr": 'sum by (instance) (rate(tracegate_host_network_bytes_total{job="tracegate-agent",component="gateway-transit",direction="rx",interface!="lo"}[5m]))',
-                        "legendFormat": "{{instance}} RX",
+                        "expr": _tracegate_host_network_rate_expr(
+                            "rx", nodes="entry|endpoint"
+                        ),
+                        "legendFormat": "{{node}} / {{interface}} RX",
                     },
                     {
                         "refId": "B",
-                        "expr": 'sum by (instance) (rate(tracegate_host_network_bytes_total{job="tracegate-agent",component="gateway-transit",direction="tx",interface!="lo"}[5m]))',
-                        "legendFormat": "{{instance}} TX",
+                        "expr": _tracegate_host_network_rate_expr(
+                            "tx", nodes="entry|endpoint"
+                        ),
+                        "legendFormat": "{{node}} / {{interface}} TX",
                     },
                 ],
                 "fieldConfig": {"defaults": {"unit": "Bps"}, "overrides": []},
@@ -2248,13 +2291,13 @@ def _dashboard_admin(ds_uid: str) -> dict[str, Any]:
             {
                 "id": 27,
                 "type": "timeseries",
-                "title": "Tracegate pod CPU by node",
+                "title": "Tracegate process CPU by node",
                 "datasource": _ds(ds_uid),
                 "targets": [
                     {
                         "refId": "A",
-                        "expr": 'sum by (node, pod, container) (rate(container_cpu_usage_seconds_total{namespace="tracegate",container!="POD",container!=""}[5m]))',
-                        "legendFormat": "{{node}} / {{pod}} / {{container}}",
+                        "expr": _tracegate_process_cpu_expr(),
+                        "legendFormat": "{{node}} / {{job}}",
                     }
                 ],
                 "gridPos": {"h": 8, "w": 12, "x": 0, "y": 114},
@@ -2262,18 +2305,18 @@ def _dashboard_admin(ds_uid: str) -> dict[str, Any]:
             {
                 "id": 28,
                 "type": "timeseries",
-                "title": "Tracegate pod network by node (bytes/s)",
+                "title": "Tracegate host network by node (bytes/s)",
                 "datasource": _ds(ds_uid),
                 "targets": [
                     {
                         "refId": "A",
-                        "expr": 'sum by (node, pod) (rate(container_network_receive_bytes_total{namespace="tracegate"}[5m]))',
-                        "legendFormat": "{{node}} / {{pod}} RX",
+                        "expr": _tracegate_host_network_rate_expr("rx"),
+                        "legendFormat": "{{node}} / {{interface}} RX",
                     },
                     {
                         "refId": "B",
-                        "expr": 'sum by (node, pod) (rate(container_network_transmit_bytes_total{namespace="tracegate"}[5m]))',
-                        "legendFormat": "{{node}} / {{pod}} TX",
+                        "expr": _tracegate_host_network_rate_expr("tx"),
+                        "legendFormat": "{{node}} / {{interface}} TX",
                     },
                 ],
                 "fieldConfig": {"defaults": {"unit": "Bps"}, "overrides": []},
@@ -2782,7 +2825,10 @@ def _dashboard_operator(ds_uid: str) -> dict[str, Any]:
                 "title": "Active OPS alerts",
                 "datasource": _ds(ds_uid),
                 "targets": [
-                    {"refId": "A", "expr": "tracegate_dispatcher_ops_active_alerts"}
+                    {
+                        "refId": "A",
+                        "expr": "tracegate_dispatcher_ops_active_alerts or vector(0)",
+                    }
                 ],
                 "options": {
                     "reduceOptions": {
@@ -2816,7 +2862,7 @@ def _dashboard_operator(ds_uid: str) -> dict[str, Any]:
                 "targets": [
                     {
                         "refId": "A",
-                        "expr": "tracegate_ops_outbox_pending_older_than_5m_deliveries",
+                        "expr": "tracegate_ops_outbox_pending_older_than_5m_deliveries or vector(0)",
                     }
                 ],
                 "options": {
@@ -3277,13 +3323,13 @@ def _dashboard_operator(ds_uid: str) -> dict[str, Any]:
             {
                 "id": 28,
                 "type": "timeseries",
-                "title": "Tracegate pod CPU by node",
+                "title": "Tracegate process CPU by node",
                 "datasource": _ds(ds_uid),
                 "targets": [
                     {
                         "refId": "A",
-                        "expr": 'sum by (node, pod, container) (rate(container_cpu_usage_seconds_total{namespace="tracegate",container!="POD",container!=""}[5m]))',
-                        "legendFormat": "{{node}} / {{pod}} / {{container}}",
+                        "expr": _tracegate_process_cpu_expr(),
+                        "legendFormat": "{{node}} / {{job}}",
                     }
                 ],
                 "gridPos": {"h": 8, "w": 12, "x": 0, "y": 104},
@@ -3291,18 +3337,18 @@ def _dashboard_operator(ds_uid: str) -> dict[str, Any]:
             {
                 "id": 29,
                 "type": "timeseries",
-                "title": "Tracegate pod network by node (bytes/s)",
+                "title": "Tracegate host network by node (bytes/s)",
                 "datasource": _ds(ds_uid),
                 "targets": [
                     {
                         "refId": "A",
-                        "expr": 'sum by (node, pod) (rate(container_network_receive_bytes_total{namespace="tracegate"}[5m]))',
-                        "legendFormat": "{{node}} / {{pod}} RX",
+                        "expr": _tracegate_host_network_rate_expr("rx"),
+                        "legendFormat": "{{node}} / {{interface}} RX",
                     },
                     {
                         "refId": "B",
-                        "expr": 'sum by (node, pod) (rate(container_network_transmit_bytes_total{namespace="tracegate"}[5m]))',
-                        "legendFormat": "{{node}} / {{pod}} TX",
+                        "expr": _tracegate_host_network_rate_expr("tx"),
+                        "legendFormat": "{{node}} / {{interface}} TX",
                     },
                 ],
                 "fieldConfig": {"defaults": {"unit": "Bps"}, "overrides": []},

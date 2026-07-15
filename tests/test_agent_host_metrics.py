@@ -88,3 +88,23 @@ def test_wireguard_dump_is_mapped_to_connection_marker(monkeypatch, tmp_path) ->
     assert m._wireguard_connection_traffic_bytes(state_path) == {
         "V0 - 123 - conn-1": (12000000, 34000000)
     }
+
+
+def test_mtproto_traffic_parser_accepts_current_telemt_data_list(monkeypatch) -> None:  # noqa: ANN001
+    from tracegate.agent import metrics as m
+
+    response = SimpleNamespace(
+        raise_for_status=lambda: None,
+        json=lambda: {
+            "ok": True,
+            "data": [
+                {"username": "tg_123456", "total_octets": 42},
+                {"username": "bootstrap", "total_octets": 100},
+            ],
+        },
+    )
+    monkeypatch.setattr("httpx.get", lambda *args, **kwargs: response)
+
+    assert m._fetch_mtproto_user_traffic_bytes("http://127.0.0.1/stats") == {
+        "123456": 42
+    }

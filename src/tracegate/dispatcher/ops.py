@@ -117,13 +117,19 @@ async def outbox_purge_loop(settings: Settings) -> None:
         except Exception:  # noqa: BLE001
             _OUTBOX_PURGE_RUNS_TOTAL.labels("error").inc()
             logger.exception("outbox_retention_failed")
-        await asyncio.sleep(max(60, int(settings.dispatcher_outbox_retention_interval_seconds)))
+        await asyncio.sleep(
+            max(60, int(settings.dispatcher_outbox_retention_interval_seconds))
+        )
 
 
 async def purge_outbox_history_once(settings: Settings) -> int:
     now = _utcnow()
-    sent_cutoff = now - timedelta(days=max(1, int(settings.dispatcher_outbox_retention_sent_days)))
-    failed_cutoff = now - timedelta(days=max(1, int(settings.dispatcher_outbox_retention_failed_days)))
+    sent_cutoff = now - timedelta(
+        days=max(1, int(settings.dispatcher_outbox_retention_sent_days))
+    )
+    failed_cutoff = now - timedelta(
+        days=max(1, int(settings.dispatcher_outbox_retention_failed_days))
+    )
     batch_size = max(1, int(settings.dispatcher_outbox_retention_batch_size))
     max_batches = max(1, int(settings.dispatcher_outbox_retention_max_batches_per_run))
 
@@ -162,16 +168,20 @@ async def _purge_outbox_batch(
 ) -> int:
     async with get_sessionmaker()() as session:
         ids = (
-            await session.execute(
-                select(OutboxEvent.id)
-                .where(
-                    OutboxEvent.status.in_(statuses),
-                    OutboxEvent.updated_at < updated_before,
+            (
+                await session.execute(
+                    select(OutboxEvent.id)
+                    .where(
+                        OutboxEvent.status.in_(statuses),
+                        OutboxEvent.updated_at < updated_before,
+                    )
+                    .order_by(OutboxEvent.updated_at.asc())
+                    .limit(batch_size)
                 )
-                .order_by(OutboxEvent.updated_at.asc())
-                .limit(batch_size)
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         if not ids:
             return 0
 
@@ -194,7 +204,9 @@ async def ops_alert_loop(settings: Settings) -> None:
         settings.dispatcher_ops_alerts_prometheus_url,
     )
 
-    async with httpx.AsyncClient(timeout=settings.dispatcher_ops_alerts_http_timeout_seconds) as http_client:
+    async with httpx.AsyncClient(
+        timeout=settings.dispatcher_ops_alerts_http_timeout_seconds
+    ) as http_client:
         while True:
             try:
                 active, instant_events = await _collect_alerts(
@@ -213,7 +225,22 @@ async def ops_alert_loop(settings: Settings) -> None:
             except Exception:  # noqa: BLE001
                 _OPS_CHECKS_TOTAL.labels("all", "error").inc()
                 logger.exception("ops_alerts_tick_failed")
-            await asyncio.sleep(max(15, int(settings.dispatcher_ops_alerts_poll_seconds)))
+            await asyncio.sleep(
+                max(15, int(settings.dispatcher_ops_alerts_poll_seconds))
+            )
+
+
+async def ops_metrics_loop(settings: Settings) -> None:
+    """Keep dashboard-only OPS gauges current without enabling notifications."""
+    if not settings.dispatcher_ops_alerts_enabled:
+        _OPS_ACTIVE_ALERTS.set(0)
+    while True:
+        try:
+            delivery_counts, pending_old = await _outbox_delivery_health_snapshot()
+            _update_outbox_delivery_gauges(delivery_counts, pending_old)
+        except Exception:  # noqa: BLE001
+            logger.exception("ops_metrics_tick_failed")
+        await asyncio.sleep(max(15, int(settings.dispatcher_ops_alerts_poll_seconds)))
 
 
 async def _collect_alerts(
@@ -231,7 +258,9 @@ async def _collect_alerts(
             _update_outbox_delivery_gauges(delivery_counts, pending_old)
             dead_count = int(delivery_counts.get("DEAD", 0))
             _OPS_CHECKS_TOTAL.labels("outbox_dead", "ok").inc()
-            if dead_count > max(0, int(settings.dispatcher_ops_alerts_outbox_dead_threshold)):
+            if dead_count > max(
+                0, int(settings.dispatcher_ops_alerts_outbox_dead_threshold)
+            ):
                 active["outbox_dead"] = (
                     f"Outbox DEAD deliveries > threshold: {dead_count} "
                     f"(threshold={int(settings.dispatcher_ops_alerts_outbox_dead_threshold)})"
@@ -241,7 +270,9 @@ async def _collect_alerts(
             logger.exception("ops_check_outbox_dead_failed")
 
     if settings.dispatcher_ops_alerts_disk_enabled:
-        disk_active = await _collect_disk_alerts(settings=settings, state=state, http_client=http_client)
+        disk_active = await _collect_disk_alerts(
+            settings=settings, state=state, http_client=http_client
+        )
         active.update(disk_active)
 
     return active, instant_events
@@ -253,36 +284,48 @@ async def _outbox_delivery_health_snapshot() -> tuple[dict[str, int], int]:
     async with get_sessionmaker()() as session:
         rows = (
             await session.execute(
-                select(OutboxDelivery.status, func.count())
-                .group_by(OutboxDelivery.status)
+                select(OutboxDelivery.status, func.count()).group_by(
+                    OutboxDelivery.status
+                )
             )
         ).all()
         pending_old = int(
             (
                 await session.execute(
                     select(func.count(OutboxDelivery.id)).where(
-                        OutboxDelivery.status.in_([DeliveryStatus.PENDING, DeliveryStatus.FAILED]),
+                        OutboxDelivery.status.in_(
+                            [DeliveryStatus.PENDING, DeliveryStatus.FAILED]
+                        ),
                         OutboxDelivery.created_at < cutoff,
                     )
                 )
             ).scalar_one()
             or 0
         )
-    counts = {str(status.name if hasattr(status, "name") else status): int(count) for (status, count) in rows}
+    counts = {
+        str(status.name if hasattr(status, "name") else status): int(count)
+        for (status, count) in rows
+    }
     return counts, pending_old
 
 
 def _update_outbox_delivery_gauges(counts: dict[str, int], pending_old: int) -> None:
     for status_name in ["PENDING", "SENT", "FAILED", "DEAD"]:
-        _OPS_OUTBOX_DELIVERIES.labels(status_name).set(float(int(counts.get(status_name, 0))))
+        _OPS_OUTBOX_DELIVERIES.labels(status_name).set(
+            float(int(counts.get(status_name, 0)))
+        )
     _OPS_OUTBOX_PENDING_OLDER_THAN_5M.set(float(max(0, int(pending_old))))
 
 
-async def _collect_disk_alerts(*, settings: Settings, state: _OpsState, http_client: httpx.AsyncClient) -> dict[str, str]:
+async def _collect_disk_alerts(
+    *, settings: Settings, state: _OpsState, http_client: httpx.AsyncClient
+) -> dict[str, str]:
     threshold = float(settings.dispatcher_ops_alerts_disk_threshold_percent)
     prom_url = str(settings.dispatcher_ops_alerts_prometheus_url or "").strip()
     if not prom_url:
-        return {"disk_alerts_config": "Disk alert check is enabled but PROMETHEUS URL is empty"}
+        return {
+            "disk_alerts_config": "Disk alert check is enabled but PROMETHEUS URL is empty"
+        }
 
     query = (
         '100 * (1 - (max by (instance) (node_filesystem_avail_bytes{job="tracegate-node-exporter",mountpoint="/",'
@@ -291,7 +334,11 @@ async def _collect_disk_alerts(*, settings: Settings, state: _OpsState, http_cli
     )
     endpoint = prom_url.rstrip("/") + "/api/v1/query"
     try:
-        response = await http_client.get(endpoint, params={"query": query}, timeout=settings.dispatcher_ops_alerts_http_timeout_seconds)
+        response = await http_client.get(
+            endpoint,
+            params={"query": query},
+            timeout=settings.dispatcher_ops_alerts_http_timeout_seconds,
+        )
         response.raise_for_status()
         payload = response.json()
         _OPS_CHECKS_TOTAL.labels("disk_prometheus", "ok").inc()
@@ -302,7 +349,9 @@ async def _collect_disk_alerts(*, settings: Settings, state: _OpsState, http_cli
 
     data = payload.get("data") or {}
     if payload.get("status") != "success" or data.get("resultType") != "vector":
-        return {"disk_check_prometheus_payload": "Prometheus disk query returned unexpected payload"}
+        return {
+            "disk_check_prometheus_payload": "Prometheus disk query returned unexpected payload"
+        }
 
     active: dict[str, str] = {}
     seen_instances: set[str] = set()
@@ -340,17 +389,23 @@ async def _process_alerts(
     http_client: httpx.AsyncClient,
 ) -> None:
     now = _utcnow()
-    messages: list[tuple[str, str, list[str]]] = []  # (kind, text, active_keys_to_touch)
+    messages: list[
+        tuple[str, str, list[str]]
+    ] = []  # (kind, text, active_keys_to_touch)
 
     for text in instant_events:
         messages.append(("alert", _ops_alert_text("alert", text), []))
 
     if not state.initialized and settings.dispatcher_ops_alerts_suppress_initial:
-        state.active_alerts = {k: _ActiveAlert(text=v, since=now) for (k, v) in active_alerts.items()}
+        state.active_alerts = {
+            k: _ActiveAlert(text=v, since=now) for (k, v) in active_alerts.items()
+        }
         state.initialized = True
         _OPS_ACTIVE_ALERTS.set(len(state.active_alerts))
         if state.active_alerts:
-            logger.info("ops_alerts_baseline_suppressed count=%s", len(state.active_alerts))
+            logger.info(
+                "ops_alerts_baseline_suppressed count=%s", len(state.active_alerts)
+            )
         return
 
     for key, text in sorted(active_alerts.items()):
@@ -380,9 +435,18 @@ async def _process_alerts(
         prev = state.active_alerts.pop(key, None)
         if prev is None:
             continue
-        if settings.dispatcher_ops_alerts_send_resolved and prev.last_sent_at is not None:
+        if (
+            settings.dispatcher_ops_alerts_send_resolved
+            and prev.last_sent_at is not None
+        ):
             duration = int(max(0.0, (now - prev.since).total_seconds()))
-            messages.append(("resolved", _ops_alert_text("resolved", f"{prev.text} (for {duration}s)"), []))
+            messages.append(
+                (
+                    "resolved",
+                    _ops_alert_text("resolved", f"{prev.text} (for {duration}s)"),
+                    [],
+                )
+            )
 
     state.initialized = True
     _OPS_ACTIVE_ALERTS.set(len(state.active_alerts))
@@ -390,12 +454,18 @@ async def _process_alerts(
     if not messages:
         return
     if not settings.bot_token:
-        logger.warning("ops_alerts_messages_dropped reason=missing_bot_token count=%s", len(messages))
+        logger.warning(
+            "ops_alerts_messages_dropped reason=missing_bot_token count=%s",
+            len(messages),
+        )
         return
 
     recipients = await _load_admin_chat_ids(settings)
     if not recipients:
-        logger.warning("ops_alerts_messages_dropped reason=no_admin_recipients count=%s", len(messages))
+        logger.warning(
+            "ops_alerts_messages_dropped reason=no_admin_recipients count=%s",
+            len(messages),
+        )
         return
 
     for kind, text, touched_keys in messages:
@@ -411,18 +481,38 @@ async def _process_alerts(
                     state.active_alerts[key].last_sent_at = now
         _OPS_ALERT_MESSAGES_TOTAL.labels(kind, "ok" if sent else "error").inc()
         if sent:
-            logger.info("ops_alert_sent kind=%s recipients=%s text=%s", kind, len(recipients), text)
+            logger.info(
+                "ops_alert_sent kind=%s recipients=%s text=%s",
+                kind,
+                len(recipients),
+                text,
+            )
         else:
-            logger.warning("ops_alert_send_failed kind=%s recipients=%s text=%s", kind, len(recipients), text)
+            logger.warning(
+                "ops_alert_send_failed kind=%s recipients=%s text=%s",
+                kind,
+                len(recipients),
+                text,
+            )
 
 
 async def _load_admin_chat_ids(settings: Settings) -> list[int]:
     role_values = [UserRole.ADMIN, UserRole.SUPERADMIN]
-    ids: set[int] = set(int(x) for x in (settings.superadmin_telegram_ids or []) if int(x) > 0)
+    ids: set[int] = set(
+        int(x) for x in (settings.superadmin_telegram_ids or []) if int(x) > 0
+    )
     async with get_sessionmaker()() as session:
         rows = (
-            await session.execute(select(User.telegram_id).where(User.role.in_(role_values)).order_by(User.telegram_id.asc()))
-        ).scalars().all()
+            (
+                await session.execute(
+                    select(User.telegram_id)
+                    .where(User.role.in_(role_values))
+                    .order_by(User.telegram_id.asc())
+                )
+            )
+            .scalars()
+            .all()
+        )
         ids.update(int(row) for row in rows if int(row) > 0)
     return sorted(ids)
 
@@ -436,7 +526,9 @@ async def _send_to_recipients(
 ) -> bool:
     ok_all = True
     for chat_id in recipients:
-        ok = await _send_telegram_message(http_client=http_client, bot_token=bot_token, chat_id=chat_id, text=text)
+        ok = await _send_telegram_message(
+            http_client=http_client, bot_token=bot_token, chat_id=chat_id, text=text
+        )
         ok_all = ok_all and ok
     return ok_all
 
@@ -461,7 +553,10 @@ async def _send_telegram_message(
             if response.status_code == 429 and attempt == 0:
                 retry_after = 1
                 try:
-                    retry_after = int((response.json().get("parameters") or {}).get("retry_after") or 1)
+                    retry_after = int(
+                        (response.json().get("parameters") or {}).get("retry_after")
+                        or 1
+                    )
                 except Exception:  # noqa: BLE001
                     retry_after = 1
                 await asyncio.sleep(max(1, min(5, retry_after)))

@@ -27,7 +27,9 @@ def test_export_vless_reality_uri() -> None:
     }
     out = export_client_config(effective)
     assert out.kind == "uri"
-    assert out.content.startswith("vless://11111111-2222-3333-4444-555555555555@t.example.com:443?")
+    assert out.content.startswith(
+        "vless://11111111-2222-3333-4444-555555555555@t.example.com:443?"
+    )
     assert "security=reality" in out.content
     assert "type=tcp" in out.content
     assert "flow=xtls-rprx-vision" in out.content
@@ -42,13 +44,27 @@ def test_export_vless_reality_uri() -> None:
     assert "Username: tg_" in local_socks
     attachment = json.loads((out.attachment_content or b"").decode("utf-8"))
     assert attachment["inbounds"][0]["settings"]["auth"] == "password"
-    assert attachment["inbounds"][0]["settings"]["accounts"][0]["user"].startswith("tg_")
+    assert attachment["inbounds"][0]["settings"]["accounts"][0]["user"].startswith(
+        "tg_"
+    )
     assert attachment["inbounds"][0]["settings"]["accounts"][0]["pass"]
     assert attachment["outbounds"][0]["streamSettings"]["network"] == "raw"
-    assert attachment["outbounds"][0]["settings"]["vnext"][0]["users"][0]["flow"] == "xtls-rprx-vision"
-    assert attachment["outbounds"][0]["streamSettings"]["realitySettings"]["serverName"] == "yandex.ru"
-    assert attachment["outbounds"][0]["streamSettings"]["realitySettings"]["password"] == "PUBKEY"
-    assert "publicKey" not in attachment["outbounds"][0]["streamSettings"]["realitySettings"]
+    assert (
+        attachment["outbounds"][0]["settings"]["vnext"][0]["users"][0]["flow"]
+        == "xtls-rprx-vision"
+    )
+    assert (
+        attachment["outbounds"][0]["streamSettings"]["realitySettings"]["serverName"]
+        == "yandex.ru"
+    )
+    assert (
+        attachment["outbounds"][0]["streamSettings"]["realitySettings"]["password"]
+        == "PUBKEY"
+    )
+    assert (
+        "publicKey"
+        not in attachment["outbounds"][0]["streamSettings"]["realitySettings"]
+    )
 
 
 def test_export_vless_reality_rejects_removed_vless_encryption() -> None:
@@ -108,7 +124,9 @@ def test_export_hysteria2_uri() -> None:
         "max_packet_size": 1200,
     }
     assert attachment["outbounds"][0]["tls"]["alpn"] == ["h3"]
-    assert attachment["route"]["rules"] == [{"domain": ["t.example.com"], "outbound": "direct"}]
+    assert attachment["route"]["rules"] == [
+        {"domain": ["t.example.com"], "outbound": "direct"}
+    ]
 
 
 def test_export_hysteria2_salamander_uri_and_singbox_attachment() -> None:
@@ -203,7 +221,9 @@ def test_export_hysteria2_token_uri() -> None:
     }
     out = export_client_config(effective)
     assert out.kind == "uri"
-    assert out.content.startswith("hysteria2://client-token%3Adevice-token@t.example.com:4443/")
+    assert out.content.startswith(
+        "hysteria2://client-token%3Adevice-token@t.example.com:4443/"
+    )
     assert "insecure=0" not in out.content
     assert "alpn=" not in out.content
     assert "sni=t.example.com" in out.content
@@ -218,7 +238,9 @@ def test_export_hysteria2_token_uri() -> None:
     assert attachment["outbounds"][0]["type"] == "hysteria2"
 
 
-def test_export_hysteria2_token_uri_falls_back_to_raw_token_when_it_is_not_splitable() -> None:
+def test_export_hysteria2_token_uri_falls_back_to_raw_token_when_it_is_not_splitable() -> (
+    None
+):
     effective = {
         "protocol": "hysteria2",
         "server": "t.example.com",
@@ -263,7 +285,9 @@ def test_export_mtproto_tls_link() -> None:
     out = export_client_config(effective)
     assert out.kind == "uri"
     assert out.title == "Telegram Proxy link · MTProto-FakeTLS-Direct"
-    assert out.content.startswith("https://t.me/proxy?server=proxied.tracegate.test&port=443&secret=ee95f0")
+    assert out.content.startswith(
+        "https://t.me/proxy?server=proxied.tracegate.test&port=443&secret=ee95f0"
+    )
 
 
 def test_export_vless_ws_tls_uri() -> None:
@@ -280,7 +304,9 @@ def test_export_vless_ws_tls_uri() -> None:
     }
     out = export_client_config(effective)
     assert out.kind == "uri"
-    assert out.content.startswith("vless://11111111-2222-3333-4444-555555555555@t.example.com:443?")
+    assert out.content.startswith(
+        "vless://11111111-2222-3333-4444-555555555555@t.example.com:443?"
+    )
     assert "security=tls" in out.content
     assert "type=ws" in out.content
     assert "alpn=" not in out.content
@@ -292,10 +318,17 @@ def test_export_vless_ws_tls_uri() -> None:
     assert out.attachment_filename == "backup-vless-websocket.xray.json"
     attachment = json.loads((out.attachment_content or b"").decode("utf-8"))
     assert attachment["inbounds"][0]["settings"]["auth"] == "password"
-    assert attachment["inbounds"][0]["settings"]["accounts"][0]["user"].startswith("tg_")
+    assert attachment["inbounds"][0]["settings"]["accounts"][0]["user"].startswith(
+        "tg_"
+    )
     assert attachment["outbounds"][0]["streamSettings"]["wsSettings"]["path"] == "/ws"
-    assert attachment["outbounds"][0]["streamSettings"]["tlsSettings"]["alpn"] == ["http/1.1"]
-    assert "allowInsecure" not in attachment["outbounds"][0]["streamSettings"]["tlsSettings"]
+    assert attachment["outbounds"][0]["streamSettings"]["tlsSettings"]["alpn"] == [
+        "http/1.1"
+    ]
+    assert (
+        "allowInsecure"
+        not in attachment["outbounds"][0]["streamSettings"]["tlsSettings"]
+    )
 
 
 def test_export_vless_ws_tls_can_use_alternate_connect_host_with_domain_sni() -> None:
@@ -314,11 +347,19 @@ def test_export_vless_ws_tls_can_use_alternate_connect_host_with_domain_sni() ->
     out = export_client_config(effective)
     attachment = json.loads((out.attachment_content or b"").decode("utf-8"))
 
-    assert out.content.startswith("vless://11111111-2222-3333-4444-555555555555@edge-connect.tracegate.test:443?")
+    assert out.content.startswith(
+        "vless://11111111-2222-3333-4444-555555555555@edge-connect.tracegate.test:443?"
+    )
     assert "sni=endpoint.tracegate.test" in out.content
     assert "host=endpoint.tracegate.test" in out.content
-    assert attachment["outbounds"][0]["settings"]["vnext"][0]["address"] == "edge-connect.tracegate.test"
-    assert attachment["outbounds"][0]["streamSettings"]["tlsSettings"]["serverName"] == "endpoint.tracegate.test"
+    assert (
+        attachment["outbounds"][0]["settings"]["vnext"][0]["address"]
+        == "edge-connect.tracegate.test"
+    )
+    assert (
+        attachment["outbounds"][0]["streamSettings"]["tlsSettings"]["serverName"]
+        == "endpoint.tracegate.test"
+    )
 
 
 def test_export_vless_grpc_tls_uri() -> None:
@@ -335,7 +376,9 @@ def test_export_vless_grpc_tls_uri() -> None:
     }
     out = export_client_config(effective)
     assert out.kind == "uri"
-    assert out.content.startswith("vless://11111111-2222-3333-4444-555555555555@t.example.com:443?")
+    assert out.content.startswith(
+        "vless://11111111-2222-3333-4444-555555555555@t.example.com:443?"
+    )
     assert "security=tls" in out.content
     assert "type=grpc" in out.content
     assert "alpn=" not in out.content
@@ -349,7 +392,10 @@ def test_export_vless_grpc_tls_uri() -> None:
     assert attachment["inbounds"][0]["settings"]["auth"] == "password"
     assert attachment["outbounds"][0]["streamSettings"]["network"] == "grpc"
     assert attachment["outbounds"][0]["streamSettings"]["tlsSettings"]["alpn"] == ["h2"]
-    assert attachment["outbounds"][0]["streamSettings"]["grpcSettings"]["serviceName"] == "tracegate.v1.Edge"
+    assert (
+        attachment["outbounds"][0]["streamSettings"]["grpcSettings"]["serviceName"]
+        == "tracegate.v1.Edge"
+    )
 
 
 def test_export_vless_grpc_tls_can_use_alternate_connect_host_with_domain_sni() -> None:
@@ -361,18 +407,29 @@ def test_export_vless_grpc_tls_can_use_alternate_connect_host_with_domain_sni() 
         "port": 443,
         "uuid": "11111111-2222-3333-4444-555555555555",
         "sni": "endpoint.tracegate.test",
-        "grpc": {"service_name": "tracegate.v1.Edge", "authority": "endpoint.tracegate.test"},
+        "grpc": {
+            "service_name": "tracegate.v1.Edge",
+            "authority": "endpoint.tracegate.test",
+        },
         "profile": "V0-gRPC-VLESS",
     }
 
     out = export_client_config(effective)
     attachment = json.loads((out.attachment_content or b"").decode("utf-8"))
 
-    assert out.content.startswith("vless://11111111-2222-3333-4444-555555555555@edge-connect.tracegate.test:443?")
+    assert out.content.startswith(
+        "vless://11111111-2222-3333-4444-555555555555@edge-connect.tracegate.test:443?"
+    )
     assert "sni=endpoint.tracegate.test" in out.content
     assert "serviceName=tracegate.v1.Edge" in out.content
-    assert attachment["outbounds"][0]["settings"]["vnext"][0]["address"] == "edge-connect.tracegate.test"
-    assert attachment["outbounds"][0]["streamSettings"]["tlsSettings"]["serverName"] == "endpoint.tracegate.test"
+    assert (
+        attachment["outbounds"][0]["settings"]["vnext"][0]["address"]
+        == "edge-connect.tracegate.test"
+    )
+    assert (
+        attachment["outbounds"][0]["streamSettings"]["tlsSettings"]["serverName"]
+        == "endpoint.tracegate.test"
+    )
 
 
 def test_export_uses_explicit_local_socks_credentials() -> None:
@@ -394,7 +451,9 @@ def test_export_uses_explicit_local_socks_credentials() -> None:
     attachment = json.loads((out.attachment_content or b"").decode("utf-8"))
 
     assert attachment["inbounds"][0]["port"] == 18080
-    assert attachment["inbounds"][0]["settings"]["accounts"] == [{"user": "tracegate-local", "pass": "local-secret"}]
+    assert attachment["inbounds"][0]["settings"]["accounts"] == [
+        {"user": "tracegate-local", "pass": "local-secret"}
+    ]
     local_socks = _extra_content(out, "Local SOCKS5 credentials")
     assert "Port: 18080" in local_socks
     assert "Username: tracegate-local" in local_socks
@@ -412,7 +471,12 @@ def test_export_rejects_non_loopback_local_socks_listener() -> None:
         "profile": "V1-VLESS-Reality-Direct",
         "local_socks": {
             "listen": "0.0.0.0:1080",
-            "auth": {"required": True, "mode": "username_password", "username": "u", "password": "p"},
+            "auth": {
+                "required": True,
+                "mode": "username_password",
+                "username": "u",
+                "password": "p",
+            },
         },
     }
 
@@ -430,7 +494,12 @@ def test_export_rejects_disabled_local_socks_auth() -> None:
         "profile": "V3-Hysteria2-QUIC-Direct",
         "local_socks": {
             "listen": "127.0.0.1:1080",
-            "auth": {"required": False, "mode": "username_password", "username": "u", "password": "p"},
+            "auth": {
+                "required": False,
+                "mode": "username_password",
+                "username": "u",
+                "password": "p",
+            },
         },
     }
 
@@ -486,7 +555,9 @@ def test_export_shadowsocks2022_shadowtls_single_line_uri() -> None:
     assert out.alternate_content is None
     assert out.attachment_filename == "experimental-shadowsocks.singbox.json"
     assert out.attachment_mime == "application/json"
-    assert dict(out.extra_messages)["Shadowsocks import note"].startswith("Use the attached sing-box JSON first.")
+    assert dict(out.extra_messages)["Shadowsocks import note"].startswith(
+        "Use the attached sing-box JSON first."
+    )
 
     parsed = urlparse(out.content)
     assert base64.urlsafe_b64decode(f"{parsed.username}==").decode("utf-8") == (
@@ -497,7 +568,9 @@ def test_export_shadowsocks2022_shadowtls_single_line_uri() -> None:
     }
     attachment = json.loads((out.attachment_content or b"").decode("utf-8"))
     assert attachment["dns"] == {
-        "servers": [{"type": "udp", "tag": "cloudflare", "server": "1.1.1.1", "server_port": 53}],
+        "servers": [
+            {"type": "udp", "tag": "cloudflare", "server": "1.1.1.1", "server_port": 53}
+        ],
         "final": "cloudflare",
         "strategy": "ipv4_only",
     }
@@ -507,7 +580,9 @@ def test_export_shadowsocks2022_shadowtls_single_line_uri() -> None:
         "final": "proxy",
         "rules": [{"domain": ["t.example.com"], "outbound": "direct"}],
     }
-    assert attachment["inbounds"][0]["users"] == [{"username": "local-user", "password": "local-pass"}]
+    assert attachment["inbounds"][0]["users"] == [
+        {"username": "local-user", "password": "local-pass"}
+    ]
     assert attachment["outbounds"][0] == {
         "type": "shadowsocks",
         "tag": "proxy",
@@ -565,7 +640,10 @@ def test_export_wireguard_wstunnel_attachment_requires_local_auth() -> None:
 
     assert out.kind == "attachment"
     assert out.attachment_filename == "experimental-wgws.wgws.json"
-    assert dict(out.extra_messages)["WGWS transport"] == "wss://edge.example.com:443/cdn/ws"
+    assert (
+        dict(out.extra_messages)["WGWS transport"]
+        == "wss://edge.example.com:443/cdn/ws"
+    )
     assert dict(out.extra_messages)["WG local UDP"] == "127.0.0.1:51820"
     assert "Local SOCKS5 credentials" in dict(out.extra_messages)
     assert attachment["type"] == "wgws"
@@ -587,15 +665,20 @@ def test_export_wireguard_wstunnel_attachment_requires_local_auth() -> None:
     assert attachment["wstunnel"]["local_udp_listen"] == "127.0.0.1:51820"
     assert attachment["wstunnel"]["http_upgrade_path_prefix"] == "cdn/ws"
     assert attachment["wstunnel"]["client_command"] == (
-        "wstunnel client --http-upgrade-path-prefix cdn/ws "
+        "wstunnel client --websocket-ping-frequency-sec 15 "
+        "--http-upgrade-path-prefix cdn/ws "
         "-H 'Host: edge.example.com' "
-        "-L udp://127.0.0.1:51820:127.0.0.1:51820 "
+        "-L udp://127.0.0.1:51820:127.0.0.1:51820?timeout_sec=0 "
         "wss://edge.example.com:443"
     )
     assert attachment["singbox"]["inbounds"][0]["listen_port"] == 18083
-    assert attachment["singbox"]["inbounds"][0]["users"] == [{"username": "wg-local", "password": "wg-pass"}]
+    assert attachment["singbox"]["inbounds"][0]["users"] == [
+        {"username": "wg-local", "password": "wg-pass"}
+    ]
     assert attachment["singbox"]["dns"] == {
-        "servers": [{"type": "udp", "tag": "cloudflare", "server": "1.1.1.1", "server_port": 53}],
+        "servers": [
+            {"type": "udp", "tag": "cloudflare", "server": "1.1.1.1", "server_port": 53}
+        ],
         "final": "cloudflare",
         "strategy": "ipv4_only",
     }
@@ -638,10 +721,11 @@ def test_export_wireguard_wstunnel_client_command_uses_canonical_tls_name() -> N
     assert attachment["websocket"]["host"] == "endpoint.example.com"
     assert attachment["websocket"]["headers"] == {"Host": "endpoint.example.com"}
     assert attachment["wstunnel"]["client_command"] == (
-        "wstunnel client --http-upgrade-path-prefix wgws "
+        "wstunnel client --websocket-ping-frequency-sec 15 "
+        "--http-upgrade-path-prefix wgws "
         "--tls-sni-override endpoint.example.com "
         "-H 'Host: endpoint.example.com' "
-        "-L udp://127.0.0.1:51820:127.0.0.1:51820 "
+        "-L udp://127.0.0.1:51820:127.0.0.1:51820?timeout_sec=0 "
         "wss://token.r2.example.com:443"
     )
 
@@ -652,7 +736,10 @@ def test_export_wireguard_wstunnel_rejects_invalid_wstunnel_target() -> None:
         "transport": "wstunnel",
         "server": "edge.example.com",
         "profile": "V7-WireGuard-WSTunnel-Direct",
-        "wstunnel": {"url": "http://edge.example.com/cdn/ws", "local_udp_listen": "127.0.0.1:51820"},
+        "wstunnel": {
+            "url": "http://edge.example.com/cdn/ws",
+            "local_udp_listen": "127.0.0.1:51820",
+        },
         "wireguard": {
             "private_key": "client-private",
             "server_public_key": "server-public",
@@ -668,7 +755,10 @@ def test_export_wireguard_wstunnel_rejects_invalid_wstunnel_target() -> None:
         export_client_config(effective)
 
 
-@pytest.mark.parametrize("url", ["wss://edge.example.com:443/cdn ws", "wss://edge.example.com:443/cdn/ws?debug=1"])
+@pytest.mark.parametrize(
+    "url",
+    ["wss://edge.example.com:443/cdn ws", "wss://edge.example.com:443/cdn/ws?debug=1"],
+)
 def test_export_wireguard_wstunnel_rejects_unclean_wstunnel_target(url: str) -> None:
     effective = {
         "protocol": "wireguard",
@@ -697,7 +787,10 @@ def test_export_wireguard_wstunnel_rejects_non_loopback_local_udp() -> None:
         "transport": "wstunnel",
         "server": "edge.example.com",
         "profile": "V7-WireGuard-WSTunnel-Direct",
-        "wstunnel": {"url": "wss://edge.example.com:443/cdn/ws", "local_udp_listen": "0.0.0.0:51820"},
+        "wstunnel": {
+            "url": "wss://edge.example.com:443/cdn/ws",
+            "local_udp_listen": "0.0.0.0:51820",
+        },
         "wireguard": {
             "private_key": "client-private",
             "server_public_key": "server-public",
@@ -719,7 +812,10 @@ def test_export_wireguard_wstunnel_rejects_unsafe_mtu() -> None:
         "transport": "wstunnel",
         "server": "edge.example.com",
         "profile": "V7-WireGuard-WSTunnel-Direct",
-        "wstunnel": {"url": "wss://edge.example.com:443/cdn/ws", "local_udp_listen": "127.0.0.1:51820"},
+        "wstunnel": {
+            "url": "wss://edge.example.com:443/cdn/ws",
+            "local_udp_listen": "127.0.0.1:51820",
+        },
         "wireguard": {
             "private_key": "client-private",
             "server_public_key": "server-public",
@@ -781,7 +877,10 @@ def test_export_wireguard_wstunnel_rejects_unsafe_mtu() -> None:
             "protocol": "wireguard",
             "server": "edge.example.com",
             "profile": "V7-WireGuard-WSTunnel-Direct",
-            "wstunnel": {"url": "wss://edge.example.com:443/cdn/ws", "local_udp_listen": "127.0.0.1:51820"},
+            "wstunnel": {
+                "url": "wss://edge.example.com:443/cdn/ws",
+                "local_udp_listen": "127.0.0.1:51820",
+            },
             "wireguard": {
                 "private_key": "client-private",
                 "server_public_key": "server-public",
