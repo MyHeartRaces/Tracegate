@@ -2827,7 +2827,7 @@ def _dashboard_operator(ds_uid: str) -> dict[str, Any]:
                 "targets": [
                     {
                         "refId": "A",
-                        "expr": "tracegate_dispatcher_ops_active_alerts or vector(0)",
+                        "expr": "sum(tracegate_dispatcher_ops_active_alerts) or vector(0)",
                     }
                 ],
                 "options": {
@@ -2862,7 +2862,7 @@ def _dashboard_operator(ds_uid: str) -> dict[str, Any]:
                 "targets": [
                     {
                         "refId": "A",
-                        "expr": "tracegate_ops_outbox_pending_older_than_5m_deliveries or vector(0)",
+                        "expr": "sum(tracegate_ops_outbox_pending_older_than_5m_deliveries) or vector(0)",
                     }
                 ],
                 "options": {
