@@ -18,6 +18,13 @@ def test_host_release_preserves_quic_socket_buffer_tuning() -> None:
     assert '"${SYSCTL}" -p "${SYSCTL_DIR}/90-tracegate-quic.conf"' in installer
 
 
+def test_installer_creates_venv_at_final_release_path() -> None:
+    root = Path(__file__).resolve().parents[1]
+    installer = (root / "deploy/host/tracegate-host-install").read_text(encoding="utf-8")
+    assert '"${PYTHON}" -m venv "${venv}"' in installer
+    assert '"${PYTHON}" -m venv "${temporary}/venv"' not in installer
+
+
 def test_host_runtime_check_cli_succeeds() -> None:
     root = Path(__file__).resolve().parents[1]
     result = subprocess.run(

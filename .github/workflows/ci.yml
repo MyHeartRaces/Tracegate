@@ -30,6 +30,21 @@ jobs:
           VERSION=$(python -c 'import pathlib,tomllib; print(tomllib.loads(pathlib.Path("pyproject.toml").read_text())["project"]["version"])')
           scripts/build_release_artifacts.sh "$VERSION"
 
+      - name: Clean-room native host install
+        run: |
+          VERSION=$(python -c 'import pathlib,tomllib; print(tomllib.loads(pathlib.Path("pyproject.toml").read_text())["project"]["version"])')
+          ROOT=$(mktemp -d)
+          tar -xzf "dist/release-v${VERSION}/tracegate-host-runtime-${VERSION}.tar.gz" -C "$ROOT"
+          sudo env \
+            TRACEGATE_INSTALL_ROOT="$ROOT/opt/tracegate" \
+            TRACEGATE_SYSTEMD_DIR="$ROOT/etc/systemd" \
+            TRACEGATE_SYSCTL_DIR="$ROOT/etc/sysctl.d" \
+            TRACEGATE_LOCAL_SBIN_DIR="$ROOT/usr/local/sbin" \
+            TRACEGATE_SYSTEMCTL=/bin/true \
+            TRACEGATE_SYSCTL=/bin/true \
+            "$ROOT/tracegate-host-runtime-${VERSION}/deploy/host/tracegate-host-install" "$VERSION"
+          sudo "$ROOT/opt/tracegate/releases/${VERSION}/venv/bin/tracegate-host-private-preflight" --help >/dev/null
+
       - name: Upload inspected artifacts
         uses: actions/upload-artifact@v4
         with:

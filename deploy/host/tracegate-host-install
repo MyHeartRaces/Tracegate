@@ -28,7 +28,7 @@ venv="${release_root}/venv"
 [ ! -e "${runtime}" ] && [ ! -e "${venv}" ] || die "release already staged: ${release_root}"
 
 temporary="${INSTALL_ROOT}/releases/.${VERSION}.install.$$"
-cleanup() { rm -rf "${temporary}"; }
+cleanup() { rm -rf "${temporary}" "${release_root}"; }
 trap cleanup EXIT
 install -d -m 0755 "${temporary}/runtime" "${temporary}/runtime/packages"
 cp -a "${SOURCE_ROOT}/bundles" "${SOURCE_ROOT}/deploy" "${SOURCE_ROOT}/scripts" "${temporary}/runtime/"
@@ -36,16 +36,17 @@ cp -a "${SOURCE_ROOT}/pyproject.toml" "${SOURCE_ROOT}/requirements.lock" "${temp
 cp -a "${wheel}" "${temporary}/runtime/packages/"
 [ -f "${SOURCE_ROOT}/BUILD-INFO" ] && cp -a "${SOURCE_ROOT}/BUILD-INFO" "${temporary}/runtime/BUILD-INFO"
 
-"${PYTHON}" -m venv "${temporary}/venv"
-"${temporary}/venv/bin/python" -m pip install --disable-pip-version-check --no-input --upgrade pip
-"${temporary}/venv/bin/python" -m pip install --disable-pip-version-check --no-input \
-  -c "${temporary}/runtime/requirements.lock" "${temporary}/runtime/packages/$(basename "${wheel}")"
-for command in tracegate-api tracegate-agent tracegate-bot tracegate-dispatcher tracegate-migrate-db tracegate-host-private-preflight; do
-  [ -x "${temporary}/venv/bin/${command}" ] || die "wheel did not install ${command}"
-done
+install -d -m 0755 "${INSTALL_ROOT}/releases" "${release_root}"
+mv "${temporary}/runtime" "${runtime}"
+rm -rf "${temporary}"
 
-install -d -m 0755 "${INSTALL_ROOT}/releases"
-mv "${temporary}" "${release_root}"
+"${PYTHON}" -m venv "${venv}"
+"${venv}/bin/python" -m pip install --disable-pip-version-check --no-input --upgrade pip
+"${venv}/bin/python" -m pip install --disable-pip-version-check --no-input \
+  -c "${runtime}/requirements.lock" "${runtime}/packages/$(basename "${wheel}")"
+for command in tracegate-api tracegate-agent tracegate-bot tracegate-dispatcher tracegate-migrate-db tracegate-host-private-preflight; do
+  [ -x "${venv}/bin/${command}" ] || die "wheel did not install ${command}"
+done
 trap - EXIT
 
 install -d -m 0755 "${SYSTEMD_DIR}" "${SYSCTL_DIR}" "${LOCAL_SBIN_DIR}"
