@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Renders the Entry-side ShadowTLS v3 backhaul client environment from the
+# operator runtime env. The client wraps the loopback SS2022 outbound
+# (127.0.0.1:15443) into a ShadowTLS session to the Endpoint backhaul listener.
+
+runtime_env="${TRACEGATE_ENV_FILE:-/etc/tracegate/tracegate.env}"
+target_env="${TRACEGATE_SHADOWTLS_ENTRY_ENV_FILE:-/etc/tracegate/private/shadowtls/entry.env}"
+
+test -f "${runtime_env}" || {
+  echo "tracegate shadowtls entry env: missing ${runtime_env}" >&2
+  exit 1
+}
+
+set -a
+# shellcheck disable=SC1090
+source "${runtime_env}"
+set +a
+
+target="${SHADOWTLS_BACKHAUL_TARGET:-}"
+sni="${SHADOWTLS_BACKHAUL_SNI:-${SHADOWTLS_BACKHAUL_SERVER_NAME:-}}"
+password="${SHADOWTLS_BACKHAUL_PASSWORD:-}"
+if [[ "${target}" != *:* ]]; then
+  target="${target}:9443"
+fi
+test -n "${target%%:*}" || {
+  echo "tracegate shadowtls entry env: SHADOWTLS_BACKHAUL_TARGET is missing" >&2
+  exit 1
+}
+test -n "${sni}" || {
+  echo "tracegate shadowtls entry env: SHADOWTLS_BACKHAUL_SNI is missing" >&2
+  exit 1
+}
+test -n "${password}" || {
+  echo "tracegate shadowtls entry env: SHADOWTLS_BACKHAUL_PASSWORD is missing" >&2
+  exit 1
+}
+
+install -d -m 0700 "$(dirname -- "${target_env}")"
+tmp="${target_env}.tmp"
+umask 077
+printf 'SHADOWTLS_BACKHAUL_TARGET=%q\nSHADOWTLS_BACKHAUL_SNI=%q\nSHADOWTLS_BACKHAUL_PASSWORD=%q\n' \
+  "${target}" "${sni}" "${password}" >"${tmp}"
+chmod 0600 "${tmp}"
+mv -f "${tmp}" "${target_env}"

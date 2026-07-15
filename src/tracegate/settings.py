@@ -176,7 +176,11 @@ class Settings(BaseSettings):
     )
     # Default camouflage target for REALITY revisions that are not allocated
     # from an exclusive ingress pool (notably the fixed Entry Chain profile).
-    default_reality_sni: str = "yandex.ru"
+    # Must be an unpopular site that negotiates plain X25519 TLS 1.3: major
+    # sites (yandex.ru, google, etc.) now offer post-quantum key exchange
+    # (X25519MLKEM768), which breaks REALITY for modern-fingerprint clients
+    # such as Shadowrocket.
+    default_reality_sni: str = "ibtcom.ru"
 
     # Observability (Grafana is optional in the host runtime).
     grafana_enabled: bool = False
@@ -409,6 +413,14 @@ class Settings(BaseSettings):
         default="entry.example.com",
         validation_alias=AliasChoices("DEFAULT_ENTRY_HOST", "DEFAULT_VPS_E_HOST"),
     )
+    # Endpoint port the Entry->Endpoint VLESS/REALITY fallback backhaul dials.
+    # Stays 443 (shared client ingress) until the dedicated source-gated backhaul
+    # port is live; set to the dedicated port (e.g. 9444) at cutover so agent
+    # reconciliation and the rendered bundle agree.
+    reality_backhaul_port: int = Field(
+        default=443,
+        validation_alias=AliasChoices("REALITY_BACKHAUL_PORT"),
+    )
     ingress_rotation_enabled: bool = False
     ingress_rotation_strategy: str = "revision-sticky"
     entry_ingress_hosts: list[str] = Field(default_factory=list)
@@ -451,14 +463,16 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("REALITY_SHORT_ID_ENTRY", "REALITY_SHORT_ID_VPS_E"),
     )
     # REALITY "dest" is a single upstream used for the mimic handshake.
-    # Default to a commonly reachable whitelist-friendly dest (operator can override).
-    reality_dest: str = "yandex.ru:443"
+    # Default to an unpopular X25519-only TLS 1.3 dest (operator can override).
+    # Avoid major sites that negotiate post-quantum key exchange and break
+    # REALITY for modern-fingerprint clients.
+    reality_dest: str = "ibtcom.ru:443"
     # Optional SNI compatibility filter (used by the API/bot).
     # If empty, all enabled SNIs from DB are allowed.
     reality_sni_allow_suffixes: list[str] = Field(default_factory=list)
     # Pre-seeded SNI allow-list for REALITY inbounds. Keep it minimal to avoid
     # advertising unrelated camouflage targets by default.
-    sni_seed: list[str] = Field(default_factory=lambda: ["yandex.ru"])
+    sni_seed: list[str] = Field(default_factory=lambda: ["ibtcom.ru"])
     # Optional REALITY multi-inbound mapping.
     # Each row is an object with:
     # - id: stable slug (used in generated inbound tag)

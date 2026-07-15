@@ -126,6 +126,21 @@ def check_host_runtime(root: Path) -> None:
                     has_default_backhaul = True
             if not has_default_backhaul:
                 raise HostRuntimeCheckError("Entry Chain routing is missing the default Endpoint backhaul rule")
+            ss_backhaul = outbounds.get("to-transit-ss")
+            ss_backhaul_servers = (
+                (ss_backhaul.get("settings") or {}).get("servers") if isinstance(ss_backhaul, dict) else None
+            )
+            if (
+                not isinstance(ss_backhaul, dict)
+                or str(ss_backhaul.get("protocol") or "").strip().lower() != "shadowsocks"
+                or not isinstance(ss_backhaul_servers, list)
+                or not ss_backhaul_servers
+                or str((ss_backhaul_servers[0] or {}).get("method") or "").strip().lower()
+                != "2022-blake3-aes-256-gcm"
+            ):
+                raise HostRuntimeCheckError(
+                    "Entry bundle is missing the SS2022 (aes-256) Endpoint backhaul outbound to-transit-ss"
+                )
 
     xray = _read(root / "bundles/base-transit/xray.json")
     if '"tag": "ss2022-in"' in xray:
@@ -137,6 +152,17 @@ def check_host_runtime(root: Path) -> None:
         ss2022_xray,
         '"password": "REPLACE_SHADOWSOCKS2022_SERVER_KEY"',
         label="isolated Endpoint SS2022 Xray bundle",
+    )
+    _require(ss2022_xray, '"tag": "ss2022-backhaul-in"', label="isolated Endpoint SS2022 backhaul inbound")
+    _require(
+        ss2022_xray,
+        '"method": "2022-blake3-aes-256-gcm"',
+        label="isolated Endpoint SS2022 backhaul inbound",
+    )
+    _require(
+        ss2022_xray,
+        '"password": "REPLACE_SHADOWSOCKS2022_BACKHAUL_KEY"',
+        label="isolated Endpoint SS2022 backhaul inbound",
     )
 
     sync_unit = _read(root / "deploy/systemd/tracegate-wireguard-sync.service")
@@ -157,6 +183,8 @@ def check_host_runtime(root: Path) -> None:
         "tracegate-hysteria@.service",
         "tracegate-hysteria-salamander.service",
         "tracegate-shadowtls.service",
+        "tracegate-shadowtls-entry.service",
+        "tracegate-shadowtls-backhaul.service",
         "tracegate-wstunnel-wireguard.service",
         "tracegate-mtproto@.service",
         "tracegate-prometheus.service",

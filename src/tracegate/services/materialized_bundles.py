@@ -395,6 +395,8 @@ class MaterializedBundleRenderContext:
     transit_tls_server_name: str
     shadowtls_server_name_transit: str
     shadowsocks2022_password_transit: str
+    shadowsocks2022_backhaul_key: str
+    reality_backhaul_port: int
     mtproto_domain: str
     mtproto_tls_domain: str
     mtproto_upstream: str
@@ -533,7 +535,7 @@ class MaterializedBundleRenderContext:
         reality_private_key_entry = _require(env, "REALITY_PRIVATE_KEY_ENTRY")
         reality_private_key_transit = _require(env, "REALITY_PRIVATE_KEY_TRANSIT")
 
-        reality_dest_default = _first(env, "REALITY_DEST", default="yandex.ru:443")
+        reality_dest_default = _first(env, "REALITY_DEST", default="ibtcom.ru:443")
         reality_dest_entry = _first(env, "REALITY_DEST_ENTRY", default=reality_dest_default)
         reality_dest_transit = _first(env, "REALITY_DEST_TRANSIT", default=reality_dest_default)
         reality_server_name_entry = _first(env, "REALITY_SERVER_NAME_ENTRY", default=host_from_dest(reality_dest_entry))
@@ -551,6 +553,17 @@ class MaterializedBundleRenderContext:
             env,
             "SHADOWSOCKS2022_PASSWORD_TRANSIT",
             "SHADOWSOCKS2022_PASSWORD",
+        )
+        # Independent Entry->Endpoint SS2022+ShadowTLS backhaul key (aes-256).
+        # When unset the SS2022 backhaul leg is omitted and the pool degrades to
+        # the REALITY-RAW transport only, so staging never breaks the live link.
+        shadowsocks2022_backhaul_key = _first(
+            env,
+            "SHADOWSOCKS2022_BACKHAUL_KEY",
+            "SHADOWSOCKS2022_BACKHAUL_KEY_TRANSIT",
+        )
+        reality_backhaul_port = _int_env(
+            env, "REALITY_BACKHAUL_PORT", default=443, min_value=1, max_value=65535
         )
         mtproto_domain = _first(env, "MTPROTO_DOMAIN")
         mtproto_tls_domain = _first(env, "MTPROTO_TLS_DOMAIN", default=mtproto_domain)
@@ -671,6 +684,8 @@ class MaterializedBundleRenderContext:
             transit_tls_server_name=transit_tls_server_name,
             shadowtls_server_name_transit=shadowtls_server_name_transit,
             shadowsocks2022_password_transit=shadowsocks2022_password_transit,
+            shadowsocks2022_backhaul_key=shadowsocks2022_backhaul_key,
+            reality_backhaul_port=reality_backhaul_port,
             mtproto_domain=mtproto_domain,
             mtproto_tls_domain=mtproto_tls_domain,
             mtproto_upstream=mtproto_upstream,
@@ -1083,6 +1098,49 @@ def _write_hysteria_server_configs(ctx: MaterializedBundleRenderContext) -> None
         )
 
 
+def _materialize_ss2022_backhaul_inbound(payload: dict[str, Any], *, key: str) -> None:
+    """Provision or remove the isolated Entry->Endpoint SS2022 backhaul inbound.
+
+    The backhaul leg is optional. When no aes-256 key is provisioned the inbound
+    is dropped entirely (never rendered with a placeholder password, which would
+    be an invalid SS2022 key and crash the runtime), and any routing reference to
+    it is pruned so the isolated Xray config stays valid.
+    """
+    tag = "ss2022-backhaul-in"
+    inbounds = payload.get("inbounds")
+    if not isinstance(inbounds, list):
+        return
+    inbound = next(
+        (row for row in inbounds if isinstance(row, dict) and str(row.get("tag") or "") == tag),
+        None,
+    )
+    if key:
+        if inbound is not None:
+            inbound.setdefault("settings", {})["password"] = key
+        return
+    payload["inbounds"] = [
+        row for row in inbounds if not (isinstance(row, dict) and str(row.get("tag") or "") == tag)
+    ]
+    routing = payload.get("routing")
+    rules = routing.get("rules") if isinstance(routing, dict) else None
+    if not isinstance(rules, list):
+        return
+    pruned_rules: list[Any] = []
+    for rule in rules:
+        if not isinstance(rule, dict):
+            pruned_rules.append(rule)
+            continue
+        inbound_tags = rule.get("inboundTag")
+        if isinstance(inbound_tags, list) and tag in inbound_tags:
+            remaining = [item for item in inbound_tags if str(item) != tag]
+            if not remaining:
+                continue
+            rule = dict(rule)
+            rule["inboundTag"] = remaining
+        pruned_rules.append(rule)
+    routing["rules"] = pruned_rules
+
+
 def render_materialized_bundles(ctx: MaterializedBundleRenderContext) -> None:
     _copy_source_bundles(ctx)
 
@@ -1109,15 +1167,30 @@ def render_materialized_bundles(ctx: MaterializedBundleRenderContext) -> None:
             ws_settings = inbound.setdefault("streamSettings", {}).setdefault("wsSettings", {})
             ws_settings["path"] = ctx.ws_path
     for outbound in entry_xray.get("outbounds", []):
-        if str(outbound.get("tag") or "") != "to-transit":
-            continue
-        vnext = (((outbound.get("settings") or {}).get("vnext")) or [])
-        if vnext:
-            vnext[0]["address"] = ctx.transit_host
-        reality = outbound.setdefault("streamSettings", {}).setdefault("realitySettings", {})
-        reality["serverName"] = ctx.reality_server_name_transit
-        reality["publicKey"] = ctx.reality_public_key_transit
-        reality["shortId"] = ctx.reality_short_id_transit
+        tag = str(outbound.get("tag") or "")
+        if tag == "to-transit":
+            vnext = (((outbound.get("settings") or {}).get("vnext")) or [])
+            if vnext:
+                vnext[0]["address"] = ctx.transit_host
+                vnext[0]["port"] = ctx.reality_backhaul_port
+            reality = outbound.setdefault("streamSettings", {}).setdefault("realitySettings", {})
+            reality["serverName"] = ctx.reality_server_name_transit
+            reality["publicKey"] = ctx.reality_public_key_transit
+            reality["shortId"] = ctx.reality_short_id_transit
+        elif tag == "to-transit-ss" and ctx.shadowsocks2022_backhaul_key:
+            servers = (((outbound.get("settings") or {}).get("servers")) or [])
+            if servers:
+                servers[0]["password"] = ctx.shadowsocks2022_backhaul_key
+    if not ctx.shadowsocks2022_backhaul_key:
+        # No SS2022 backhaul key provisioned yet: keep the Entry runtime on the
+        # REALITY-RAW leg only. Never emit a placeholder SS2022 password, which
+        # would be an invalid key and crash the Xray runtime.
+        entry_xray["outbounds"] = [
+            outbound
+            for outbound in entry_xray.get("outbounds", [])
+            if str(outbound.get("tag") or "") != "to-transit-ss"
+        ]
+        entry_xray.pop("observatory", None)
     if ctx.mtproto_route_mode == "entry-local-endpoint-egress" and ctx.mtproto_domain:
         entry_xray.setdefault("inbounds", []).append(
             {
@@ -1276,6 +1349,7 @@ def render_materialized_bundles(ctx: MaterializedBundleRenderContext) -> None:
     if ss2022_inbound is None:
         raise MaterializedBundleRenderError("base-transit/xray-ss2022.json is missing ss2022-in")
     ss2022_inbound.setdefault("settings", {})["password"] = ctx.shadowsocks2022_password_transit
+    _materialize_ss2022_backhaul_inbound(transit_ss2022, key=ctx.shadowsocks2022_backhaul_key)
     _write_json(transit_ss2022_path, transit_ss2022)
 
     transit_haproxy_path = ctx.materialized_root / "base-transit" / "haproxy.cfg"

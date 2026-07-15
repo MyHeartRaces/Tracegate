@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+- Fixed Chain (VLESS/REALITY on Entry) failing on Shadowrocket by retiring
+  `yandex.ru` as the default REALITY camouflage dest. Major sites now negotiate
+  post-quantum key exchange (X25519MLKEM768), which breaks REALITY for
+  modern-fingerprint clients; the default is now an unpopular X25519-only TLS 1.3
+  dest (`ibtcom.ru`). Operators still override per environment.
+- Made the Entry->Endpoint backhaul a heterogeneous dual-transport pool:
+  Shadowsocks-2022 (`2022-blake3-aes-256-gcm`) inside ShadowTLS v3 as the primary
+  leg and VLESS/REALITY RAW/TCP as the independent fallback, so one transport
+  signature or fault can no longer take the whole Chain (and MTProto tunnel)
+  down. The SS2022 leg (`to-transit-ss` outbound, isolated `ss2022-backhaul-in`
+  inbound, `tracegate-shadowtls-entry`/`-backhaul` units) is provisioned only
+  when a backhaul key is present, so staging degrades cleanly to REALITY-only.
+- Added an Xray `observatory` on Entry to health-probe both backhaul legs, and
+  made `check_host_runtime` require both the REALITY and SS2022 backhaul
+  transports so reconciliation can no longer silently collapse the pool.
+- Made the REALITY fallback backhaul port configurable (`REALITY_BACKHAUL_PORT`,
+  default 443) so it can move to a dedicated source-gated Endpoint port at
+  cutover without agent reconciliation resetting it.
+
 ## v3.1.11 - 2026-07-15
 
 - Export Hysteria Gecko profiles as official Hysteria YAML instead of an

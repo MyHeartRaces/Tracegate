@@ -604,3 +604,51 @@ def test_render_materialized_bundles_supports_custom_transit_secret_path_and_age
     assert (ctx.materialized_root / "base-transit" / "decoy" / "hidden" / "vault" / "index.html").read_text(
         encoding="utf-8"
     ) == "<html>vault</html>\n"
+
+
+def _entry_outbound_tags(ctx: MaterializedBundleRenderContext) -> list[str]:
+    entry_xray = json.loads((ctx.materialized_root / "base-entry" / "xray.json").read_text(encoding="utf-8"))
+    return [str(o.get("tag") or "") for o in entry_xray.get("outbounds", [])]
+
+
+def test_backhaul_pool_omitted_without_ss2022_key(tmp_path: Path) -> None:
+    # Staging default: with no SS2022 backhaul key the Entry runtime must stay on
+    # the REALITY-RAW leg only, never emitting a placeholder SS2022 password.
+    ctx = MaterializedBundleRenderContext.from_environ(_base_env(tmp_path))
+    render_materialized_bundles(ctx)
+
+    entry_xray = json.loads((ctx.materialized_root / "base-entry" / "xray.json").read_text(encoding="utf-8"))
+    assert "to-transit-ss" not in _entry_outbound_tags(ctx)
+    assert "observatory" not in entry_xray
+    to_transit = next(o for o in entry_xray["outbounds"] if o.get("tag") == "to-transit")
+    assert to_transit["settings"]["vnext"][0]["port"] == 443
+
+    ss2022 = json.loads((ctx.materialized_root / "base-transit" / "xray-ss2022.json").read_text(encoding="utf-8"))
+    assert all(i.get("tag") != "ss2022-backhaul-in" for i in ss2022["inbounds"])
+    blob = json.dumps(entry_xray) + json.dumps(ss2022)
+    assert "REPLACE_" not in blob
+
+
+def test_backhaul_pool_provisioned_with_ss2022_key(tmp_path: Path) -> None:
+    env = _base_env(tmp_path)
+    env["SHADOWSOCKS2022_BACKHAUL_KEY"] = "backhaul-256-key"
+    env["REALITY_BACKHAUL_PORT"] = "9444"
+    ctx = MaterializedBundleRenderContext.from_environ(env)
+    render_materialized_bundles(ctx)
+
+    entry_xray = json.loads((ctx.materialized_root / "base-entry" / "xray.json").read_text(encoding="utf-8"))
+    outbounds = {str(o.get("tag") or ""): o for o in entry_xray["outbounds"]}
+    assert "to-transit-ss" in outbounds
+    ss_server = outbounds["to-transit-ss"]["settings"]["servers"][0]
+    assert ss_server["password"] == "backhaul-256-key"
+    assert ss_server["method"] == "2022-blake3-aes-256-gcm"
+    assert ss_server["address"] == "127.0.0.1"
+    assert entry_xray["observatory"]["subjectSelector"] == ["to-transit"]
+    # REALITY fallback follows the dedicated source-gated port at cutover.
+    assert outbounds["to-transit"]["settings"]["vnext"][0]["port"] == 9444
+
+    ss2022 = json.loads((ctx.materialized_root / "base-transit" / "xray-ss2022.json").read_text(encoding="utf-8"))
+    backhaul_in = next(i for i in ss2022["inbounds"] if i.get("tag") == "ss2022-backhaul-in")
+    assert backhaul_in["settings"]["password"] == "backhaul-256-key"
+    assert backhaul_in["settings"]["method"] == "2022-blake3-aes-256-gcm"
+    assert backhaul_in["port"] == 18444

@@ -1,0 +1,19 @@
+[Unit]
+Description=Tracegate ShadowTLS v3 Entry backhaul client
+After=docker.service network-online.target
+Requires=docker.service
+
+[Service]
+EnvironmentFile=/etc/tracegate/private/shadowtls/entry.env
+Restart=always
+RestartSec=3
+TimeoutStopSec=20
+SuccessExitStatus=143
+ExecStartPre=/opt/tracegate/current/deploy/systemd/tracegate-shadowtls-entry-env
+ExecStartPre=/usr/bin/docker pull ghcr.io/ihciah/shadow-tls:latest
+ExecStartPre=-/usr/bin/docker rm -f tracegate-shadowtls-entry
+ExecStart=/usr/bin/docker run --rm --name tracegate-shadowtls-entry --network host --read-only --cap-drop ALL --security-opt no-new-privileges:true --entrypoint shadow-tls ghcr.io/ihciah/shadow-tls:latest --v3 client --listen 127.0.0.1:15443 --server $SHADOWTLS_BACKHAUL_TARGET --sni $SHADOWTLS_BACKHAUL_SNI --password $SHADOWTLS_BACKHAUL_PASSWORD
+ExecStop=/usr/bin/docker stop tracegate-shadowtls-entry
+
+[Install]
+WantedBy=multi-user.target

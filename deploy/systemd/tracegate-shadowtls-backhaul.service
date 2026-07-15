@@ -1,0 +1,19 @@
+[Unit]
+Description=Tracegate ShadowTLS v3 Endpoint backhaul server
+After=docker.service network-online.target tracegate-xray-ss2022.service
+Requires=docker.service
+
+[Service]
+EnvironmentFile=/etc/tracegate/private/shadowtls/backhaul.env
+Restart=always
+RestartSec=3
+TimeoutStopSec=20
+SuccessExitStatus=143
+ExecStartPre=/opt/tracegate/current/deploy/systemd/tracegate-shadowtls-backhaul-env
+ExecStartPre=/usr/bin/docker pull ghcr.io/ihciah/shadow-tls:latest
+ExecStartPre=-/usr/bin/docker rm -f tracegate-shadowtls-backhaul
+ExecStart=/usr/bin/docker run --rm --name tracegate-shadowtls-backhaul --network host --read-only --cap-drop ALL --security-opt no-new-privileges:true --entrypoint shadow-tls ghcr.io/ihciah/shadow-tls:latest --v3 server --listen $SHADOWTLS_BACKHAUL_LISTEN --server 127.0.0.1:18444 --tls $SHADOWTLS_BACKHAUL_TLS_TARGET --password $SHADOWTLS_BACKHAUL_PASSWORD
+ExecStop=/usr/bin/docker stop tracegate-shadowtls-backhaul
+
+[Install]
+WantedBy=multi-user.target

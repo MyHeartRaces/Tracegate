@@ -428,11 +428,11 @@ def _entry_endpoint_backhaul_pool(*, endpoints: EndpointSet) -> dict[str, Any]:
             "health": "authenticated-payload-probe",
         },
         "secondary": {
-            "carrier": "hysteria2-gecko",
+            "carrier": "vless-reality-raw",
             "role": "fail-closed-fallback",
-            "udp_capable": True,
+            "udp_capable": False,
         },
-        "transport_independence": "tcp-shadowtls-primary+udp-gecko-secondary",
+        "transport_independence": "tcp-shadowtls-primary+tcp-reality-secondary",
         "endpoint_egress_only": True,
         "fail_closed": True,
     }
@@ -669,9 +669,9 @@ def build_effective_config(
                         "http2_single_tls_multiplexing": True,
                         "entry_role_required": True,
                         "transit_role_required": True,
-                        "private_interconnect": "shadowsocks2022-shadowtls-v3+hysteria2-gecko",
+                        "private_interconnect": "shadowsocks2022-shadowtls-v3+vless-reality-raw",
                         "primary_backhaul": "shadowsocks2022-shadowtls-v3",
-                        "secondary_backhaul": "hysteria2-gecko",
+                        "secondary_backhaul": "vless-reality-raw",
                         "endpoint_egress_required": True,
                     }
                     if is_universal_entry or is_direct_entry_ws

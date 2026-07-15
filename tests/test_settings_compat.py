@@ -57,8 +57,8 @@ def test_settings_accept_new_entry_transit_field_names() -> None:
 def test_settings_use_less_popular_default_camouflage_domains() -> None:
     settings = Settings()
 
-    assert settings.reality_dest == "yandex.ru:443"
-    assert settings.sni_seed == ["yandex.ru"]
+    assert settings.reality_dest == "ibtcom.ru:443"
+    assert settings.sni_seed == ["ibtcom.ru"]
     assert settings.hysteria_server_name_entry == ""
     assert settings.hysteria_server_name_transit == ""
     assert settings.shadowtls_server_name_entry == "2gis.ru"

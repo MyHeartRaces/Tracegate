@@ -1287,7 +1287,8 @@ def _safe_xray_tag_suffix(value: str) -> str:
 
 
 def _default_transit_target(settings: Settings) -> tuple[str, int]:
-    return str(settings.default_transit_host or "").strip(), 443
+    port = int(getattr(settings, "reality_backhaul_port", 443) or 443)
+    return str(settings.default_transit_host or "").strip(), port
 
 
 def _selected_transit_path(row: dict) -> dict | None:

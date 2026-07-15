@@ -1032,7 +1032,7 @@ def test_ws_tls_entry_chain_uses_direct_entry_and_endpoint_backhaul_pool() -> No
     assert cfg["chain"]["entry"] == "entry.tracegate.test"
     assert cfg["chain"]["endpoint"] == "endpoint.tracegate.test"
     assert cfg["chain"]["primary"]["carrier"] == "shadowsocks2022-shadowtls-v3"
-    assert cfg["chain"]["secondary"]["carrier"] == "hysteria2-gecko"
+    assert cfg["chain"]["secondary"]["carrier"] == "vless-reality-raw"
     assert cfg["design_constraints"]["cloudflare_proxied_ingress_required"] is False
     assert cfg["design_constraints"]["direct_entry_ingress_required"] is True
     assert cfg["design_constraints"]["endpoint_egress_required"] is True
@@ -1223,12 +1223,12 @@ def test_grpc_tls_universal_entry_uses_proxied_entry_and_encrypted_endpoint_chai
     assert cfg["chain"]["entry"] == "entry-origin.tracegate.test"
     assert cfg["chain"]["endpoint"] == "endpoint.tracegate.test"
     assert cfg["chain"]["primary"]["carrier"] == "shadowsocks2022-shadowtls-v3"
-    assert cfg["chain"]["secondary"]["carrier"] == "hysteria2-gecko"
+    assert cfg["chain"]["secondary"]["carrier"] == "vless-reality-raw"
     assert cfg["chain"]["primary"]["selection"] == "single-authenticated-tcp-link"
-    assert cfg["chain"]["transport_independence"] == "tcp-shadowtls-primary+udp-gecko-secondary"
+    assert cfg["chain"]["transport_independence"] == "tcp-shadowtls-primary+tcp-reality-secondary"
     assert cfg["design_constraints"]["cloudflare_proxied_ingress_required"] is True
     assert cfg["design_constraints"]["endpoint_egress_required"] is True
-    assert cfg["design_constraints"]["secondary_backhaul"] == "hysteria2-gecko"
+    assert cfg["design_constraints"]["secondary_backhaul"] == "vless-reality-raw"
 
 
 def test_grpc_tls_universal_entry_rejects_missing_proxy_hostname() -> None:
