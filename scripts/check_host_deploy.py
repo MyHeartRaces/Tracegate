@@ -42,8 +42,20 @@ def check(root: Path, *, compose_runtime: bool = False) -> None:
     for forbidden in ("docker compose", "TRACEGATE_IMAGE", "POSTGRES_IMAGE", "deploy.env.previous"):
         _require(forbidden not in deploy, f"host deploy script still contains retired contract: {forbidden}")
     _require(
-        deploy.index("tracegate-agent.service") < deploy.index("tracegate-xray@transit.service"),
-        "Endpoint agent must reconcile before the final data-plane restart pass",
+        deploy.index("tracegate-xray@transit.service") < deploy.index("tracegate-agent.service"),
+        "Endpoint primary Xray must be ready before agent reconciliation",
+    )
+    _require(
+        deploy.index("tracegate-haproxy@transit.service") < deploy.index("tracegate-agent.service"),
+        "Endpoint primary fronting stack must be ready before agent reconciliation",
+    )
+    _require(
+        deploy.index("tracegate-agent.service") < deploy.index("tracegate-xray-ss2022.service"),
+        "Endpoint agent must reconcile before the final dependent data-plane restart pass",
+    )
+    _require(
+        deploy.index("tracegate-haproxy@entry.service") < deploy.index("tracegate-agent-entry.service"),
+        "Entry primary fronting stack must be ready before agent reconciliation",
     )
     _require(
         deploy.index("tracegate-agent-entry.service") < deploy.index("tracegate-mtproto@entry.service"),

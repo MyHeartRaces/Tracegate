@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## v3.1.9 - 2026-07-15
+
+- Keep the primary Xray and fronting dependencies ahead of agent reconciliation
+  while retaining Telemt and optional data planes in the final restart pass.
+
 ## v3.1.8 - 2026-07-15
 
 - Run the host agent reconciliation before the deployer's final data-plane
