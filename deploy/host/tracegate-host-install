@@ -6,64 +6,62 @@ VERSION="${1:-}"
 INSTALL_ROOT="${TRACEGATE_INSTALL_ROOT:-/opt/tracegate}"
 SYSTEMD_DIR="${TRACEGATE_SYSTEMD_DIR:-/etc/systemd/system}"
 SYSCTL_DIR="${TRACEGATE_SYSCTL_DIR:-/etc/sysctl.d}"
-SYSCTL_BIN="${TRACEGATE_SYSCTL_BIN:-/sbin/sysctl}"
+LOCAL_SBIN_DIR="${TRACEGATE_LOCAL_SBIN_DIR:-/usr/local/sbin}"
+PYTHON="${TRACEGATE_PYTHON:-python3}"
+SYSTEMCTL="${TRACEGATE_SYSTEMCTL:-systemctl}"
+SYSCTL="${TRACEGATE_SYSCTL:-sysctl}"
 
-[ "$(id -u)" -eq 0 ] || { echo "tracegate host install: run as root" >&2; exit 2; }
-[[ "${VERSION}" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][A-Za-z0-9.]+)?$ ]] || {
-  echo "usage: $0 VERSION" >&2
-  exit 2
-}
-python3 "${SOURCE_ROOT}/scripts/check_host_runtime.py" --root "${SOURCE_ROOT}"
-python3 "${SOURCE_ROOT}/scripts/check_host_deploy.py" --root "${SOURCE_ROOT}"
+die() { echo "tracegate host install: $*" >&2; exit 2; }
+[ "$(id -u)" -eq 0 ] || die "run as root"
+[[ "${VERSION}" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][A-Za-z0-9.]+)?$ ]] || die "usage: $0 VERSION"
+command -v "${PYTHON}" >/dev/null || die "missing ${PYTHON}"
+
+"${PYTHON}" "${SOURCE_ROOT}/scripts/check_host_runtime.py" --root "${SOURCE_ROOT}"
+"${PYTHON}" "${SOURCE_ROOT}/scripts/check_host_deploy.py" --root "${SOURCE_ROOT}"
+
+wheel="$(find "${SOURCE_ROOT}/packages" -maxdepth 1 -type f -name "tracegate-${VERSION}-*.whl" -print -quit 2>/dev/null || true)"
+[ -n "${wheel}" ] || die "missing bundled wheel packages/tracegate-${VERSION}-*.whl"
 
 release_root="${INSTALL_ROOT}/releases/${VERSION}"
-target="${release_root}/runtime"
-[ ! -e "${target}" ] || { echo "release already installed: ${target}" >&2; exit 2; }
-install -d -m 0755 "${release_root}"
-mkdir "${target}"
-cp -a "${SOURCE_ROOT}/bundles" "${SOURCE_ROOT}/deploy" "${SOURCE_ROOT}/scripts" "${target}/"
-chmod 0755 "${target}/deploy/host/tracegate-host-deploy" "${target}/deploy/host/tracegate-host-install"
-chmod 0755 \
-  "${target}/deploy/systemd/tracegate-shadowtls-env" \
-  "${target}/deploy/systemd/tracegate-telemt-permissions"
+runtime="${release_root}/runtime"
+venv="${release_root}/venv"
+[ ! -e "${runtime}" ] && [ ! -e "${venv}" ] || die "release already staged: ${release_root}"
 
-# Preserve the QUIC socket-buffer tuning that was part of the retired k3s
-# host bootstrap. Without it Linux falls back to ~208 KiB UDP receive buffers
-# after a reboot, which can drop bursts and tear down otherwise healthy QUIC
-# sessions. Apply it before any data-plane service can be restarted.
-install -d -m 0755 "${SYSCTL_DIR}"
-install -m 0644 \
-  "${target}/deploy/host/90-tracegate-quic.conf" \
-  "${SYSCTL_DIR}/90-tracegate-quic.conf"
-"${SYSCTL_BIN}" -p "${SYSCTL_DIR}/90-tracegate-quic.conf"
+temporary="${INSTALL_ROOT}/releases/.${VERSION}.install.$$"
+cleanup() { rm -rf "${temporary}"; }
+trap cleanup EXIT
+install -d -m 0755 "${temporary}/runtime" "${temporary}/runtime/packages"
+cp -a "${SOURCE_ROOT}/bundles" "${SOURCE_ROOT}/deploy" "${SOURCE_ROOT}/scripts" "${temporary}/runtime/"
+cp -a "${SOURCE_ROOT}/pyproject.toml" "${SOURCE_ROOT}/requirements.lock" "${temporary}/runtime/"
+cp -a "${wheel}" "${temporary}/runtime/packages/"
+[ -f "${SOURCE_ROOT}/BUILD-INFO" ] && cp -a "${SOURCE_ROOT}/BUILD-INFO" "${temporary}/runtime/BUILD-INFO"
 
-ln -s "${target}" "${INSTALL_ROOT}/current.new"
-mv -Tf "${INSTALL_ROOT}/current.new" "${INSTALL_ROOT}/current"
-
-install -m 0644 "${target}/deploy/host/tracegate-host.service" "${SYSTEMD_DIR}/tracegate-host.service"
-for unit in \
-  tracegate-grafana.service \
-  tracegate-haproxy@.service \
-  tracegate-hysteria-salamander.service \
-  tracegate-hysteria@.service \
-  tracegate-mtproto@.service \
-  tracegate-nginx@.service \
-  tracegate-prometheus.service \
-  tracegate-shadowtls.service \
-  tracegate-wireguard-sync.service \
-  tracegate-wireguard.service \
-  tracegate-wstunnel-wireguard.service \
-  tracegate-xray@.service \
-  tracegate-xray-ss2022.service
-do
-  install -m 0644 "${target}/deploy/systemd/${unit}" "${SYSTEMD_DIR}/${unit}"
+"${PYTHON}" -m venv "${temporary}/venv"
+"${temporary}/venv/bin/python" -m pip install --disable-pip-version-check --no-input --upgrade pip
+"${temporary}/venv/bin/python" -m pip install --disable-pip-version-check --no-input \
+  -c "${temporary}/runtime/requirements.lock" "${temporary}/runtime/packages/$(basename "${wheel}")"
+for command in tracegate-api tracegate-agent tracegate-bot tracegate-dispatcher tracegate-migrate-db tracegate-host-private-preflight; do
+  [ -x "${temporary}/venv/bin/${command}" ] || die "wheel did not install ${command}"
 done
 
-# The ShadowTLS service reads a root-only derived environment file. Generate it
-# before systemd parses the unit so no secret has to be embedded in this public
-# release or the unit file itself.
-if [ -f /etc/tracegate/tracegate.env ]; then
-  "${target}/deploy/systemd/tracegate-shadowtls-env"
-fi
-systemctl daemon-reload
-echo "installed Tracegate host release ${VERSION}; run tracegate-host-deploy preflight before activation"
+install -d -m 0755 "${INSTALL_ROOT}/releases"
+mv "${temporary}" "${release_root}"
+trap - EXIT
+
+install -d -m 0755 "${SYSTEMD_DIR}" "${SYSCTL_DIR}" "${LOCAL_SBIN_DIR}"
+for retired_unit in tracegate-host.service tracegate-shadowsocks2022.service; do
+  "${SYSTEMCTL}" disable --now "${retired_unit}" >/dev/null 2>&1 || true
+  rm -f "${SYSTEMD_DIR}/${retired_unit}"
+done
+for unit in "${runtime}"/deploy/systemd/*.service "${runtime}"/deploy/systemd/*.timer; do
+  install -m 0644 "${unit}" "${SYSTEMD_DIR}/$(basename "${unit}")"
+done
+install -m 0755 "${runtime}/deploy/systemd/tracegate-shadowtls-env" "${LOCAL_SBIN_DIR}/tracegate-shadowtls-env"
+install -m 0755 "${runtime}/deploy/systemd/tracegate-telemt-permissions" "${LOCAL_SBIN_DIR}/tracegate-telemt-permissions"
+install -m 0755 "${runtime}/deploy/host/tracegate-db-backup" "${LOCAL_SBIN_DIR}/tracegate-db-backup"
+install -m 0644 "${runtime}/deploy/host/90-tracegate-quic.conf" "${SYSCTL_DIR}/90-tracegate-quic.conf"
+"${SYSCTL}" -p "${SYSCTL_DIR}/90-tracegate-quic.conf"
+"${SYSTEMCTL}" daemon-reload
+
+echo "staged Tracegate host release ${VERSION} under ${release_root}"
+echo "activate with ${runtime}/deploy/host/tracegate-host-deploy deploy ${VERSION}"

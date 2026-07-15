@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+## v3.1.5 - 2026-07-15
+
+- Made native systemd the only supported production host runtime and removed
+  the unused parallel Compose control plane.
+- Added versioned application venv staging, atomic runtime activation, real
+  symlink-based rollback, role health gates and tracked Entry/Endpoint units.
+- Made the host archive self-contained with its application wheel, build
+  identity and standard-library-only preflight checks.
+- Added tag-driven immutable release publication and full release artifact
+  inspection to CI.
+- Restored the tracked Endpoint firewall contract for Hysteria Salamander on
+  UDP/8444.
+
 ## v3.1.3 - 2026-07-14
 
 - Replaced version-locked data-plane container references with rolling `latest`

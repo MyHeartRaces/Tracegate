@@ -1,38 +1,33 @@
-# Host production deployment
+# Native host production runtime
 
-This directory is the public, environment-neutral deployment contract for
-Tracegate 3. Production hosts use Docker Compose, systemd and host networking;
-no Kubernetes or Helm component is required.
+Tracegate production runs directly on Linux hosts with systemd, host
+PostgreSQL, Docker-backed data-plane services and host networking. There is no
+parallel container orchestrator or Compose control plane.
 
-Private inputs are deliberately external:
+Private inputs remain outside the public release:
 
-- `/etc/tracegate/deploy.env` selects tagged images and paths;
-- `/etc/tracegate/tracegate.env` contains runtime credentials and has mode
-  `0600` or `0400`;
-- `/var/lib/tracegate/private` contains rendered role profiles, TLS material
-  and other operator-owned files.
+- `/etc/tracegate/deploy.env` contains non-secret host deployment coordinates;
+- `/etc/tracegate/tracegate.env` is the Endpoint runtime environment;
+- `/etc/tracegate/tracegate-entry.env` is the Entry runtime environment;
+- `/var/lib/tracegate/private` contains rendered private profiles and TLS data.
 
-Never copy those files into the public checkout or release archive.
+## Release lifecycle
 
-## Install and activate
+1. Verify `SHA256SUMS` and extract `tracegate-host-runtime-VERSION.tar.gz`.
+2. Run `tracegate-host-install VERSION`. It validates the archive, creates an
+   immutable versioned venv from the bundled wheel, installs tracked systemd
+   units and host helpers, and applies the QUIC sysctl profile. It does not
+   switch the active release or restart traffic.
+3. Render the correct role environment and run
+   `tracegate-host-deploy preflight VERSION`.
+4. Run `tracegate-host-deploy deploy VERSION`. Endpoint deployment takes a
+   database backup and applies forward-compatible migrations before atomically
+   switching `/opt/tracegate/current`, `/opt/tracegate/app` and
+   `/opt/tracegate/venv`. Role services are restarted in dependency order and
+   both API and agent readiness are required.
+5. If readiness fails, the previous symlink targets and systemd files are
+   restored automatically. `tracegate-host-deploy rollback` performs the same
+   restoration explicitly. Database migrations are never downgraded.
 
-1. Verify `SHA256SUMS`, then extract `tracegate-host-runtime-VERSION.tar.gz`.
-2. Run `sudo deploy/host/tracegate-host-install VERSION` from the extracted
-   directory. Installation stores the host bundle under
-   `/opt/tracegate/releases/VERSION/runtime`, updates `/opt/tracegate/current`
-   atomically, installs the canonical host systemd units and helper scripts,
-   and persists the required QUIC socket-buffer tuning as
-   `/etc/sysctl.d/90-tracegate-quic.conf`. It does not enable or start
-   data-plane services. The sibling `app` and `venv` directories remain
-   available to native control-plane deployments.
-3. Place the private files above and run
-   `/opt/tracegate/current/deploy/host/tracegate-host-deploy preflight`.
-4. Enable `tracegate-host.service` for the control-plane host. Add the
-   `gateway` Compose profile only on a host that runs the Tracegate agent.
-5. Use `tracegate-host-deploy deploy` for upgrades. It requires an operator
-   backup command, pulls current tagged images, applies migrations, waits for readiness
-   and rolls the image selection back if the health gate fails.
-
-`rollback` restores the previous image selection. Alembic migrations are not
-downgraded, so every production migration must remain backward-compatible for
-at least one release.
+The application wheel is versioned and immutable. Upstream data-plane engines
+continue to track `latest`; their systemd units pull before every start.

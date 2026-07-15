@@ -26,7 +26,8 @@ TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "${TMP_DIR}"' EXIT
 SOURCE_DIR="${TMP_DIR}/source"
 INSPECT_DIR="${TMP_DIR}/inspect"
-mkdir -p "${SOURCE_DIR}" "${OUT_DIR}" "${INSPECT_DIR}"
+HOST_STAGE="${TMP_DIR}/tracegate-host-runtime-${VERSION}"
+mkdir -p "${SOURCE_DIR}" "${OUT_DIR}" "${INSPECT_DIR}" "${HOST_STAGE}/packages"
 
 git -C "${ROOT}" archive --format=tar HEAD | tar -xf - -C "${SOURCE_DIR}"
 "${PYTHON_BIN}" "${SOURCE_DIR}/scripts/check_public_release.py" --root "${SOURCE_DIR}" --all-files
@@ -35,11 +36,22 @@ git -C "${ROOT}" archive --format=tar HEAD | tar -xf - -C "${SOURCE_DIR}"
   cd "${SOURCE_DIR}"
   "${PYTHON_BIN}" -m build --outdir "${OUT_DIR}"
 )
-git -C "${ROOT}" archive \
-  --format=tar.gz \
-  --prefix="tracegate-host-runtime-${VERSION}/" \
-  -o "${OUT_DIR}/tracegate-host-runtime-${VERSION}.tar.gz" \
-  HEAD bundles deploy/host deploy/systemd scripts/check_host_runtime.py scripts/check_host_deploy.py
+
+cp -a \
+  "${SOURCE_DIR}/bundles" \
+  "${SOURCE_DIR}/deploy" \
+  "${SOURCE_DIR}/scripts" \
+  "${HOST_STAGE}/"
+cp -a "${SOURCE_DIR}/pyproject.toml" "${SOURCE_DIR}/requirements.lock" "${HOST_STAGE}/"
+wheel="$(find "${OUT_DIR}" -maxdepth 1 -type f -name "tracegate-${VERSION}-*.whl" -print -quit)"
+[ -n "${wheel}" ] || { echo "built wheel is missing" >&2; exit 2; }
+cp -a "${wheel}" "${HOST_STAGE}/packages/"
+{
+  printf 'VERSION=%s\n' "${VERSION}"
+  printf 'GIT_COMMIT=%s\n' "$(git -C "${ROOT}" rev-parse HEAD)"
+  printf 'RUNTIME=native-systemd\n'
+} >"${HOST_STAGE}/BUILD-INFO"
+tar -C "${TMP_DIR}" -czf "${OUT_DIR}/tracegate-host-runtime-${VERSION}.tar.gz" "tracegate-host-runtime-${VERSION}"
 
 for archive in "${OUT_DIR}"/*.tar.gz; do
   target="${INSPECT_DIR}/$(basename "${archive}")"

@@ -1,8 +1,9 @@
 # Host runtime services
 
-Tracegate production uses Linux hosts with systemd, Docker and host networking.
-The public repository ships only generic units; private environment files,
-credentials and rendered profiles remain operator-managed.
+Tracegate production uses Linux hosts with systemd, host PostgreSQL, Docker
+data-plane processes and host networking. The units here are the complete
+native Entry/Endpoint runtime; private environment files, credentials and
+rendered profiles remain operator-managed.
 
 `tracegate-clock-sync-from-rtc.timer` is an opt-in fallback for hosts where:
 

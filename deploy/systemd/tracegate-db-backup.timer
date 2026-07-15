@@ -1,0 +1,10 @@
+[Unit]
+Description=Tracegate PostgreSQL daily backup timer
+
+[Timer]
+OnCalendar=*-*-* 03:17:00
+Persistent=true
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,16 @@
+[Unit]
+Description=Tracegate Bot
+After=tracegate-api.service network-online.target
+Requires=tracegate-api.service
+Wants=network-online.target
+
+[Service]
+WorkingDirectory=/opt/tracegate/current
+EnvironmentFile=/etc/tracegate/tracegate.env
+ExecStart=/opt/tracegate/venv/bin/tracegate-bot
+Restart=always
+RestartSec=3
+User=root
+
+[Install]
+WantedBy=multi-user.target

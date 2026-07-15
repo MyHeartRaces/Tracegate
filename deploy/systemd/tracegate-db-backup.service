@@ -1,0 +1,13 @@
+[Unit]
+Description=Tracegate PostgreSQL daily backup
+After=postgresql.service
+Wants=postgresql.service
+
+[Service]
+Type=oneshot
+EnvironmentFile=-/etc/tracegate/deploy.env
+ExecStart=/usr/local/sbin/tracegate-db-backup
+User=root
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7

@@ -1,140 +1,255 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"
-COMPOSE_FILE="${TRACEGATE_COMPOSE_FILE:-${ROOT}/deploy/host/compose.yaml}"
-DEPLOY_ENV="${TRACEGATE_DEPLOY_ENV:-/etc/tracegate/deploy.env}"
-RUNTIME_ENV="${TRACEGATE_ENV_FILE:-/etc/tracegate/tracegate.env}"
+INSTALL_ROOT="${TRACEGATE_INSTALL_ROOT:-/opt/tracegate}"
+ETC_DIR="${TRACEGATE_ETC_DIR:-/etc/tracegate}"
+DEPLOY_ENV="${TRACEGATE_DEPLOY_ENV:-${ETC_DIR}/deploy.env}"
 STATE_DIR="${TRACEGATE_STATE_DIR:-/var/lib/tracegate/deploy-state}"
+SYSTEMD_DIR="${TRACEGATE_SYSTEMD_DIR:-/etc/systemd/system}"
+SYSCTL_DIR="${TRACEGATE_SYSCTL_DIR:-/etc/sysctl.d}"
+LOCAL_SBIN_DIR="${TRACEGATE_LOCAL_SBIN_DIR:-/usr/local/sbin}"
+SYSTEMCTL="${TRACEGATE_SYSTEMCTL:-systemctl}"
+CURL="${TRACEGATE_CURL:-curl}"
+SYSCTL="${TRACEGATE_SYSCTL:-sysctl}"
+PYTHON="${TRACEGATE_PYTHON:-python3}"
+HEALTH_ATTEMPTS="${TRACEGATE_HEALTH_ATTEMPTS:-60}"
+HEALTH_DELAY_SECONDS="${TRACEGATE_HEALTH_DELAY_SECONDS:-2}"
 
 die() { echo "tracegate host deploy: $*" >&2; exit 2; }
 need() { command -v "$1" >/dev/null 2>&1 || die "missing command: $1"; }
 
 load_deploy_env() {
   [ -f "${DEPLOY_ENV}" ] || die "missing deployment environment: ${DEPLOY_ENV}"
+  set -a
   # shellcheck disable=SC1090
-  set -a; source "${DEPLOY_ENV}"; set +a
-  RUNTIME_ENV="${TRACEGATE_ENV_FILE:-${RUNTIME_ENV}}"
-}
-
-compose() {
-  local profiles=()
-  if [ -n "${TRACEGATE_COMPOSE_PROFILES:-}" ]; then
-    IFS=',' read -ra requested <<<"${TRACEGATE_COMPOSE_PROFILES}"
-    for profile in "${requested[@]}"; do profiles+=(--profile "${profile}"); done
-  fi
-  TRACEGATE_ENV_FILE="${RUNTIME_ENV}" docker compose --env-file "${DEPLOY_ENV}" -f "${COMPOSE_FILE}" "${profiles[@]}" "$@"
-}
-
-preflight() {
-  load_deploy_env
-  need docker; need curl; need stat
-  docker compose version >/dev/null
-  [ -f "${RUNTIME_ENV}" ] || die "missing runtime environment: ${RUNTIME_ENV}"
-  case "$(stat -c '%a' "${RUNTIME_ENV}" 2>/dev/null || stat -f '%Lp' "${RUNTIME_ENV}")" in
-    600|400) ;; *) die "${RUNTIME_ENV} must have mode 0600 or 0400" ;; esac
-  [[ "${TRACEGATE_IMAGE:-}" =~ ^ghcr\.io/[^[:space:]@]+:[^[:space:]@]+$ ]] || die "TRACEGATE_IMAGE must be a tagged GHCR image"
-  [[ "${POSTGRES_IMAGE:-}" =~ ^postgres:[^[:space:]@]+$ ]] || die "POSTGRES_IMAGE must be a tagged postgres image"
-  [ -n "${TRACEGATE_COMPOSE_PROFILES:-}" ] || die "TRACEGATE_COMPOSE_PROFILES must select control and/or gateway"
-  if grep -En '(^|=)(REPLACE_ME|CHANGE_ME|TODO|REPLACE_WITH_)' "${RUNTIME_ENV}" "${DEPLOY_ENV}" >/dev/null 2>&1; then
-    die "placeholder value found in private deployment inputs"
-  fi
-  for key in API_INTERNAL_TOKEN AGENT_AUTH_TOKEN; do
-    grep -Eq "^${key}=.+" "${RUNTIME_ENV}" || die "missing ${key} in ${RUNTIME_ENV}"
-  done
-  case ",${TRACEGATE_COMPOSE_PROFILES}," in
-    *,control,*)
-      for key in DATABASE_URL POSTGRES_DB POSTGRES_USER POSTGRES_PASSWORD BOT_TOKEN BOT_API_TOKEN; do
-        grep -Eq "^${key}=.+" "${RUNTIME_ENV}" || die "missing ${key} in ${RUNTIME_ENV}"
-      done
+  source "${DEPLOY_ENV}"
+  set +a
+  case "${TRACEGATE_HOST_ROLE:-}" in
+    endpoint)
+      RUNTIME_ENV="${TRACEGATE_RUNTIME_ENV:-${ETC_DIR}/tracegate.env}"
+      ROLE_UNITS=(
+        tracegate-wireguard.service
+        tracegate-xray@transit.service
+        tracegate-xray-ss2022.service
+        tracegate-hysteria@transit.service
+        tracegate-hysteria-salamander.service
+        tracegate-shadowtls.service
+        tracegate-wstunnel-wireguard.service
+        tracegate-nginx@transit.service
+        tracegate-haproxy@transit.service
+        tracegate-wireguard-sync.service
+        tracegate-prometheus.service
+        tracegate-grafana.service
+        tracegate-agent.service
+        tracegate-api.service
+        tracegate-dispatcher.service
+        tracegate-bot.service
+        tracegate-db-backup.timer
+      )
+      HEALTH_URLS=(
+        "${TRACEGATE_API_HEALTH_URL:-http://127.0.0.1:18080/ready}"
+        "${TRACEGATE_AGENT_HEALTH_URL:-http://127.0.0.1:8070/v1/health}"
+      )
       ;;
+    entry)
+      RUNTIME_ENV="${TRACEGATE_ENTRY_RUNTIME_ENV:-${ETC_DIR}/tracegate-entry.env}"
+      ROLE_UNITS=(
+        tracegate-entry-firewall.service
+        tracegate-xray@entry.service
+        tracegate-hysteria@entry.service
+        tracegate-mtproto@entry.service
+        tracegate-nginx@entry.service
+        tracegate-haproxy@entry.service
+        tracegate-agent-entry.service
+      )
+      HEALTH_URLS=("${TRACEGATE_AGENT_HEALTH_URL:-http://127.0.0.1:8070/v1/health}")
+      ;;
+    *) die "TRACEGATE_HOST_ROLE must be endpoint or entry" ;;
   esac
-  compose config --quiet
+}
+
+release_path() {
+  local version="$1"
+  printf '%s/releases/%s' "${INSTALL_ROOT}" "${version}"
+}
+
+validate_release() {
+  local version="$1" release runtime venv mode required_file
+  release="$(release_path "${version}")"
+  runtime="${release}/runtime"
+  venv="${release}/venv"
+  [ -d "${runtime}" ] || die "missing staged runtime: ${runtime}"
+  [ -x "${venv}/bin/tracegate-api" ] || die "missing staged application venv: ${venv}"
+  [ -f "${RUNTIME_ENV}" ] || die "missing runtime environment: ${RUNTIME_ENV}"
+  mode="$(stat -c '%a' "${RUNTIME_ENV}" 2>/dev/null || stat -f '%Lp' "${RUNTIME_ENV}")"
+  case "${mode}" in 600|400) ;; *) die "${RUNTIME_ENV} must have mode 0600 or 0400" ;; esac
+  if grep -En '(^|=)(REPLACE_ME|CHANGE_ME|TODO|REPLACE_WITH_)' "${RUNTIME_ENV}" "${DEPLOY_ENV}" >/dev/null 2>&1; then
+    die "placeholder value found in deployment inputs"
+  fi
+  "${venv}/bin/python" "${runtime}/scripts/check_host_runtime.py" --root "${runtime}"
+  "${venv}/bin/python" "${runtime}/scripts/check_host_deploy.py" --root "${runtime}"
   if [ -n "${TRACEGATE_PRIVATE_ROLE:-}" ]; then
-    private_args=(--root /var/lib/tracegate/private --role "${TRACEGATE_PRIVATE_ROLE}")
+    private_args=(--root "${TRACEGATE_PRIVATE_ROOT:-/var/lib/tracegate/private}" --role "${TRACEGATE_PRIVATE_ROLE}")
     if [ -n "${TRACEGATE_PRIVATE_REQUIRED_FILES:-}" ]; then
       IFS=',' read -ra required_files <<<"${TRACEGATE_PRIVATE_REQUIRED_FILES}"
-      for required_file in "${required_files[@]}"; do
-        private_args+=(--required-file "${required_file}")
-      done
+      for required_file in "${required_files[@]}"; do private_args+=(--required-file "${required_file}"); done
     fi
-    compose run --rm --no-deps api tracegate-host-private-preflight "${private_args[@]}"
+    (
+      set -a
+      # shellcheck disable=SC1090
+      source "${RUNTIME_ENV}"
+      set +a
+      "${venv}/bin/tracegate-host-private-preflight" "${private_args[@]}"
+    )
   fi
-  echo "tracegate host preflight passed"
+}
+
+sync_release_files() {
+  local runtime="$1" unit
+  install -d -m 0755 "${SYSTEMD_DIR}" "${SYSCTL_DIR}" "${LOCAL_SBIN_DIR}"
+  for unit in tracegate-host.service tracegate-shadowsocks2022.service; do
+    "${SYSTEMCTL}" disable --now "${unit}" >/dev/null 2>&1 || true
+    rm -f "${SYSTEMD_DIR}/${unit}"
+  done
+  for unit in "${runtime}"/deploy/systemd/*.service "${runtime}"/deploy/systemd/*.timer; do
+    install -m 0644 "${unit}" "${SYSTEMD_DIR}/$(basename "${unit}")"
+  done
+  [ ! -f "${runtime}/deploy/systemd/tracegate-shadowtls-env" ] || \
+    install -m 0755 "${runtime}/deploy/systemd/tracegate-shadowtls-env" "${LOCAL_SBIN_DIR}/tracegate-shadowtls-env"
+  [ ! -f "${runtime}/deploy/systemd/tracegate-telemt-permissions" ] || \
+    install -m 0755 "${runtime}/deploy/systemd/tracegate-telemt-permissions" "${LOCAL_SBIN_DIR}/tracegate-telemt-permissions"
+  [ ! -f "${runtime}/deploy/host/tracegate-db-backup" ] || \
+    install -m 0755 "${runtime}/deploy/host/tracegate-db-backup" "${LOCAL_SBIN_DIR}/tracegate-db-backup"
+  if [ -f "${runtime}/deploy/host/90-tracegate-quic.conf" ]; then
+    install -m 0644 "${runtime}/deploy/host/90-tracegate-quic.conf" "${SYSCTL_DIR}/90-tracegate-quic.conf"
+    "${SYSCTL}" -p "${SYSCTL_DIR}/90-tracegate-quic.conf"
+  fi
+  if [ -f "${ETC_DIR}/tracegate.env" ]; then "${LOCAL_SBIN_DIR}/tracegate-shadowtls-env"; fi
+  "${SYSTEMCTL}" daemon-reload
+}
+
+atomic_link() {
+  local target="$1" link="$2" temporary
+  temporary="${link}.new.$$"
+  rm -f "${temporary}"
+  ln -s "${target}" "${temporary}"
+  "${PYTHON}" -c 'import os,sys; os.replace(sys.argv[1], sys.argv[2])' "${temporary}" "${link}"
+}
+
+capture_previous_state() {
+  local file="${STATE_DIR}/previous.env"
+  install -d -m 0700 "${STATE_DIR}"
+  [ -L "${INSTALL_ROOT}/current" ] || die "${INSTALL_ROOT}/current is not a symlink"
+  [ -L "${INSTALL_ROOT}/app" ] || die "${INSTALL_ROOT}/app is not a symlink"
+  [ -L "${INSTALL_ROOT}/venv" ] || die "${INSTALL_ROOT}/venv is not a symlink"
+  {
+    printf 'PREVIOUS_CURRENT=%q\n' "$(readlink -f "${INSTALL_ROOT}/current")"
+    printf 'PREVIOUS_APP=%q\n' "$(readlink -f "${INSTALL_ROOT}/app")"
+    printf 'PREVIOUS_VENV=%q\n' "$(readlink -f "${INSTALL_ROOT}/venv")"
+  } >"${file}.tmp"
+  chmod 0600 "${file}.tmp"
+  mv -f "${file}.tmp" "${file}"
+}
+
+switch_release() {
+  local release="$1"
+  atomic_link "${release}/runtime" "${INSTALL_ROOT}/current"
+  atomic_link "${release}/runtime" "${INSTALL_ROOT}/app"
+  atomic_link "${release}/venv" "${INSTALL_ROOT}/venv"
+}
+
+restart_role() {
+  local unit
+  for unit in "${ROLE_UNITS[@]}"; do "${SYSTEMCTL}" enable "${unit}" >/dev/null || return 1; done
+  for unit in "${ROLE_UNITS[@]}"; do "${SYSTEMCTL}" restart "${unit}" || return 1; done
 }
 
 wait_healthy() {
-  local attempt url healthy
-  local urls=()
-  case ",${TRACEGATE_COMPOSE_PROFILES}," in
-    *,control,*) urls+=("${TRACEGATE_HEALTH_URL:-http://127.0.0.1:${TRACEGATE_API_PORT:-18080}/ready}") ;;
-  esac
-  case ",${TRACEGATE_COMPOSE_PROFILES}," in
-    *,gateway,*) urls+=("${TRACEGATE_AGENT_HEALTH_URL:-http://127.0.0.1:${TRACEGATE_AGENT_PORT:-8070}/v1/health}") ;;
-  esac
-  [ "${#urls[@]}" -gt 0 ] || die "no health gate selected"
-  for attempt in $(seq 1 60); do
+  local url healthy
+  for _ in $(seq 1 "${HEALTH_ATTEMPTS}"); do
     healthy=1
-    for url in "${urls[@]}"; do
-      curl --fail --silent --show-error --max-time 5 "${url}" >/dev/null || healthy=0
+    for url in "${HEALTH_URLS[@]}"; do
+      "${CURL}" --fail --silent --show-error --max-time 5 "${url}" >/dev/null || healthy=0
     done
-    if [ "${healthy}" -eq 1 ]; then
-      echo "tracegate host runtime healthy"
-      return 0
-    fi
-    sleep 2
+    [ "${healthy}" -eq 1 ] && return 0
+    sleep "${HEALTH_DELAY_SECONDS}"
   done
-  compose ps >&2 || true
-  echo "tracegate host deploy: role health gate timed out" >&2
   return 1
 }
 
-up() {
-  preflight
-  compose up -d --remove-orphans --wait
-  wait_healthy || die "initial runtime failed readiness"
+restore_previous() {
+  local state="${STATE_DIR}/previous.env" previous_runtime
+  [ -f "${state}" ] || die "no previous deployment state"
+  # shellcheck disable=SC1090
+  source "${state}"
+  for path in "${PREVIOUS_CURRENT:-}" "${PREVIOUS_APP:-}" "${PREVIOUS_VENV:-}"; do [ -e "${path}" ] || die "previous release path is missing: ${path}"; done
+  previous_runtime="${PREVIOUS_CURRENT}"
+  sync_release_files "${previous_runtime}"
+  atomic_link "${PREVIOUS_CURRENT}" "${INSTALL_ROOT}/current"
+  atomic_link "${PREVIOUS_APP}" "${INSTALL_ROOT}/app"
+  atomic_link "${PREVIOUS_VENV}" "${INSTALL_ROOT}/venv"
+  restart_role
+}
+
+preflight() {
+  local version="$1"
+  load_deploy_env
+  need "${SYSTEMCTL}"; need "${CURL}"; need "${SYSCTL}"; need "${PYTHON}"; need stat
+  validate_release "${version}"
+  echo "native host preflight passed for ${TRACEGATE_HOST_ROLE} release ${version}"
 }
 
 deploy() {
-  preflight
-  install -d -m 0700 "${STATE_DIR}"
-  case ",${TRACEGATE_COMPOSE_PROFILES}," in
-    *,control,*)
-      [ -n "${TRACEGATE_BACKUP_COMMAND:-}" ] || die "TRACEGATE_BACKUP_COMMAND is required for control deployment"
-      "${TRACEGATE_BACKUP_COMMAND}"
-      ;;
-  esac
-  cp "${DEPLOY_ENV}" "${STATE_DIR}/deploy.env.previous"
-  chmod 0600 "${STATE_DIR}/deploy.env.previous"
-  compose pull
-  case ",${TRACEGATE_COMPOSE_PROFILES}," in
-    *,control,*) compose run --rm migrate ;;
-  esac
-  compose up -d --remove-orphans --wait
-  if ! wait_healthy; then
-    echo "new runtime failed health gate; invoking rollback" >&2
-    rollback
+  local version="$1" release
+  preflight "${version}"
+  release="$(release_path "${version}")"
+  if [ "${TRACEGATE_HOST_ROLE}" = endpoint ]; then
+    [ -n "${TRACEGATE_BACKUP_COMMAND:-}" ] || die "TRACEGATE_BACKUP_COMMAND is required on Endpoint"
+    bash -lc "${TRACEGATE_BACKUP_COMMAND}"
+    (
+      cd "${release}/runtime"
+      set -a
+      # shellcheck disable=SC1090
+      source "${RUNTIME_ENV}"
+      set +a
+      "${release}/venv/bin/tracegate-migrate-db"
+    )
+  fi
+  capture_previous_state
+  sync_release_files "${release}/runtime"
+  switch_release "${release}"
+  if ! restart_role || ! wait_healthy; then
+    echo "new native runtime failed; restoring previous release" >&2
+    restore_previous
+    wait_healthy || die "rollback runtime failed readiness"
     return 1
   fi
+  printf '%s\n' "${version}" >"${STATE_DIR}/active-version"
+  chmod 0600 "${STATE_DIR}/active-version"
+  echo "native host release ${version} is healthy"
 }
 
 rollback() {
-  [ -f "${STATE_DIR}/deploy.env.previous" ] || die "no previous deployment state"
-  cp "${STATE_DIR}/deploy.env.previous" "${DEPLOY_ENV}"
-  chmod 0600 "${DEPLOY_ENV}"
   load_deploy_env
-  compose pull
-  compose up -d --remove-orphans --wait
+  restore_previous
   wait_healthy || die "rollback runtime failed readiness"
-  echo "tracegate host image rollback completed; database migrations are not downgraded"
+  echo "native host rollback completed; database migrations were not downgraded"
 }
 
-case "${1:-}" in
-  preflight) preflight ;;
-  up) up ;;
-  deploy) deploy ;;
-  rollback) load_deploy_env; rollback ;;
-  status) load_deploy_env; compose ps ;;
-  stop) load_deploy_env; compose down ;;
-  *) die "usage: $0 preflight|up|deploy|rollback|status|stop" ;;
+status() {
+  load_deploy_env
+  printf 'role=%s\ncurrent=%s\napp=%s\nvenv=%s\n' \
+    "${TRACEGATE_HOST_ROLE}" \
+    "$(readlink -f "${INSTALL_ROOT}/current" 2>/dev/null || true)" \
+    "$(readlink -f "${INSTALL_ROOT}/app" 2>/dev/null || true)" \
+    "$(readlink -f "${INSTALL_ROOT}/venv" 2>/dev/null || true)"
+  "${SYSTEMCTL}" --no-pager --full status "${ROLE_UNITS[@]}" || true
+}
+
+action="${1:-}"
+version="${2:-${TRACEGATE_TARGET_VERSION:-}}"
+case "${action}" in
+  preflight|deploy) [ -n "${version}" ] || die "usage: $0 ${action} VERSION"; "${action}" "${version}" ;;
+  rollback|status) "${action}" ;;
+  *) die "usage: $0 preflight VERSION | deploy VERSION | rollback | status" ;;
 esac

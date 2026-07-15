@@ -1,0 +1,15 @@
+[Unit]
+Description=Tracegate Agent (Endpoint)
+After=network-online.target tracegate-xray@transit.service tracegate-nginx@transit.service tracegate-haproxy@transit.service
+Wants=network-online.target
+
+[Service]
+WorkingDirectory=/opt/tracegate/current
+EnvironmentFile=/etc/tracegate/tracegate.env
+ExecStart=/opt/tracegate/venv/bin/tracegate-agent
+Restart=always
+RestartSec=3
+User=root
+
+[Install]
+WantedBy=multi-user.target

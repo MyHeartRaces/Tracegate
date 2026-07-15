@@ -4,8 +4,6 @@ import argparse
 from pathlib import Path
 import subprocess
 
-import yaml
-
 
 def _require(value: bool, message: str) -> None:
     if not value:
@@ -13,81 +11,74 @@ def _require(value: bool, message: str) -> None:
 
 
 def check(root: Path, *, compose_runtime: bool = False) -> None:
-    compose_path = root / "deploy/host/compose.yaml"
-    deploy_script_path = root / "deploy/host/tracegate-host-deploy"
+    if compose_runtime:
+        raise RuntimeError("Docker Compose host runtime is retired")
+
+    deploy_path = root / "deploy/host/tracegate-host-deploy"
     install_path = root / "deploy/host/tracegate-host-install"
-    unit_path = root / "deploy/host/tracegate-host.service"
-    env_example_path = root / "deploy/host/deploy.env.example"
-    for path in (compose_path, deploy_script_path, install_path, unit_path, env_example_path):
+    backup_path = root / "deploy/host/tracegate-db-backup"
+    env_path = root / "deploy/host/deploy.env.example"
+    for path in (deploy_path, install_path, backup_path, env_path):
         _require(path.is_file(), f"missing host deployment file: {path.relative_to(root)}")
+    _require(not (root / "deploy/host/compose.yaml").exists(), "retired Compose file is still present")
+    _require(not (root / "deploy/host/tracegate-host.service").exists(), "retired Compose unit is still present")
 
-    compose_text = compose_path.read_text()
-    compose = yaml.safe_load(compose_text)
-    services = compose.get("services", {})
-    _require(
-        {"postgres", "migrate", "api", "dispatcher", "bot", "agent", "wireguard-sync"}.issubset(services),
-        "host compose is missing required services",
-    )
-    _require("TRACEGATE_IMAGE:-" in compose_text, "host compose must default to a tagged application image")
-    _require("POSTGRES_IMAGE:-" in compose_text, "host compose must default to a tagged PostgreSQL image")
-    _require(services["migrate"].get("command") == "tracegate-migrate-db", "migration gate is not configured")
-    for service_name in ("postgres", "migrate", "api", "dispatcher", "bot"):
-        _require("control" in services[service_name].get("profiles", []), f"{service_name} must be control-only")
-    api_dependencies = services["api"].get("depends_on", {})
-    _require(
-        api_dependencies.get("migrate", {}).get("condition") == "service_completed_successfully",
-        "API must wait for successful migrations",
-    )
-    api_ports = services["api"].get("ports", [])
-    _require(any(str(port).startswith("127.0.0.1:") for port in api_ports), "API must bind to loopback")
-    _require("/ready" in str(services["api"].get("healthcheck", {})), "API readiness healthcheck is missing")
-    _require("gateway" in services["agent"].get("profiles", []), "agent must remain an explicit gateway profile")
-    _require(services["agent"].get("network_mode") == "host", "gateway agent must use host networking")
-    _require("gateway" in services["wireguard-sync"].get("profiles", []), "WireGuard sync must be a gateway profile")
-    _require("NET_ADMIN" in services["wireguard-sync"].get("cap_add", []), "WireGuard sync needs NET_ADMIN")
-    _require("tracegate-wireguard-sync-runner" in services["wireguard-sync"].get("command", ""), "WireGuard sync command is missing")
-
-    deploy_script = deploy_script_path.read_text()
+    deploy = deploy_path.read_text()
     for token in (
-        "compose config --quiet",
+        "TRACEGATE_HOST_ROLE",
+        "tracegate-entry.env",
         "tracegate-host-private-preflight",
-        "TRACEGATE_COMPOSE_PROFILES",
-        "TRACEGATE_AGENT_HEALTH_URL",
+        "capture_previous_state",
+        "PREVIOUS_CURRENT",
+        "PREVIOUS_VENV",
+        "switch_release",
+        "restore_previous",
+        "tracegate-migrate-db",
         "TRACEGATE_BACKUP_COMMAND",
-        "compose run --rm migrate",
-        "compose pull",
-        "rollback",
-        "deploy.env.previous",
-        "compose pull",
+        "wait_healthy",
+        "database migrations were not downgraded",
     ):
-        _require(token in deploy_script, f"host deploy script is missing contract: {token}")
-    _require("database migrations are not downgraded" in deploy_script, "rollback migration warning is missing")
-
-    unit = unit_path.read_text()
-    _require("EnvironmentFile=/etc/tracegate/deploy.env" in unit, "systemd unit must use external deploy env")
-    _require("tracegate-host-deploy up" in unit, "systemd unit start command is missing")
+        _require(token in deploy, f"host deploy script is missing contract: {token}")
+    for forbidden in ("docker compose", "TRACEGATE_IMAGE", "POSTGRES_IMAGE", "deploy.env.previous"):
+        _require(forbidden not in deploy, f"host deploy script still contains retired contract: {forbidden}")
 
     installer = install_path.read_text()
     for token in (
+        "packages/tracegate-${VERSION}-*.whl",
+        '"${PYTHON}" -m venv',
+        "/releases/",
         "check_host_runtime.py",
         "check_host_deploy.py",
-        "/releases/",
-        "current.new",
-        "tracegate-xray@.service",
-        "tracegate-xray-ss2022.service",
-        "tracegate-mtproto@.service",
-        "tracegate-prometheus.service",
-        "tracegate-grafana.service",
-        "tracegate-shadowtls-env",
-        "tracegate-telemt-permissions",
-        "systemctl daemon-reload",
+        "90-tracegate-quic.conf",
+        "systemctl",
     ):
         _require(token in installer, f"host installer is missing contract: {token}")
+    _require("current.new" not in installer, "installer must stage without switching the active release")
 
-    env_example = env_example_path.read_text()
-    _require("REPLACE_ME" not in env_example, "deployment example uses a forbidden secret placeholder")
-    _require("TRACEGATE_IMAGE=ghcr.io/myheartraces/tracegate:latest" in env_example, "latest application image is not documented")
-    _require("POSTGRES_IMAGE=postgres:latest" in env_example, "latest PostgreSQL image is not documented")
+    units = {
+        "tracegate-api.service": "/opt/tracegate/venv/bin/tracegate-api",
+        "tracegate-bot.service": "/opt/tracegate/venv/bin/tracegate-bot",
+        "tracegate-dispatcher.service": "/opt/tracegate/venv/bin/tracegate-dispatcher",
+        "tracegate-agent.service": "EnvironmentFile=/etc/tracegate/tracegate.env",
+        "tracegate-agent-entry.service": "EnvironmentFile=/etc/tracegate/tracegate-entry.env",
+        "tracegate-entry-firewall.service": "ConditionPathExists=/etc/tracegate/entry-origin.nft",
+        "tracegate-db-backup.service": "/usr/local/sbin/tracegate-db-backup",
+        "tracegate-db-backup.timer": "Persistent=true",
+    }
+    for name, token in units.items():
+        text = (root / "deploy/systemd" / name).read_text()
+        _require(token in text, f"{name} is missing native host contract: {token}")
+        _require("k3s" not in text.lower(), f"{name} references retired k3s runtime")
+
+    env = env_path.read_text()
+    _require("TRACEGATE_HOST_ROLE=endpoint" in env, "native host role is not documented")
+    _require("TRACEGATE_RUNTIME_ENV=/etc/tracegate/tracegate.env" in env, "Endpoint env path is not documented")
+    _require("TRACEGATE_ENTRY_RUNTIME_ENV=/etc/tracegate/tracegate-entry.env" in env, "Entry env path is not documented")
+    for forbidden in ("TRACEGATE_IMAGE", "POSTGRES_IMAGE", "TRACEGATE_COMPOSE_PROFILES"):
+        _require(forbidden not in env, f"deployment example still contains Compose field: {forbidden}")
+
+    for script in (deploy_path, install_path, backup_path):
+        subprocess.run(["bash", "-n", str(script)], check=True)
 
     dockerfile_path = root / "Dockerfile"
     if dockerfile_path.exists():
@@ -95,21 +86,15 @@ def check(root: Path, *, compose_runtime: bool = False) -> None:
         _require("FROM ghcr.io/xtls/xray-core:latest AS xray-runtime" in dockerfile, "Xray runtime must track latest")
         _require("@sha256:" not in dockerfile, "Dockerfile must not lock runtime images by digest")
 
-    if compose_runtime:
-        subprocess.run(
-            ["docker", "compose", "--env-file", str(env_example_path), "-f", str(compose_path), "config", "--quiet"],
-            check=True,
-        )
-
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Validate the host-based production deployment contract")
+    parser = argparse.ArgumentParser(description="Validate the native host production deployment contract")
     parser.add_argument("--root", type=Path, default=Path.cwd())
     parser.add_argument("--compose-runtime", action="store_true")
     args = parser.parse_args()
     root = args.root.resolve()
     check(root, compose_runtime=args.compose_runtime)
-    print(f"host deployment check passed ({root})")
+    print(f"native host deployment check passed ({root})")
     return 0
 
 

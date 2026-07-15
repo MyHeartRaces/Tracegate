@@ -1,0 +1,14 @@
+[Unit]
+Description=Tracegate Entry origin nftables policy
+After=network-online.target
+Wants=network-online.target
+ConditionPathExists=/etc/tracegate/entry-origin.nft
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/bin/sh -lc 'nft list table inet tracegate_universal_entry_origin >/dev/null 2>&1 && nft delete table inet tracegate_universal_entry_origin || true; nft -f /etc/tracegate/entry-origin.nft'
+ExecStop=/bin/sh -lc 'nft list table inet tracegate_universal_entry_origin >/dev/null 2>&1 && nft delete table inet tracegate_universal_entry_origin || true'
+
+[Install]
+WantedBy=multi-user.target

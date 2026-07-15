@@ -27,11 +27,11 @@ def test_tracegate2_firewalls_do_not_depend_on_cluster_runtime_or_wireguard() ->
         assert "KUBE-" not in conf
 
 
-def test_transit_accepts_public_80_443_and_udp_4443_for_data_plane() -> None:
+def test_transit_accepts_public_hysteria_and_interconnect_udp_ports() -> None:
     conf_t = Path("bundles/base-transit/nftables.conf").read_text(encoding="utf-8")
     assert "tcp dport { 80, 443 } accept" in conf_t
     assert "tcp dport { 4443, 8443 } drop" in conf_t
-    assert "udp dport { 443, 4443 } accept" in conf_t
+    assert "udp dport { 443, 4443, 8444 } accept" in conf_t
     assert "udp dport 443 drop" not in conf_t
     assert "udp dport 8443 drop" in conf_t
 
@@ -47,7 +47,11 @@ def test_firewalls_explicitly_drop_crossed_hysteria_ports_before_accept_rules() 
     for path in ("bundles/base-entry/nftables.conf", "bundles/base-transit/nftables.conf"):
         conf = Path(path).read_text(encoding="utf-8")
         tcp_accept = "tcp dport 443 accept" if "tcp dport 443 accept" in conf else "tcp dport { 80, 443 } accept"
-        udp_accept = "udp dport { 443, 4443 } accept"
+        udp_accept = (
+            "udp dport { 443, 4443, 8444 } accept"
+            if "base-transit" in path
+            else "udp dport { 443, 4443 } accept"
+        )
         assert conf.index("udp dport 8443 drop") < conf.index(udp_accept)
         assert conf.index("tcp dport { 4443, 8443 } drop") < conf.index(tcp_accept)
 

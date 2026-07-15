@@ -1,0 +1,16 @@
+[Unit]
+Description=Tracegate API
+After=network-online.target postgresql.service
+Wants=network-online.target
+Requires=postgresql.service
+
+[Service]
+WorkingDirectory=/opt/tracegate/current
+EnvironmentFile=/etc/tracegate/tracegate.env
+ExecStart=/opt/tracegate/venv/bin/tracegate-api
+Restart=always
+RestartSec=3
+User=root
+
+[Install]
+WantedBy=multi-user.target

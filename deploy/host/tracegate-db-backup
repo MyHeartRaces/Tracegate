@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+BACKUP_DIR="${TRACEGATE_BACKUP_DIR:-/var/backups/tracegate}"
+DB="${TRACEGATE_DB_NAME:-tracegate}"
+RETENTION_DAYS="${TRACEGATE_BACKUP_RETENTION_DAYS:-30}"
+
+[[ "${RETENTION_DAYS}" =~ ^[0-9]+$ ]] || { echo "invalid TRACEGATE_BACKUP_RETENTION_DAYS" >&2; exit 2; }
+install -d -m 0700 "${BACKUP_DIR}"
+
+timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
+output="${BACKUP_DIR}/tracegate-${timestamp}.dump"
+temporary="${output}.tmp"
+cleanup() { rm -f "${temporary}"; }
+trap cleanup EXIT
+
+runuser -u postgres -- pg_dump --format=custom --compress=9 --no-owner --no-privileges "${DB}" >"${temporary}"
+pg_restore --list "${temporary}" | grep -q . || { echo "backup archive has an empty TOC" >&2; exit 1; }
+chmod 0600 "${temporary}"
+mv "${temporary}" "${output}"
+trap - EXIT
+
+find "${BACKUP_DIR}" -maxdepth 1 -type f -name 'tracegate-*.dump' -mtime "+${RETENTION_DAYS}" -delete
+if [ -n "${TRACEGATE_BACKUP_MIRROR_COMMAND:-}" ]; then
+  TRACEGATE_BACKUP_FILE="${output}" bash -lc "${TRACEGATE_BACKUP_MIRROR_COMMAND}"
+fi
+echo "backup ok: ${output}; kept $(find "${BACKUP_DIR}" -maxdepth 1 -type f -name 'tracegate-*.dump' | wc -l | tr -d ' ') dumps"

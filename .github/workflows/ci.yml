@@ -22,8 +22,18 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -e '.[dev]' -c requirements.lock
 
-      - name: Lint
-        run: python -m ruff check src tests
+      - name: Full release checks
+        run: make release-check
 
-      - name: Tests
-        run: python -m pytest -q
+      - name: Build and inspect release artifacts
+        run: |
+          VERSION=$(python -c 'import pathlib,tomllib; print(tomllib.loads(pathlib.Path("pyproject.toml").read_text())["project"]["version"])')
+          scripts/build_release_artifacts.sh "$VERSION"
+
+      - name: Upload inspected artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: tracegate-release-${{ github.sha }}
+          path: dist/release-v*/
+          if-no-files-found: error
+          retention-days: 7

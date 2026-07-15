@@ -6,8 +6,6 @@ from pathlib import Path
 import re
 import tomllib
 
-import yaml
-
 
 class HostRuntimeCheckError(RuntimeError):
     pass
@@ -30,7 +28,11 @@ def check_host_runtime(root: Path) -> None:
     if (root / "deploy/k3s").exists():
         raise HostRuntimeCheckError("deploy/k3s is retired and must not be present")
 
-    manifest = yaml.safe_load(_read(root / "bundles/manifest.yaml"))
+    manifest_text = _read(root / "bundles/manifest.yaml")
+    manifest_version_match = re.search(r"(?m)^\s{2}version:\s*([^\s#]+)\s*$", manifest_text)
+    if manifest_version_match is None:
+        raise HostRuntimeCheckError("bundle manifest version is missing")
+    manifest_version = manifest_version_match.group(1)
     project_path = root / "pyproject.toml"
     if project_path.exists():
         project = tomllib.loads(_read(project_path))
@@ -41,9 +43,9 @@ def check_host_runtime(root: Path) -> None:
         for command in ("tracegate-host-private-preflight", "tracegate-host-private-reload"):
             if command not in scripts:
                 raise HostRuntimeCheckError(f"missing host runtime command: {command}")
-        if str(manifest.get("metadata", {}).get("version")) != version:
+        if manifest_version != version:
             raise HostRuntimeCheckError("bundle manifest version does not match package version")
-    roles = {row.get("canonicalRole") for row in manifest.get("spec", {}).get("bundles", [])}
+    roles = set(re.findall(r"(?m)^\s+canonicalRole:\s*([^\s#]+)\s*$", manifest_text))
     if roles != {"Entry", "Endpoint"}:
         raise HostRuntimeCheckError(f"host bundles must cover Entry and Endpoint, got {sorted(roles)}")
 
@@ -58,7 +60,7 @@ def check_host_runtime(root: Path) -> None:
 
     host_install = _read(root / "deploy/host/tracegate-host-install")
     _require(host_install, "90-tracegate-quic.conf", label="host installer")
-    _require(host_install, '"${SYSCTL_BIN}" -p', label="host installer")
+    _require(host_install, '"${SYSCTL}" -p', label="host installer")
 
     nginx = _read(root / "bundles/base-transit/nginx.conf")
     wgws_match = re.search(r"location\s+/wgws\s*\{(?P<body>.*?)\n\s*\}", nginx, re.DOTALL)
@@ -91,6 +93,13 @@ def check_host_runtime(root: Path) -> None:
     _require(sync_unit, "WIREGUARD_SYNC_KEEP_STALE_PEERS=false", label="WireGuard peer synchronizer unit")
 
     latest_units = (
+        "tracegate-api.service",
+        "tracegate-bot.service",
+        "tracegate-dispatcher.service",
+        "tracegate-agent.service",
+        "tracegate-agent-entry.service",
+        "tracegate-entry-firewall.service",
+        "tracegate-db-backup.service",
         "tracegate-xray@.service",
         "tracegate-xray-ss2022.service",
         "tracegate-hysteria@.service",
@@ -103,6 +112,18 @@ def check_host_runtime(root: Path) -> None:
     )
     for unit_name in latest_units:
         unit = _read(root / "deploy/systemd" / unit_name)
+        if unit_name in {
+            "tracegate-api.service",
+            "tracegate-bot.service",
+            "tracegate-dispatcher.service",
+            "tracegate-agent.service",
+            "tracegate-agent-entry.service",
+            "tracegate-entry-firewall.service",
+            "tracegate-db-backup.service",
+        }:
+            if "k3s" in unit.lower() or "kubectl" in unit.lower():
+                raise HostRuntimeCheckError(f"{unit_name} still references retired cluster runtime")
+            continue
         _require(unit, ":latest", label=unit_name)
         _require(unit, "docker pull", label=unit_name)
         if "@sha256:" in unit:
@@ -126,6 +147,9 @@ def check_host_runtime(root: Path) -> None:
         _require(release_script, "tracegate-host-runtime-${VERSION}.tar.gz", label="release artifact builder")
         if "helm" in release_script.lower() or "deploy/k3s" in release_script:
             raise HostRuntimeCheckError("release artifact builder still depends on Helm/k3s")
+
+    if (root / "deploy/host/compose.yaml").exists() or (root / "deploy/host/tracegate-host.service").exists():
+        raise HostRuntimeCheckError("retired Compose host runtime is still packaged")
 
 
 def main() -> int:

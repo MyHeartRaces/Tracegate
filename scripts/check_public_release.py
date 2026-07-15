@@ -26,6 +26,7 @@ _SECRET_PATTERNS = {
     "credential URL": re.compile(r"\b(?:postgres(?:ql)?|redis|mongodb)://[^\s/:@]+:[^\s@]+@", re.IGNORECASE),
 }
 _EMAIL_PATTERN = re.compile(r"\b[A-Za-z0-9._%+-]+@([A-Za-z0-9.-]+\.[A-Za-z]{2,})\b")
+_SYSTEMD_INSTANCE_PATTERN = re.compile(r"\b[A-Za-z0-9_.-]+@[A-Za-z0-9_.-]+\.(?:service|socket|timer)\b")
 _IPV4_PATTERN = re.compile(r"(?<![0-9.])(?:[0-9]{1,3}\.){3}[0-9]{1,3}(?![0-9.])")
 _HOME_PATH_PATTERN = re.compile(r"/(?:Users|home)/(?!app(?:/|$)|runner(?:/|$))[A-Za-z0-9._-]+/")
 
@@ -113,7 +114,8 @@ def scan_release_tree(root: Path, *, all_files: bool = False) -> list[str]:
                 findings.append(f"{relative}: {label}")
         if _HOME_PATH_PATTERN.search(text):
             findings.append(f"{relative}: local home path")
-        for match in _EMAIL_PATTERN.finditer(text):
+        email_scan_text = _SYSTEMD_INSTANCE_PATTERN.sub("", text)
+        for match in _EMAIL_PATTERN.finditer(email_scan_text):
             domain = match.group(1).lower()
             if not domain.endswith(".test") and not any(
                 domain == allowed or domain.endswith(f".{allowed}") for allowed in _ALLOWED_EMAIL_DOMAINS
