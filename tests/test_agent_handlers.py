@@ -38,7 +38,7 @@ def test_run_reload_commands_failure_raises(monkeypatch: pytest.MonkeyPatch) -> 
 
 def test_reload_commands_do_not_emit_legacy_hysteria_reload_even_for_old_profile_names() -> None:
     settings = Settings(
-        agent_runtime_mode="kubernetes",
+        agent_runtime_mode="systemd",
         agent_runtime_profile="xray-hysteria",
         agent_reload_xray_cmd="reload-xray",
     )

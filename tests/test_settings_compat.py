@@ -1,9 +1,21 @@
+import pytest
+from pydantic import ValidationError
+
 from tracegate.settings import (
     Settings,
     effective_mtproto_issued_state_file,
     effective_mtproto_public_profile_file,
     effective_private_runtime_root,
 )
+
+
+def test_settings_reject_retired_non_host_runtime() -> None:
+    with pytest.raises(ValidationError, match="native systemd host runtime"):
+        Settings(agent_runtime_mode="cluster")
+
+
+def test_settings_normalize_host_runtime_alias() -> None:
+    assert Settings(agent_runtime_mode="host").agent_runtime_mode == "systemd"
 
 
 def test_settings_accept_new_entry_transit_field_names() -> None:

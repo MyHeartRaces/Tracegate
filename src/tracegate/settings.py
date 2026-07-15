@@ -95,7 +95,7 @@ class Settings(BaseSettings):
     bot_metrics_host: str = "0.0.0.0"
     bot_metrics_port: int = 9092
     # Optional external text/markdown served by /guide. Production copy must
-    # come from private runtime storage or a Kubernetes Secret, not from Git.
+    # come from private runtime storage, not from Git.
     bot_guide_path: str = ""
     bot_guide_message: str = (
         "Tracegate 3: гайдлайн\n\n"
@@ -205,23 +205,11 @@ class Settings(BaseSettings):
     agent_mtproto_stats_url: str = "http://127.0.0.1:9091/v1/stats/users"
     agent_stats_secret: str = ""
     agent_dry_run: bool = True
-    # Tracegate 2 defaults to systemd on plain Linux hosts.
-    # The "kubernetes" mode is retained only as a compatibility bridge for legacy container deployments.
+    # Native systemd is the only supported production runtime.
     agent_runtime_mode: str = "systemd"
     # Canonical runtime profile boundary. Tracegate 3 keeps Xray as a TCP adapter,
     # but Hysteria2 is no longer modeled as an Xray-owned public UDP surface.
     agent_runtime_profile: str = "tracegate-3"
-    # Kubernetes rollout invariants exposed through runtime-contract.json so preflight can
-    # verify that Tracegate upgrades cannot drop the only Entry/Transit gateway pod.
-    agent_gateway_strategy: str = "RollingUpdate"
-    agent_gateway_allow_recreate_strategy: bool = False
-    agent_gateway_max_unavailable: str = "0"
-    agent_gateway_max_surge: str = "1"
-    agent_gateway_progress_deadline_seconds: int = 600
-    agent_gateway_pdb_min_available: str = "1"
-    agent_gateway_probes_enabled: bool = True
-    agent_gateway_private_preflight_enabled: bool = True
-    agent_gateway_private_preflight_forbid_placeholders: bool = True
     agent_egress_isolation_required: bool = True
     agent_egress_isolation_mode: str = "dedicated-egress-ip"
     agent_egress_ingress_public_ips: str = ""
@@ -600,6 +588,14 @@ class Settings(BaseSettings):
     @classmethod
     def _normalize_agent_runtime_profile(cls, value: object) -> str:
         return normalize_runtime_profile_name(str(value or ""))
+
+    @field_validator("agent_runtime_mode", mode="before")
+    @classmethod
+    def _normalize_agent_runtime_mode(cls, value: object) -> str:
+        mode = str(value or "systemd").strip().lower()
+        if mode not in {"host", "systemd"}:
+            raise ValueError("agent_runtime_mode must use the native systemd host runtime")
+        return "systemd"
 
 
 @lru_cache(maxsize=1)

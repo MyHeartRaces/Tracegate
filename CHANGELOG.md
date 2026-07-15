@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## v3.1.7 - 2026-07-15
+
+- Replaced the obsolete cluster rollout contract with the actual native-systemd
+  activation, health-gate and rollback invariants used by production.
+- Made non-host agent runtime modes fail closed and removed the dead gateway
+  readiness alert that queried metrics unavailable outside the retired cluster.
+
 ## v3.1.6 - 2026-07-15
 
 - Treat the expected Docker SIGTERM exit status as successful in every

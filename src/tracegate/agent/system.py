@@ -205,12 +205,14 @@ async def gather_health_checks(
     stats_url: str,
     stats_secret: str,
     role: str,
-    runtime_mode: str,  # kept for backward compatibility with legacy container deployments
+    runtime_mode: str,
     runtime_profile: str = "tracegate-3",
     *,
     mtproto_public_port: int = 443,
     mtproto_route_mode: str = "endpoint-direct",
 ) -> list[dict]:
+    if str(runtime_mode or "").strip().lower() != "systemd":
+        raise ValueError("agent health checks require the native systemd runtime")
     contract = resolve_runtime_contract(runtime_profile)
     checks: list[dict] = []
     role_upper = str(role or "").strip().upper()

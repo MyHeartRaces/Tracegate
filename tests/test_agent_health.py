@@ -223,7 +223,7 @@ async def test_check_hysteria_stats_secret_empty_secret_short_circuit(monkeypatc
 
 
 @pytest.mark.asyncio
-async def test_gather_health_checks_entry_legacy_container_runtime(monkeypatch):
+async def test_gather_health_checks_entry_native_systemd_runtime(monkeypatch):
     monkeypatch.setattr(system, "check_port", _tracegate22_port_check)
     monkeypatch.setattr(system, "check_process", lambda name: (True, name))
     monkeypatch.setattr(system, "check_systemd", lambda name: (False, name))
@@ -237,7 +237,7 @@ async def test_gather_health_checks_entry_legacy_container_runtime(monkeypatch):
         "http://127.0.0.1:9999/traffic",
         "secret",
         "ENTRY",
-        "kubernetes",
+        "systemd",
         "xray-centric",
     )
 
@@ -253,7 +253,7 @@ async def test_gather_health_checks_entry_legacy_container_runtime(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_gather_health_checks_transit_legacy_container_runtime(monkeypatch):
+async def test_gather_health_checks_transit_native_systemd_runtime(monkeypatch):
     monkeypatch.setattr(system, "check_port", _tracegate22_port_check)
     monkeypatch.setattr(system, "check_process", lambda name: (True, name))
     monkeypatch.setattr(system, "check_systemd", lambda name: (False, name))
@@ -267,7 +267,7 @@ async def test_gather_health_checks_transit_legacy_container_runtime(monkeypatch
         "http://127.0.0.1:9999/traffic",
         "secret",
         "TRANSIT",
-        "kubernetes",
+        "systemd",
         "xray-centric",
     )
 
@@ -299,7 +299,7 @@ async def test_gather_health_checks_allows_mtproto_tcp8443_fallback(monkeypatch)
         "http://127.0.0.1:9999/traffic",
         "secret",
         "TRANSIT",
-        "kubernetes",
+        "systemd",
         "xray-centric",
         mtproto_public_port=8443,
     )
@@ -328,7 +328,7 @@ async def test_gather_health_checks_allows_entry_mtproto_route_tcp8443(monkeypat
         "http://127.0.0.1:9999/traffic",
         "secret",
         "ENTRY",
-        "kubernetes",
+        "systemd",
         "xray-centric",
         mtproto_public_port=8443,
         mtproto_route_mode=route_mode,
@@ -355,7 +355,7 @@ async def test_gather_health_checks_blocks_transit_tcp8443_for_entry_local_mtpro
         "http://127.0.0.1:9999/traffic",
         "secret",
         "TRANSIT",
-        "kubernetes",
+        "systemd",
         "tracegate-3",
         mtproto_public_port=8443,
         mtproto_route_mode="entry-local-endpoint-egress",
@@ -381,7 +381,7 @@ async def test_gather_health_checks_default_profile_is_tracegate22(monkeypatch):
         "http://127.0.0.1:9999/traffic",
         "secret",
         "TRANSIT",
-        "kubernetes",
+        "systemd",
     )
 
     names = [row["name"] for row in checks]

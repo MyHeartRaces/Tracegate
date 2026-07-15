@@ -1764,49 +1764,47 @@ def _link_crypto_contract_block_for_role(contract: dict[str, Any], *, role_upper
     return role_block or link_crypto
 
 
-def _rollout_string(rollout: dict[str, Any], key: str) -> str:
-    return str(rollout.get(key) or "").strip()
-
-
-def _rollout_int(rollout: dict[str, Any], key: str, *, default: int = 0) -> int:
-    try:
-        return int(rollout.get(key) if rollout.get(key) is not None else default)
-    except (TypeError, ValueError):
-        return default
-
-
-def _validate_tracegate21_rollout(contract: dict[str, Any], *, role_prefix: str) -> list[RuntimePreflightFinding]:
+def _validate_host_rollout(contract: dict[str, Any], *, role_prefix: str) -> list[RuntimePreflightFinding]:
     findings: list[RuntimePreflightFinding] = []
-    if _runtime_profile(contract) != "tracegate-2.1":
-        return findings
-
     rollout = _rollout_block(contract)
     if not rollout:
-        findings.append(_finding("error", f"{role_prefix}-tracegate21-rollout", f"{role_prefix} tracegate-2.1 rollout block is missing"))
+        findings.append(_finding("error", f"{role_prefix}-host-rollout", f"{role_prefix} native host rollout block is missing"))
         return findings
-
-    if _rollout_string(rollout, "gatewayStrategy") != "RollingUpdate":
-        findings.append(_finding("error", f"{role_prefix}-tracegate21-rollout-strategy", f"{role_prefix} gateway rollout strategy must be RollingUpdate"))
-    if bool(rollout.get("allowRecreateStrategy", False)):
-        findings.append(_finding("error", f"{role_prefix}-tracegate21-rollout-allow-recreate", f"{role_prefix} Recreate rollout override must stay disabled"))
-    if _rollout_string(rollout, "maxUnavailable") != "0":
-        findings.append(_finding("error", f"{role_prefix}-tracegate21-rollout-max-unavailable", f"{role_prefix} rolling maxUnavailable must stay 0"))
-    if _rollout_string(rollout, "maxSurge") in {"", "0", "0%"}:
-        findings.append(_finding("error", f"{role_prefix}-tracegate21-rollout-max-surge", f"{role_prefix} rolling maxSurge must be non-zero"))
-    if _rollout_int(rollout, "progressDeadlineSeconds", default=0) < 300:
-        findings.append(_finding("error", f"{role_prefix}-tracegate21-rollout-progress-deadline", f"{role_prefix} progressDeadlineSeconds must be at least 300"))
-    if _rollout_string(rollout, "pdbMinAvailable") != "1":
-        findings.append(_finding("error", f"{role_prefix}-tracegate21-rollout-pdb-min-available", f"{role_prefix} PDB minAvailable must stay 1"))
-    if not bool(rollout.get("probesEnabled", False)):
-        findings.append(_finding("error", f"{role_prefix}-tracegate21-rollout-probes", f"{role_prefix} gateway probes must stay enabled"))
-    if not bool(rollout.get("privatePreflightEnabled", False)):
-        findings.append(_finding("error", f"{role_prefix}-tracegate21-rollout-private-preflight", f"{role_prefix} private preflight must stay enabled"))
-    if not bool(rollout.get("privatePreflightForbidPlaceholders", False)):
+    required_strings = {
+        "runtime": "native-systemd",
+        "activation": "atomic-symlink",
+    }
+    required_true = (
+        "orderedRestart",
+        "healthGateEnabled",
+        "automaticRollbackEnabled",
+        "privatePreflightEnabled",
+        "privatePreflightForbidPlaceholders",
+    )
+    for key, expected in required_strings.items():
+        if str(rollout.get(key) or "").strip() != expected:
+            findings.append(
+                _finding(
+                    "error",
+                    f"{role_prefix}-host-rollout-{key}",
+                    f"{role_prefix} host rollout {key} must be {expected}",
+                )
+            )
+    for key in required_true:
+        if not bool(rollout.get(key, False)):
+            findings.append(
+                _finding(
+                    "error",
+                    f"{role_prefix}-host-rollout-{key}",
+                    f"{role_prefix} host rollout {key} must stay enabled",
+                )
+            )
+    if bool(rollout.get("databaseRollbackEnabled", True)):
         findings.append(
             _finding(
                 "error",
-                f"{role_prefix}-tracegate21-rollout-private-preflight-placeholders",
-                f"{role_prefix} private preflight must forbid placeholders",
+                f"{role_prefix}-host-rollout-databaseRollbackEnabled",
+                f"{role_prefix} host rollout must not claim automatic database rollback",
             )
         )
     return findings
@@ -6741,7 +6739,7 @@ def validate_runtime_contract_single(
     profile = _runtime_profile(contract)
     if not profile:
         findings.append(_finding("error", f"{role_prefix}-profile", f"{role_prefix} runtimeProfile is missing"))
-    findings.extend(_validate_tracegate21_rollout(contract, role_prefix=role_prefix))
+    findings.extend(_validate_host_rollout(contract, role_prefix=role_prefix))
     findings.extend(_validate_tracegate21_transport_profiles(contract, role_prefix=role_prefix))
     findings.extend(_validate_tracegate21_network(contract, role_prefix=role_prefix))
     findings.extend(_validate_xray_api_surface(contract, role_prefix=role_prefix))
@@ -6909,7 +6907,7 @@ def validate_runtime_contract_pair(
             )
         if profile == "tracegate-2.1":
             for role_name, contract in (("entry", entry_contract), ("transit", transit_contract)):
-                findings.extend(_validate_tracegate21_rollout(contract, role_prefix=role_name))
+                findings.extend(_validate_host_rollout(contract, role_prefix=role_name))
                 findings.extend(_validate_tracegate21_transport_profiles(contract, role_prefix=role_name))
                 findings.extend(_validate_tracegate21_network(contract, role_prefix=role_name))
                 if _xray_backhaul_allowed(contract):

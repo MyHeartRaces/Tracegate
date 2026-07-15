@@ -113,13 +113,12 @@ def _runtime_contract(
             ],
         },
         "rollout": {
-            "gatewayStrategy": "RollingUpdate",
-            "allowRecreateStrategy": False,
-            "maxUnavailable": "0",
-            "maxSurge": "1",
-            "progressDeadlineSeconds": 600,
-            "pdbMinAvailable": "1",
-            "probesEnabled": True,
+            "runtime": "native-systemd",
+            "activation": "atomic-symlink",
+            "orderedRestart": True,
+            "healthGateEnabled": True,
+            "automaticRollbackEnabled": True,
+            "databaseRollbackEnabled": False,
             "privatePreflightEnabled": True,
             "privatePreflightForbidPlaceholders": True,
         },
@@ -1838,31 +1837,29 @@ def test_validate_runtime_contract_pair_rejects_tracegate21_xray_backhaul_flag()
     assert by_code["entry-tracegate21-xray-backhaul"].severity == "error"
 
 
-def test_validate_runtime_contract_pair_rejects_tracegate21_unsafe_rollout() -> None:
+def test_validate_runtime_contract_pair_rejects_unsafe_host_rollout() -> None:
     entry = _runtime_contract(role="ENTRY", runtime_profile="tracegate-2.1")
     transit = _runtime_contract(role="TRANSIT", runtime_profile="tracegate-2.1")
-    entry["rollout"]["maxUnavailable"] = "1"
+    entry["rollout"]["activation"] = "in-place"
     entry["rollout"]["privatePreflightEnabled"] = False
-    transit["rollout"]["gatewayStrategy"] = "Recreate"
-    transit["rollout"]["allowRecreateStrategy"] = True
-    transit["rollout"]["maxSurge"] = "0"
-    transit["rollout"]["progressDeadlineSeconds"] = 60
-    transit["rollout"]["pdbMinAvailable"] = "0"
-    transit["rollout"]["probesEnabled"] = False
+    transit["rollout"]["runtime"] = "container-orchestrator"
+    transit["rollout"]["orderedRestart"] = False
+    transit["rollout"]["healthGateEnabled"] = False
+    transit["rollout"]["automaticRollbackEnabled"] = False
+    transit["rollout"]["databaseRollbackEnabled"] = True
     transit["rollout"]["privatePreflightForbidPlaceholders"] = False
 
     findings = validate_runtime_contract_pair(entry, transit)
 
     by_code = {finding.code: finding for finding in findings}
-    assert by_code["entry-tracegate21-rollout-max-unavailable"].severity == "error"
-    assert by_code["entry-tracegate21-rollout-private-preflight"].severity == "error"
-    assert by_code["transit-tracegate21-rollout-strategy"].severity == "error"
-    assert by_code["transit-tracegate21-rollout-allow-recreate"].severity == "error"
-    assert by_code["transit-tracegate21-rollout-max-surge"].severity == "error"
-    assert by_code["transit-tracegate21-rollout-progress-deadline"].severity == "error"
-    assert by_code["transit-tracegate21-rollout-pdb-min-available"].severity == "error"
-    assert by_code["transit-tracegate21-rollout-probes"].severity == "error"
-    assert by_code["transit-tracegate21-rollout-private-preflight-placeholders"].severity == "error"
+    assert by_code["entry-host-rollout-activation"].severity == "error"
+    assert by_code["entry-host-rollout-privatePreflightEnabled"].severity == "error"
+    assert by_code["transit-host-rollout-runtime"].severity == "error"
+    assert by_code["transit-host-rollout-orderedRestart"].severity == "error"
+    assert by_code["transit-host-rollout-healthGateEnabled"].severity == "error"
+    assert by_code["transit-host-rollout-automaticRollbackEnabled"].severity == "error"
+    assert by_code["transit-host-rollout-databaseRollbackEnabled"].severity == "error"
+    assert by_code["transit-host-rollout-privatePreflightForbidPlaceholders"].severity == "error"
 
 
 def test_validate_runtime_contract_pair_rejects_tracegate21_unsafe_transport_profiles() -> None:
@@ -2085,7 +2082,7 @@ def test_validate_runtime_contract_single_rejects_tracegate21_missing_rollout() 
     findings = validate_runtime_contract_single(contract, expected_role="ENTRY")
 
     by_code = {finding.code: finding for finding in findings}
-    assert by_code["entry-tracegate21-rollout"].severity == "error"
+    assert by_code["entry-host-rollout"].severity == "error"
 
 
 def test_validate_runtime_contract_pair_detects_errors_and_warnings() -> None:

@@ -777,12 +777,6 @@ def _ops_alert_rules(
     hysteria_scrape_ok = (
         "min by (component, node, pod, instance) (tracegate_hysteria_stats_scrape_ok)"
     )
-    gateway_readiness_failures = (
-        "sum by (node, pod, container) "
-        '(rate(prober_probe_total{job="kubernetes-probes",namespace="tracegate",'
-        'pod=~"tracegate-.*gateway.*",probe_type="Readiness",result="failed"}[5m]))'
-    )
-
     return [
         _slo_alert_rule(
             uid="tg-ops-node-down",
@@ -1065,28 +1059,6 @@ def _ops_alert_rules(
                 "severity": "critical",
             },
             for_duration="1m",
-            no_data_state="OK",
-        ),
-        _slo_alert_rule(
-            uid="tg-ops-gateway-readiness-failed",
-            title="OPS: gateway readiness probe failures sustained",
-            folder_uid=folder_uid,
-            group=group,
-            ds_uid=ds_uid,
-            expr=gateway_readiness_failures,
-            evaluator="gt",
-            threshold=0.0,
-            annotations={
-                "summary": "Gateway readiness probe keeps failing",
-                "description": "Kubelet has continuously observed readiness probe failures for a gateway container",
-            },
-            labels={
-                **base_labels,
-                "component": "gateway",
-                "slo_type": "gateway_readiness_probe",
-                "severity": "critical",
-            },
-            for_duration="10m",
             no_data_state="OK",
         ),
         _slo_alert_rule(

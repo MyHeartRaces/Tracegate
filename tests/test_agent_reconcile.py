@@ -357,7 +357,7 @@ def test_reconcile_keeps_encrypted_vless_clients_on_separate_inbounds(tmp_path: 
 def test_reconcile_entry_updates_xray_only_in_xray_centric_runtime(tmp_path: Path) -> None:
     settings = Settings(
         agent_data_root=str(tmp_path),
-        agent_runtime_mode="kubernetes",
+        agent_runtime_mode="systemd",
         agent_role="ENTRY",
         agent_runtime_profile="xray-centric",
     )
@@ -887,13 +887,12 @@ def test_reconcile_runtime_contract_exposes_private_wrapper_state(tmp_path: Path
         {"protocol": "udp", "port": 8443, "name": "blocked udp/8443"},
     ]
     assert runtime_contract["rollout"] == {
-        "gatewayStrategy": "RollingUpdate",
-        "allowRecreateStrategy": False,
-        "maxUnavailable": "0",
-        "maxSurge": "1",
-        "progressDeadlineSeconds": 600,
-        "pdbMinAvailable": "1",
-        "probesEnabled": True,
+        "runtime": "native-systemd",
+        "activation": "atomic-symlink",
+        "orderedRestart": True,
+        "healthGateEnabled": True,
+        "automaticRollbackEnabled": True,
+        "databaseRollbackEnabled": False,
         "privatePreflightEnabled": True,
         "privatePreflightForbidPlaceholders": True,
     }
@@ -2562,7 +2561,7 @@ def test_reconcile_xray_centric_live_sync_passes_hysteria_user_specs(
 def test_reconcile_entry_forces_transit_port_443(tmp_path: Path) -> None:
     settings = Settings(
         agent_data_root=str(tmp_path),
-        agent_runtime_mode="kubernetes",
+        agent_runtime_mode="systemd",
         agent_role="ENTRY",
         agent_runtime_profile="xray-centric",
         default_transit_host="tracegate.test",
@@ -2602,7 +2601,7 @@ def test_reconcile_entry_forces_transit_port_443(tmp_path: Path) -> None:
 def test_reconcile_entry_adds_sticky_transit_outbounds_per_v2_connection(tmp_path: Path) -> None:
     settings = Settings(
         agent_data_root=str(tmp_path),
-        agent_runtime_mode="kubernetes",
+        agent_runtime_mode="systemd",
         agent_role="ENTRY",
         agent_runtime_profile="xray-centric",
     )
@@ -2677,7 +2676,7 @@ def test_reconcile_entry_adds_sticky_transit_outbounds_per_v2_connection(tmp_pat
 def test_reconcile_entry_reality_dest_follows_latest_selected_sni(tmp_path: Path) -> None:
     settings = Settings(
         agent_data_root=str(tmp_path),
-        agent_runtime_mode="kubernetes",
+        agent_runtime_mode="systemd",
         agent_role="ENTRY",
     )
 
@@ -2745,7 +2744,7 @@ def test_reconcile_entry_reality_dest_follows_latest_selected_sni(tmp_path: Path
 def test_reconcile_keeps_static_base_reality_clients(tmp_path: Path) -> None:
     settings = Settings(
         agent_data_root=str(tmp_path),
-        agent_runtime_mode="kubernetes",
+        agent_runtime_mode="systemd",
         agent_role="TRANSIT",
     )
     _write(
@@ -2797,7 +2796,7 @@ def test_reconcile_keeps_static_base_reality_clients(tmp_path: Path) -> None:
 def test_reconcile_entry_ignores_ws_direct_artifacts_not_targeted_to_role(tmp_path: Path) -> None:
     settings = Settings(
         agent_data_root=str(tmp_path),
-        agent_runtime_mode="kubernetes",
+        agent_runtime_mode="systemd",
         agent_role="ENTRY",
     )
 
@@ -2868,7 +2867,7 @@ def test_reconcile_entry_ignores_ws_direct_artifacts_not_targeted_to_role(tmp_pa
 def test_reconcile_transit_ignores_chain_public_xray_clients_but_keeps_link_crypto(tmp_path: Path) -> None:
     settings = Settings(
         agent_data_root=str(tmp_path),
-        agent_runtime_mode="kubernetes",
+        agent_runtime_mode="systemd",
         agent_role="TRANSIT",
         agent_runtime_profile="tracegate-2.1",
         private_runtime_root=str(tmp_path / "private"),
@@ -2946,7 +2945,7 @@ def test_reconcile_transit_ignores_chain_public_xray_clients_but_keeps_link_cryp
 def test_reconcile_tracegate21_strips_legacy_xray_backhaul_from_runtime(tmp_path: Path) -> None:
     settings = Settings(
         agent_data_root=str(tmp_path),
-        agent_runtime_mode="kubernetes",
+        agent_runtime_mode="systemd",
         agent_role="ENTRY",
         agent_runtime_profile="tracegate-2.1",
         private_runtime_root=str(tmp_path / "private"),
@@ -3040,15 +3039,15 @@ def test_reconcile_tracegate21_strips_legacy_xray_backhaul_from_runtime(tmp_path
     assert runtime_contract["linkCrypto"]["classes"] == ["entry-transit"]
     assert runtime_contract["linkCrypto"]["outerCarrier"]["mode"] == "wss"
     assert runtime_contract["linkCrypto"]["outerCarrier"]["url"] == "wss://www.rbc.ru:443/cdn-cgi/tracegate-link"
-    assert runtime_contract["rollout"]["gatewayStrategy"] == "RollingUpdate"
-    assert runtime_contract["rollout"]["maxUnavailable"] == "0"
+    assert runtime_contract["rollout"]["runtime"] == "native-systemd"
+    assert runtime_contract["rollout"]["activation"] == "atomic-symlink"
     assert runtime_contract["rollout"]["privatePreflightForbidPlaceholders"] is True
 
 
 def test_reconcile_reality_multi_inbound_groups_assign_by_sni_and_keep_fallback(tmp_path: Path) -> None:
     settings = Settings(
         agent_data_root=str(tmp_path),
-        agent_runtime_mode="kubernetes",
+        agent_runtime_mode="systemd",
         agent_role="ENTRY",
         reality_multi_inbound_groups=[
             {
@@ -3165,7 +3164,7 @@ def test_reconcile_reality_multi_inbound_groups_assign_by_sni_and_keep_fallback(
 def test_reconcile_reality_multi_inbound_groups_is_idempotent_with_materialized_grouped_base(tmp_path: Path) -> None:
     settings = Settings(
         agent_data_root=str(tmp_path),
-        agent_runtime_mode="kubernetes",
+        agent_runtime_mode="systemd",
         agent_role="ENTRY",
         reality_multi_inbound_groups=[
             {
@@ -3274,7 +3273,7 @@ def test_reconcile_reality_multi_inbound_groups_is_idempotent_with_materialized_
 def test_reconcile_entry_v2_split_backend_moves_reality_inbounds_to_sidecar(tmp_path: Path) -> None:
     settings = Settings(
         agent_data_root=str(tmp_path),
-        agent_runtime_mode="kubernetes",
+        agent_runtime_mode="systemd",
         agent_role="ENTRY",
         agent_entry_v2_split_backend_enabled=True,
         reality_multi_inbound_groups=[
