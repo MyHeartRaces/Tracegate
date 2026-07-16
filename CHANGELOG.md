@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## v3.1.12 - 2026-07-16
+
 - Fixed Chain (VLESS/REALITY on Entry) failing on Shadowrocket by retiring
   `yandex.ru` as the default REALITY camouflage dest. Major sites now negotiate
   post-quantum key exchange (X25519MLKEM768), which breaks REALITY for
