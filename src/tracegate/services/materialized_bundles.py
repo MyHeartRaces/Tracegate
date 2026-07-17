@@ -400,6 +400,11 @@ class MaterializedBundleRenderContext:
     mtproto_domain: str
     mtproto_tls_domain: str
     mtproto_upstream: str
+    # Dedicated Telemt-only Entry->Endpoint link target (entry-endpoint-tunnel
+    # mode only). Entry relays the client's FakeTLS to this Endpoint address;
+    # it is deliberately separate from mtproto_upstream, which stays the
+    # role-local Telemt listener.
+    mtproto_entry_link_upstream: str
     mtproto_route_mode: str
     mtproto_egress_socks_port: int
     mtproto_entry_backhaul_uuid: str
@@ -577,6 +582,14 @@ class MaterializedBundleRenderContext:
             or "127.0.0.1:9443",
             label="MTPROTO_HAPROXY_UPSTREAM",
         )
+        # Dedicated Telemt-only link: Entry -> Endpoint public TLS port. Defaults to
+        # the Endpoint host so the relay works without extra configuration; operators
+        # can pin it to a specific Endpoint address.
+        mtproto_entry_link_upstream = _haproxy_server_address(
+            _first(env, "MTPROTO_ENTRY_LINK_UPSTREAM", default=f"{transit_host}:443")
+            or f"{transit_host}:443",
+            label="MTPROTO_ENTRY_LINK_UPSTREAM",
+        )
         mtproto_route_mode = _first(env, "MTPROTO_ROUTE_MODE", default="entry-endpoint-tunnel")
         mtproto_egress_socks_port = _int_env(
             env,
@@ -689,6 +702,7 @@ class MaterializedBundleRenderContext:
             mtproto_domain=mtproto_domain,
             mtproto_tls_domain=mtproto_tls_domain,
             mtproto_upstream=mtproto_upstream,
+            mtproto_entry_link_upstream=mtproto_entry_link_upstream,
             mtproto_route_mode=mtproto_route_mode,
             mtproto_egress_socks_port=mtproto_egress_socks_port,
             mtproto_entry_backhaul_uuid=mtproto_entry_backhaul_uuid,
@@ -1269,13 +1283,25 @@ def render_materialized_bundles(ctx: MaterializedBundleRenderContext) -> None:
     entry_mtproto_route = ""
     entry_mtproto_backend = ""
     entry_mtproto_sni = str(ctx.mtproto_tls_domain or ctx.mtproto_domain or "").strip()
-    if ctx.mtproto_route_mode == "entry-local-endpoint-egress" and ctx.mtproto_domain:
+    if ctx.mtproto_domain:
         entry_mtproto_acl = f"  acl mtproto_tls_sni req.ssl_sni -i {entry_mtproto_sni}"
         entry_mtproto_route = "  use_backend be_mtproto_tls if mtproto_tls_sni"
-        entry_mtproto_backend = (
-            f"\nbackend be_mtproto_tls\n"
-            f"  server mtproto {ctx.mtproto_upstream} check send-proxy-v2\n"
-        )
+        if ctx.mtproto_route_mode == "entry-local-endpoint-egress":
+            # Telemt runs on Entry: hand it the real client address via PROXY v2.
+            entry_mtproto_backend = (
+                f"\nbackend be_mtproto_tls\n"
+                f"  server mtproto {ctx.mtproto_upstream} check send-proxy-v2\n"
+            )
+        else:
+            # Dedicated Telemt-only Entry->Endpoint link. Telemt runs on Endpoint;
+            # Entry is a plain TCP relay so the client's own FakeTLS ClientHello is
+            # what crosses the link (no Xray tunnel on this hop). PROXY v2 must not
+            # be used here: the Endpoint terminates the relay with its own HAProxy
+            # SNI demux, which expects a raw TLS ClientHello.
+            entry_mtproto_backend = (
+                f"\nbackend be_mtproto_tls\n"
+                f"  server mtproto {ctx.mtproto_entry_link_upstream} check\n"
+            )
     entry_haproxy = entry_haproxy.replace("REPLACE_ENTRY_MTPROTO_ACL", entry_mtproto_acl)
     entry_haproxy = entry_haproxy.replace("REPLACE_ENTRY_MTPROTO_ROUTE", entry_mtproto_route)
     entry_haproxy = entry_haproxy.replace("REPLACE_ENTRY_MTPROTO_BACKEND", entry_mtproto_backend)

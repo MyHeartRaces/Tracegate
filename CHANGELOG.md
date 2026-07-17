@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+## v3.1.13 - 2026-07-17
+
+- Added a dedicated Telemt-only Entry->Endpoint link so `entry-endpoint-tunnel`
+  works as documented: Telemt runs on Endpoint and Entry is a plain TCP relay of
+  the client's FakeTLS. Previously the render only emitted the Entry MTProto ACL
+  for `entry-local-endpoint-egress`, so tunnel mode left Entry with no MTProto
+  route at all, which is why Telemt had been hand-moved onto Entry.
+- Added `MTPROTO_ENTRY_LINK_UPSTREAM` for that link's Endpoint target, so the
+  Entry relay and the role-local Telemt listener no longer share one upstream.
+  The Entry relay deliberately omits PROXY v2 (the Endpoint terminates the relay
+  with its own HAProxy SNI demux and needs a raw ClientHello); the Endpoint still
+  passes PROXY v2 into Telemt so real client addresses survive.
+
 ## v3.1.12 - 2026-07-16
 
 - Fixed Chain (VLESS/REALITY on Entry) failing on Shadowrocket by retiring

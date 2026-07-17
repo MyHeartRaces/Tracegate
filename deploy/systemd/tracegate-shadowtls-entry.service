@@ -4,7 +4,10 @@ After=docker.service network-online.target
 Requires=docker.service
 
 [Service]
-EnvironmentFile=/etc/tracegate/private/shadowtls/entry.env
+# Entry runtime env is tracegate-entry.env (there is no tracegate.env on Entry).
+Environment=TRACEGATE_ENV_FILE=/etc/tracegate/tracegate-entry.env
+# Optional: the ExecStartPre env script renders this on first start.
+EnvironmentFile=-/etc/tracegate/private/shadowtls/entry.env
 Restart=always
 RestartSec=3
 TimeoutStopSec=20

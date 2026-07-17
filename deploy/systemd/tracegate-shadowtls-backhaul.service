@@ -4,7 +4,8 @@ After=docker.service network-online.target tracegate-xray-ss2022.service
 Requires=docker.service
 
 [Service]
-EnvironmentFile=/etc/tracegate/private/shadowtls/backhaul.env
+# Optional: the ExecStartPre env script renders this on first start.
+EnvironmentFile=-/etc/tracegate/private/shadowtls/backhaul.env
 Restart=always
 RestartSec=3
 TimeoutStopSec=20
