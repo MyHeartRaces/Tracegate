@@ -67,6 +67,21 @@ def _query_xray_inbound_traffic_bytes(settings: Settings) -> dict[str, dict[str,
     return query_inbound_traffic_bytes(settings, reset=False)
 
 
+def _query_xray_outbound_observations(
+    settings: Settings,
+) -> dict[str, dict[str, int | bool]]:
+    from .xray_api import query_outbound_observations
+
+    return query_outbound_observations(settings)
+
+
+_BACKHAUL_CHANNELS = {
+    "to-transit-ss": "shadowtls-primary-a",
+    "to-transit-ss2": "shadowtls-primary-b",
+    "to-transit": "reality-fallback",
+}
+
+
 def _fetch_hysteria_traffic_bytes(url: str, secret: str) -> dict[str, dict[str, int]]:
     """
     Fetch Hysteria2 traffic stats API response.
@@ -513,6 +528,61 @@ class AgentMetricsCollector:
         yield xray_ok
         yield xray_rx
         yield xray_tx
+
+        if str(self.settings.agent_role or "").strip().upper() == "ENTRY":
+            observatory_ok = GaugeMetricFamily(
+                "tracegate_backhaul_observatory_scrape_ok",
+                "Xray Observatory API scrape status (1=ok, 0=error)",
+            )
+            egress_success = GaugeMetricFamily(
+                "tracegate_backhaul_egress_probe_success",
+                "Full HTTP egress probe status for an Entry to Endpoint channel",
+                labels=["channel", "outbound_tag"],
+            )
+            egress_delay = GaugeMetricFamily(
+                "tracegate_backhaul_egress_probe_delay_seconds",
+                "Full HTTP egress probe latency for an Entry to Endpoint channel",
+                labels=["channel", "outbound_tag"],
+            )
+            egress_last_try = GaugeMetricFamily(
+                "tracegate_backhaul_egress_probe_last_try_timestamp_seconds",
+                "Unix timestamp of the latest full HTTP egress probe",
+                labels=["channel", "outbound_tag"],
+            )
+            egress_checks = GaugeMetricFamily(
+                "tracegate_backhaul_egress_probe_checks",
+                "Xray Observatory rolling health measurements",
+                labels=["channel", "outbound_tag", "result"],
+            )
+            try:
+                observations = _query_xray_outbound_observations(self.settings)
+                observatory_ok.add_metric([], 1)
+            except Exception:
+                observations = {}
+                observatory_ok.add_metric([], 0)
+            for outbound_tag, channel in _BACKHAUL_CHANNELS.items():
+                row = observations.get(outbound_tag)
+                if not isinstance(row, dict):
+                    continue
+                labels = [channel, outbound_tag]
+                egress_success.add_metric(labels, 1 if bool(row.get("alive")) else 0)
+                egress_delay.add_metric(
+                    labels, max(0, int(row.get("delay_ms") or 0)) / 1000.0
+                )
+                egress_last_try.add_metric(
+                    labels, max(0, int(row.get("last_try_time") or 0))
+                )
+                egress_checks.add_metric(
+                    [*labels, "total"], max(0, int(row.get("checks") or 0))
+                )
+                egress_checks.add_metric(
+                    [*labels, "failed"], max(0, int(row.get("failures") or 0))
+                )
+            yield observatory_ok
+            yield egress_success
+            yield egress_delay
+            yield egress_last_try
+            yield egress_checks
 
         # Export Telemt stats only from the role that owns the runtime. Tunnel
         # mode terminates on Endpoint; entry-local mode terminates on Entry.

@@ -1,0 +1,18 @@
+syntax = "proto3";
+
+package xray.app.observatory.command;
+
+import "xray/app/observatory/config.proto";
+
+message GetOutboundStatusRequest {}
+
+message GetOutboundStatusResponse {
+  xray.app.observatory.ObservationResult status = 1;
+}
+
+service ObservatoryService {
+  rpc GetOutboundStatus(GetOutboundStatusRequest)
+      returns (GetOutboundStatusResponse) {}
+}
+
+message Config {}

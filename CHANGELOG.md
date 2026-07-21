@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+## v3.1.18 - 2026-07-21
+
+- Export Xray Observatory full-egress health and latency for both ShadowTLS
+  primary links and the isolated Reality fallback, with Grafana panels and
+  alerts for primary degradation, fallback activation, and total Chain loss.
+- Add bounded TLS 1.3 front discovery and Endpoint-first per-leg rotation with
+  fresh-egress validation, independent slicing controls, and automatic host
+  rollback. Endpoint IP rotation remains intentionally manual.
+- Move every GitHub-hosted JavaScript action to its Node.js 24 generation while
+  retaining `latest` container images for Xray, ShadowTLS, and Telemt.
+
 ## v3.1.17 - 2026-07-21
 
 - Derive the Endpoint source allowed onto the Entry MTProto mask port from the

@@ -6,7 +6,8 @@
     "tag": "api",
     "services": [
       "HandlerService",
-      "StatsService"
+      "StatsService",
+      "ObservatoryService"
     ]
   },
   "stats": {},

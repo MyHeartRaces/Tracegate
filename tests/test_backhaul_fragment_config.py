@@ -68,3 +68,25 @@ def test_fragment_config_rejects_non_loopback_listener(tmp_path: Path) -> None:
     )
     assert completed.returncode == 2
     assert "loopback" in completed.stderr
+
+
+def test_fragment_config_supports_independent_leg_slicing(tmp_path: Path) -> None:
+    target = tmp_path / "2.json"
+    env = {
+        **os.environ,
+        "SHADOWTLS_BACKHAUL2_TARGET": "endpoint.example:9444",
+        "SHADOWTLS_BACKHAUL_FRAGMENT_PACKETS": "1-1",
+        "SHADOWTLS_BACKHAUL_FRAGMENT_LENGTH": "1-4",
+        "SHADOWTLS_BACKHAUL_FRAGMENT_INTERVAL_MS": "1-2",
+        "SHADOWTLS_BACKHAUL_FRAGMENT2_PACKETS": "1-2",
+        "SHADOWTLS_BACKHAUL_FRAGMENT2_LENGTH": "2-8",
+        "SHADOWTLS_BACKHAUL_FRAGMENT2_INTERVAL_MS": "3-5",
+        "TRACEGATE_BACKHAUL_FRAGMENT_CONFIG_FILE": str(target),
+    }
+    subprocess.run([sys.executable, str(SCRIPT), "2"], env=env, check=True)
+    payload = json.loads(target.read_text(encoding="utf-8"))
+    assert payload["outbounds"][0]["settings"]["fragment"] == {
+        "packets": "1-2",
+        "length": "2-8",
+        "interval": "3-5",
+    }

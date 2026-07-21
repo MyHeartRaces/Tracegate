@@ -64,9 +64,13 @@ def _config(leg: str) -> tuple[Path, dict[str, object]]:
         label=f"SHADOWTLS_BACKHAUL_FRAGMENT{leg}_LISTEN",
         loopback=True,
     )
+    packets_key = f"SHADOWTLS_BACKHAUL_FRAGMENT{leg}_PACKETS"
     packets = _range(
-        os.environ.get("SHADOWTLS_BACKHAUL_FRAGMENT_PACKETS", "1-1"),
-        label="SHADOWTLS_BACKHAUL_FRAGMENT_PACKETS",
+        os.environ.get(
+            packets_key,
+            os.environ.get("SHADOWTLS_BACKHAUL_FRAGMENT_PACKETS", "1-1"),
+        ),
+        label=packets_key,
         minimum=1,
         maximum=3,
     )
@@ -75,15 +79,23 @@ def _config(leg: str) -> tuple[Path, dict[str, object]]:
     # only byte-preserving TCP stream slicing is accepted here.
     if not packets.startswith("1"):
         raise ValueError("SHADOWTLS_BACKHAUL_FRAGMENT_PACKETS must include the first stream write")
+    length_key = f"SHADOWTLS_BACKHAUL_FRAGMENT{leg}_LENGTH"
     length = _range(
-        os.environ.get("SHADOWTLS_BACKHAUL_FRAGMENT_LENGTH", "1-4"),
-        label="SHADOWTLS_BACKHAUL_FRAGMENT_LENGTH",
+        os.environ.get(
+            length_key,
+            os.environ.get("SHADOWTLS_BACKHAUL_FRAGMENT_LENGTH", "1-4"),
+        ),
+        label=length_key,
         minimum=1,
         maximum=512,
     )
+    interval_key = f"SHADOWTLS_BACKHAUL_FRAGMENT{leg}_INTERVAL_MS"
     interval = _range(
-        os.environ.get("SHADOWTLS_BACKHAUL_FRAGMENT_INTERVAL_MS", "1-2"),
-        label="SHADOWTLS_BACKHAUL_FRAGMENT_INTERVAL_MS",
+        os.environ.get(
+            interval_key,
+            os.environ.get("SHADOWTLS_BACKHAUL_FRAGMENT_INTERVAL_MS", "1-2"),
+        ),
+        label=interval_key,
         minimum=0,
         maximum=100,
     )

@@ -44,7 +44,7 @@ rm -rf "${temporary}"
 "${venv}/bin/python" -m pip install --disable-pip-version-check --no-input --upgrade pip
 "${venv}/bin/python" -m pip install --disable-pip-version-check --no-input \
   -c "${runtime}/requirements.lock" "${runtime}/packages/$(basename "${wheel}")"
-for command in tracegate-api tracegate-agent tracegate-bot tracegate-dispatcher tracegate-migrate-db tracegate-host-private-preflight; do
+for command in tracegate-api tracegate-agent tracegate-backhaul-fronts tracegate-bot tracegate-dispatcher tracegate-migrate-db tracegate-host-private-preflight; do
   [ -x "${venv}/bin/${command}" ] || die "wheel did not install ${command}"
 done
 trap - EXIT

@@ -110,7 +110,7 @@ def _dashboard_megabytes(builder):  # noqa: ANN001, ANN201
         dashboard = builder(*args, **kwargs)
         uid = str(dashboard.get("uid") or "")
         ds_uid = str(args[0] if args else kwargs.get("ds_uid") or "")
-        if uid in {"tracegate-user", "tracegate-admin-dashboard"}:
+        if uid in {"tracegate-user", "tracegate-admin-dashboard", "tracegate-admin-ops"}:
             user_scoped = uid == "tracegate-user"
             panels = dashboard.setdefault("panels", [])
             max_y = (
@@ -172,6 +172,66 @@ def _dashboard_megabytes(builder):  # noqa: ANN001, ANN201
                     },
                 ]
             )
+            if not user_scoped:
+                panels.extend(
+                    [
+                        {
+                            "id": 92,
+                            "type": "stat",
+                            "title": "Entry to Endpoint egress by channel",
+                            "datasource": _ds(ds_uid),
+                            "targets": [
+                                {
+                                    "refId": "A",
+                                    "expr": "tracegate_backhaul_egress_probe_success",
+                                    "legendFormat": "{{channel}}",
+                                }
+                            ],
+                            "fieldConfig": {
+                                "defaults": {
+                                    "min": 0,
+                                    "max": 1,
+                                    "mappings": [
+                                        {
+                                            "type": "value",
+                                            "options": {
+                                                "0": {"text": "DOWN", "color": "red"},
+                                                "1": {"text": "UP", "color": "green"},
+                                            },
+                                        }
+                                    ],
+                                    "thresholds": {
+                                        "mode": "absolute",
+                                        "steps": [
+                                            {"color": "red", "value": None},
+                                            {"color": "green", "value": 1},
+                                        ],
+                                    },
+                                },
+                                "overrides": [],
+                            },
+                            "gridPos": {"h": 8, "w": 12, "x": 0, "y": max_y + 8},
+                        },
+                        {
+                            "id": 93,
+                            "type": "timeseries",
+                            "title": "Entry to Endpoint full egress latency",
+                            "datasource": _ds(ds_uid),
+                            "targets": [
+                                {
+                                    "refId": "A",
+                                    "expr": "tracegate_backhaul_egress_probe_delay_seconds",
+                                    "legendFormat": "{{channel}}",
+                                }
+                            ],
+                            "fieldConfig": {
+                                "defaults": {"unit": "s"},
+                                "overrides": [],
+                            },
+                            "gridPos": {"h": 8, "w": 12, "x": 12, "y": max_y + 8},
+                        },
+                    ]
+                )
         for panel in dashboard.get("panels", []):
             title = str(panel.get("title") or "")
             rate_title = (
@@ -774,6 +834,18 @@ def _ops_alert_rules(
     xray_scrape_ok = (
         "min by (component, node, pod, instance) (tracegate_xray_stats_scrape_ok)"
     )
+    backhaul_observatory_scrape_ok = "min(tracegate_backhaul_observatory_scrape_ok)"
+    backhaul_primary_health = (
+        'min by (channel) (tracegate_backhaul_egress_probe_success{channel=~"shadowtls-primary-.+"})'
+    )
+    reality_fallback_required = (
+        '(1 - (max(tracegate_backhaul_egress_probe_success{channel="shadowtls-primary-a"}) or vector(0))) '
+        '* (1 - (max(tracegate_backhaul_egress_probe_success{channel="shadowtls-primary-b"}) or vector(0))) '
+        '* (max(tracegate_backhaul_egress_probe_success{channel="reality-fallback"}) or vector(0))'
+    )
+    backhaul_all_failed = (
+        '1 - (max(tracegate_backhaul_egress_probe_success{channel=~"shadowtls-primary-.+|reality-fallback"}) or vector(0))'
+    )
     hysteria_scrape_ok = (
         "min by (component, node, pod, instance) (tracegate_hysteria_stats_scrape_ok)"
     )
@@ -1210,6 +1282,94 @@ def _ops_alert_rules(
             },
             for_duration="5m",
             no_data_state="OK",
+        ),
+        _slo_alert_rule(
+            uid="tg-ops-backhaul-observatory-scrape-failed",
+            title="OPS: backhaul egress monitor unavailable",
+            folder_uid=folder_uid,
+            group=group,
+            ds_uid=ds_uid,
+            expr=backhaul_observatory_scrape_ok,
+            evaluator="lt",
+            threshold=1.0,
+            annotations={
+                "summary": "Entry backhaul egress monitor is unavailable",
+                "description": "The Entry agent cannot read Xray Observatory full egress results",
+            },
+            labels={
+                **base_labels,
+                "component": "backhaul",
+                "slo_type": "egress_monitor",
+                "severity": "warning",
+            },
+            for_duration="3m",
+            no_data_state="Alerting",
+        ),
+        _slo_alert_rule(
+            uid="tg-ops-backhaul-primary-degraded",
+            title="OPS: ShadowTLS backhaul channel degraded",
+            folder_uid=folder_uid,
+            group=group,
+            ds_uid=ds_uid,
+            expr=backhaul_primary_health,
+            evaluator="lt",
+            threshold=1.0,
+            annotations={
+                "summary": "A ShadowTLS primary channel failed full egress",
+                "description": "The affected channel cannot complete the configured HTTP egress probe through Endpoint",
+            },
+            labels={
+                **base_labels,
+                "component": "backhaul",
+                "slo_type": "primary_egress",
+                "severity": "warning",
+            },
+            for_duration="2m",
+            no_data_state="Alerting",
+        ),
+        _slo_alert_rule(
+            uid="tg-ops-reality-fallback-required",
+            title="OPS: Reality backhaul fallback required",
+            folder_uid=folder_uid,
+            group=group,
+            ds_uid=ds_uid,
+            expr=reality_fallback_required,
+            evaluator="gt",
+            threshold=0.0,
+            annotations={
+                "summary": "Both ShadowTLS fronts failed; Chain requires Reality fallback",
+                "description": "Both primary full-egress probes are down while the isolated Reality fallback remains usable",
+            },
+            labels={
+                **base_labels,
+                "component": "backhaul",
+                "slo_type": "reality_fallback",
+                "severity": "critical",
+            },
+            for_duration="1m",
+            no_data_state="Alerting",
+        ),
+        _slo_alert_rule(
+            uid="tg-ops-backhaul-all-egress-failed",
+            title="OPS: all Chain backhaul egress failed",
+            folder_uid=folder_uid,
+            group=group,
+            ds_uid=ds_uid,
+            expr=backhaul_all_failed,
+            evaluator="gt",
+            threshold=0.0,
+            annotations={
+                "summary": "All Entry to Endpoint Chain channels failed full egress",
+                "description": "Neither ShadowTLS primary nor the Reality fallback can complete the HTTP egress probe",
+            },
+            labels={
+                **base_labels,
+                "component": "backhaul",
+                "slo_type": "chain_egress",
+                "severity": "critical",
+            },
+            for_duration="1m",
+            no_data_state="Alerting",
         ),
     ]
 

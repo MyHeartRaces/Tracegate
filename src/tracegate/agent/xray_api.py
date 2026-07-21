@@ -8,6 +8,8 @@ import grpc
 from tracegate.settings import Settings
 
 from xray.app.proxyman.command import command_pb2, command_pb2_grpc
+from xray.app.observatory.command import command_pb2 as observatory_command_pb2
+from xray.app.observatory.command import command_pb2_grpc as observatory_command_pb2_grpc
 from xray.app.stats.command import command_pb2 as stats_command_pb2
 from xray.app.stats.command import command_pb2_grpc as stats_command_pb2_grpc
 from xray.common.protocol import user_pb2
@@ -403,3 +405,34 @@ def query_inbound_traffic_bytes(settings: Settings, *, reset: bool = False) -> d
         bucket = out.setdefault(inbound_tag, {"uplink": 0, "downlink": 0})
         bucket[direction] = value
     return out
+
+
+def query_outbound_observations(settings: Settings) -> dict[str, dict[str, int | bool]]:
+    """Return the latest full HTTP egress probe result for every observed outbound."""
+    target = _require_loopback_xray_api_target(settings)
+    channel = grpc.insecure_channel(target)
+    stub = observatory_command_pb2_grpc.ObservatoryServiceStub(channel)
+    try:
+        response = stub.GetOutboundStatus(
+            observatory_command_pb2.GetOutboundStatusRequest(),
+            timeout=float(settings.agent_xray_api_timeout_seconds or 3),
+        )
+    except grpc.RpcError as exc:  # pragma: no cover
+        raise XrayApiError(f"GetOutboundStatus failed: {exc}") from exc
+    finally:
+        channel.close()
+
+    result: dict[str, dict[str, int | bool]] = {}
+    for row in response.status.status:
+        outbound_tag = str(row.outbound_tag or "").strip()
+        if not outbound_tag:
+            continue
+        result[outbound_tag] = {
+            "alive": bool(row.alive),
+            "delay_ms": max(0, int(row.delay or 0)),
+            "last_seen_time": max(0, int(row.last_seen_time or 0)),
+            "last_try_time": max(0, int(row.last_try_time or 0)),
+            "checks": max(0, int(row.health_ping.all or 0)),
+            "failures": max(0, int(row.health_ping.fail or 0)),
+        }
+    return result

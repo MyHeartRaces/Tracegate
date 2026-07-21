@@ -333,6 +333,12 @@ def test_operator_dashboard_includes_slo_and_ops_panels() -> None:
     host_network = _panel_by_id(dashboard, 29)
     assert "tracegate_host_network_bytes_total" in host_network["targets"][0]["expr"]
 
+    backhaul_status = _panel_by_id(dashboard, 92)
+    assert "tracegate_backhaul_egress_probe_success" in backhaul_status["targets"][0]["expr"]
+
+    backhaul_latency = _panel_by_id(dashboard, 93)
+    assert "tracegate_backhaul_egress_probe_delay_seconds" in backhaul_latency["targets"][0]["expr"]
+
 
 def test_slo_alert_rules_cover_api_bot_and_agent() -> None:
     rules = _slo_alert_rules("prom", folder_uid="tracegate-admin")
@@ -427,8 +433,18 @@ def test_ops_alert_rules_cover_nodes_pods_delivery_and_runtime_health() -> None:
         "tg-ops-dispatcher-active-alerts",
         "tg-ops-xray-stats-scrape-failed",
         "tg-ops-hysteria-stats-scrape-failed",
+        "tg-ops-backhaul-observatory-scrape-failed",
+        "tg-ops-backhaul-primary-degraded",
+        "tg-ops-reality-fallback-required",
+        "tg-ops-backhaul-all-egress-failed",
     }
     assert expected <= set(by_uid)
+
+    fallback = by_uid["tg-ops-reality-fallback-required"]
+    assert fallback["labels"]["severity"] == "critical"
+    assert "shadowtls-primary-a" in fallback["data"][0]["model"]["expr"]
+    assert "shadowtls-primary-b" in fallback["data"][0]["model"]["expr"]
+    assert "reality-fallback" in fallback["data"][0]["model"]["expr"]
 
     node_down = by_uid["tg-ops-node-down"]
     assert node_down["labels"]["component"] == "node"

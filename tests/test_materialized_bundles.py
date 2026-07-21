@@ -690,6 +690,7 @@ def test_backhaul_pool_provisioned_with_ss2022_key(tmp_path: Path) -> None:
         assert ss_server["address"] == "127.0.0.1"
         assert ss_server["port"] == loopback
     assert entry_xray["observatory"]["subjectSelector"] == ["to-transit"]
+    assert "ObservatoryService" in entry_xray["api"]["services"]
     # REALITY-RAW leg lands on the dedicated source-gated port (default 9446).
     assert outbounds["to-transit"]["settings"]["vnext"][0]["port"] == 9446
     # Chain prefers the ShadowTLS legs; REALITY is used only when all primary
