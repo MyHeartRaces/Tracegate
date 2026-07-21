@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## v3.1.17 - 2026-07-21
+
+- Derive the Endpoint source allowed onto the Entry MTProto mask port from the
+  explicit dedicated-link address. The production inventory uses a hostname
+  for the general Endpoint plus distinct `.66` and `.85` service addresses.
+
 ## v3.1.16 - 2026-07-21
 
 - Source-gate the Entry MTProto mask listener against the Endpoint's primary

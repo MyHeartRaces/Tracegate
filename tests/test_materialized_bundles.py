@@ -597,7 +597,7 @@ def test_render_materialized_bundles_applies_private_overlays(tmp_path: Path) ->
 
 def test_entry_mask_firewall_uses_endpoint_primary_source_address(tmp_path: Path) -> None:
     env = _base_env(tmp_path)
-    env["DEFAULT_TRANSIT_HOST"] = "198.51.100.25"
+    env["MTPROTO_ENTRY_LINK_UPSTREAM"] = "198.51.100.25:9445"
 
     ctx = MaterializedBundleRenderContext.from_environ(env)
     render_materialized_bundles(ctx)
