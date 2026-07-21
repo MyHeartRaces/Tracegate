@@ -321,6 +321,8 @@ def test_render_materialized_bundles_rewrites_runtime_files(tmp_path: Path) -> N
     assert "root /srv/decoy;" in transit_nginx
     assert "grpc_pass grpc://127.0.0.1:10001;" in entry_nginx
     assert "grpc_pass grpc://127.0.0.1:10001;" in transit_nginx
+    assert "client_max_body_size 0;" in entry_nginx
+    assert "client_max_body_size 0;" in transit_nginx
 
     manifest = json.loads((ctx.materialized_root / ".tracegate-deploy-manifest.json").read_text(encoding="utf-8"))
     assert manifest["version"] == 1

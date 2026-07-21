@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## v3.1.20 - 2026-07-22
+
+- Disable nginx request-body size enforcement on the VLESS gRPC tunnel locations so long-lived streams cannot be rejected at the default 1 MiB limit.
+
 ## v3.1.19 - 2026-07-21
 
 - Shorten the Grafana backhaul-monitor alert UID to satisfy Grafana's 40-character provisioning limit discovered during production bootstrap.
