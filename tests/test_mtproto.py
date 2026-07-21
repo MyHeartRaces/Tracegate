@@ -284,6 +284,63 @@ def test_build_mtproto_telemt_config_rejects_invalid_proxy_scheme() -> None:
         )
 
 
+def test_build_mtproto_telemt_config_tunnel_binds_link_and_trusts_entry_source() -> None:
+    config = build_mtproto_telemt_config(
+        listen_port=9445,
+        listen_ip="0.0.0.0",
+        tls_domain="tracegate.test",
+        primary_secret_hex="95f0d81f7539ecbe1bd880f48b6a739a",
+        issued_secrets=[
+            MTProtoIssuedSecret(telegram_id=101, secret_hex="00112233445566778899aabbccddeeff"),
+        ],
+        mask_host="203.0.113.46",
+        mask_port=10444,
+        public_host="proxy.example.org",
+        proxy_protocol_trusted_cidrs=["203.0.113.46/32"],
+        use_middle_proxy=False,
+        api_listen="127.0.0.1:9192",
+    )
+
+    # Terminates on the Endpoint, reachable by the Entry relay over the link.
+    assert 'listen_addr_ipv4 = "0.0.0.0"' in config.config_text
+    # Direct DC egress (no Telegram middle proxy) and no SOCKS upstream.
+    assert "use_middle_proxy = false" in config.config_text
+    assert "[[upstreams]]" not in config.config_text
+    # Trusts the Entry source for the forwarded client address; loopback always kept.
+    assert (
+        'proxy_protocol_trusted_cidrs = ["127.0.0.1/32", "::1/128", "203.0.113.46/32"]'
+        in config.config_text
+    )
+    # Masks back to the Entry cover site and exposes its own stats API port.
+    assert 'mask_host = "203.0.113.46"' in config.config_text
+    assert "mask_port = 10444" in config.config_text
+    assert 'listen = "127.0.0.1:9192"' in config.config_text
+    assert '"tg_101" = "00112233445566778899aabbccddeeff"' in config.config_text
+
+
+def test_build_mtproto_telemt_config_rejects_non_loopback_bind_without_trusted_ingress() -> None:
+    with pytest.raises(MTProtoConfigError, match="non-loopback"):
+        build_mtproto_telemt_config(
+            listen_port=9445,
+            listen_ip="0.0.0.0",
+            tls_domain="tracegate.test",
+            primary_secret_hex="95f0d81f7539ecbe1bd880f48b6a739a",
+            mask_host="203.0.113.46",
+        )
+
+
+def test_build_mtproto_telemt_config_rejects_invalid_trusted_cidr() -> None:
+    with pytest.raises(MTProtoConfigError, match="trusted CIDR"):
+        build_mtproto_telemt_config(
+            listen_port=9445,
+            listen_ip="0.0.0.0",
+            tls_domain="tracegate.test",
+            primary_secret_hex="95f0d81f7539ecbe1bd880f48b6a739a",
+            mask_host="203.0.113.46",
+            proxy_protocol_trusted_cidrs=["not-a-cidr"],
+        )
+
+
 def test_build_mtproto_official_proxy_command_accepts_primary_and_issued_secrets() -> None:
     command = build_mtproto_official_proxy_command(
         binary="/opt/MTProxy/objs/bin/mtproto-proxy",

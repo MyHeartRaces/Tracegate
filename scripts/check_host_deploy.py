@@ -58,8 +58,20 @@ def check(root: Path, *, compose_runtime: bool = False) -> None:
         "Entry primary fronting stack must be ready before agent reconciliation",
     )
     _require(
-        deploy.index("tracegate-agent-entry.service") < deploy.index("tracegate-mtproto@entry.service"),
-        "Entry agent must reconcile before the final MTProto restart",
+        deploy.index("tracegate-agent.service") < deploy.index("tracegate-mtproto@transit.service"),
+        "Endpoint agent must reconcile before the MTProto (Telemt) restart",
+    )
+    _require(
+        deploy.index("tracegate-xray-ss2022.service") < deploy.index("tracegate-shadowtls-backhaul.service"),
+        "Endpoint SS2022 backhaul inbound must be ready before the ShadowTLS backhaul server",
+    )
+    _require(
+        deploy.index("tracegate-backhaul-fragment@1.service") < deploy.index("tracegate-shadowtls-entry.service"),
+        "Entry fragment sidecar must be ready before the primary ShadowTLS client",
+    )
+    _require(
+        deploy.index("tracegate-backhaul-fragment@2.service") < deploy.index("tracegate-shadowtls-entry2.service"),
+        "Entry fragment sidecar #2 must be ready before the secondary ShadowTLS client",
     )
 
     installer = install_path.read_text()
@@ -84,6 +96,7 @@ def check(root: Path, *, compose_runtime: bool = False) -> None:
         "tracegate-entry-firewall.service": "ConditionPathExists=/etc/tracegate/entry-origin.nft",
         "tracegate-db-backup.service": "/usr/local/sbin/tracegate-db-backup",
         "tracegate-db-backup.timer": "Persistent=true",
+        "tracegate-backhaul-fragment@.service": "tracegate-backhaul-fragment-config %i",
     }
     for name, token in units.items():
         text = (root / "deploy/systemd" / name).read_text()

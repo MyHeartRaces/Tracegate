@@ -5,7 +5,7 @@ set -euo pipefail
 # operator runtime env. The client wraps the loopback SS2022 outbound
 # (127.0.0.1:15443) into a ShadowTLS session to the Endpoint backhaul listener.
 
-runtime_env="${TRACEGATE_ENV_FILE:-/etc/tracegate/tracegate.env}"
+runtime_env="${TRACEGATE_ENV_FILE:-/etc/tracegate/tracegate-entry.env}"
 target_env="${TRACEGATE_SHADOWTLS_ENTRY_ENV_FILE:-/etc/tracegate/private/shadowtls/entry.env}"
 
 test -f "${runtime_env}" || {
@@ -18,14 +18,19 @@ set -a
 source "${runtime_env}"
 set +a
 
-target="${SHADOWTLS_BACKHAUL_TARGET:-}"
+remote_target="${SHADOWTLS_BACKHAUL_TARGET:-}"
+target="${SHADOWTLS_BACKHAUL_FRAGMENT1_LISTEN:-127.0.0.1:16443}"
 sni="${SHADOWTLS_BACKHAUL_SNI:-${SHADOWTLS_BACKHAUL_SERVER_NAME:-}}"
 password="${SHADOWTLS_BACKHAUL_PASSWORD:-}"
-if [[ "${target}" != *:* ]]; then
-  target="${target}:9443"
+if [[ "${remote_target}" != *:* ]]; then
+  remote_target="${remote_target}:9443"
 fi
-test -n "${target%%:*}" || {
+test -n "${remote_target%%:*}" || {
   echo "tracegate shadowtls entry env: SHADOWTLS_BACKHAUL_TARGET is missing" >&2
+  exit 1
+}
+[[ "${target}" == 127.*:* || "${target}" == "[::1]:"* ]] || {
+  echo "tracegate shadowtls entry env: fragment listener must be loopback" >&2
   exit 1
 }
 test -n "${sni}" || {

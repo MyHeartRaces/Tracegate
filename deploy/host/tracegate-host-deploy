@@ -37,6 +37,9 @@ load_deploy_env() {
         tracegate-hysteria@transit.service
         tracegate-hysteria-salamander.service
         tracegate-shadowtls.service
+        tracegate-shadowtls-backhaul.service
+        tracegate-shadowtls-backhaul2.service
+        tracegate-mtproto@transit.service
         tracegate-wstunnel-wireguard.service
         tracegate-wireguard-sync.service
         tracegate-prometheus.service
@@ -60,7 +63,10 @@ load_deploy_env() {
         tracegate-nginx@entry.service
         tracegate-haproxy@entry.service
         tracegate-agent-entry.service
-        tracegate-mtproto@entry.service
+        tracegate-backhaul-fragment@1.service
+        tracegate-backhaul-fragment@2.service
+        tracegate-shadowtls-entry.service
+        tracegate-shadowtls-entry2.service
       )
       HEALTH_URLS=("${TRACEGATE_AGENT_HEALTH_URL:-http://127.0.0.1:8070/v1/health}")
       ;;

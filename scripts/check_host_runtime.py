@@ -119,9 +119,15 @@ def check_host_runtime(root: Path) -> None:
                     continue
                 if str(rule.get("outboundTag") or "") == "direct":
                     raise HostRuntimeCheckError("Entry Chain routing must not bypass Endpoint egress")
-                if (
+                # The default Chain route must reach the Endpoint either directly via
+                # the sole `to-transit` outbound (single-transport) or via the backhaul
+                # balancer (SS2022 primary + REALITY fallback pool).
+                targets_backhaul = (
                     str(rule.get("outboundTag") or "") == "to-transit"
-                    and not any(key in rule for key in ("domain", "ip", "port", "network", "protocol"))
+                    or str(rule.get("balancerTag") or "") == "backhaul-balancer"
+                )
+                if targets_backhaul and not any(
+                    key in rule for key in ("domain", "ip", "port", "network", "protocol")
                 ):
                     has_default_backhaul = True
             if not has_default_backhaul:
@@ -140,6 +146,21 @@ def check_host_runtime(root: Path) -> None:
             ):
                 raise HostRuntimeCheckError(
                     "Entry bundle is missing the SS2022 (aes-256) Endpoint backhaul outbound to-transit-ss"
+                )
+            balancers = {
+                str(row.get("tag") or ""): row
+                for row in xray_payload.get("routing", {}).get("balancers", [])
+                if isinstance(row, dict)
+            }
+            backhaul_balancer = balancers.get("backhaul-balancer")
+            if (
+                not isinstance(backhaul_balancer, dict)
+                or backhaul_balancer.get("selector") != ["to-transit-ss"]
+                or str(backhaul_balancer.get("fallbackTag") or "") != "to-transit"
+                or str((backhaul_balancer.get("strategy") or {}).get("type") or "") != "leastPing"
+            ):
+                raise HostRuntimeCheckError(
+                    "Entry backhaul balancer must prefer SS2022/ShadowTLS and use REALITY only as fallback"
                 )
 
     xray = _read(root / "bundles/base-transit/xray.json")
@@ -183,8 +204,11 @@ def check_host_runtime(root: Path) -> None:
         "tracegate-hysteria@.service",
         "tracegate-hysteria-salamander.service",
         "tracegate-shadowtls.service",
+        "tracegate-shadowtls-entry2.service",
         "tracegate-shadowtls-entry.service",
+        "tracegate-shadowtls-backhaul2.service",
         "tracegate-shadowtls-backhaul.service",
+        "tracegate-backhaul-fragment@.service",
         "tracegate-wstunnel-wireguard.service",
         "tracegate-mtproto@.service",
         "tracegate-prometheus.service",
@@ -211,6 +235,9 @@ def check_host_runtime(root: Path) -> None:
             raise HostRuntimeCheckError(f"{unit_name} must not lock an image digest")
         if unit_name.startswith("tracegate-xray"):
             _require(unit, "--user 0:0", label=unit_name)
+        if unit_name.startswith("tracegate-backhaul-fragment"):
+            _require(unit, "--user 0:0", label=unit_name)
+            _require(unit, "tracegate-backhaul-fragment-config %i", label=unit_name)
         if unit_name.startswith("tracegate-hysteria"):
             _require(unit, "--user 0:0", label=unit_name)
             _require(unit, "--cap-drop ALL --cap-add NET_BIND_SERVICE", label=unit_name)
@@ -218,9 +245,30 @@ def check_host_runtime(root: Path) -> None:
     mtproto_path = root / "src/tracegate/services/mtproto.py"
     if mtproto_path.exists():
         mtproto = _read(mtproto_path)
-        _require(mtproto, 'listen = "127.0.0.1:9091"', label="Telemt read-only API")
+        # The Telemt stats API defaults to loopback:9091; the entry-endpoint-tunnel
+        # deployment only moves the port (never off loopback) to dodge the Endpoint
+        # dispatcher, and the metrics scraper follows the same URL.
+        _require(mtproto, 'api_listen: str = "127.0.0.1:9091"', label="Telemt read-only API")
         _require(mtproto, 'whitelist = ["127.0.0.1/32", "::1/128"]', label="Telemt read-only API")
         _require(mtproto, '"read_only = true"', label="Telemt read-only API")
+        # Loopback is always trusted for the PROXY header, and a non-loopback bind
+        # is refused unless a source-gated ingress is explicitly configured.
+        _require(mtproto, 'loopback_cidrs = ["127.0.0.1/32", "::1/128"]', label="Telemt PROXY trust")
+        _require(
+            mtproto,
+            "may bind to a non-loopback address only when a source-gated PROXY-protocol",
+            label="Telemt bind safety",
+        )
+    mtproto_unit = _read(root / "deploy/systemd/tracegate-mtproto@.service")
+    _require(
+        mtproto_unit,
+        "healthcheck /var/lib/tracegate/private/mtproto/runtime/config.toml",
+        label="Telemt container healthcheck",
+    )
+    fragment_config = _read(root / "deploy/systemd/tracegate-backhaul-fragment-config")
+    _require(fragment_config, '"packets": packets', label="ShadowTLS fragment renderer")
+    _require(fragment_config, '"length": length', label="ShadowTLS fragment renderer")
+    _require(fragment_config, "byte-preserving TCP stream slicing", label="ShadowTLS fragment renderer")
 
     release_script_path = root / "scripts/build_release_artifacts.sh"
     if release_script_path.exists():

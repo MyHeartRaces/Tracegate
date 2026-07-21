@@ -230,6 +230,25 @@
       }
     },
     {
+      "tag": "to-transit-ss2",
+      "protocol": "shadowsocks",
+      "settings": {
+        "servers": [
+          {
+            "address": "127.0.0.1",
+            "port": 15444,
+            "method": "2022-blake3-aes-256-gcm",
+            "password": "REPLACE_SHADOWSOCKS2022_BACKHAUL_KEY",
+            "uot": false
+          }
+        ]
+      },
+      "streamSettings": {
+        "network": "tcp",
+        "security": "none"
+      }
+    },
+    {
       "tag": "block",
       "protocol": "blackhole"
     }
@@ -238,12 +257,24 @@
     "subjectSelector": [
       "to-transit"
     ],
-    "probeUrl": "http://cp.cloudflare.com/generate_204",
+    "probeUrl": "https://www.google.com/generate_204",
     "probeInterval": "10s",
     "enableConcurrency": true
   },
   "routing": {
     "domainStrategy": "IPIfNonMatch",
+    "balancers": [
+      {
+        "tag": "backhaul-balancer",
+        "selector": [
+          "to-transit-ss"
+        ],
+        "fallbackTag": "to-transit",
+        "strategy": {
+          "type": "leastPing"
+        }
+      }
+    ],
     "rules": [
       {
         "type": "field",
@@ -277,7 +308,7 @@
         "inboundTag": [
           "hy2-in"
         ],
-        "outboundTag": "to-transit"
+        "balancerTag": "backhaul-balancer"
       },
       {
         "type": "field",
@@ -286,7 +317,7 @@
           "vless-ws-in",
           "vless-grpc-in"
         ],
-        "outboundTag": "to-transit"
+        "balancerTag": "backhaul-balancer"
       }
     ]
   }

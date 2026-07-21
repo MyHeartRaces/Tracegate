@@ -394,9 +394,11 @@ class MaterializedBundleRenderContext:
     entry_tls_server_name: str
     transit_tls_server_name: str
     shadowtls_server_name_transit: str
+    shadowtls_backhaul2_sni: str
     shadowsocks2022_password_transit: str
     shadowsocks2022_backhaul_key: str
     reality_backhaul_port: int
+    reality_backhaul_sni: str
     mtproto_domain: str
     mtproto_tls_domain: str
     mtproto_upstream: str
@@ -554,22 +556,29 @@ class MaterializedBundleRenderContext:
         entry_tls_server_name = _first(env, "ENTRY_TLS_SERVER_NAME", default=entry_host)
         transit_tls_server_name = _first(env, "TRANSIT_TLS_SERVER_NAME", default=transit_host)
         shadowtls_server_name_transit = _first(env, "SHADOWTLS_SERVER_NAME_TRANSIT", "SHADOWTLS_SERVER_NAME")
+        # Second ShadowTLS front for the pool's leg 2. When unset, leg 2 is omitted
+        # and the pool runs with the single ShadowTLS leg + the REALITY-RAW leg.
+        shadowtls_backhaul2_sni = _first(env, "SHADOWTLS_BACKHAUL2_SNI")
         shadowsocks2022_password_transit = _first(
             env,
             "SHADOWSOCKS2022_PASSWORD_TRANSIT",
             "SHADOWSOCKS2022_PASSWORD",
         )
         # Independent Entry->Endpoint SS2022+ShadowTLS backhaul key (aes-256).
-        # When unset the SS2022 backhaul leg is omitted and the pool degrades to
+        # When unset the SS2022 backhaul legs are omitted and the pool degrades to
         # the REALITY-RAW transport only, so staging never breaks the live link.
         shadowsocks2022_backhaul_key = _first(
             env,
             "SHADOWSOCKS2022_BACKHAUL_KEY",
             "SHADOWSOCKS2022_BACKHAUL_KEY_TRANSIT",
         )
+        # REALITY-RAW backhaul leg lands on the dedicated source-gated port (default
+        # 9446; 9443/9444 host the two ShadowTLS legs) with its own decoupled
+        # camouflage SNI, distinct from the client-facing REALITY identity.
         reality_backhaul_port = _int_env(
-            env, "REALITY_BACKHAUL_PORT", default=443, min_value=1, max_value=65535
+            env, "REALITY_BACKHAUL_PORT", default=9446, min_value=1, max_value=65535
         )
+        reality_backhaul_sni = _first(env, "REALITY_BACKHAUL_SNI", default=reality_server_name_transit)
         mtproto_domain = _first(env, "MTPROTO_DOMAIN")
         mtproto_tls_domain = _first(env, "MTPROTO_TLS_DOMAIN", default=mtproto_domain)
         mtproto_upstream = _haproxy_server_address(
@@ -585,9 +594,12 @@ class MaterializedBundleRenderContext:
         # Dedicated Telemt-only link: Entry -> Endpoint public TLS port. Defaults to
         # the Endpoint host so the relay works without extra configuration; operators
         # can pin it to a specific Endpoint address.
+        # Dedicated source-gated link port on the Endpoint where Telemt terminates
+        # the relayed FakeTLS (default 9445). Not the public :443 catch-all.
+        mtproto_link_port = _int_env(env, "MTPROTO_LINK_PORT", default=9445, min_value=1, max_value=65535)
         mtproto_entry_link_upstream = _haproxy_server_address(
-            _first(env, "MTPROTO_ENTRY_LINK_UPSTREAM", default=f"{transit_host}:443")
-            or f"{transit_host}:443",
+            _first(env, "MTPROTO_ENTRY_LINK_UPSTREAM", default=f"{transit_host}:{mtproto_link_port}")
+            or f"{transit_host}:{mtproto_link_port}",
             label="MTPROTO_ENTRY_LINK_UPSTREAM",
         )
         mtproto_route_mode = _first(env, "MTPROTO_ROUTE_MODE", default="entry-endpoint-tunnel")
@@ -696,9 +708,11 @@ class MaterializedBundleRenderContext:
             entry_tls_server_name=entry_tls_server_name,
             transit_tls_server_name=transit_tls_server_name,
             shadowtls_server_name_transit=shadowtls_server_name_transit,
+            shadowtls_backhaul2_sni=shadowtls_backhaul2_sni,
             shadowsocks2022_password_transit=shadowsocks2022_password_transit,
             shadowsocks2022_backhaul_key=shadowsocks2022_backhaul_key,
             reality_backhaul_port=reality_backhaul_port,
+            reality_backhaul_sni=reality_backhaul_sni,
             mtproto_domain=mtproto_domain,
             mtproto_tls_domain=mtproto_tls_domain,
             mtproto_upstream=mtproto_upstream,
@@ -769,7 +783,10 @@ def _role_private_companions(ctx: "MaterializedBundleRenderContext", role_lower:
     if role_lower == "entry" and mtproto_enabled and entry_local_mtproto:
         units.append("tracegate-mtproto@entry")
     if role_lower == "transit" and mtproto_enabled and not entry_local_mtproto:
-        units.extend(["tracegate-fronting@transit", "tracegate-mtproto@transit"])
+        # entry-endpoint-tunnel: Telemt terminates on the Endpoint. The prober cover
+        # ("fronting") is Telemt's own mask pointed back at the Entry cover site, so
+        # no separate fronting unit is deployed here.
+        units.append("tracegate-mtproto@transit")
     return units
 
 
@@ -1183,28 +1200,50 @@ def render_materialized_bundles(ctx: MaterializedBundleRenderContext) -> None:
     for outbound in entry_xray.get("outbounds", []):
         tag = str(outbound.get("tag") or "")
         if tag == "to-transit":
+            # REALITY-RAW leg (heterogeneous fallback in the pool). Dials the
+            # dedicated source-gated backhaul port with its own decoupled camouflage
+            # SNI, distinct from the client-facing REALITY identity.
             vnext = (((outbound.get("settings") or {}).get("vnext")) or [])
             if vnext:
                 vnext[0]["address"] = ctx.transit_host
                 vnext[0]["port"] = ctx.reality_backhaul_port
             reality = outbound.setdefault("streamSettings", {}).setdefault("realitySettings", {})
-            reality["serverName"] = ctx.reality_server_name_transit
+            reality["serverName"] = ctx.reality_backhaul_sni
             reality["publicKey"] = ctx.reality_public_key_transit
             reality["shortId"] = ctx.reality_short_id_transit
-        elif tag == "to-transit-ss" and ctx.shadowsocks2022_backhaul_key:
+        elif tag in ("to-transit-ss", "to-transit-ss2") and ctx.shadowsocks2022_backhaul_key:
+            # SS2022 legs wrapped by ShadowTLS v3 on the Entry loopback (leg 1 -> the
+            # primary ShadowTLS client, leg 2 -> the second ShadowTLS client / front).
             servers = (((outbound.get("settings") or {}).get("servers")) or [])
             if servers:
                 servers[0]["password"] = ctx.shadowsocks2022_backhaul_key
     if not ctx.shadowsocks2022_backhaul_key:
         # No SS2022 backhaul key provisioned yet: keep the Entry runtime on the
-        # REALITY-RAW leg only. Never emit a placeholder SS2022 password, which
-        # would be an invalid key and crash the Xray runtime.
+        # single REALITY-RAW leg. Never emit a placeholder SS2022 password, which
+        # would be an invalid key and crash the Xray runtime. Drop the pool
+        # machinery too (observatory + balancer) and route Chain straight at the
+        # sole `to-transit` outbound so there is no dangling balancerTag.
         entry_xray["outbounds"] = [
             outbound
             for outbound in entry_xray.get("outbounds", [])
-            if str(outbound.get("tag") or "") != "to-transit-ss"
+            if str(outbound.get("tag") or "") not in ("to-transit-ss", "to-transit-ss2")
         ]
         entry_xray.pop("observatory", None)
+        routing = entry_xray.get("routing")
+        if isinstance(routing, dict):
+            routing.pop("balancers", None)
+            for rule in routing.get("rules", []):
+                if isinstance(rule, dict) and rule.get("balancerTag") == "backhaul-balancer":
+                    rule.pop("balancerTag", None)
+                    rule["outboundTag"] = "to-transit"
+    elif not ctx.shadowtls_backhaul2_sni:
+        # SS2022 key present but no second ShadowTLS front configured: run the pool
+        # with one ShadowTLS leg + the REALITY-RAW leg (drop the unwired leg 2).
+        entry_xray["outbounds"] = [
+            outbound
+            for outbound in entry_xray.get("outbounds", [])
+            if str(outbound.get("tag") or "") != "to-transit-ss2"
+        ]
     if ctx.mtproto_route_mode == "entry-local-endpoint-egress" and ctx.mtproto_domain:
         entry_xray.setdefault("inbounds", []).append(
             {
@@ -1293,14 +1332,14 @@ def render_materialized_bundles(ctx: MaterializedBundleRenderContext) -> None:
                 f"  server mtproto {ctx.mtproto_upstream} check send-proxy-v2\n"
             )
         else:
-            # Dedicated Telemt-only Entry->Endpoint link. Telemt runs on Endpoint;
-            # Entry is a plain TCP relay so the client's own FakeTLS ClientHello is
-            # what crosses the link (no Xray tunnel on this hop). PROXY v2 must not
-            # be used here: the Endpoint terminates the relay with its own HAProxy
-            # SNI demux, which expects a raw TLS ClientHello.
+            # Dedicated Telemt-only Entry->Endpoint link. Telemt runs on Endpoint,
+            # listening on a source-gated port (default 9445) and terminating the
+            # client's FakeTLS itself. Entry relays the ClientHello with PROXY v2 so
+            # the real client address survives (Telemt trusts the Entry source and
+            # parses the header). There is no Endpoint HAProxy hop on this path.
             entry_mtproto_backend = (
                 f"\nbackend be_mtproto_tls\n"
-                f"  server mtproto {ctx.mtproto_entry_link_upstream} check\n"
+                f"  server mtproto {ctx.mtproto_entry_link_upstream} check-send-proxy send-proxy-v2 inter 10s\n"
             )
     entry_haproxy = entry_haproxy.replace("REPLACE_ENTRY_MTPROTO_ACL", entry_mtproto_acl)
     entry_haproxy = entry_haproxy.replace("REPLACE_ENTRY_MTPROTO_ROUTE", entry_mtproto_route)
@@ -1315,6 +1354,7 @@ def render_materialized_bundles(ctx: MaterializedBundleRenderContext) -> None:
         "REPLACE_TLS_SERVER_NAME",
         ctx.entry_tls_server_name,
     )
+    entry_nginx = entry_nginx.replace("REPLACE_ENTRY_BIND_HOST", ctx.entry_hysteria_listen_host)
     entry_nginx = entry_nginx.replace("/var/www/decoy", ctx.decoy_dir)
     entry_nginx_path.write_text(entry_nginx, encoding="utf-8")
 
@@ -1397,17 +1437,13 @@ def render_materialized_bundles(ctx: MaterializedBundleRenderContext) -> None:
             "\nbackend be_transit_shadowtls\n"
             "  server transit_shadowtls 127.0.0.1:14443 check\n"
         )
+    # entry-endpoint-tunnel: Telemt on the Endpoint listens on its own source-gated
+    # link port (default 9445) and the Entry relay dials it directly, so the public
+    # :443 frontend carries no MTProto backend. entry-local mode terminates Telemt on
+    # the Entry, so the Endpoint has no MTProto backend in that mode either.
     mtproto_acl = ""
     mtproto_route = ""
     mtproto_backend = ""
-    mtproto_sni = str(ctx.mtproto_tls_domain or ctx.mtproto_domain or "").strip()
-    if ctx.mtproto_domain and ctx.mtproto_route_mode != "entry-local-endpoint-egress":
-        mtproto_acl = f"  acl mtproto_sni req.ssl_sni -i {mtproto_sni}"
-        mtproto_route = "  use_backend be_transit_mtproto if mtproto_sni"
-        mtproto_backend = (
-            f"\nbackend be_transit_mtproto\n"
-            f"  server transit_mtproto {ctx.mtproto_upstream} check send-proxy-v2\n"
-        )
     transit_haproxy = transit_haproxy.replace("REPLACE_MTPROTO_ACL", mtproto_acl)
     transit_haproxy = transit_haproxy.replace("REPLACE_MTPROTO_ROUTE", mtproto_route)
     transit_haproxy = transit_haproxy.replace("REPLACE_MTPROTO_BACKEND", mtproto_backend)

@@ -1,7 +1,7 @@
 [Unit]
 Description=Tracegate ShadowTLS v3 Entry backhaul client
-After=docker.service network-online.target
-Requires=docker.service
+After=docker.service network-online.target tracegate-backhaul-fragment@1.service
+Requires=docker.service tracegate-backhaul-fragment@1.service
 
 [Service]
 # Entry runtime env is tracegate-entry.env (there is no tracegate.env on Entry).

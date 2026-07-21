@@ -1,0 +1,19 @@
+[Unit]
+Description=Tracegate ShadowTLS backhaul TCP fragment sidecar (leg %i)
+After=docker.service network-online.target
+Requires=docker.service
+
+[Service]
+EnvironmentFile=/etc/tracegate/tracegate-entry.env
+Restart=always
+RestartSec=3
+TimeoutStopSec=20
+SuccessExitStatus=143
+ExecStartPre=/opt/tracegate/current/deploy/systemd/tracegate-backhaul-fragment-config %i
+ExecStartPre=/usr/bin/docker pull ghcr.io/xtls/xray-core:latest
+ExecStartPre=-/usr/bin/docker rm -f tracegate-backhaul-fragment-%i
+ExecStart=/usr/bin/docker run --rm --name tracegate-backhaul-fragment-%i --network host --read-only --user 0:0 --cap-drop ALL --security-opt no-new-privileges:true -v /etc/tracegate/private/backhaul-fragment/%i.json:/etc/xray/config.json:ro ghcr.io/xtls/xray-core:latest run -c /etc/xray/config.json
+ExecStop=/usr/bin/docker stop tracegate-backhaul-fragment-%i
+
+[Install]
+WantedBy=multi-user.target

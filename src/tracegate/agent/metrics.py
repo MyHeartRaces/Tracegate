@@ -139,7 +139,10 @@ def _fetch_mtproto_user_traffic_bytes(url: str) -> dict[str, int]:
 
 
 def _mtproto_stats_enabled(settings: Settings) -> bool:
-    return str(settings.agent_role or "").strip().upper() == "ENTRY"
+    role = str(settings.agent_role or "").strip().upper()
+    route_mode = str(getattr(settings, "mtproto_route_mode", "") or "").strip().lower()
+    owner = "ENTRY" if route_mode == "entry-local-endpoint-egress" else "TRANSIT"
+    return role == owner
 
 
 def _wireguard_connection_traffic_bytes(state_path: Path) -> dict[str, tuple[int, int]]:
@@ -511,9 +514,8 @@ class AgentMetricsCollector:
         yield xray_rx
         yield xray_tx
 
-        # Telemt is an Entry-owned runtime.  Emitting a failed scrape from the
-        # Endpoint agent creates a false-zero series for a component that does
-        # not exist on that host and makes aggregate health checks misleading.
+        # Export Telemt stats only from the role that owns the runtime. Tunnel
+        # mode terminates on Endpoint; entry-local mode terminates on Entry.
         if _mtproto_stats_enabled(self.settings):
             mtproto_ok = GaugeMetricFamily(
                 "tracegate_mtproto_stats_scrape_ok",

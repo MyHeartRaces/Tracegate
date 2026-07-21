@@ -1,0 +1,22 @@
+[Unit]
+Description=Tracegate ShadowTLS v3 Entry backhaul client #2 (pool leg 2 front)
+After=docker.service network-online.target tracegate-backhaul-fragment@2.service
+Requires=docker.service tracegate-backhaul-fragment@2.service
+
+[Service]
+# Entry runtime env is tracegate-entry.env (there is no tracegate.env on Entry).
+Environment=TRACEGATE_ENV_FILE=/etc/tracegate/tracegate-entry.env
+# Optional: the ExecStartPre env script renders this on first start.
+EnvironmentFile=-/etc/tracegate/private/shadowtls/entry2.env
+Restart=always
+RestartSec=3
+TimeoutStopSec=20
+SuccessExitStatus=143
+ExecStartPre=/opt/tracegate/current/deploy/systemd/tracegate-shadowtls-entry2-env
+ExecStartPre=/usr/bin/docker pull ghcr.io/ihciah/shadow-tls:latest
+ExecStartPre=-/usr/bin/docker rm -f tracegate-shadowtls-entry2
+ExecStart=/usr/bin/docker run --rm --name tracegate-shadowtls-entry2 --network host --read-only --cap-drop ALL --security-opt no-new-privileges:true --entrypoint shadow-tls ghcr.io/ihciah/shadow-tls:latest --v3 client --listen 127.0.0.1:15444 --server $SHADOWTLS_BACKHAUL2_TARGET --sni $SHADOWTLS_BACKHAUL2_SNI --password $SHADOWTLS_BACKHAUL2_PASSWORD
+ExecStop=/usr/bin/docker stop tracegate-shadowtls-entry2
+
+[Install]
+WantedBy=multi-user.target

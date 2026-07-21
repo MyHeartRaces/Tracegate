@@ -206,7 +206,8 @@ class Settings(BaseSettings):
     agent_auth_token: str = ""
     agent_data_root: str = "/tmp/tracegate-agent"
     agent_stats_url: str = "http://127.0.0.1:9999/traffic"
-    agent_mtproto_stats_url: str = "http://127.0.0.1:9091/v1/stats/users"
+    # Keep Telemt's read-only API away from the Endpoint dispatcher's :9091.
+    agent_mtproto_stats_url: str = "http://127.0.0.1:9192/v1/stats/users"
     agent_stats_secret: str = ""
     agent_dry_run: bool = True
     # Native systemd is the only supported production runtime.
@@ -387,8 +388,18 @@ class Settings(BaseSettings):
     mtproto_public_port: int = 443
     mtproto_route_mode: str = "endpoint-direct"
     mtproto_egress_socks_port: int = 11084
+    mtproto_link_port: int = Field(default=9445, validation_alias=AliasChoices("MTPROTO_LINK_PORT"))
     mtproto_domain_fronting_host: str = ""
     mtproto_domain_fronting_port: int = 443
+    # entry-endpoint-tunnel: source CIDRs the Endpoint-side Telemt trusts for the
+    # PROXY-v2 header the Entry relay prepends (i.e. the Entry link source). This
+    # is required for the tunnel because Telemt binds a non-loopback link port and
+    # must attribute the real client address the relay forwards. Comma/space
+    # separated; read via ``mtproto_link_trusted_cidr_list``.
+    mtproto_link_trusted_cidrs: str = Field(
+        default="",
+        validation_alias=AliasChoices("MTPROTO_LINK_TRUSTED_CIDRS"),
+    )
     mtproto_tolerate_time_skewness: str = "5m"
     mtproto_fronting_mode: str = "dedicated-dns-only"
     mtproto_public_profile_file: str = _DEFAULT_MTPROTO_PUBLIC_PROFILE_FILE
@@ -597,6 +608,11 @@ class Settings(BaseSettings):
         default="/wgws",
         validation_alias=AliasChoices("WIREGUARD_WSTUNNEL_PATH", "WG_WSTUNNEL_PATH"),
     )
+
+    @property
+    def mtproto_link_trusted_cidr_list(self) -> list[str]:
+        raw = str(self.mtproto_link_trusted_cidrs or "")
+        return [part for part in raw.replace(",", " ").split() if part]
 
     @field_validator("agent_runtime_profile", mode="before")
     @classmethod

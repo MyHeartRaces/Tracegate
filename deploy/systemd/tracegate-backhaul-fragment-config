@@ -1,0 +1,152 @@
+#!/usr/bin/env python3
+"""Render one secret-free Xray TCP stream-slicing config for a ShadowTLS leg."""
+
+from __future__ import annotations
+
+import ipaddress
+import json
+import os
+from pathlib import Path
+import re
+import sys
+import tempfile
+from urllib.parse import urlsplit
+
+
+_RANGE_RE = re.compile(r"^(\d+)(?:-(\d+))?$")
+
+
+def _endpoint(value: str, *, default_port: int, label: str, loopback: bool = False) -> tuple[str, int]:
+    raw = str(value or "").strip()
+    if not raw:
+        raise ValueError(f"{label} is missing")
+    parsed = urlsplit(f"//{raw}")
+    host = str(parsed.hostname or "").strip()
+    port = int(parsed.port or default_port)
+    if not host or not 1 <= port <= 65535:
+        raise ValueError(f"{label} must be host:port")
+    if loopback:
+        try:
+            address = ipaddress.ip_address(host)
+        except ValueError as exc:
+            raise ValueError(f"{label} must use a loopback IP") from exc
+        if not address.is_loopback:
+            raise ValueError(f"{label} must use a loopback IP")
+    return host, port
+
+
+def _range(value: str, *, label: str, minimum: int, maximum: int) -> str:
+    raw = str(value or "").strip()
+    match = _RANGE_RE.fullmatch(raw)
+    if match is None:
+        raise ValueError(f"{label} must be an integer or integer range")
+    lower = int(match.group(1))
+    upper = int(match.group(2) or lower)
+    if not minimum <= lower <= upper <= maximum:
+        raise ValueError(f"{label} must stay within {minimum}-{maximum}")
+    return raw
+
+
+def _config(leg: str) -> tuple[Path, dict[str, object]]:
+    if leg not in {"1", "2"}:
+        raise ValueError("fragment leg must be 1 or 2")
+    suffix = "" if leg == "1" else "2"
+    remote_default_port = 9443 if leg == "1" else 9444
+    local_default_port = 16443 if leg == "1" else 16444
+    remote_host, remote_port = _endpoint(
+        os.environ.get(f"SHADOWTLS_BACKHAUL{suffix}_TARGET", ""),
+        default_port=remote_default_port,
+        label=f"SHADOWTLS_BACKHAUL{suffix}_TARGET",
+    )
+    local_host, local_port = _endpoint(
+        os.environ.get(f"SHADOWTLS_BACKHAUL_FRAGMENT{leg}_LISTEN", f"127.0.0.1:{local_default_port}"),
+        default_port=local_default_port,
+        label=f"SHADOWTLS_BACKHAUL_FRAGMENT{leg}_LISTEN",
+        loopback=True,
+    )
+    packets = _range(
+        os.environ.get("SHADOWTLS_BACKHAUL_FRAGMENT_PACKETS", "1-1"),
+        label="SHADOWTLS_BACKHAUL_FRAGMENT_PACKETS",
+        minimum=1,
+        maximum=3,
+    )
+    # ShadowTLS v3 authenticates the original ClientHello record. Xray's
+    # `tlshello` mode rewrites TLS record framing and invalidates that HMAC, so
+    # only byte-preserving TCP stream slicing is accepted here.
+    if not packets.startswith("1"):
+        raise ValueError("SHADOWTLS_BACKHAUL_FRAGMENT_PACKETS must include the first stream write")
+    length = _range(
+        os.environ.get("SHADOWTLS_BACKHAUL_FRAGMENT_LENGTH", "1-4"),
+        label="SHADOWTLS_BACKHAUL_FRAGMENT_LENGTH",
+        minimum=1,
+        maximum=512,
+    )
+    interval = _range(
+        os.environ.get("SHADOWTLS_BACKHAUL_FRAGMENT_INTERVAL_MS", "1-2"),
+        label="SHADOWTLS_BACKHAUL_FRAGMENT_INTERVAL_MS",
+        minimum=0,
+        maximum=100,
+    )
+    path = Path(
+        os.environ.get(
+            "TRACEGATE_BACKHAUL_FRAGMENT_CONFIG_FILE",
+            f"/etc/tracegate/private/backhaul-fragment/{leg}.json",
+        )
+    )
+    payload: dict[str, object] = {
+        "log": {"loglevel": "warning"},
+        "inbounds": [
+            {
+                "tag": f"backhaul-fragment-{leg}-in",
+                "listen": local_host,
+                "port": local_port,
+                "protocol": "dokodemo-door",
+                "settings": {"address": remote_host, "port": remote_port, "network": "tcp"},
+            }
+        ],
+        "outbounds": [
+            {
+                "tag": f"backhaul-fragment-{leg}-out",
+                "protocol": "freedom",
+                "settings": {
+                    "domainStrategy": "AsIs",
+                    "fragment": {"packets": packets, "length": length, "interval": interval},
+                },
+            }
+        ],
+        "routing": {
+            "rules": [
+                {
+                    "type": "field",
+                    "inboundTag": [f"backhaul-fragment-{leg}-in"],
+                    "outboundTag": f"backhaul-fragment-{leg}-out",
+                }
+            ]
+        },
+    }
+    return path, payload
+
+
+def main() -> int:
+    try:
+        path, payload = _config(sys.argv[1] if len(sys.argv) > 1 else "")
+    except (ValueError, OSError) as exc:
+        print(f"tracegate backhaul fragment config: {exc}", file=sys.stderr)
+        return 2
+    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    path.parent.chmod(0o700)
+    fd, temporary = tempfile.mkstemp(dir=path.parent, suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as stream:
+            json.dump(payload, stream, ensure_ascii=True, indent=2)
+            stream.write("\n")
+        os.chmod(temporary, 0o600)
+        os.replace(temporary, path)
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -38,7 +38,8 @@ def test_render_xray_centric_entry_keeps_xray_native_hysteria_inbound() -> None:
         for row in rendered["routing"]["rules"]
         if isinstance(row, dict) and row.get("inboundTag") == ["hy2-in"]
     )
-    assert hy2_rule["outboundTag"] == "to-transit"
+    # Hysteria Chain traffic rides the same source-gated backhaul pool balancer.
+    assert hy2_rule["balancerTag"] == "backhaul-balancer"
 
 
 def test_render_xray_centric_transit_adds_direct_hysteria_rule() -> None:

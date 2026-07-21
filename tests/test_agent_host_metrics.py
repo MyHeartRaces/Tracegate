@@ -110,8 +110,18 @@ def test_mtproto_traffic_parser_accepts_current_telemt_data_list(monkeypatch) ->
     }
 
 
-def test_mtproto_stats_are_only_exported_by_entry() -> None:
+def test_mtproto_stats_are_only_exported_by_runtime_owner() -> None:
     from tracegate.agent import metrics as m
 
-    assert m._mtproto_stats_enabled(SimpleNamespace(agent_role="ENTRY")) is True
-    assert m._mtproto_stats_enabled(SimpleNamespace(agent_role="TRANSIT")) is False
+    assert m._mtproto_stats_enabled(
+        SimpleNamespace(agent_role="ENTRY", mtproto_route_mode="entry-local-endpoint-egress")
+    ) is True
+    assert m._mtproto_stats_enabled(
+        SimpleNamespace(agent_role="TRANSIT", mtproto_route_mode="entry-local-endpoint-egress")
+    ) is False
+    assert m._mtproto_stats_enabled(
+        SimpleNamespace(agent_role="TRANSIT", mtproto_route_mode="entry-endpoint-tunnel")
+    ) is True
+    assert m._mtproto_stats_enabled(
+        SimpleNamespace(agent_role="ENTRY", mtproto_route_mode="entry-endpoint-tunnel")
+    ) is False

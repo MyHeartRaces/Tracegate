@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 from tracegate.constants import (
     TRACEGATE_FORBIDDEN_PUBLIC_TCP_PORT,
@@ -1449,6 +1450,22 @@ def _mtproto_public_ports(primary_port: int) -> tuple[int, ...]:
     return tuple(ports)
 
 
+def _telemt_api_listen(settings: Settings) -> str:
+    """Bind the Telemt read-only stats API where the metrics scraper looks.
+
+    Derived from ``agent_mtproto_stats_url`` so the two can never drift: the
+    entry-endpoint-tunnel deployment moves this off :9091 (the Endpoint
+    dispatcher's metrics port) to avoid a collision, and the scraper follows.
+    """
+
+    parsed = urlparse(str(settings.agent_mtproto_stats_url or "").strip())
+    host = parsed.hostname or "127.0.0.1"
+    port = parsed.port or 9091
+    if ":" in host and not host.startswith("["):
+        host = f"[{host}]"
+    return f"{host}:{int(port)}"
+
+
 def _write_mtproto_state(
     settings: Settings,
     *,
@@ -1456,6 +1473,7 @@ def _write_mtproto_state(
 ) -> bool:
     role_upper = str(runtime_contract_payload.get("role") or "").strip().upper()
     mtproto_route_mode = str(settings.mtproto_route_mode or "").strip().lower()
+    is_tunnel = mtproto_route_mode == "entry-endpoint-tunnel"
     runtime_role = "ENTRY" if mtproto_route_mode == "entry-local-endpoint-egress" else "TRANSIT"
     if role_upper != runtime_role:
         return False
@@ -1465,6 +1483,8 @@ def _write_mtproto_state(
     issued_state_file = Path(effective_mtproto_issued_state_file(settings))
     obfuscation_state_json = _role_state_dir(settings, role_lower=runtime_role.lower()) / "runtime-state.json"
     mtproto_runtime = str(settings.private_mtproto_runtime or "mtg").strip().lower() or "mtg"
+    if is_tunnel and mtproto_runtime != "telemt":
+        raise MTProtoConfigError("entry-endpoint-tunnel requires the Telemt runtime")
     mtproto_transport = str(settings.mtproto_transport or "tls").strip().lower() or "tls"
     if mtproto_transport == "plain":
         mtproto_transport = "raw"
@@ -1478,7 +1498,12 @@ def _write_mtproto_state(
         configured_upstream_port = int(settings.private_mtproto_upstream_port or 0)
     except (TypeError, ValueError):
         configured_upstream_port = 0
-    upstream_port = configured_upstream_port if configured_upstream_port > 0 else (9444 if mtproto_runtime == "official" else 9443)
+    if is_tunnel:
+        upstream_host = "0.0.0.0"
+        upstream_port = int(settings.mtproto_link_port or 9445)
+    else:
+        upstream_host = str(settings.private_mtproto_upstream_host or "").strip() or "127.0.0.1"
+        upstream_port = configured_upstream_port if configured_upstream_port > 0 else (9444 if mtproto_runtime == "official" else 9443)
 
     payload = {
         "action": "reconcile",
@@ -1489,7 +1514,7 @@ def _write_mtproto_state(
         "domain": str(settings.mtproto_domain or "").strip(),
         "tlsDomain": mtproto_tls_domain,
         "publicPort": int(settings.mtproto_public_port or 443),
-        "upstreamHost": str(settings.private_mtproto_upstream_host or "").strip() or "127.0.0.1",
+        "upstreamHost": upstream_host,
         "upstreamPort": upstream_port,
         "profileFile": _mtproto_profile_path(settings),
         "runtimeStateJson": str(obfuscation_state_json),
@@ -1571,6 +1596,15 @@ def _write_mtproto_state(
                     public_host=normalized_domain,
                     public_port=int(payload["publicPort"]),
                     tls_front_dir=str(runtime_dir / "tlsfront"),
+                    api_listen=_telemt_api_listen(settings),
+                    # entry-endpoint-tunnel: Telemt terminates on the Endpoint behind the
+                    # Entry PROXY-v2 relay, so it binds a non-loopback link port, trusts the
+                    # Entry source for the forwarded client address, and egresses to Telegram
+                    # DCs directly (no middle proxy).
+                    proxy_protocol_trusted_cidrs=(
+                        tuple(settings.mtproto_link_trusted_cidr_list) if is_tunnel else ()
+                    ),
+                    use_middle_proxy=(False if is_tunnel else None),
                 )
             elif mtproto_runtime == "official":
                 mtg_config = None

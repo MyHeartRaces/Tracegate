@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+## v3.1.14 - 2026-07-21
+
+- Make SS2022 + ShadowTLS v3 the preferred Entry-to-Endpoint Chain transport,
+  with the source-gated Reality leg used only when all ShadowTLS candidates are
+  unavailable.
+- Add independent, byte-preserving TCP stream-slicing sidecars for both
+  ShadowTLS fronts; the fragmentation scope excludes MTProto and all unrelated
+  host traffic.
+- Finish the dedicated Entry-to-Endpoint Telemt link on source-gated TCP/9445,
+  preserve PROXYv2 client attribution, keep the cover listener on TCP/10444,
+  and align Telemt health/metrics with its Endpoint-owned runtime.
+- Package both ShadowTLS legs and the isolated SS2022 backhaul terminator in the
+  native host rollout so agent reconciliation no longer collapses the pool.
+
 ## v3.1.13 - 2026-07-17
 
 - Added a dedicated Telemt-only Entry->Endpoint link so `entry-endpoint-tunnel`

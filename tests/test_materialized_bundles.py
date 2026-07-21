@@ -256,7 +256,7 @@ def test_render_materialized_bundles_rewrites_runtime_files(tmp_path: Path) -> N
     assert "listen: \"192.0.2.20:443\"" in transit_hysteria
     assert "cert: \"/etc/tls/transit.crt\"" in transit_hysteria
     assert "key: \"/etc/tls/transit.key\"" in transit_hysteria
-    assert "server transit_mtproto 127.0.0.1:9443 check send-proxy-v2" in transit_haproxy
+    assert "server mtproto transit.tracegate.test:9445 check-send-proxy send-proxy-v2" in entry_haproxy
     assert "bandwidth:" not in transit_hysteria
     assert "ignoreClientBandwidth: true" in transit_hysteria
     assert any(
@@ -293,13 +293,16 @@ def test_render_materialized_bundles_rewrites_runtime_files(tmp_path: Path) -> N
     assert "bind 192.0.2.10:443" in entry_haproxy
     assert "REPLACE_TLS_SERVER_NAME" not in transit_haproxy
     assert "REPLACE_TLS_SERVER_NAME" not in entry_nginx
+    assert "REPLACE_ENTRY_BIND_HOST" not in entry_nginx
+    assert "listen 192.0.2.10:10444 ssl http2;" in entry_nginx
     assert "REPLACE_TLS_SERVER_NAME" not in transit_nginx
     assert "tls-entry.example" in entry_haproxy
     assert "tls-entry.example" in entry_nginx
     assert "tls-transit.example" in transit_haproxy
-    assert "proxied.tracegate.test" in transit_haproxy
-    assert "be_transit_mtproto" in transit_haproxy
-    assert "127.0.0.1:9443" in transit_haproxy
+    assert "proxied.tracegate.test" not in transit_haproxy
+    assert "be_transit_mtproto" not in transit_haproxy
+    assert "127.0.0.1:9443" not in transit_haproxy
+    assert "acl mtproto_tls_sni req.ssl_sni -i proxied.tracegate.test" in entry_haproxy
     assert "acl shadowtls_sni req.ssl_sni -i shadowtls.example" in transit_haproxy
     assert "use_backend be_transit_shadowtls if shadowtls_sni" in transit_haproxy
     assert "server transit_shadowtls 127.0.0.1:14443 check" in transit_haproxy
@@ -335,7 +338,6 @@ def test_render_materialized_bundles_rewrites_runtime_files(tmp_path: Path) -> N
     assert bundles["TRANSIT"]["features"]["mtprotoDomain"] == "proxied.tracegate.test"
     assert bundles["TRANSIT"]["privateCompanions"] == [
         "tracegate-obfuscation@transit",
-        "tracegate-fronting@transit",
         "tracegate-mtproto@transit",
     ]
     transit_files = {row["path"] for row in bundles["TRANSIT"]["files"]}
@@ -491,16 +493,21 @@ def test_render_materialized_bundles_omits_mtproto_route_without_domain(tmp_path
     assert transit_bundle["privateCompanions"] == ["tracegate-obfuscation@transit"]
 
 
-def test_render_materialized_bundles_uses_configured_mtproto_upstream(tmp_path: Path) -> None:
+def test_render_materialized_bundles_uses_configured_mtproto_link_upstream(tmp_path: Path) -> None:
+    # entry-endpoint-tunnel mode: the Entry relays the client FakeTLS to the Telemt
+    # link on the Endpoint. The relay target is configurable and preserves the real
+    # client address via PROXY v2; the Endpoint public :443 has no MTProto backend.
     env = _base_env(tmp_path)
-    env["MTPROTO_HAPROXY_UPSTREAM"] = "198.51.100.109:9443"
+    env["MTPROTO_ENTRY_LINK_UPSTREAM"] = "198.51.100.109:9445"
 
     ctx = MaterializedBundleRenderContext.from_environ(env)
     render_materialized_bundles(ctx)
 
+    entry_haproxy = (ctx.materialized_root / "base-entry" / "haproxy.cfg").read_text(encoding="utf-8")
     transit_haproxy = (ctx.materialized_root / "base-transit" / "haproxy.cfg").read_text(encoding="utf-8")
 
-    assert "server transit_mtproto 198.51.100.109:9443 check" in transit_haproxy
+    assert "server mtproto 198.51.100.109:9445 check-send-proxy send-proxy-v2" in entry_haproxy
+    assert "be_transit_mtproto" not in transit_haproxy
 
 
 def test_render_materialized_bundles_injects_hysteria_finalmask_and_ech(tmp_path: Path) -> None:
@@ -619,9 +626,18 @@ def test_backhaul_pool_omitted_without_ss2022_key(tmp_path: Path) -> None:
 
     entry_xray = json.loads((ctx.materialized_root / "base-entry" / "xray.json").read_text(encoding="utf-8"))
     assert "to-transit-ss" not in _entry_outbound_tags(ctx)
+    assert "to-transit-ss2" not in _entry_outbound_tags(ctx)
     assert "observatory" not in entry_xray
     to_transit = next(o for o in entry_xray["outbounds"] if o.get("tag") == "to-transit")
-    assert to_transit["settings"]["vnext"][0]["port"] == 443
+    assert to_transit["settings"]["vnext"][0]["port"] == 9446
+    # single-transport mode: no balancer/observatory, Chain routes straight at to-transit.
+    assert not entry_xray["routing"].get("balancers")
+    assert not any("balancerTag" in r for r in entry_xray["routing"]["rules"] if isinstance(r, dict))
+    assert any(
+        r.get("outboundTag") == "to-transit" and "entry-in" in (r.get("inboundTag") or [])
+        for r in entry_xray["routing"]["rules"]
+        if isinstance(r, dict)
+    )
 
     ss2022 = json.loads((ctx.materialized_root / "base-transit" / "xray-ss2022.json").read_text(encoding="utf-8"))
     assert all(i.get("tag") != "ss2022-backhaul-in" for i in ss2022["inbounds"])
@@ -632,20 +648,40 @@ def test_backhaul_pool_omitted_without_ss2022_key(tmp_path: Path) -> None:
 def test_backhaul_pool_provisioned_with_ss2022_key(tmp_path: Path) -> None:
     env = _base_env(tmp_path)
     env["SHADOWSOCKS2022_BACKHAUL_KEY"] = "backhaul-256-key"
-    env["REALITY_BACKHAUL_PORT"] = "9444"
+    env["SHADOWTLS_BACKHAUL2_SNI"] = "leg2-front.example"
     ctx = MaterializedBundleRenderContext.from_environ(env)
     render_materialized_bundles(ctx)
 
     entry_xray = json.loads((ctx.materialized_root / "base-entry" / "xray.json").read_text(encoding="utf-8"))
     outbounds = {str(o.get("tag") or ""): o for o in entry_xray["outbounds"]}
+    # Pool = two SS2022+ShadowTLS legs (loopback 15443 / 15444) + the REALITY-RAW leg.
     assert "to-transit-ss" in outbounds
-    ss_server = outbounds["to-transit-ss"]["settings"]["servers"][0]
-    assert ss_server["password"] == "backhaul-256-key"
-    assert ss_server["method"] == "2022-blake3-aes-256-gcm"
-    assert ss_server["address"] == "127.0.0.1"
+    assert "to-transit-ss2" in outbounds
+    for leg, loopback in (("to-transit-ss", 15443), ("to-transit-ss2", 15444)):
+        ss_server = outbounds[leg]["settings"]["servers"][0]
+        assert ss_server["password"] == "backhaul-256-key"
+        assert ss_server["method"] == "2022-blake3-aes-256-gcm"
+        assert ss_server["address"] == "127.0.0.1"
+        assert ss_server["port"] == loopback
     assert entry_xray["observatory"]["subjectSelector"] == ["to-transit"]
-    # REALITY fallback follows the dedicated source-gated port at cutover.
-    assert outbounds["to-transit"]["settings"]["vnext"][0]["port"] == 9444
+    # REALITY-RAW leg lands on the dedicated source-gated port (default 9446).
+    assert outbounds["to-transit"]["settings"]["vnext"][0]["port"] == 9446
+    # Chain prefers the ShadowTLS legs; REALITY is used only when all primary
+    # candidates are unavailable.
+    balancers = {b["tag"]: b for b in entry_xray["routing"].get("balancers", [])}
+    assert "backhaul-balancer" in balancers
+    assert balancers["backhaul-balancer"]["selector"] == ["to-transit-ss"]
+    assert balancers["backhaul-balancer"]["fallbackTag"] == "to-transit"
+    assert balancers["backhaul-balancer"]["strategy"]["type"] == "leastPing"
+    assert any(
+        r.get("balancerTag") == "backhaul-balancer" and "entry-in" in (r.get("inboundTag") or [])
+        for r in entry_xray["routing"]["rules"]
+        if isinstance(r, dict)
+    )
+    # Endpoint terminates the REALITY backhaul leg on the dedicated source-gated port.
+    transit_haproxy = (ctx.materialized_root / "base-transit" / "haproxy.cfg").read_text(encoding="utf-8")
+    assert "frontend fe_transit_reality_backhaul" in transit_haproxy
+    assert "bind :9446" in transit_haproxy
 
     ss2022 = json.loads((ctx.materialized_root / "base-transit" / "xray-ss2022.json").read_text(encoding="utf-8"))
     backhaul_in = next(i for i in ss2022["inbounds"] if i.get("tag") == "ss2022-backhaul-in")

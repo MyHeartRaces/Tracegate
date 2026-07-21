@@ -336,12 +336,22 @@ def build_mtproto_telemt_config(
     listen_ip: str = "127.0.0.1",
     metrics_port: int = 9190,
     tls_front_dir: str = "/var/lib/tracegate/private/mtproto/tlsfront",
+    proxy_protocol_trusted_cidrs: tuple[str, ...] | list[str] = (),
+    use_middle_proxy: bool | None = None,
+    api_listen: str = "127.0.0.1:9091",
 ) -> MTProtoTelemtConfig:
     """Build a strict Telemt FakeTLS configuration for the shared L4 demux.
 
     Telemt watches this file and hot-reloads ``access.users``. The primary
     secret is retained as a bootstrap/recovery credential, while issued
     per-user secrets can be added and revoked without restarting the process.
+
+    ``entry-endpoint-tunnel`` mode terminates Telemt on the Endpoint while the
+    Entry relays the client's FakeTLS over the source-gated link with PROXY v2.
+    That path needs a non-loopback bind (so the Entry can reach it), the Entry
+    source trusted for the PROXY header (``proxy_protocol_trusted_cidrs``),
+    direct DC egress (``use_middle_proxy=False``) and its own stats API port
+    (``api_listen``) so it does not collide with the Endpoint dispatcher.
     """
 
     if int(listen_port or 0) <= 0:
@@ -353,9 +363,37 @@ def build_mtproto_telemt_config(
     if int(metrics_port or 0) <= 0:
         raise MTProtoConfigError("Telemt metrics port must be a positive integer")
 
+    loopback_cidrs = ["127.0.0.1/32", "::1/128"]
+    extra_trusted: list[str] = []
+    for raw_cidr in proxy_protocol_trusted_cidrs:
+        cidr = str(raw_cidr or "").strip()
+        if not cidr or cidr in loopback_cidrs or cidr in extra_trusted:
+            continue
+        try:
+            ipaddress.ip_network(cidr, strict=False)
+        except ValueError as exc:
+            raise MTProtoConfigError(f"Telemt proxy_protocol trusted CIDR is invalid: {cidr}") from exc
+        extra_trusted.append(cidr)
+    trusted_cidrs = loopback_cidrs + extra_trusted
+
     bind_ip = str(listen_ip or "").strip() or "127.0.0.1"
     if bind_ip not in {"127.0.0.1", "::1"}:
-        raise MTProtoConfigError("Telemt must bind to loopback behind the Tracegate TLS demux")
+        # A non-loopback bind is only safe when a source-gated PROXY-protocol
+        # ingress fronts Telemt (the entry-endpoint-tunnel link). Refuse to
+        # expose it naked otherwise.
+        try:
+            ipaddress.ip_address(bind_ip)
+        except ValueError as exc:
+            raise MTProtoConfigError(f"Telemt listen address is invalid: {bind_ip}") from exc
+        if not extra_trusted:
+            raise MTProtoConfigError(
+                "Telemt may bind to a non-loopback address only when a source-gated PROXY-protocol "
+                "ingress is configured (proxy_protocol_trusted_cidrs)"
+            )
+
+    normalized_api_listen = str(api_listen or "").strip() or "127.0.0.1:9091"
+    if ":" not in normalized_api_listen:
+        raise MTProtoConfigError("Telemt api listen must be host:port")
 
     normalized_tls_domain = normalize_mtproto_domain(tls_domain)
     normalized_mask_host = normalize_mtproto_domain(mask_host or normalized_tls_domain)
@@ -383,6 +421,13 @@ def build_mtproto_telemt_config(
         proxy_username = parsed_proxy.username or ""
         proxy_password = parsed_proxy.password or ""
 
+    # Legacy default: use Telegram middle proxies unless a SOCKS egress is set.
+    # The tunnel overrides this to False for a direct DC egress from the Endpoint.
+    if use_middle_proxy is None:
+        resolved_use_middle_proxy = not bool(proxy_address)
+    else:
+        resolved_use_middle_proxy = bool(use_middle_proxy)
+
     users: list[tuple[str, str]] = [("bootstrap", primary_secret)]
     seen = {primary_secret}
     for entry in issued_secrets:
@@ -407,7 +452,7 @@ def build_mtproto_telemt_config(
         "config_strict = true",
         "prefer_ipv6 = false",
         "fast_mode = true",
-        f"use_middle_proxy = {'false' if proxy_address else 'true'}",
+        f"use_middle_proxy = {'true' if resolved_use_middle_proxy else 'false'}",
         "me2dc_fallback = true",
         'log_level = "normal"',
         "",
@@ -439,12 +484,12 @@ def build_mtproto_telemt_config(
             f"listen_addr_ipv4 = {_toml_string(bind_ip)}",
             "proxy_protocol = true",
             "proxy_protocol_header_timeout_ms = 1000",
-            'proxy_protocol_trusted_cidrs = ["127.0.0.1/32", "::1/128"]',
+            f"proxy_protocol_trusted_cidrs = [{', '.join(_toml_string(cidr) for cidr in trusted_cidrs)}]",
             f"metrics_listen = {_toml_string(f'127.0.0.1:{int(metrics_port)}')}",
             "",
             "[server.api]",
             "enabled = true",
-            'listen = "127.0.0.1:9091"',
+            f"listen = {_toml_string(normalized_api_listen)}",
             'whitelist = ["127.0.0.1/32", "::1/128"]',
             "read_only = true",
             "",
