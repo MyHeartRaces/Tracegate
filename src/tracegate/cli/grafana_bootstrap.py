@@ -1284,7 +1284,7 @@ def _ops_alert_rules(
             no_data_state="OK",
         ),
         _slo_alert_rule(
-            uid="tg-ops-backhaul-observatory-scrape-failed",
+            uid="tg-ops-backhaul-monitor-failed",
             title="OPS: backhaul egress monitor unavailable",
             folder_uid=folder_uid,
             group=group,

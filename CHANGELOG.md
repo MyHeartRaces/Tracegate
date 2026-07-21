@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## v3.1.19 - 2026-07-21
+
+- Shorten the Grafana backhaul-monitor alert UID to satisfy Grafana's 40-character provisioning limit discovered during production bootstrap.
+
 ## v3.1.18 - 2026-07-21
 
 - Export Xray Observatory full-egress health and latency for both ShadowTLS

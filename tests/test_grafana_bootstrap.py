@@ -411,6 +411,7 @@ def test_slo_alert_rules_cover_api_bot_and_agent() -> None:
 def test_ops_alert_rules_cover_nodes_pods_delivery_and_runtime_health() -> None:
     rules = _slo_alert_rules("prom", folder_uid="tracegate-admin")
     by_uid = {rule["uid"]: rule for rule in rules}
+    assert all(len(uid) <= 40 for uid in by_uid)
 
     expected = {
         "tg-ops-node-down",
@@ -433,7 +434,7 @@ def test_ops_alert_rules_cover_nodes_pods_delivery_and_runtime_health() -> None:
         "tg-ops-dispatcher-active-alerts",
         "tg-ops-xray-stats-scrape-failed",
         "tg-ops-hysteria-stats-scrape-failed",
-        "tg-ops-backhaul-observatory-scrape-failed",
+        "tg-ops-backhaul-monitor-failed",
         "tg-ops-backhaul-primary-degraded",
         "tg-ops-reality-fallback-required",
         "tg-ops-backhaul-all-egress-failed",
