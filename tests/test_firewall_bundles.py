@@ -36,6 +36,16 @@ def test_transit_accepts_public_hysteria_and_interconnect_udp_ports() -> None:
     assert "udp dport 8443 drop" in conf_t
 
 
+def test_interserver_tcp_links_are_materialized_as_source_gated() -> None:
+    entry = Path("bundles/base-entry/nftables.conf").read_text(encoding="utf-8")
+    transit = Path("bundles/base-transit/nftables.conf").read_text(encoding="utf-8")
+
+    assert "BEGIN tracegate-managed-mtproto-mask-firewall" in entry
+    assert "tcp dport 10444 drop" in entry
+    assert "BEGIN tracegate-managed-entry-link-firewall" in transit
+    assert "tcp dport { 9443, 9444, 9445, 9446 } drop" in transit
+
+
 def test_transit_forwards_and_masquerades_generated_wgws_pool() -> None:
     conf = Path("bundles/base-transit/nftables.conf").read_text(encoding="utf-8")
     assert 'iifname "wg" ip saddr 10.70.0.0/16 accept' in conf

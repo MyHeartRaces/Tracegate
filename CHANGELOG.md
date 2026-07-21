@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+## v3.1.15 - 2026-07-21
+
+- Preserve source-gated TCP access for both Chain link families and the
+  dedicated MTProto/mask path even when a private firewall overlay replaces the
+  public template.
+- Feed Telemt's built-in exec-form healthcheck the live config at
+  `/app/config.toml`; the previous shell-form override could never run because
+  the image intentionally contains no `/bin/sh`.
+
 ## v3.1.14 - 2026-07-21
 
 - Make SS2022 + ShadowTLS v3 the preferred Entry-to-Endpoint Chain transport,

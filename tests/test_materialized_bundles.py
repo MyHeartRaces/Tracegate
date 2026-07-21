@@ -182,6 +182,8 @@ def test_render_materialized_bundles_rewrites_runtime_files(tmp_path: Path) -> N
     transit_haproxy = (ctx.materialized_root / "base-transit" / "haproxy.cfg").read_text(encoding="utf-8")
     entry_nginx = (ctx.materialized_root / "base-entry" / "nginx.conf").read_text(encoding="utf-8")
     transit_nginx = (ctx.materialized_root / "base-transit" / "nginx.conf").read_text(encoding="utf-8")
+    entry_nftables = (ctx.materialized_root / "base-entry" / "nftables.conf").read_text(encoding="utf-8")
+    transit_nftables = (ctx.materialized_root / "base-transit" / "nftables.conf").read_text(encoding="utf-8")
     entry_hysteria = (ctx.materialized_root / "base-entry" / "hysteria" / "server.yaml").read_text(encoding="utf-8")
     transit_hysteria = (ctx.materialized_root / "base-transit" / "hysteria" / "server.yaml").read_text(
         encoding="utf-8"
@@ -295,6 +297,10 @@ def test_render_materialized_bundles_rewrites_runtime_files(tmp_path: Path) -> N
     assert "REPLACE_TLS_SERVER_NAME" not in entry_nginx
     assert "REPLACE_ENTRY_BIND_HOST" not in entry_nginx
     assert "listen 192.0.2.10:10444 ssl http2;" in entry_nginx
+    assert "ip saddr 192.0.2.20 tcp dport 10444 accept" in entry_nftables
+    assert "tcp dport 10444 drop" in entry_nftables
+    assert "ip saddr 192.0.2.10 tcp dport { 9443, 9444, 9445, 9446 } accept" in transit_nftables
+    assert "tcp dport { 9443, 9444, 9445, 9446 } drop" in transit_nftables
     assert "REPLACE_TLS_SERVER_NAME" not in transit_nginx
     assert "tls-entry.example" in entry_haproxy
     assert "tls-entry.example" in entry_nginx
@@ -562,6 +568,11 @@ def test_render_materialized_bundles_applies_private_overlays(tmp_path: Path) ->
         "frontend private_entry\n  bind :443\n",
     )
     _write(
+        overlay_root / "entry" / "nftables.conf",
+        "table inet filter { chain input { type filter hook input priority 0; policy drop;\n"
+        "    ip protocol icmp accept\n  } }\n",
+    )
+    _write(
         overlay_root / "transit" / "decoy" / "index.html",
         "<html><body>private transit decoy</body></html>\n",
     )
@@ -572,12 +583,15 @@ def test_render_materialized_bundles_applies_private_overlays(tmp_path: Path) ->
     entry_xray = json.loads((ctx.materialized_root / "base-entry" / "xray.json").read_text(encoding="utf-8"))
     transit_xray = json.loads((ctx.materialized_root / "base-transit" / "xray.json").read_text(encoding="utf-8"))
     entry_haproxy = (ctx.materialized_root / "base-entry" / "haproxy.cfg").read_text(encoding="utf-8")
+    entry_nftables = (ctx.materialized_root / "base-entry" / "nftables.conf").read_text(encoding="utf-8")
     transit_decoy = (ctx.materialized_root / "base-transit" / "decoy" / "index.html").read_text(encoding="utf-8")
 
     assert entry_xray["log"]["loglevel"] == "debug"
     assert entry_xray["stats"]["operatorOverlay"] is True
     assert transit_xray["routing"]["domainStrategy"] == "IPOnDemand"
     assert entry_haproxy == "frontend private_entry\n  bind :443\n"
+    assert "ip saddr 192.0.2.20 tcp dport 10444 accept" in entry_nftables
+    assert "tcp dport 10444 drop" in entry_nftables
     assert transit_decoy == "<html><body>private transit decoy</body></html>\n"
 
 

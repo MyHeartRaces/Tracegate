@@ -63,6 +63,22 @@ def check_host_runtime(root: Path) -> None:
     _require(host_install, "90-tracegate-quic.conf", label="host installer")
     _require(host_install, '"${SYSCTL}" -p', label="host installer")
 
+    entry_firewall = _read(root / "bundles/base-entry/nftables.conf")
+    transit_firewall = _read(root / "bundles/base-transit/nftables.conf")
+    _require(entry_firewall, "tracegate-managed-mtproto-mask-firewall", label="Entry firewall bundle")
+    _require(entry_firewall, "tcp dport 10444 drop", label="Entry firewall bundle")
+    _require(transit_firewall, "tracegate-managed-entry-link-firewall", label="Endpoint firewall bundle")
+    _require(
+        transit_firewall,
+        "tcp dport { 9443, 9444, 9445, 9446 } drop",
+        label="Endpoint firewall bundle",
+    )
+
+    mtproto_unit = _read(root / "deploy/systemd/tracegate-mtproto@.service")
+    _require(mtproto_unit, ":/app/config.toml:ro", label="Telemt systemd unit")
+    if "--health-cmd" in mtproto_unit:
+        raise HostRuntimeCheckError("Telemt unit must use its exec-form image healthcheck")
+
     nginx = _read(root / "bundles/base-transit/nginx.conf")
     wgws_match = re.search(r"location\s+/wgws\s*\{(?P<body>.*?)\n\s*\}", nginx, re.DOTALL)
     if wgws_match is None:
@@ -262,7 +278,7 @@ def check_host_runtime(root: Path) -> None:
     mtproto_unit = _read(root / "deploy/systemd/tracegate-mtproto@.service")
     _require(
         mtproto_unit,
-        "healthcheck /var/lib/tracegate/private/mtproto/runtime/config.toml",
+        "/var/lib/tracegate/private/mtproto/runtime/config.toml:/app/config.toml:ro",
         label="Telemt container healthcheck",
     )
     fragment_config = _read(root / "deploy/systemd/tracegate-backhaul-fragment-config")

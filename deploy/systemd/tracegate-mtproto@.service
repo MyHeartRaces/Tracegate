@@ -12,7 +12,7 @@ SuccessExitStatus=143
 ExecStartPre=/usr/bin/docker pull ghcr.io/telemt/telemt:latest
 ExecStartPre=-/usr/bin/docker rm -f tracegate-mtproto-%i
 ExecStartPre=/opt/tracegate/current/deploy/systemd/tracegate-telemt-permissions
-ExecStart=/usr/bin/docker run --rm --name tracegate-mtproto-%i --network host --read-only --cap-drop ALL --security-opt no-new-privileges:true --tmpfs /tmp:rw,nosuid,nodev,noexec,size=64m --ulimit nofile=65536:65536 --health-cmd "/app/telemt healthcheck /var/lib/tracegate/private/mtproto/runtime/config.toml --mode liveness" --health-interval 30s --health-timeout 5s --health-retries 3 -v /var/lib/tracegate/private/mtproto:/var/lib/tracegate/private/mtproto:rw ghcr.io/telemt/telemt:latest --data-path /var/lib/tracegate/private/mtproto/runtime /var/lib/tracegate/private/mtproto/runtime/config.toml
+ExecStart=/usr/bin/docker run --rm --name tracegate-mtproto-%i --network host --read-only --cap-drop ALL --security-opt no-new-privileges:true --tmpfs /tmp:rw,nosuid,nodev,noexec,size=64m --ulimit nofile=65536:65536 -v /var/lib/tracegate/private/mtproto:/var/lib/tracegate/private/mtproto:rw -v /var/lib/tracegate/private/mtproto/runtime/config.toml:/app/config.toml:ro ghcr.io/telemt/telemt:latest --data-path /var/lib/tracegate/private/mtproto/runtime /var/lib/tracegate/private/mtproto/runtime/config.toml
 ExecReload=/usr/bin/docker kill --signal=HUP tracegate-mtproto-%i
 ExecStop=/usr/bin/docker stop tracegate-mtproto-%i
 

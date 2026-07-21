@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 import hashlib
+from ipaddress import ip_address
 import json
 import os
 import re
@@ -938,6 +939,67 @@ def _apply_private_overlays(ctx: MaterializedBundleRenderContext) -> None:
             _copy_tree_overlay(decoy_overlay_dir, bundle_dir / "decoy")
 
 
+def _materialize_source_gated_tcp_block(
+    path: Path,
+    *,
+    marker: str,
+    source_host: str,
+    ports: tuple[int, ...],
+) -> None:
+    """Converge a source-gated nftables block after private replacements.
+
+    Private text overlays replace the public nftables template wholesale.  The
+    inter-server link gates are runtime invariants, so they must be restored
+    after that replacement instead of relying on an overlay being updated in
+    lockstep with the application release.
+    """
+
+    try:
+        source = ip_address(str(source_host).strip())
+    except ValueError as exc:
+        raise MaterializedBundleRenderError(
+            f"{marker} source host must be an IP address: {source_host!r}"
+        ) from exc
+    family = "ip" if source.version == 4 else "ip6"
+    port_expr = str(ports[0]) if len(ports) == 1 else "{ " + ", ".join(str(port) for port in ports) + " }"
+    begin = f"    # BEGIN {marker}"
+    end = f"    # END {marker}"
+    block = "\n".join(
+        (
+            begin,
+            "    # Generated after private overlays; only the peer host may reach this link.",
+            f"    {family} saddr {source} tcp dport {port_expr} accept",
+            f"    tcp dport {port_expr} drop",
+            end,
+        )
+    )
+    text = path.read_text(encoding="utf-8")
+    pattern = re.compile(rf"(?ms)^\s*# BEGIN {re.escape(marker)}$.*?^\s*# END {re.escape(marker)}$")
+    if pattern.search(text):
+        text = pattern.sub(block, text, count=1)
+    else:
+        anchor = "    ip protocol icmp accept"
+        if anchor not in text:
+            raise MaterializedBundleRenderError(f"{path} has no input-chain ICMP anchor for {marker}")
+        text = text.replace(anchor, f"{block}\n\n{anchor}", 1)
+    path.write_text(text, encoding="utf-8")
+
+
+def _materialize_interserver_firewalls(ctx: MaterializedBundleRenderContext) -> None:
+    _materialize_source_gated_tcp_block(
+        ctx.materialized_root / "base-entry" / "nftables.conf",
+        marker="tracegate-managed-mtproto-mask-firewall",
+        source_host=ctx.transit_hysteria_listen_host,
+        ports=(10444,),
+    )
+    _materialize_source_gated_tcp_block(
+        ctx.materialized_root / "base-transit" / "nftables.conf",
+        marker="tracegate-managed-entry-link-firewall",
+        source_host=ctx.entry_hysteria_listen_host,
+        ports=(9443, 9444, 9445, 9446),
+    )
+
+
 def _materialize_transit_secret_surface(ctx: MaterializedBundleRenderContext) -> None:
     source_dir = ctx.materialized_root / "base-transit" / "decoy" / "vault" / "mtproto"
     if not source_dir.exists():
@@ -1467,5 +1529,6 @@ def render_materialized_bundles(ctx: MaterializedBundleRenderContext) -> None:
 
     _write_hysteria_server_configs(ctx)
     _apply_private_overlays(ctx)
+    _materialize_interserver_firewalls(ctx)
     _materialize_transit_secret_surface(ctx)
     _write_materialized_manifest(ctx)
