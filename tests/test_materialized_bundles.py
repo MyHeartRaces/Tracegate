@@ -595,6 +595,18 @@ def test_render_materialized_bundles_applies_private_overlays(tmp_path: Path) ->
     assert transit_decoy == "<html><body>private transit decoy</body></html>\n"
 
 
+def test_entry_mask_firewall_uses_endpoint_primary_source_address(tmp_path: Path) -> None:
+    env = _base_env(tmp_path)
+    env["DEFAULT_TRANSIT_HOST"] = "198.51.100.25"
+
+    ctx = MaterializedBundleRenderContext.from_environ(env)
+    render_materialized_bundles(ctx)
+
+    entry_nftables = (ctx.materialized_root / "base-entry" / "nftables.conf").read_text(encoding="utf-8")
+    assert "ip saddr 198.51.100.25 tcp dport 10444 accept" in entry_nftables
+    assert "ip saddr 192.0.2.20 tcp dport 10444 accept" not in entry_nftables
+
+
 def test_render_materialized_bundles_does_not_emit_legacy_hysteria_yaml(tmp_path: Path) -> None:
     env = _base_env(tmp_path)
     env["AGENT_RUNTIME_PROFILE"] = "xray-centric"

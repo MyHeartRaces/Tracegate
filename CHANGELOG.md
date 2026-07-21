@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## v3.1.16 - 2026-07-21
+
+- Source-gate the Entry MTProto mask listener against the Endpoint's primary
+  routing address rather than its optional secondary Hysteria bind address.
+  This matters on the production Endpoint, where those addresses differ.
+
 ## v3.1.15 - 2026-07-21
 
 - Preserve source-gated TCP access for both Chain link families and the

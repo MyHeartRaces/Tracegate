@@ -986,10 +986,19 @@ def _materialize_source_gated_tcp_block(
 
 
 def _materialize_interserver_firewalls(ctx: MaterializedBundleRenderContext) -> None:
+    # The Endpoint can bind public Hysteria on a secondary address while its
+    # outbound route to Entry uses the primary host address. Prefer the primary
+    # Endpoint host when it is an IP; fall back to the Hysteria bind only for
+    # hostname-based inventories.
+    transit_source_host = ctx.transit_host
+    try:
+        ip_address(transit_source_host)
+    except ValueError:
+        transit_source_host = ctx.transit_hysteria_listen_host
     _materialize_source_gated_tcp_block(
         ctx.materialized_root / "base-entry" / "nftables.conf",
         marker="tracegate-managed-mtproto-mask-firewall",
-        source_host=ctx.transit_hysteria_listen_host,
+        source_host=transit_source_host,
         ports=(10444,),
     )
     _materialize_source_gated_tcp_block(
