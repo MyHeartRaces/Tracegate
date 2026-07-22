@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 from tracegate.constants import TRACEGATE_PUBLIC_UDP_PORT
 from tracegate.services.runtime_contract import normalize_runtime_profile_name
@@ -121,6 +122,17 @@ def host_from_dest(dest: str) -> str:
     if raw.count(":") == 1:
         return raw.split(":", 1)[0].strip()
     return raw
+
+
+def _hostname_from_public_url(value: str, *, label: str) -> str:
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    parsed = urlsplit(raw)
+    hostname = str(parsed.hostname or "").strip().lower()
+    if not hostname or not re.fullmatch(r"[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?", hostname):
+        raise MaterializedBundleRenderError(f"{label} must contain a valid hostname")
+    return hostname
 
 
 def _haproxy_server_address(value: str, *, label: str) -> str:
@@ -394,6 +406,7 @@ class MaterializedBundleRenderContext:
     reality_multi_inbound_groups: tuple[MaterializedRealityInboundGroup, ...]
     entry_tls_server_name: str
     transit_tls_server_name: str
+    grafana_tls_server_name: str
     shadowtls_server_name_transit: str
     shadowtls_backhaul2_sni: str
     shadowsocks2022_password_transit: str
@@ -556,6 +569,14 @@ class MaterializedBundleRenderContext:
 
         entry_tls_server_name = _first(env, "ENTRY_TLS_SERVER_NAME", default=entry_host)
         transit_tls_server_name = _first(env, "TRANSIT_TLS_SERVER_NAME", default=transit_host)
+        grafana_tls_server_name = _first(
+            env,
+            "GRAFANA_TLS_SERVER_NAME",
+            default=_hostname_from_public_url(
+                _first(env, "GRAFANA_PUBLIC_BASE_URL"),
+                label="GRAFANA_PUBLIC_BASE_URL",
+            ),
+        )
         shadowtls_server_name_transit = _first(env, "SHADOWTLS_SERVER_NAME_TRANSIT", "SHADOWTLS_SERVER_NAME")
         # Second ShadowTLS front for the pool's leg 2. When unset, leg 2 is omitted
         # and the pool runs with the single ShadowTLS leg + the REALITY-RAW leg.
@@ -708,6 +729,7 @@ class MaterializedBundleRenderContext:
             reality_multi_inbound_groups=reality_multi_inbound_groups,
             entry_tls_server_name=entry_tls_server_name,
             transit_tls_server_name=transit_tls_server_name,
+            grafana_tls_server_name=grafana_tls_server_name,
             shadowtls_server_name_transit=shadowtls_server_name_transit,
             shadowtls_backhaul2_sni=shadowtls_backhaul2_sni,
             shadowsocks2022_password_transit=shadowsocks2022_password_transit,
@@ -1497,9 +1519,16 @@ def render_materialized_bundles(ctx: MaterializedBundleRenderContext) -> None:
         role_lower="transit",
         groups=ctx.reality_multi_inbound_groups,
     )
+    transit_web_tls_server_names = " ".join(
+        dict.fromkeys(
+            name
+            for name in (ctx.transit_tls_server_name, ctx.grafana_tls_server_name)
+            if name
+        )
+    )
     transit_haproxy = transit_haproxy_path.read_text(encoding="utf-8").replace(
         "REPLACE_TLS_SERVER_NAME",
-        ctx.transit_tls_server_name,
+        transit_web_tls_server_names,
     )
     shadowtls_acl = ""
     shadowtls_route = ""
@@ -1532,7 +1561,7 @@ def render_materialized_bundles(ctx: MaterializedBundleRenderContext) -> None:
     transit_nginx_path = ctx.materialized_root / "base-transit" / "nginx.conf"
     transit_nginx = transit_nginx_path.read_text(encoding="utf-8").replace(
         "REPLACE_TLS_SERVER_NAME",
-        ctx.transit_tls_server_name,
+        transit_web_tls_server_names,
     )
     transit_nginx = transit_nginx.replace("/var/www/decoy", ctx.decoy_dir)
     transit_nginx = transit_nginx.replace("REPLACE_TRANSIT_DECOY_UPSTREAM", ctx.transit_decoy_agent_upstream)

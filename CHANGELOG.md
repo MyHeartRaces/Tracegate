@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## v3.1.23 - 2026-07-22
+
+- Route the configured Grafana public hostname through the Endpoint web TLS
+  backend alongside the normal WS/gRPC hostname, preventing unknown SNI from
+  falling through to the Reality camouflage origin with HTTP 406.
+- Install a certbot deploy hook that detects the active instantiated nginx role
+  and reloads every service that consumes the renewed public certificate.
+
 ## v3.1.20 - 2026-07-22
 
 - Disable nginx request-body size enforcement on the VLESS gRPC tunnel locations so long-lived streams cannot be rejected at the default 1 MiB limit.

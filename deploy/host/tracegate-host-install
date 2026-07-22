@@ -7,6 +7,7 @@ INSTALL_ROOT="${TRACEGATE_INSTALL_ROOT:-/opt/tracegate}"
 SYSTEMD_DIR="${TRACEGATE_SYSTEMD_DIR:-/etc/systemd/system}"
 SYSCTL_DIR="${TRACEGATE_SYSCTL_DIR:-/etc/sysctl.d}"
 LOCAL_SBIN_DIR="${TRACEGATE_LOCAL_SBIN_DIR:-/usr/local/sbin}"
+LETSENCRYPT_DEPLOY_HOOK_DIR="${TRACEGATE_LETSENCRYPT_DEPLOY_HOOK_DIR:-/etc/letsencrypt/renewal-hooks/deploy}"
 PYTHON="${TRACEGATE_PYTHON:-python3}"
 SYSTEMCTL="${TRACEGATE_SYSTEMCTL:-systemctl}"
 SYSCTL="${TRACEGATE_SYSCTL:-sysctl}"
@@ -49,7 +50,7 @@ for command in tracegate-api tracegate-agent tracegate-backhaul-fronts tracegate
 done
 trap - EXIT
 
-install -d -m 0755 "${SYSTEMD_DIR}" "${SYSCTL_DIR}" "${LOCAL_SBIN_DIR}"
+install -d -m 0755 "${SYSTEMD_DIR}" "${SYSCTL_DIR}" "${LOCAL_SBIN_DIR}" "${LETSENCRYPT_DEPLOY_HOOK_DIR}"
 for retired_unit in tracegate-host.service tracegate-shadowsocks2022.service; do
   "${SYSTEMCTL}" disable --now "${retired_unit}" >/dev/null 2>&1 || true
   rm -f "${SYSTEMD_DIR}/${retired_unit}"
@@ -60,6 +61,8 @@ done
 install -m 0755 "${runtime}/deploy/systemd/tracegate-shadowtls-env" "${LOCAL_SBIN_DIR}/tracegate-shadowtls-env"
 install -m 0755 "${runtime}/deploy/systemd/tracegate-telemt-permissions" "${LOCAL_SBIN_DIR}/tracegate-telemt-permissions"
 install -m 0755 "${runtime}/deploy/host/tracegate-db-backup" "${LOCAL_SBIN_DIR}/tracegate-db-backup"
+install -m 0755 "${runtime}/deploy/host/tracegate-certbot-deploy-hook" \
+  "${LETSENCRYPT_DEPLOY_HOOK_DIR}/reload-tracegate-tls.sh"
 install -m 0644 "${runtime}/deploy/host/90-tracegate-quic.conf" "${SYSCTL_DIR}/90-tracegate-quic.conf"
 "${SYSCTL}" -p "${SYSCTL_DIR}/90-tracegate-quic.conf"
 "${SYSTEMCTL}" daemon-reload

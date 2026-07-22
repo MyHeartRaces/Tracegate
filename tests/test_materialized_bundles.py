@@ -39,6 +39,7 @@ def _base_env(tmp_path: Path) -> dict[str, str]:
         "REALITY_DEST_TRANSIT": "origin-transit.example:443",
         "ENTRY_TLS_SERVER_NAME": "tls-entry.example",
         "TRANSIT_TLS_SERVER_NAME": "tls-transit.example",
+        "GRAFANA_PUBLIC_BASE_URL": "https://grafana.tracegate.test",
         "SHADOWTLS_SERVER_NAME_TRANSIT": "shadowtls.example",
         "SHADOWSOCKS2022_PASSWORD_TRANSIT": "ss2022-server-key",
         "MTPROTO_DOMAIN": "proxied.tracegate.test",
@@ -106,6 +107,7 @@ def test_context_uses_shared_defaults_and_fallback_values(tmp_path: Path) -> Non
     assert ctx.reality_multi_inbound_groups == ()
     assert ctx.entry_tls_server_name == "entry.tracegate.test"
     assert ctx.transit_tls_server_name == "transit.tracegate.test"
+    assert ctx.grafana_tls_server_name == "grafana.tracegate.test"
     assert ctx.shadowtls_server_name_transit == "shadowtls.example"
     assert ctx.shadowsocks2022_password_transit == "ss2022-server-key"
     assert ctx.mtproto_domain == "proxied.tracegate.test"
@@ -304,7 +306,7 @@ def test_render_materialized_bundles_rewrites_runtime_files(tmp_path: Path) -> N
     assert "REPLACE_TLS_SERVER_NAME" not in transit_nginx
     assert "tls-entry.example" in entry_haproxy
     assert "tls-entry.example" in entry_nginx
-    assert "tls-transit.example" in transit_haproxy
+    assert "acl ws_tls_sni req.ssl_sni -i tls-transit.example grafana.tracegate.test" in transit_haproxy
     assert "proxied.tracegate.test" not in transit_haproxy
     assert "be_transit_mtproto" not in transit_haproxy
     assert "127.0.0.1:9443" not in transit_haproxy
@@ -312,7 +314,7 @@ def test_render_materialized_bundles_rewrites_runtime_files(tmp_path: Path) -> N
     assert "acl shadowtls_sni req.ssl_sni -i shadowtls.example" in transit_haproxy
     assert "use_backend be_transit_shadowtls if shadowtls_sni" in transit_haproxy
     assert "server transit_shadowtls 127.0.0.1:14443 check" in transit_haproxy
-    assert "tls-transit.example" in transit_nginx
+    assert "server_name tls-transit.example grafana.tracegate.test;" in transit_nginx
     assert "location ^~ /v1/decoy/" in transit_nginx
     assert "proxy_pass http://127.0.0.1:8070;" in transit_nginx
     assert "location = /vault/mtproto" in transit_nginx

@@ -25,6 +25,7 @@ def _release(root: Path, version: str) -> Path:
     _executable(runtime / "deploy/systemd/tracegate-shadowtls-env")
     _executable(runtime / "deploy/systemd/tracegate-telemt-permissions")
     _executable(runtime / "deploy/host/tracegate-db-backup")
+    _executable(runtime / "deploy/host/tracegate-certbot-deploy-hook")
     (runtime / "scripts/check_host_runtime.py").write_text("raise SystemExit(0)\n")
     (runtime / "scripts/check_host_deploy.py").write_text("raise SystemExit(0)\n")
     for command in ("python", "tracegate-api", "tracegate-migrate-db", "tracegate-host-private-preflight"):
@@ -68,6 +69,7 @@ def test_native_deploy_and_rollback_switch_real_release_targets(tmp_path: Path) 
         "TRACEGATE_SYSTEMD_DIR": str(tmp_path / "systemd"),
         "TRACEGATE_SYSCTL_DIR": str(tmp_path / "sysctl.d"),
         "TRACEGATE_LOCAL_SBIN_DIR": str(tmp_path / "sbin"),
+        "TRACEGATE_LETSENCRYPT_DEPLOY_HOOK_DIR": str(tmp_path / "letsencrypt-hooks"),
         "TRACEGATE_SYSTEMCTL": str(fake_bin / "systemctl"),
         "TRACEGATE_CURL": str(fake_bin / "curl"),
         "TRACEGATE_SYSCTL": str(fake_bin / "sysctl"),
@@ -130,6 +132,7 @@ def test_failed_native_restart_restores_previous_release(tmp_path: Path) -> None
         "TRACEGATE_SYSTEMD_DIR": str(tmp_path / "systemd"),
         "TRACEGATE_SYSCTL_DIR": str(tmp_path / "sysctl.d"),
         "TRACEGATE_LOCAL_SBIN_DIR": str(tmp_path / "sbin"),
+        "TRACEGATE_LETSENCRYPT_DEPLOY_HOOK_DIR": str(tmp_path / "letsencrypt-hooks"),
         "TRACEGATE_SYSTEMCTL": str(fake_bin / "systemctl"),
         "TRACEGATE_CURL": str(fake_bin / "curl"),
         "TRACEGATE_SYSCTL": str(fake_bin / "sysctl"),

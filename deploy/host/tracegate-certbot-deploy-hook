@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+# Reload the active Tracegate TLS consumers after certbot renews a lineage.
+set -euo pipefail
+
+role=""
+if systemctl is-active --quiet tracegate-nginx@transit.service; then
+  role="transit"
+elif systemctl is-active --quiet tracegate-nginx@entry.service; then
+  role="entry"
+fi
+
+if [ -z "${role}" ]; then
+  echo "no active tracegate nginx role found; nothing to reload"
+  exit 0
+fi
+
+reload() {
+  if systemctl is-active --quiet "$1"; then
+    systemctl reload-or-restart "$1"
+    echo "reloaded $1"
+  fi
+}
+
+reload "tracegate-nginx@${role}.service"
+
+ws_cert_link="$(readlink /etc/tracegate/tls/ws.crt 2>/dev/null || true)"
+if [ -n "${RENEWED_LINEAGE:-}" ] && [[ "${ws_cert_link}" == "${RENEWED_LINEAGE}/"* ]]; then
+  reload "tracegate-hysteria@${role}.service"
+fi
