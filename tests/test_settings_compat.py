@@ -63,6 +63,7 @@ def test_settings_use_less_popular_default_camouflage_domains() -> None:
     assert settings.hysteria_server_name_transit == ""
     assert settings.shadowtls_server_name_entry == "2gis.ru"
     assert settings.shadowtls_server_name_transit == "2gis.ru"
+    assert settings.reality_backhaul_port == 9446
 
 
 def test_settings_keep_legacy_property_aliases() -> None:

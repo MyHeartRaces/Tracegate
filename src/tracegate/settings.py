@@ -424,12 +424,12 @@ class Settings(BaseSettings):
         default="entry.example.com",
         validation_alias=AliasChoices("DEFAULT_ENTRY_HOST", "DEFAULT_VPS_E_HOST"),
     )
-    # Endpoint port the Entry->Endpoint VLESS/REALITY fallback backhaul dials.
-    # Stays 443 (shared client ingress) until the dedicated source-gated backhaul
-    # port is live; set to the dedicated port (e.g. 9444) at cutover so agent
-    # reconciliation and the rendered bundle agree.
+    # Dedicated, source-gated Endpoint port used only by the Entry->Endpoint
+    # VLESS/REALITY fallback. Agent reconciliation must use the same default as
+    # materialization; otherwise a delivered 9446 bundle silently drifts back
+    # to the shared public tcp/443 ingress.
     reality_backhaul_port: int = Field(
-        default=443,
+        default=9446,
         validation_alias=AliasChoices("REALITY_BACKHAUL_PORT"),
     )
     ingress_rotation_enabled: bool = False

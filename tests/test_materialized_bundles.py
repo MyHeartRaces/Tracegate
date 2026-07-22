@@ -658,6 +658,7 @@ def test_backhaul_pool_omitted_without_ss2022_key(tmp_path: Path) -> None:
     assert "observatory" not in entry_xray
     to_transit = next(o for o in entry_xray["outbounds"] if o.get("tag") == "to-transit")
     assert to_transit["settings"]["vnext"][0]["port"] == 9446
+    assert to_transit["mux"] == {"enabled": True, "concurrency": 8}
     # single-transport mode: no balancer/observatory, Chain routes straight at to-transit.
     assert not entry_xray["routing"].get("balancers")
     assert not any("balancerTag" in r for r in entry_xray["routing"]["rules"] if isinstance(r, dict))
@@ -695,6 +696,9 @@ def test_backhaul_pool_provisioned_with_ss2022_key(tmp_path: Path) -> None:
     assert "ObservatoryService" in entry_xray["api"]["services"]
     # REALITY-RAW leg lands on the dedicated source-gated port (default 9446).
     assert outbounds["to-transit"]["settings"]["vnext"][0]["port"] == 9446
+    # Keep bursty fallback traffic inside a small number of durable Reality
+    # carriers instead of exposing every Chain stream as a new RAW handshake.
+    assert outbounds["to-transit"]["mux"] == {"enabled": True, "concurrency": 8}
     # Chain prefers the ShadowTLS legs; REALITY is used only when all primary
     # candidates are unavailable.
     balancers = {b["tag"]: b for b in entry_xray["routing"].get("balancers", [])}

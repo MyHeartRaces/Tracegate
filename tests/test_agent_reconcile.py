@@ -2558,7 +2558,7 @@ def test_reconcile_xray_centric_live_sync_passes_hysteria_user_specs(
     ]
 
 
-def test_reconcile_entry_forces_transit_port_443(tmp_path: Path) -> None:
+def test_reconcile_entry_forces_dedicated_reality_backhaul_port(tmp_path: Path) -> None:
     settings = Settings(
         agent_data_root=str(tmp_path),
         agent_runtime_mode="systemd",
@@ -2595,7 +2595,7 @@ def test_reconcile_entry_forces_transit_port_443(tmp_path: Path) -> None:
 
     rendered = json.loads((tmp_path / "runtime/xray/config.json").read_text(encoding="utf-8"))
     assert rendered["outbounds"][0]["settings"]["vnext"][0]["address"] == "tracegate.test"
-    assert rendered["outbounds"][0]["settings"]["vnext"][0]["port"] == 443
+    assert rendered["outbounds"][0]["settings"]["vnext"][0]["port"] == 9446
 
 
 def test_reconcile_entry_adds_sticky_transit_outbounds_per_v2_connection(tmp_path: Path) -> None:
@@ -2669,7 +2669,7 @@ def test_reconcile_entry_adds_sticky_transit_outbounds_per_v2_connection(tmp_pat
     rendered = json.loads((tmp_path / "runtime/xray/config.json").read_text(encoding="utf-8"))
     outbounds = {str(row.get("tag")): row for row in rendered["outbounds"]}
     assert outbounds["to-transit"]["settings"]["vnext"][0]["address"] == "transit.example.com"
-    assert outbounds["to-transit"]["settings"]["vnext"][0]["port"] == 443
+    assert outbounds["to-transit"]["settings"]["vnext"][0]["port"] == 9446
     assert outbounds["to-transit"]["streamSettings"]["network"] == "raw"
     assert "xhttpSettings" not in outbounds["to-transit"]["streamSettings"]
     assert set(outbounds) == {"direct", "to-transit"}

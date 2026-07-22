@@ -209,6 +209,10 @@
           "publicKey": "REPLACE_TRANSIT_PUBLIC_KEY",
           "shortId": "0123456789abcdef"
         }
+      },
+      "mux": {
+        "enabled": true,
+        "concurrency": 8
       }
     },
     {
