@@ -411,12 +411,26 @@ def query_outbound_observations(settings: Settings) -> dict[str, dict[str, int |
     """Return the latest full HTTP egress probe result for every observed outbound."""
     target = _require_loopback_xray_api_target(settings)
     channel = grpc.insecure_channel(target)
-    stub = observatory_command_pb2_grpc.ObservatoryServiceStub(channel)
     try:
-        response = stub.GetOutboundStatus(
-            observatory_command_pb2.GetOutboundStatusRequest(),
-            timeout=float(settings.agent_xray_api_timeout_seconds or 3),
+        # Xray-core renamed its protobuf namespace from ``xray.app`` to
+        # ``xray.core.app``.  The request and response wire layouts did not
+        # change, so use the current RPC path with the existing generated
+        # message classes and retain the legacy stub as a compatibility
+        # fallback for older Xray images.
+        current_rpc = channel.unary_unary(
+            "/xray.core.app.observatory.command.ObservatoryService/GetOutboundStatus",
+            request_serializer=observatory_command_pb2.GetOutboundStatusRequest.SerializeToString,
+            response_deserializer=observatory_command_pb2.GetOutboundStatusResponse.FromString,
         )
+        request = observatory_command_pb2.GetOutboundStatusRequest()
+        timeout = float(settings.agent_xray_api_timeout_seconds or 3)
+        try:
+            response = current_rpc(request, timeout=timeout)
+        except grpc.RpcError as exc:
+            if exc.code() != grpc.StatusCode.UNIMPLEMENTED:
+                raise
+            legacy_stub = observatory_command_pb2_grpc.ObservatoryServiceStub(channel)
+            response = legacy_stub.GetOutboundStatus(request, timeout=timeout)
     except grpc.RpcError as exc:  # pragma: no cover
         raise XrayApiError(f"GetOutboundStatus failed: {exc}") from exc
     finally:
