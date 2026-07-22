@@ -54,8 +54,11 @@ Chain revision egressed through Endpoint, and the public release gate passed
 
   Record `/opt/tracegate/current` on both hosts, failed units, listener owners,
   container image names, Xray inbound/outbound tags, balancer selectors, and
-  observatory status. Print environment key names only. Do not use repository
-  architecture documents as the production baseline when the user forbids it.
+  observatory status. When an old Reality SNI reappears, audit the effective
+  values in both role env files, the private materialization env, the production
+  SNI catalog, materialized bundles, and active agent runtimes. Print
+  environment key names only. Do not use repository architecture documents as
+  the production baseline when the user forbids it.
 
 - [ ] 2. Preserve the public/private boundary.
 
@@ -92,8 +95,11 @@ Chain revision egressed through Endpoint, and the public release gate passed
   ```
 
   Accept only names that resolve, validate their certificate, negotiate TLS
-  1.3, and return an HTTP response. Prefer longer common IP prefixes with Entry,
-  then lower latency. Never commit the production candidate report publicly.
+  1.3 with X25519 from both hosts, and return an HTTP response. Exclude the
+  current catalog and popular-domain suffixes; a current Tranco top-million
+  snapshot is a suitable popularity filter. Prefer longer common IP prefixes
+  with Entry, then lower latency. Store the candidate and report root-only and
+  never commit the selected production front publicly.
 
 - [ ] 5. Rotate one ShadowTLS leg at a time.
 
@@ -146,12 +152,25 @@ Chain revision egressed through Endpoint, and the public release gate passed
   metadata. Never print decrypted content. A future private render must
   reproduce the active SNI, ports, passwords, and per-leg slicing values.
 
+  Treat `/etc/tracegate/tracegate.env`, the Entry role env,
+  `/etc/tracegate/private/render.env`, and `/etc/tracegate/sni-catalog.yaml` as
+  separate sources. A catalog whose YAML root is a sequence must be stored as a
+  SOPS binary payload (for example `sni-catalog.sops.json`) and restored with
+  `sops --decrypt --output-type binary`; structured SOPS YAML requires a map at
+  the root. Encryption of a verified production snapshot needs only the public
+  age recipient, but editing or preserving unknown encrypted values requires
+  the private age identity.
+
 ## Gotchas
 
 - Xray selectors are prefix matches: `to-transit-ss` deliberately covers both
   `to-transit-ss` and `to-transit-ss2`.
 - A `generate_204` success is a full routed HTTP request, not a TCP handshake.
 - Materializing a bundle does not deliver it to Entry; enqueue `reapply-base`.
+- A global `REALITY_DEST` can repopulate a retired SNI even when issued client
+  revisions and the active catalog are clean. Remove it from every effective
+  source and add a materializer regression guard; keep historical client
+  revisions untouched unless the user explicitly authorizes reissue.
 - The dispatch response embeds full materialized files; keep it mode 0600 and
   print only counts.
 - Grafana alert definitions are code-managed; rerun the internal bootstrap
@@ -170,3 +189,9 @@ Chain revision egressed through Endpoint, and the public release gate passed
   health probes use the same outbound.
 - TLS-record `tlshello` fragmentation broke ShadowTLS v3 authentication;
   byte-preserving TCP stream slicing passed.
+- Decrypting the old SOPS snapshot without its private age identity cannot work.
+  When production is the declared source of truth, re-encrypt the verified live
+  files with the public recipient instead of guessing at ciphertext edits.
+- SOPS structured-YAML encryption rejected a production catalog whose root was
+  a sequence; binary-mode encryption preserved it and decrypted back to the
+  original YAML bytes.
