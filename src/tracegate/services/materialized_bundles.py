@@ -23,6 +23,7 @@ class MaterializedBundleRenderError(RuntimeError):
 
 
 _MATERIALIZED_MANIFEST_FILE_NAME = ".tracegate-deploy-manifest.json"
+_RETIRED_REALITY_FRONTS = frozenset({"yandex.ru", "www.yandex.ru"})
 
 
 def _env(environ: dict[str, str], name: str, default: str = "") -> str:
@@ -124,6 +125,16 @@ def host_from_dest(dest: str) -> str:
     return raw
 
 
+def _reject_retired_reality_front(value: str, *, label: str) -> None:
+    hostname = host_from_dest(value).strip().rstrip(".").lower()
+    try:
+        hostname = hostname.encode("idna").decode("ascii")
+    except UnicodeError:
+        return
+    if hostname in _RETIRED_REALITY_FRONTS:
+        raise MaterializedBundleRenderError(f"{label} uses a retired Reality front")
+
+
 def _hostname_from_public_url(value: str, *, label: str) -> str:
     raw = str(value or "").strip()
     if not raw:
@@ -223,6 +234,10 @@ def _load_reality_multi_inbound_groups(environ: dict[str, str]) -> tuple[Materia
         dest_host = host_from_dest(str(row.get("dest") or "").strip()).strip().lower()
         if not dest_host:
             raise MaterializedBundleRenderError(f"REALITY_MULTI_INBOUND_GROUPS[{idx}] is missing dest")
+        _reject_retired_reality_front(
+            dest_host,
+            label=f"REALITY_MULTI_INBOUND_GROUPS[{idx}].dest",
+        )
         snis_raw = row.get("snis")
         if not isinstance(snis_raw, list):
             raise MaterializedBundleRenderError(f"REALITY_MULTI_INBOUND_GROUPS[{idx}] must include snis[]")
@@ -231,6 +246,10 @@ def _load_reality_multi_inbound_groups(environ: dict[str, str]) -> tuple[Materia
         for sni_idx, sni_raw in enumerate(snis_raw):
             sni = _normalize_reality_sni(
                 sni_raw,
+                label=f"REALITY_MULTI_INBOUND_GROUPS[{idx}].snis[{sni_idx}]",
+            )
+            _reject_retired_reality_front(
+                sni,
                 label=f"REALITY_MULTI_INBOUND_GROUPS[{idx}].snis[{sni_idx}]",
             )
             if not sni or sni in local_seen:
@@ -565,6 +584,13 @@ class MaterializedBundleRenderContext:
             "REALITY_SERVER_NAME_TRANSIT",
             default=host_from_dest(reality_dest_transit),
         )
+        for label, value in (
+            ("REALITY_DEST_ENTRY", reality_dest_entry),
+            ("REALITY_DEST_TRANSIT", reality_dest_transit),
+            ("REALITY_SERVER_NAME_ENTRY", reality_server_name_entry),
+            ("REALITY_SERVER_NAME_TRANSIT", reality_server_name_transit),
+        ):
+            _reject_retired_reality_front(value, label=label)
         reality_multi_inbound_groups = _load_reality_multi_inbound_groups(env)
 
         entry_tls_server_name = _first(env, "ENTRY_TLS_SERVER_NAME", default=entry_host)
@@ -601,6 +627,7 @@ class MaterializedBundleRenderContext:
             env, "REALITY_BACKHAUL_PORT", default=9446, min_value=1, max_value=65535
         )
         reality_backhaul_sni = _first(env, "REALITY_BACKHAUL_SNI", default=reality_server_name_transit)
+        _reject_retired_reality_front(reality_backhaul_sni, label="REALITY_BACKHAUL_SNI")
         mtproto_domain = _first(env, "MTPROTO_DOMAIN")
         mtproto_tls_domain = _first(env, "MTPROTO_TLS_DOMAIN", default=mtproto_domain)
         mtproto_upstream = _haproxy_server_address(

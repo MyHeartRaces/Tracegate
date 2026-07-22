@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## v3.1.24 - 2026-07-22
+
+- Reject the retired `yandex.ru` and `www.yandex.ru` Reality fronts during
+  materialization, including per-role destinations, server names, the isolated
+  backhaul fallback, and multi-inbound groups. This turns stale private input
+  into a failed render instead of silently restoring an obsolete production
+  SNI.
+
 ## v3.1.23 - 2026-07-22
 
 - Route the configured Grafana public hostname through the Endpoint web TLS

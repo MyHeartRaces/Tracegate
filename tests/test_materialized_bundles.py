@@ -120,6 +120,39 @@ def test_context_uses_shared_defaults_and_fallback_values(tmp_path: Path) -> Non
     assert ctx.tls_key_file == "/etc/tracegate/tls/ws.key"
 
 
+@pytest.mark.parametrize(
+    ("name", "value"),
+    [
+        ("REALITY_DEST_ENTRY", "yandex.ru:443"),
+        ("REALITY_SERVER_NAME_TRANSIT", "www.yandex.ru"),
+        ("REALITY_BACKHAUL_SNI", "yandex.ru"),
+    ],
+)
+def test_context_rejects_retired_reality_fronts(tmp_path: Path, name: str, value: str) -> None:
+    env = _base_env(tmp_path)
+    env[name] = value
+
+    with pytest.raises(MaterializedBundleRenderError, match="uses a retired Reality front"):
+        MaterializedBundleRenderContext.from_environ(env)
+
+
+def test_context_rejects_retired_reality_front_in_multi_inbound_group(tmp_path: Path) -> None:
+    env = _base_env(tmp_path)
+    env["REALITY_MULTI_INBOUND_GROUPS"] = json.dumps(
+        [
+            {
+                "id": "retired",
+                "port": 10443,
+                "dest": "yandex.ru:443",
+                "snis": ["www.yandex.ru"],
+            }
+        ]
+    )
+
+    with pytest.raises(MaterializedBundleRenderError, match="uses a retired Reality front"):
+        MaterializedBundleRenderContext.from_environ(env)
+
+
 def test_context_does_not_require_legacy_transit_stats_secret(tmp_path: Path) -> None:
     env = _base_env(tmp_path)
     env["AGENT_RUNTIME_PROFILE"] = "xray-centric"
