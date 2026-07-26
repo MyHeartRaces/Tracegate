@@ -350,8 +350,10 @@ def build_mtproto_telemt_config(
     Entry relays the client's FakeTLS over the source-gated link with PROXY v2.
     That path needs a non-loopback bind (so the Entry can reach it), the Entry
     source trusted for the PROXY header (``proxy_protocol_trusted_cidrs``),
-    direct DC egress (``use_middle_proxy=False``) and its own stats API port
-    (``api_listen``) so it does not collide with the Endpoint dispatcher.
+    Telegram Middle-End egress (with Telemt's direct-DC fallback enabled) and
+    its own stats API port (``api_listen``) so it does not collide with the
+    Endpoint dispatcher. Middle-End is important for cross-DC media delivery;
+    the dedicated Entry-to-Endpoint transport remains isolated either way.
     """
 
     if int(listen_port or 0) <= 0:
@@ -422,7 +424,8 @@ def build_mtproto_telemt_config(
         proxy_password = parsed_proxy.password or ""
 
     # Legacy default: use Telegram middle proxies unless a SOCKS egress is set.
-    # The tunnel overrides this to False for a direct DC egress from the Endpoint.
+    # Tunnel mode explicitly keeps this enabled so cross-DC media remains
+    # available; ``me2dc_fallback`` below preserves direct-DC failover.
     if use_middle_proxy is None:
         resolved_use_middle_proxy = not bool(proxy_address)
     else:

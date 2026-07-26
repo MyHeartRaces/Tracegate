@@ -846,6 +846,35 @@ def _ops_alert_rules(
     backhaul_all_failed = (
         '1 - (max(tracegate_backhaul_egress_probe_success{channel=~"shadowtls-primary-.+|reality-fallback"}) or vector(0))'
     )
+    backhaul_latency = (
+        "max by (channel) "
+        "(max_over_time(tracegate_backhaul_egress_probe_delay_seconds[5m]))"
+    )
+    interserver_success = (
+        "min by (source_role, peer_role) "
+        "(avg_over_time(tracegate_interserver_probe_success_ratio[5m]))"
+    )
+    tcp_retransmit_ratio = (
+        f'sum by (node) (rate(node_netstat_Tcp_RetransSegs{{{_NODE_EXPORTER_SELECTOR}}}[5m])) '
+        f'/ clamp_min(sum by (node) (rate(node_netstat_Tcp_OutSegs{{{_NODE_EXPORTER_SELECTOR}}}[5m])), 1)'
+    )
+    haproxy_scrape_ok = "min by (node) (tracegate_haproxy_stats_scrape_ok)"
+    haproxy_backend_up = (
+        "min by (node, proxy, server) (tracegate_haproxy_backend_up)"
+    )
+    haproxy_queue = (
+        "max by (node, proxy, server) (tracegate_haproxy_queue_current)"
+    )
+    telemt_restarted = (
+        'changes(telemt_uptime_seconds{job="tracegate-telemt"}[15m])'
+    )
+    telemt_me_writers = (
+        'min(telemt_me_writers_active_current{job="tracegate-telemt"})'
+    )
+    telemt_route_drops = (
+        'sum(increase({__name__=~"telemt_me_route_drop_.+_total",'
+        'job="tracegate-telemt"}[10m]))'
+    )
     hysteria_scrape_ok = (
         "min by (component, node, pod, instance) (tracegate_hysteria_stats_scrape_ok)"
     )
@@ -1370,6 +1399,204 @@ def _ops_alert_rules(
             },
             for_duration="1m",
             no_data_state="Alerting",
+        ),
+        _slo_alert_rule(
+            uid="tg-ops-backhaul-latency-high",
+            title="OPS: Chain full-egress latency high",
+            folder_uid=folder_uid,
+            group=group,
+            ds_uid=ds_uid,
+            expr=backhaul_latency,
+            evaluator="gt",
+            threshold=2.0,
+            annotations={
+                "summary": "A Chain channel full-egress probe is slower than 2s",
+                "description": "The alert measures complete HTTP egress, not only a TCP or TLS handshake",
+            },
+            labels={
+                **base_labels,
+                "component": "backhaul",
+                "slo_type": "egress_latency",
+                "severity": "warning",
+            },
+            for_duration="3m",
+            no_data_state="Alerting",
+        ),
+        _slo_alert_rule(
+            uid="tg-ops-peer-packet-loss",
+            title="OPS: interserver packet loss",
+            folder_uid=folder_uid,
+            group=group,
+            ds_uid=ds_uid,
+            expr=interserver_success,
+            evaluator="lt",
+            threshold=0.98,
+            annotations={
+                "summary": "Entry to Endpoint path is losing packets",
+                "description": "The five-minute average ICMP reply ratio is below 98%",
+            },
+            labels={
+                **base_labels,
+                "component": "backhaul",
+                "slo_type": "packet_loss",
+                "severity": "warning",
+            },
+            for_duration="3m",
+            no_data_state="Alerting",
+        ),
+        _slo_alert_rule(
+            uid="tg-ops-tcp-retransmits-high",
+            title="OPS: TCP retransmit ratio high",
+            folder_uid=folder_uid,
+            group=group,
+            ds_uid=ds_uid,
+            expr=tcp_retransmit_ratio,
+            evaluator="gt",
+            threshold=0.02,
+            annotations={
+                "summary": "Node TCP retransmit ratio is above 2%",
+                "description": "Retransmitted segments divided by outbound segments is elevated for five minutes",
+            },
+            labels={
+                **base_labels,
+                "component": "node",
+                "slo_type": "tcp_retransmits",
+                "severity": "warning",
+            },
+            for_duration="5m",
+            no_data_state="OK",
+        ),
+        _slo_alert_rule(
+            uid="tg-ops-haproxy-monitor-failed",
+            title="OPS: HAProxy runtime monitor failed",
+            folder_uid=folder_uid,
+            group=group,
+            ds_uid=ds_uid,
+            expr=haproxy_scrape_ok,
+            evaluator="lt",
+            threshold=1.0,
+            annotations={
+                "summary": "Gateway agent cannot read HAProxy runtime stats",
+                "description": "The local read-only HAProxy stats socket is unavailable",
+            },
+            labels={
+                **base_labels,
+                "component": "haproxy",
+                "slo_type": "stats_scrape",
+                "severity": "warning",
+            },
+            for_duration="3m",
+            no_data_state="Alerting",
+        ),
+        _slo_alert_rule(
+            uid="tg-ops-haproxy-backend-down",
+            title="OPS: HAProxy backend down",
+            folder_uid=folder_uid,
+            group=group,
+            ds_uid=ds_uid,
+            expr=haproxy_backend_up,
+            evaluator="lt",
+            threshold=1.0,
+            annotations={
+                "summary": "An HAProxy backend or server is down",
+                "description": "HAProxy runtime health reports a configured backend as unavailable",
+            },
+            labels={
+                **base_labels,
+                "component": "haproxy",
+                "slo_type": "backend_health",
+                "severity": "critical",
+            },
+            for_duration="2m",
+            no_data_state="OK",
+        ),
+        _slo_alert_rule(
+            uid="tg-ops-haproxy-queueing",
+            title="OPS: HAProxy backend queueing",
+            folder_uid=folder_uid,
+            group=group,
+            ds_uid=ds_uid,
+            expr=haproxy_queue,
+            evaluator="gt",
+            threshold=0.0,
+            annotations={
+                "summary": "HAProxy is queueing gateway connections",
+                "description": "Current backend queue depth is non-zero",
+            },
+            labels={
+                **base_labels,
+                "component": "haproxy",
+                "slo_type": "queue_depth",
+                "severity": "warning",
+            },
+            for_duration="2m",
+            no_data_state="OK",
+        ),
+        _slo_alert_rule(
+            uid="tg-ops-telemt-restarted",
+            title="OPS: Telemt restarted",
+            folder_uid=folder_uid,
+            group=group,
+            ds_uid=ds_uid,
+            expr=telemt_restarted,
+            evaluator="gt",
+            threshold=0.0,
+            annotations={
+                "summary": "Telegram Proxy runtime restarted",
+                "description": "Telemt uptime changed during the last 15 minutes",
+            },
+            labels={
+                **base_labels,
+                "component": "mtproto",
+                "slo_type": "runtime_restart",
+                "severity": "warning",
+            },
+            for_duration="1m",
+            no_data_state="OK",
+        ),
+        _slo_alert_rule(
+            uid="tg-ops-telemt-me-writers-low",
+            title="OPS: Telemt MiddleProxy unavailable",
+            folder_uid=folder_uid,
+            group=group,
+            ds_uid=ds_uid,
+            expr=telemt_me_writers,
+            evaluator="lt",
+            threshold=1.0,
+            annotations={
+                "summary": "Telegram Proxy has no active Middle-End writers",
+                "description": "Cross-DC media can degrade even while the public TCP connection still opens",
+            },
+            labels={
+                **base_labels,
+                "component": "mtproto",
+                "slo_type": "middle_proxy",
+                "severity": "critical",
+            },
+            for_duration="2m",
+            no_data_state="Alerting",
+        ),
+        _slo_alert_rule(
+            uid="tg-ops-telemt-me-route-drops",
+            title="OPS: Telemt MiddleProxy route drops",
+            folder_uid=folder_uid,
+            group=group,
+            ds_uid=ds_uid,
+            expr=telemt_route_drops,
+            evaluator="gt",
+            threshold=0.0,
+            annotations={
+                "summary": "Telegram Proxy dropped Middle-End routes",
+                "description": "No-connection, closed-channel or full-queue drops increased",
+            },
+            labels={
+                **base_labels,
+                "component": "mtproto",
+                "slo_type": "middle_proxy_drops",
+                "severity": "warning",
+            },
+            for_duration="1m",
+            no_data_state="OK",
         ),
     ]
 

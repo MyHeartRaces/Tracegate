@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 import re
+import socket
 import subprocess
 
 from prometheus_client import REGISTRY
@@ -15,6 +16,11 @@ from tracegate.settings import Settings, effective_private_runtime_root
 
 _REGISTERED = False
 _MARKER_VARIANT_RE = re.compile(r"^[Vv]([0-9]+)\b")
+_PING_LOSS_RE = re.compile(r"([0-9]+(?:\.[0-9]+)?)%\s+packet loss")
+_PING_RTT_RE = re.compile(
+    r"(?:rtt|round-trip) min/avg/max/(?:mdev|stddev) = "
+    r"[0-9.]+/([0-9.]+)/"
+)
 
 
 def _marker_variant(marker: str) -> str:
@@ -289,6 +295,64 @@ def _read_network_totals() -> list[tuple[str, int, int]]:
         return []
 
 
+def _probe_peer(host: str) -> tuple[float, float]:
+    """Return `(success_ratio, average_rtt_seconds)` for a bounded ICMP probe."""
+    target = str(host or "").strip()
+    if not target:
+        raise ValueError("peer probe host is empty")
+    completed = subprocess.run(
+        ["ping", "-n", "-c", "3", "-i", "0.2", "-W", "1", target],
+        check=False,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        timeout=5,
+    )
+    output = f"{completed.stdout}\n{completed.stderr}"
+    loss_match = _PING_LOSS_RE.search(output)
+    if loss_match is None:
+        raise RuntimeError("ping output did not contain packet loss")
+    success_ratio = max(0.0, min(1.0, 1.0 - float(loss_match.group(1)) / 100.0))
+    rtt_match = _PING_RTT_RE.search(output)
+    average_rtt_seconds = (
+        max(0.0, float(rtt_match.group(1)) / 1000.0) if rtt_match else 0.0
+    )
+    return success_ratio, average_rtt_seconds
+
+
+def _read_haproxy_stats(socket_path: str) -> list[dict[str, str]]:
+    """Read HAProxy CSV runtime stats without enabling a network admin endpoint."""
+    path = str(socket_path or "").strip()
+    if not path:
+        return []
+    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
+        client.settimeout(2.0)
+        client.connect(path)
+        client.sendall(b"show stat\n")
+        chunks: list[bytes] = []
+        while True:
+            chunk = client.recv(65536)
+            if not chunk:
+                break
+            chunks.append(chunk)
+    lines = b"".join(chunks).decode("utf-8", errors="replace").splitlines()
+    if not lines:
+        return []
+    header = [field.strip().lstrip("# ") for field in lines[0].rstrip(",").split(",")]
+    rows: list[dict[str, str]] = []
+    for line in lines[1:]:
+        if not line.strip():
+            continue
+        values = line.rstrip(",").split(",")
+        row = dict(zip(header, values, strict=False))
+        # 1=BACKEND aggregate, 2=server. Frontends/listeners do not have
+        # health semantics useful to these alerts.
+        if row.get("type") not in {"1", "2"}:
+            continue
+        rows.append(row)
+    return rows
+
+
 def _load_json_mapping(path: Path) -> dict[str, object] | None:
     if not path.exists():
         return None
@@ -482,6 +546,83 @@ class AgentMetricsCollector:
                 host_net.add_metric([iface, "rx"], rx_bytes)
                 host_net.add_metric([iface, "tx"], tx_bytes)
             yield host_net
+
+        peer_host = str(
+            getattr(self.settings, "agent_peer_probe_host", "") or ""
+        ).strip()
+        if peer_host:
+            peer_role = (
+                str(getattr(self.settings, "agent_peer_probe_role", "") or "").strip()
+                or "peer"
+            )
+            peer_ok = GaugeMetricFamily(
+                "tracegate_interserver_probe_success_ratio",
+                "Successful ICMP replies in the latest bounded interserver probe",
+                labels=["source_role", "peer_role"],
+            )
+            peer_rtt = GaugeMetricFamily(
+                "tracegate_interserver_probe_rtt_seconds",
+                "Average RTT of the latest bounded interserver probe",
+                labels=["source_role", "peer_role"],
+            )
+            try:
+                success_ratio, average_rtt = _probe_peer(peer_host)
+            except Exception:
+                success_ratio, average_rtt = 0.0, 0.0
+            labels = [role_label.lower(), peer_role.lower()]
+            peer_ok.add_metric(labels, success_ratio)
+            peer_rtt.add_metric(labels, average_rtt)
+            yield peer_ok
+            yield peer_rtt
+
+        haproxy_socket = str(
+            getattr(self.settings, "agent_haproxy_stats_socket", "") or ""
+        ).strip()
+        if haproxy_socket:
+            haproxy_scrape_ok = GaugeMetricFamily(
+                "tracegate_haproxy_stats_scrape_ok",
+                "HAProxy runtime socket scrape status (1=ok, 0=error)",
+            )
+            haproxy_up = GaugeMetricFamily(
+                "tracegate_haproxy_backend_up",
+                "HAProxy backend/server health from the runtime socket",
+                labels=["proxy", "server"],
+            )
+            haproxy_sessions = GaugeMetricFamily(
+                "tracegate_haproxy_sessions_current",
+                "Current HAProxy sessions by backend/server",
+                labels=["proxy", "server"],
+            )
+            haproxy_queue = GaugeMetricFamily(
+                "tracegate_haproxy_queue_current",
+                "Current HAProxy queue depth by backend/server",
+                labels=["proxy", "server"],
+            )
+            try:
+                haproxy_rows = _read_haproxy_stats(haproxy_socket)
+                haproxy_scrape_ok.add_metric([], 1)
+            except Exception:
+                haproxy_rows = []
+                haproxy_scrape_ok.add_metric([], 0)
+            for row in haproxy_rows:
+                proxy = str(row.get("pxname") or "").strip()
+                server = str(row.get("svname") or "").strip()
+                if not proxy or not server:
+                    continue
+                labels = [proxy, server]
+                status = str(row.get("status") or "").strip().upper()
+                haproxy_up.add_metric(
+                    labels, 1 if status in {"UP", "OPEN", "NO CHECK"} else 0
+                )
+                try:
+                    haproxy_sessions.add_metric(labels, int(row.get("scur") or 0))
+                    haproxy_queue.add_metric(labels, int(row.get("qcur") or 0))
+                except (TypeError, ValueError):
+                    continue
+            yield haproxy_scrape_ok
+            yield haproxy_up
+            yield haproxy_sessions
+            yield haproxy_queue
 
         # Xray per-connection traffic stats (bytes are counters exported by StatsService).
         xray_ok = GaugeMetricFamily(

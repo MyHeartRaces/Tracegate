@@ -208,6 +208,12 @@ class Settings(BaseSettings):
     agent_stats_url: str = "http://127.0.0.1:9999/traffic"
     # Keep Telemt's read-only API away from the Endpoint dispatcher's :9091.
     agent_mtproto_stats_url: str = "http://127.0.0.1:9192/v1/stats/users"
+    # Optional direct peer probe used to distinguish host pressure from
+    # intermittent provider-path loss between Entry and Endpoint.
+    agent_peer_probe_host: str = ""
+    agent_peer_probe_role: str = ""
+    # Optional HAProxy runtime socket. The agent only reads `show stat`.
+    agent_haproxy_stats_socket: str = ""
     agent_stats_secret: str = ""
     agent_dry_run: bool = True
     # Native systemd is the only supported production runtime.

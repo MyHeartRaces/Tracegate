@@ -1599,12 +1599,13 @@ def _write_mtproto_state(
                     api_listen=_telemt_api_listen(settings),
                     # entry-endpoint-tunnel: Telemt terminates on the Endpoint behind the
                     # Entry PROXY-v2 relay, so it binds a non-loopback link port, trusts the
-                    # Entry source for the forwarded client address, and egresses to Telegram
-                    # DCs directly (no middle proxy).
+                    # Entry source for the forwarded client address. Telegram Middle-End
+                    # remains enabled for cross-DC media, while Telemt's me2dc fallback
+                    # preserves direct-DC failover.
                     proxy_protocol_trusted_cidrs=(
                         tuple(settings.mtproto_link_trusted_cidr_list) if is_tunnel else ()
                     ),
-                    use_middle_proxy=(False if is_tunnel else None),
+                    use_middle_proxy=(True if is_tunnel else None),
                 )
             elif mtproto_runtime == "official":
                 mtg_config = None

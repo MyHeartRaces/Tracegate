@@ -297,14 +297,15 @@ def test_build_mtproto_telemt_config_tunnel_binds_link_and_trusts_entry_source()
         mask_port=10444,
         public_host="proxy.example.org",
         proxy_protocol_trusted_cidrs=["203.0.113.46/32"],
-        use_middle_proxy=False,
+        use_middle_proxy=True,
         api_listen="127.0.0.1:9192",
     )
 
     # Terminates on the Endpoint, reachable by the Entry relay over the link.
     assert 'listen_addr_ipv4 = "0.0.0.0"' in config.config_text
-    # Direct DC egress (no Telegram middle proxy) and no SOCKS upstream.
-    assert "use_middle_proxy = false" in config.config_text
+    # Middle-End preserves cross-DC media; direct DC remains Telemt's fallback.
+    assert "use_middle_proxy = true" in config.config_text
+    assert "me2dc_fallback = true" in config.config_text
     assert "[[upstreams]]" not in config.config_text
     # Trusts the Entry source for the forwarded client address; loopback always kept.
     assert (

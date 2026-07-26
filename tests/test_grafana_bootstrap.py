@@ -438,6 +438,15 @@ def test_ops_alert_rules_cover_nodes_pods_delivery_and_runtime_health() -> None:
         "tg-ops-backhaul-primary-degraded",
         "tg-ops-reality-fallback-required",
         "tg-ops-backhaul-all-egress-failed",
+        "tg-ops-backhaul-latency-high",
+        "tg-ops-peer-packet-loss",
+        "tg-ops-tcp-retransmits-high",
+        "tg-ops-haproxy-monitor-failed",
+        "tg-ops-haproxy-backend-down",
+        "tg-ops-haproxy-queueing",
+        "tg-ops-telemt-restarted",
+        "tg-ops-telemt-me-writers-low",
+        "tg-ops-telemt-me-route-drops",
     }
     assert expected <= set(by_uid)
 
@@ -446,6 +455,18 @@ def test_ops_alert_rules_cover_nodes_pods_delivery_and_runtime_health() -> None:
     assert "shadowtls-primary-a" in fallback["data"][0]["model"]["expr"]
     assert "shadowtls-primary-b" in fallback["data"][0]["model"]["expr"]
     assert "reality-fallback" in fallback["data"][0]["model"]["expr"]
+
+    packet_loss = by_uid["tg-ops-peer-packet-loss"]
+    assert "tracegate_interserver_probe_success_ratio" in packet_loss["data"][0]["model"]["expr"]
+    assert packet_loss["data"][1]["model"]["conditions"][0]["evaluator"]["params"] == [0.98]
+
+    retransmits = by_uid["tg-ops-tcp-retransmits-high"]
+    assert "node_netstat_Tcp_RetransSegs" in retransmits["data"][0]["model"]["expr"]
+    assert "node_netstat_Tcp_OutSegs" in retransmits["data"][0]["model"]["expr"]
+
+    telemt_writers = by_uid["tg-ops-telemt-me-writers-low"]
+    assert "telemt_me_writers_active_current" in telemt_writers["data"][0]["model"]["expr"]
+    assert telemt_writers["noDataState"] == "Alerting"
 
     node_down = by_uid["tg-ops-node-down"]
     assert node_down["labels"]["component"] == "node"

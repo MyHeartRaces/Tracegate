@@ -3,6 +3,8 @@ import types
 import json
 from types import SimpleNamespace
 
+import pytest
+
 
 class _FakeGaugeMetricFamily:
     def __init__(self, name: str, documentation: str, labels=None):  # noqa: ANN001
@@ -27,6 +29,79 @@ def _metrics_helpers():
     from tracegate.agent.metrics import _parse_meminfo, _parse_netdev
 
     return _parse_meminfo, _parse_netdev
+
+
+def test_probe_peer_parses_linux_ping(monkeypatch) -> None:  # noqa: ANN001
+    from tracegate.agent import metrics as m
+
+    monkeypatch.setattr(
+        m.subprocess,
+        "run",
+        lambda *args, **kwargs: SimpleNamespace(
+            returncode=0,
+            stdout=(
+                "3 packets transmitted, 2 received, 33.3333% packet loss\n"
+                "rtt min/avg/max/mdev = 45.000/47.500/50.000/2.500 ms\n"
+            ),
+            stderr="",
+        ),
+    )
+    success_ratio, average_rtt = m._probe_peer("192.0.2.1")
+    assert success_ratio == pytest.approx(2 / 3, abs=0.001)
+    assert average_rtt == pytest.approx(0.0475)
+
+
+def test_haproxy_stats_parser_filters_frontends(monkeypatch) -> None:  # noqa: ANN001
+    from tracegate.agent import metrics as m
+
+    payload = (
+        b"# pxname,svname,status,scur,qcur,type,\n"
+        b"fe,FRONTEND,OPEN,1,0,0,\n"
+        b"be_mtproto,mtproto,UP,2,0,2,\n"
+        b"be_mtproto,BACKEND,UP,2,0,1,\n"
+    )
+
+    class _Socket:
+        def __init__(self, *args, **kwargs) -> None:  # noqa: ANN002, ANN003
+            self.chunks = [payload, b""]
+
+        def __enter__(self):  # noqa: ANN204
+            return self
+
+        def __exit__(self, *args) -> None:  # noqa: ANN002
+            return None
+
+        def settimeout(self, _timeout) -> None:  # noqa: ANN001
+            return None
+
+        def connect(self, _path) -> None:  # noqa: ANN001
+            return None
+
+        def sendall(self, _payload) -> None:  # noqa: ANN001
+            return None
+
+        def recv(self, _size):  # noqa: ANN001, ANN201
+            return self.chunks.pop(0)
+
+    monkeypatch.setattr(m.socket, "socket", _Socket)
+    assert m._read_haproxy_stats("/run/haproxy.sock") == [
+        {
+            "pxname": "be_mtproto",
+            "svname": "mtproto",
+            "status": "UP",
+            "scur": "2",
+            "qcur": "0",
+            "type": "2",
+        },
+        {
+            "pxname": "be_mtproto",
+            "svname": "BACKEND",
+            "status": "UP",
+            "scur": "2",
+            "qcur": "0",
+            "type": "1",
+        },
+    ]
 
 
 def test_parse_meminfo() -> None:

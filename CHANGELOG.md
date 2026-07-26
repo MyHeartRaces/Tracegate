@@ -1,6 +1,14 @@
 # Changelog
 
-## Unreleased
+## v3.1.25 - 2026-07-26
+
+- Add interserver packet-loss, TCP retransmit, HAProxy backend/queue, full Chain
+  egress latency, and Telemt MiddleProxy/restart alerts; expose HAProxy runtime
+  health over a local Unix socket and bounded Entry/Endpoint peer probes.
+
+- Keep Telegram Middle-End enabled for the dedicated Entry-to-Endpoint Telemt
+  runtime so non-Premium and cross-DC media remains available, while retaining
+  Telemt's direct-DC fallback.
 
 ## v3.1.24 - 2026-07-22
 
