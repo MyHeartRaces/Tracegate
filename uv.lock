@@ -1759,7 +1759,7 @@ wheels = [
 
 [[package]]
 name = "tracegate"
-version = "3.1.27"
+version = "3.1.28"
 source = { editable = "." }
 dependencies = [
     { name = "aiogram" },
