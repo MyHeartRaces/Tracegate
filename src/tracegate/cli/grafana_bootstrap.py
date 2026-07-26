@@ -866,7 +866,7 @@ def _ops_alert_rules(
         "max by (node, proxy, server) (tracegate_haproxy_queue_current)"
     )
     telemt_restarted = (
-        'changes(telemt_uptime_seconds{job="tracegate-telemt"}[15m])'
+        'resets(telemt_uptime_seconds{job="tracegate-telemt"}[15m])'
     )
     telemt_me_writers = (
         'min(telemt_me_writers_active_current{job="tracegate-telemt"})'
@@ -1544,7 +1544,7 @@ def _ops_alert_rules(
             threshold=0.0,
             annotations={
                 "summary": "Telegram Proxy runtime restarted",
-                "description": "Telemt uptime changed during the last 15 minutes",
+                "description": "Telemt uptime reset during the last 15 minutes",
             },
             labels={
                 **base_labels,

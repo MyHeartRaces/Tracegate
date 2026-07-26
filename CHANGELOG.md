@@ -1,5 +1,10 @@
 # Changelog
 
+## v3.1.27 - 2026-07-26
+
+- Detect actual Telemt uptime resets instead of treating every normal uptime
+  increment as a runtime restart.
+
 ## v3.1.26 - 2026-07-26
 
 - Keep the Telemt route-drop alert valid when Prometheus scrapes multiple

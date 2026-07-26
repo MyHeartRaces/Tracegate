@@ -475,6 +475,10 @@ def test_ops_alert_rules_cover_nodes_pods_delivery_and_runtime_health() -> None:
     assert "telemt_me_route_drop_queue_full_total" in telemt_drops_expr
     assert "__name__" not in telemt_drops_expr
 
+    telemt_restarted = by_uid["tg-ops-telemt-restarted"]
+    assert "resets(telemt_uptime_seconds" in telemt_restarted["data"][0]["model"]["expr"]
+    assert "changes(telemt_uptime_seconds" not in telemt_restarted["data"][0]["model"]["expr"]
+
     node_down = by_uid["tg-ops-node-down"]
     assert node_down["labels"]["component"] == "node"
     assert node_down["labels"]["slo_type"] == "node_availability"
