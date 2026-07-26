@@ -468,6 +468,13 @@ def test_ops_alert_rules_cover_nodes_pods_delivery_and_runtime_health() -> None:
     assert "telemt_me_writers_active_current" in telemt_writers["data"][0]["model"]["expr"]
     assert telemt_writers["noDataState"] == "Alerting"
 
+    telemt_drops = by_uid["tg-ops-telemt-me-route-drops"]
+    telemt_drops_expr = telemt_drops["data"][0]["model"]["expr"]
+    assert "telemt_me_route_drop_no_conn_total" in telemt_drops_expr
+    assert "telemt_me_route_drop_channel_closed_total" in telemt_drops_expr
+    assert "telemt_me_route_drop_queue_full_total" in telemt_drops_expr
+    assert "__name__" not in telemt_drops_expr
+
     node_down = by_uid["tg-ops-node-down"]
     assert node_down["labels"]["component"] == "node"
     assert node_down["labels"]["slo_type"] == "node_availability"

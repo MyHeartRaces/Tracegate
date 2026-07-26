@@ -1,5 +1,10 @@
 # Changelog
 
+## v3.1.26 - 2026-07-26
+
+- Keep the Telemt route-drop alert valid when Prometheus scrapes multiple
+  counters with otherwise identical label sets.
+
 ## v3.1.25 - 2026-07-26
 
 - Add interserver packet-loss, TCP retransmit, HAProxy backend/queue, full Chain

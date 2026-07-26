@@ -872,8 +872,9 @@ def _ops_alert_rules(
         'min(telemt_me_writers_active_current{job="tracegate-telemt"})'
     )
     telemt_route_drops = (
-        'sum(increase({__name__=~"telemt_me_route_drop_.+_total",'
-        'job="tracegate-telemt"}[10m]))'
+        'sum(increase(telemt_me_route_drop_no_conn_total{job="tracegate-telemt"}[10m])) '
+        '+ sum(increase(telemt_me_route_drop_channel_closed_total{job="tracegate-telemt"}[10m])) '
+        '+ sum(increase(telemt_me_route_drop_queue_full_total{job="tracegate-telemt"}[10m]))'
     )
     hysteria_scrape_ok = (
         "min by (component, node, pod, instance) (tracegate_hysteria_stats_scrape_ok)"
