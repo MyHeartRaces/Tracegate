@@ -10,7 +10,7 @@ description: >
 license: MIT
 metadata:
   author: openai
-  version: "1.0"
+  version: "1.1"
 ---
 
 # Tracegate durable isolated-link rollout
@@ -24,7 +24,9 @@ healthy TCP/TLS handshake hides a channel that cannot complete Endpoint egress.
 **Verified by:** the production topology survived primary-leg and dual-primary
 failover tests, MTProto remained on its dedicated link, every active slot-0
 Chain revision egressed through Endpoint, and the public release gate passed
-757 tests plus host/deploy/privacy checks.
+757 tests plus host/deploy/privacy checks. The Entry-primary and Endpoint-direct
+MTProto routes also passed three authenticated FakeTLS HMAC checks each, while
+Telemt reported healthy MiddleProxy RPC handshakes to Telegram DCs.
 
 ## When to use this
 
@@ -44,6 +46,11 @@ Chain revision egressed through Endpoint, and the public release gate passed
   not a primary candidate.
 - Telegram Proxy: Entry HAProxy -> dedicated Endpoint Telemt TCP/9445 with its
   own mask return path. It must never use the Chain balancer.
+- Client delivery may expose two links backed by the same per-user Telemt
+  credential: the configured Entry public host on TCP/443 as primary and the
+  Endpoint public host on TCP/443 as an explicit direct backup. Endpoint HAProxy must
+  route only the configured FakeTLS SNI to loopback Telemt TCP/9445; the
+  source-gated public TCP/9445 link remains Entry-only.
 - Xray's `latest`, ShadowTLS `latest`, and Telemt `latest` are intentional while
   upgrades preserve all existing connections. Do not pin them without a new
   user decision or a demonstrated compatibility break.
@@ -145,6 +152,21 @@ Chain revision egressed through Endpoint, and the public release gate passed
   revision through an isolated client: successful HTTPS and external IP equal
   to Endpoint, never Entry. Remove root-only test configs afterward.
 
+  For dual-route MTProto delivery, set `MTPROTO_DIRECT_BACKUP_HOST` in both the
+  Endpoint runtime env and private materialization env, render bundles, and
+  dispatch both roles. Verify the active Entry HAProxy backend still targets
+  Endpoint TCP/9445 and the active Endpoint HAProxy has
+  `be_transit_mtproto -> 127.0.0.1:9445 send-proxy-v2`. Issue an existing access
+  profile with `rotate=false`; it must return Entry first and Endpoint direct
+  second without changing the credential.
+
+  Run `scripts/probe_mtproto_faketls.py` three times against each public TCP/443
+  route, feeding an existing raw per-user secret through stdin. A TLS
+  ServerHello alone is insufficient because the masking fallback can also
+  return one; the probe verifies the server response HMAC. Separately require
+  current successful Telemt MiddleProxy RPC handshakes, which proves Telegram
+  egress independently of the client-facing FakeTLS exchange.
+
 - [ ] 9. Synchronize the private source after a successful live change.
 
   Capture only the intended runtime files, canonicalize duplicate dotenv keys
@@ -173,6 +195,14 @@ Chain revision egressed through Endpoint, and the public release gate passed
   revisions untouched unless the user explicitly authorizes reissue.
 - The dispatch response embeds full materialized files; keep it mode 0600 and
   print only counts.
+- `tracegate-render-materialized-bundles` needs the runtime env, private render
+  env, and an explicit `BUNDLE_SOURCE_ROOT` pointing at the active release
+  bundles. Rendering alone does not alter either agent runtime.
+- Do not retain an old `tracegate-telemt-normalize-config` callback after the
+  application renderer owns the tunnel settings. Set
+  `AGENT_RELOAD_MTPROTO_CMD` to a quoted `systemctl restart
+  tracegate-mtproto@transit.service` command; unquoted spaces make the dotenv
+  invalid when the deployer sources it as shell.
 - Grafana alert definitions are code-managed; rerun the internal bootstrap
   after release so new rules and panels are provisioned.
 - Preserve all issued client revisions. Server-side backhaul work must not
@@ -185,6 +215,12 @@ Chain revision egressed through Endpoint, and the public release gate passed
   by DPI too quickly; keep it only as Reality fallback.
 - Shared Chain and MTProto carriers coupled unrelated failure domains; Telemt
   needs its dedicated source-gated link.
+- Publishing a direct link before adding the Endpoint HAProxy SNI backend made
+  the bot output look correct while the backup path was unreachable. Materialize,
+  dispatch, inspect the active runtime, then run an authenticated HMAC probe.
+- A removed local Telemt normalization helper remained configured as the agent
+  reload command. Startup reconcile wrote the new files but failed its reload;
+  replace obsolete helper callbacks with the tracked service restart.
 - Counting Reality outbound bytes produced false fallback signals because
   health probes use the same outbound.
 - TLS-record `tlshello` fragmentation broke ShadowTLS v3 authentication;
