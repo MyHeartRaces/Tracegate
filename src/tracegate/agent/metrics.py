@@ -6,7 +6,9 @@ from pathlib import Path
 import re
 import socket
 import subprocess
+import time
 
+import httpx
 from prometheus_client import REGISTRY
 from prometheus_client.core import GaugeMetricFamily
 
@@ -86,6 +88,8 @@ _BACKHAUL_CHANNELS = {
     "to-transit-ss2": "shadowtls-primary-b",
     "to-transit": "reality-fallback",
 }
+_REALITY_PROBE_PROXY_URL = "http://127.0.0.1:18083"
+_REALITY_PROBE_URL = "https://www.google.com/generate_204"
 
 
 def _fetch_hysteria_traffic_bytes(url: str, secret: str) -> dict[str, dict[str, int]]:
@@ -318,6 +322,25 @@ def _probe_peer(host: str) -> tuple[float, float]:
         max(0.0, float(rtt_match.group(1)) / 1000.0) if rtt_match else 0.0
     )
     return success_ratio, average_rtt_seconds
+
+
+def _probe_http_proxy_egress(
+    proxy_url: str = _REALITY_PROBE_PROXY_URL,
+    target_url: str = _REALITY_PROBE_URL,
+) -> tuple[bool, float]:
+    """Return full HTTPS egress status and latency through a bound HTTP proxy."""
+    started = time.monotonic()
+    try:
+        response = httpx.get(
+            target_url,
+            proxy=proxy_url,
+            timeout=8.0,
+            follow_redirects=True,
+        )
+        response.raise_for_status()
+    except Exception:
+        return False, max(0.0, time.monotonic() - started)
+    return True, max(0.0, time.monotonic() - started)
 
 
 def _read_haproxy_stats(socket_path: str) -> list[dict[str, str]]:
@@ -701,6 +724,17 @@ class AgentMetricsCollector:
             except Exception:
                 observations = {}
                 observatory_ok.add_metric([], 0)
+            reality_alive, reality_delay = _probe_http_proxy_egress()
+            observations["to-transit"] = {
+                **(
+                    observations.get("to-transit")
+                    if isinstance(observations.get("to-transit"), dict)
+                    else {}
+                ),
+                "alive": reality_alive,
+                "delay_ms": round(reality_delay * 1000),
+                "last_try_time": round(time.time()),
+            }
             for outbound_tag, channel in _BACKHAUL_CHANNELS.items():
                 row = observations.get(outbound_tag)
                 if not isinstance(row, dict):

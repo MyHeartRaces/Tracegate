@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -100,6 +102,7 @@ def test_entry_metrics_export_each_backhaul_channel(monkeypatch, tmp_path) -> No
             "to-transit": {"alive": True, "delay_ms": 40, "last_try_time": 102, "checks": 10, "failures": 0},
         },
     )
+    monkeypatch.setattr(metrics, "_probe_http_proxy_egress", lambda: (True, 0.04))
     settings = Settings(
         agent_role="ENTRY",
         agent_data_root=str(tmp_path),
@@ -124,3 +127,46 @@ def test_entry_metrics_export_each_backhaul_channel(monkeypatch, tmp_path) -> No
         ("shadowtls-primary-b", 0),
         ("reality-fallback", 1),
     }
+
+
+def test_reality_probe_uses_full_https_egress_through_local_proxy(monkeypatch) -> None:  # noqa: ANN001
+    calls = []
+
+    class _Response:
+        def raise_for_status(self) -> None:
+            return None
+
+    def _get(url, **kwargs):  # noqa: ANN001, ANN202
+        calls.append((url, kwargs))
+        return _Response()
+
+    monotonic = iter((10.0, 10.25))
+    monkeypatch.setattr(metrics.httpx, "get", _get)
+    monkeypatch.setattr(metrics.time, "monotonic", lambda: next(monotonic))
+
+    assert metrics._probe_http_proxy_egress() == (True, 0.25)
+    assert calls == [
+        (
+            "https://www.google.com/generate_204",
+            {
+                "proxy": "http://127.0.0.1:18083",
+                "timeout": 8.0,
+                "follow_redirects": True,
+            },
+        )
+    ]
+
+
+def test_entry_bundle_binds_reality_probe_to_dedicated_outbound() -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    config = json.loads((repo_root / "bundles/base-entry/xray.json").read_text(encoding="utf-8"))
+    inbound = next(row for row in config["inbounds"] if row.get("tag") == "backhaul-probe-reality-in")
+    assert inbound["listen"] == "127.0.0.1"
+    assert inbound["port"] == 18083
+    assert inbound["protocol"] == "http"
+    rule = next(
+        row
+        for row in config["routing"]["rules"]
+        if row.get("inboundTag") == ["backhaul-probe-reality-in"]
+    )
+    assert rule["outboundTag"] == "to-transit"

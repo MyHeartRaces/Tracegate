@@ -40,6 +40,13 @@
       }
     },
     {
+      "tag": "backhaul-probe-reality-in",
+      "listen": "127.0.0.1",
+      "port": 18083,
+      "protocol": "http",
+      "settings": {}
+    },
+    {
       "tag": "entry-in",
       "listen": "127.0.0.1",
       "port": 2443,
@@ -287,6 +294,13 @@
           "api"
         ],
         "outboundTag": "api"
+      },
+      {
+        "type": "field",
+        "inboundTag": [
+          "backhaul-probe-reality-in"
+        ],
+        "outboundTag": "to-transit"
       },
       {
         "type": "field",
