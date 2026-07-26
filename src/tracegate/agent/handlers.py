@@ -88,7 +88,9 @@ def _write_tombstone(path: Path, *, ts: datetime, extra: dict[str, Any] | None =
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(path.suffix + ".tmp")
     tmp.write_text(json.dumps(payload, ensure_ascii=True, indent=2) + "\n", encoding="utf-8")
+    tmp.chmod(0o600)
     tmp.replace(path)
+    path.chmod(0o600)
 
 
 def _user_dir(root: Path, user_id: str) -> Path:
@@ -362,7 +364,11 @@ def handle_upsert_user(settings: Settings, payload: dict[str, Any]) -> str:
                 return f"ignored older upsert for connection={connection_id}"
 
     payload = assign_sticky_transit_if_needed(settings, payload, existing_payload=existing_payload)
-    target.write_text(json.dumps(payload, ensure_ascii=True, indent=2), encoding="utf-8")
+    tmp = target.with_suffix(target.suffix + ".tmp")
+    tmp.write_text(json.dumps(payload, ensure_ascii=True, indent=2), encoding="utf-8")
+    tmp.chmod(0o600)
+    tmp.replace(target)
+    target.chmod(0o600)
     upsert_user_artifact_index(settings, payload)
 
     reconcile_result = _reconcile_user_lifecycle_without_reload(settings)

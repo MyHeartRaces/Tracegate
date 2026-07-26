@@ -399,6 +399,8 @@ def test_handle_apply_bundle_syncs_base_configs_and_reconciles(
     assert reload_calls == [["reload-xray"]]
     assert settings.agent_xray_api_enabled is True
     assert (tmp_path / "base/xray/config.json").read_text(encoding="utf-8") == "{\"inbounds\":[]}"
+    assert (tmp_path / "base/xray/config.json").stat().st_mode & 0o777 == 0o600
+    assert (tmp_path / "bundles/base-transit/xray.json").stat().st_mode & 0o777 == 0o600
     assert "base_sync=xray" in msg
     assert "reconciled=xray" in msg
 
@@ -437,6 +439,8 @@ def test_handle_apply_bundle_syncs_proxy_base_configs(
 
     assert (tmp_path / "base/haproxy/haproxy.cfg").read_text(encoding="utf-8") == "frontend fe\n  bind :443\n"
     assert (tmp_path / "base/nginx/nginx.conf").read_text(encoding="utf-8") == "events {}\nhttp {}\n"
+    assert (tmp_path / "base/haproxy/haproxy.cfg").stat().st_mode & 0o777 == 0o600
+    assert (tmp_path / "base/nginx/nginx.conf").stat().st_mode & 0o777 == 0o600
     assert reload_calls == [["reload-haproxy", "reload-nginx"]]
     assert "base_sync=haproxy,nginx" in msg
     assert "reconciled=haproxy,nginx" in msg

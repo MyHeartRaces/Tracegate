@@ -447,6 +447,7 @@ def test_ops_alert_rules_cover_nodes_pods_delivery_and_runtime_health() -> None:
         "tg-ops-telemt-restarted",
         "tg-ops-telemt-me-writers-low",
         "tg-ops-telemt-me-route-drops",
+        "tg-ops-telemt-me-late-responses",
     }
     assert expected <= set(by_uid)
 
@@ -470,10 +471,17 @@ def test_ops_alert_rules_cover_nodes_pods_delivery_and_runtime_health() -> None:
 
     telemt_drops = by_uid["tg-ops-telemt-me-route-drops"]
     telemt_drops_expr = telemt_drops["data"][0]["model"]["expr"]
-    assert "telemt_me_route_drop_no_conn_total" in telemt_drops_expr
+    assert "telemt_me_route_drop_no_conn_total" not in telemt_drops_expr
     assert "telemt_me_route_drop_channel_closed_total" in telemt_drops_expr
     assert "telemt_me_route_drop_queue_full_total" in telemt_drops_expr
     assert "__name__" not in telemt_drops_expr
+
+    telemt_late_responses = by_uid["tg-ops-telemt-me-late-responses"]
+    late_responses_expr = telemt_late_responses["data"][0]["model"]["expr"]
+    assert "telemt_me_route_drop_no_conn_total" in late_responses_expr
+    assert "telemt_me_route_drop_channel_closed_total" not in late_responses_expr
+    assert telemt_late_responses["data"][1]["model"]["conditions"][0]["evaluator"]["params"] == [10.0]
+    assert telemt_late_responses["for"] == "5m"
 
     telemt_restarted = by_uid["tg-ops-telemt-restarted"]
     assert "resets(telemt_uptime_seconds" in telemt_restarted["data"][0]["model"]["expr"]

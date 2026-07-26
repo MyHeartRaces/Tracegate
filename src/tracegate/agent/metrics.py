@@ -301,7 +301,7 @@ def _probe_peer(host: str) -> tuple[float, float]:
     if not target:
         raise ValueError("peer probe host is empty")
     completed = subprocess.run(
-        ["ping", "-n", "-c", "3", "-i", "0.2", "-W", "1", target],
+        ["ping", "-n", "-c", "20", "-i", "0.05", "-W", "1", target],
         check=False,
         text=True,
         stdout=subprocess.PIPE,

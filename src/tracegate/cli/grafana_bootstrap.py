@@ -872,9 +872,11 @@ def _ops_alert_rules(
         'min(telemt_me_writers_active_current{job="tracegate-telemt"})'
     )
     telemt_route_drops = (
-        'sum(increase(telemt_me_route_drop_no_conn_total{job="tracegate-telemt"}[10m])) '
-        '+ sum(increase(telemt_me_route_drop_channel_closed_total{job="tracegate-telemt"}[10m])) '
+        'sum(increase(telemt_me_route_drop_channel_closed_total{job="tracegate-telemt"}[10m])) '
         '+ sum(increase(telemt_me_route_drop_queue_full_total{job="tracegate-telemt"}[10m]))'
+    )
+    telemt_late_responses = (
+        'sum(increase(telemt_me_route_drop_no_conn_total{job="tracegate-telemt"}[10m]))'
     )
     hysteria_scrape_ok = (
         "min by (component, node, pod, instance) (tracegate_hysteria_stats_scrape_ok)"
@@ -1588,7 +1590,7 @@ def _ops_alert_rules(
             threshold=0.0,
             annotations={
                 "summary": "Telegram Proxy dropped Middle-End routes",
-                "description": "No-connection, closed-channel or full-queue drops increased",
+                "description": "An active route could not deliver data because its channel closed or queue filled",
             },
             labels={
                 **base_labels,
@@ -1597,6 +1599,28 @@ def _ops_alert_rules(
                 "severity": "warning",
             },
             for_duration="1m",
+            no_data_state="OK",
+        ),
+        _slo_alert_rule(
+            uid="tg-ops-telemt-me-late-responses",
+            title="OPS: Telemt MiddleProxy late responses",
+            folder_uid=folder_uid,
+            group=group,
+            ds_uid=ds_uid,
+            expr=telemt_late_responses,
+            evaluator="gt",
+            threshold=10.0,
+            annotations={
+                "summary": "Telegram Proxy received unusually many late Middle-End responses",
+                "description": "More than 10 responses in 10 minutes targeted sessions that had already closed",
+            },
+            labels={
+                **base_labels,
+                "component": "mtproto",
+                "slo_type": "middle_proxy_late_responses",
+                "severity": "warning",
+            },
+            for_duration="5m",
             no_data_state="OK",
         ),
     ]

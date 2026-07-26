@@ -34,21 +34,38 @@ def _metrics_helpers():
 def test_probe_peer_parses_linux_ping(monkeypatch) -> None:  # noqa: ANN001
     from tracegate.agent import metrics as m
 
-    monkeypatch.setattr(
-        m.subprocess,
-        "run",
-        lambda *args, **kwargs: SimpleNamespace(
+    calls = []
+
+    def _run(*args, **kwargs):  # noqa: ANN002, ANN003, ANN202
+        calls.append((args, kwargs))
+        return SimpleNamespace(
             returncode=0,
             stdout=(
-                "3 packets transmitted, 2 received, 33.3333% packet loss\n"
+                "20 packets transmitted, 19 received, 5% packet loss\n"
                 "rtt min/avg/max/mdev = 45.000/47.500/50.000/2.500 ms\n"
             ),
             stderr="",
-        ),
+        )
+
+    monkeypatch.setattr(
+        m.subprocess,
+        "run",
+        _run,
     )
     success_ratio, average_rtt = m._probe_peer("192.0.2.1")
-    assert success_ratio == pytest.approx(2 / 3, abs=0.001)
+    assert success_ratio == pytest.approx(0.95)
     assert average_rtt == pytest.approx(0.0475)
+    assert calls[0][0][0] == [
+        "ping",
+        "-n",
+        "-c",
+        "20",
+        "-i",
+        "0.05",
+        "-W",
+        "1",
+        "192.0.2.1",
+    ]
 
 
 def test_haproxy_stats_parser_filters_frontends(monkeypatch) -> None:  # noqa: ANN001

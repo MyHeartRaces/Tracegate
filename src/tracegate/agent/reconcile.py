@@ -96,7 +96,9 @@ def _safe_dump_text(path: Path, content: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(path.suffix + ".tmp")
     tmp.write_text(content, encoding="utf-8")
+    tmp.chmod(0o600)
     tmp.replace(path)
+    path.chmod(0o600)
 
 
 def _overwrite_text_preserving_inode(path: Path, content: str) -> None:
@@ -110,13 +112,16 @@ def _overwrite_text_preserving_inode(path: Path, content: str) -> None:
         handle.truncate()
         handle.flush()
         os.fsync(handle.fileno())
+    path.chmod(0o600)
 
 
 def _safe_dump_bytes(path: Path, content: bytes) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(path.suffix + ".tmp")
     tmp.write_bytes(content)
+    tmp.chmod(0o600)
     tmp.replace(path)
+    path.chmod(0o600)
 
 
 def _normalize_xray_runtime_for_live_user_compare(payload: dict | None) -> dict | None:

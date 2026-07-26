@@ -24,7 +24,9 @@ def atomic_write(root: Path, relative: str, content: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(path.suffix + ".tmp")
     tmp.write_bytes(decode_bundle_file_content(content))
+    tmp.chmod(0o600)
     tmp.replace(path)
+    path.chmod(0o600)
 
 
 def apply_files(root: Path, files: dict[str, Any]) -> None:

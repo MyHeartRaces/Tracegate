@@ -23,6 +23,7 @@ class AgentStateStore:
                 """
             )
             conn.commit()
+        self.db_path.chmod(0o600)
 
     def seen(self, event_id: str) -> bool:
         with sqlite3.connect(self.db_path) as conn:
