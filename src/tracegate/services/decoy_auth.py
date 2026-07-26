@@ -193,6 +193,29 @@ def load_mtproto_public_profile(settings: Settings) -> dict[str, Any]:
     servers = [str(value or "").strip() for value in raw.get("servers", [])] if isinstance(raw.get("servers"), list) else []
     if servers:
         payload["servers"] = list(dict.fromkeys(value for value in servers if value))
+    routes: list[dict[str, object]] = []
+    if isinstance(raw.get("routes"), list):
+        for index, row in enumerate(raw["routes"]):
+            if not isinstance(row, dict):
+                continue
+            route_server = str(row.get("server") or "").strip()
+            try:
+                route_port = int(row.get("port") or 0)
+            except (TypeError, ValueError):
+                continue
+            if not route_server or route_port <= 0:
+                continue
+            routes.append(
+                {
+                    "id": str(row.get("id") or f"route-{index + 1}").strip(),
+                    "label": str(row.get("label") or "").strip(),
+                    "server": route_server,
+                    "port": route_port,
+                    "primary": bool(row.get("primary", index == 0)),
+                }
+            )
+    if routes:
+        payload["routes"] = routes
     return payload
 
 

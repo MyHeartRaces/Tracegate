@@ -1638,6 +1638,25 @@ def _write_mtproto_state(
                     for port in public_ports
                 ],
             }
+            direct_backup_host = str(settings.mtproto_direct_backup_host or "").strip()
+            if is_tunnel and direct_backup_host:
+                normalized_backup_host = normalize_mtproto_domain(direct_backup_host)
+                profile_payload["routes"] = [
+                    {
+                        "id": "entry",
+                        "label": "Через Entry (основной)",
+                        "server": normalized_domain,
+                        "port": int(payload["publicPort"]),
+                        "primary": True,
+                    },
+                    {
+                        "id": "endpoint-direct",
+                        "label": "Напрямую к Endpoint (резерв)",
+                        "server": normalized_backup_host,
+                        "port": int(payload["publicPort"]),
+                        "primary": False,
+                    },
+                ]
             changed = _write_secret_text_if_changed(profile_path, _json_text(profile_payload)) or changed
             if mtproto_runtime in {"mtg", "telemt"} and mtg_config is not None:
                 changed = _write_secret_text_if_changed(mtproto_config_file, mtg_config.config_text) or changed

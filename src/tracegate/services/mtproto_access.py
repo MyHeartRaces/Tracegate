@@ -75,6 +75,49 @@ def _mtproto_profile_server(
     return hosts[(base_index + max(0, int(ingress_generation))) % len(hosts)]
 
 
+def _mtproto_profile_routes(
+    base_profile: dict[str, Any],
+    *,
+    default_server: str,
+    default_ports: list[int],
+) -> list[dict[str, Any]]:
+    configured = base_profile.get("routes")
+    routes: list[dict[str, Any]] = []
+    if isinstance(configured, list):
+        for index, raw_route in enumerate(configured):
+            if not isinstance(raw_route, dict):
+                continue
+            server = str(raw_route.get("server") or "").strip()
+            try:
+                port = int(raw_route.get("port") or 0)
+            except (TypeError, ValueError):
+                port = 0
+            if not server or port <= 0:
+                continue
+            routes.append(
+                {
+                    "id": str(raw_route.get("id") or f"route-{index + 1}").strip(),
+                    "label": str(raw_route.get("label") or "").strip(),
+                    "server": server,
+                    "port": port,
+                    "primary": bool(raw_route.get("primary", index == 0)),
+                }
+            )
+    if routes:
+        routes.sort(key=lambda row: not bool(row["primary"]))
+        return routes
+    return [
+        {
+            "id": "primary",
+            "label": "",
+            "server": default_server,
+            "port": port,
+            "primary": index == 0,
+        }
+        for index, port in enumerate(default_ports)
+    ]
+
+
 def _raw_secret_from_client_secret(base_profile: dict[str, Any]) -> str:
     client_secret = "".join(
         ch for ch in str(base_profile.get("clientSecretHex") or "").strip().lower() if ch in "0123456789abcdef"
@@ -298,18 +341,27 @@ def issue_mtproto_access_profile(
         link_domain = base_domain or str(base_profile.get("tlsDomain") or "")
         if base_transport != "tls":
             link_domain = ""
+        route_specs = _mtproto_profile_routes(
+            base_profile,
+            default_server=selected_server,
+            default_ports=ports,
+        )
         link_rows = []
-        for port in ports:
+        for route in route_specs:
             links = build_mtproto_share_links(
-                server=selected_server,
-                port=port,
+                server=str(route["server"]),
+                port=int(route["port"]),
                 secret_hex=secret_hex,
                 transport=None if secret_policy == "shared" else base_transport,
                 domain=link_domain or None,
             )
             link_rows.append(
                 {
-                    "port": port,
+                    "id": str(route["id"]),
+                    "label": str(route["label"]),
+                    "server": str(route["server"]),
+                    "port": int(route["port"]),
+                    "primary": bool(route["primary"]),
                     "clientSecretHex": links.client_secret_hex,
                     "tgUri": links.tg_uri,
                     "httpsUrl": links.https_url,
@@ -320,6 +372,7 @@ def issue_mtproto_access_profile(
             set_mtproto_access_entries(settings, previous_entries)
         raise DecoyAuthConfigError("unable to build MTProto access profile") from exc
     primary_link = link_rows[0]
+    selected_server = str(primary_link["server"])
 
     profile = {
         "protocol": "mtproto",
@@ -341,7 +394,7 @@ def issue_mtproto_access_profile(
         "ingressGeneration": int(current.get("ingressGeneration") or 0),
     }
     if len(link_rows) > 1:
-        profile["publicPorts"] = ports
+        profile["publicPorts"] = list(dict.fromkeys(int(row["port"]) for row in link_rows))
         profile["links"] = link_rows
     if current.get("label"):
         profile["label"] = str(current["label"])

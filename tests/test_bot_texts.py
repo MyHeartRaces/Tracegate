@@ -815,7 +815,9 @@ async def test_mtproto_open_issues_profile_and_sends_links(monkeypatch: pytest.M
     assert "Порт 443" in link_text
     assert "port=443" in link_text
     assert "tg://proxy?server=proxied.tracegate.test&port=443" in link_text
-    assert len(callback.message.answer_photo_calls) == 1
+    assert len(callback.message.answer_photo_calls) == 2
+    assert callback.message.answer_photo_calls[0][1]["caption"] == "📷 Маршрут 1"
+    assert callback.message.answer_photo_calls[1][1]["caption"] == "📷 Маршрут 2"
     assert "Telegram Proxy отправлен" in callback.answers[-1]
 
 

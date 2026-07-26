@@ -1,5 +1,10 @@
 # Changelog
 
+## v3.1.28 - 2026-07-26
+
+- Restored the dedicated Entry-to-Endpoint Telegram Proxy path as the primary route.
+- Added an opt-in direct Endpoint MTProto backup and dual-route bot delivery.
+
 ## v3.1.27 - 2026-07-26
 
 - Detect actual Telemt uptime resets instead of treating every normal uptime

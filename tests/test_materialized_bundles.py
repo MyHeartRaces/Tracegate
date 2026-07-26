@@ -553,6 +553,24 @@ def test_render_materialized_bundles_uses_configured_mtproto_link_upstream(tmp_p
     assert "be_transit_mtproto" not in transit_haproxy
 
 
+def test_render_materialized_bundles_exposes_optional_endpoint_direct_mtproto_backup(tmp_path: Path) -> None:
+    env = _base_env(tmp_path)
+    env["MTPROTO_ROUTE_MODE"] = "entry-endpoint-tunnel"
+    env["MTPROTO_DIRECT_BACKUP_HOST"] = "198.51.100.109"
+    env["MTPROTO_LINK_PORT"] = "9555"
+
+    ctx = MaterializedBundleRenderContext.from_environ(env)
+    render_materialized_bundles(ctx)
+
+    entry_haproxy = (ctx.materialized_root / "base-entry" / "haproxy.cfg").read_text(encoding="utf-8")
+    transit_haproxy = (ctx.materialized_root / "base-transit" / "haproxy.cfg").read_text(encoding="utf-8")
+
+    assert "server mtproto transit.tracegate.test:9555 check-send-proxy send-proxy-v2" in entry_haproxy
+    assert "acl mtproto_tls_sni req.ssl_sni -i proxied.tracegate.test" in transit_haproxy
+    assert "use_backend be_transit_mtproto if mtproto_tls_sni" in transit_haproxy
+    assert "server transit_mtproto 127.0.0.1:9555 check send-proxy-v2" in transit_haproxy
+
+
 def test_render_materialized_bundles_injects_hysteria_finalmask_and_ech(tmp_path: Path) -> None:
     env = _base_env(tmp_path)
     env["AGENT_RUNTIME_PROFILE"] = "xray-centric"

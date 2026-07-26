@@ -1360,6 +1360,57 @@ def test_reconcile_materializes_telemt_with_per_user_hot_reload_config(tmp_path:
     assert 'mask_host = "2gis.ru"' in config
 
 
+def test_reconcile_materializes_entry_and_endpoint_mtproto_routes_for_tunnel(tmp_path: Path) -> None:
+    settings = Settings(
+        agent_data_root=str(tmp_path),
+        agent_runtime_mode="systemd",
+        agent_role="TRANSIT",
+        agent_runtime_profile="xray-centric",
+        default_transit_host="endpoint.example.org",
+        mtproto_domain="entry.example.org",
+        mtproto_tls_domain="entry.example.org",
+        mtproto_transport="tls",
+        mtproto_public_port=443,
+        mtproto_route_mode="entry-endpoint-tunnel",
+        mtproto_direct_backup_host="203.0.113.20",
+        mtproto_link_port=9445,
+        mtproto_link_trusted_cidrs="203.0.113.10/32",
+        mtproto_domain_fronting_host="203.0.113.10",
+        private_mtproto_runtime="telemt",
+        private_mtproto_secret_file=str(tmp_path / "secrets" / "mtproto.txt"),
+    )
+
+    _write(tmp_path / "secrets" / "mtproto.txt", "00112233445566778899aabbccddeeff")
+    _write(
+        tmp_path / "base/xray/config.json",
+        json.dumps({"inbounds": [], "outbounds": [{"tag": "direct", "protocol": "freedom"}], "routing": {"rules": []}}),
+    )
+    _write(tmp_path / "base/nginx/nginx.conf", "events {}\nhttp {}\n")
+    _write(tmp_path / "base/haproxy/haproxy.cfg", "frontend fe\n  bind :443\n")
+
+    reconcile_all(settings)
+
+    public_profile = json.loads(
+        (tmp_path / "private" / "mtproto" / "public-profile.json").read_text(encoding="utf-8")
+    )
+    assert public_profile["routes"] == [
+        {
+            "id": "entry",
+            "label": "Через Entry (основной)",
+            "server": "entry.example.org",
+            "port": 443,
+            "primary": True,
+        },
+        {
+            "id": "endpoint-direct",
+            "label": "Напрямую к Endpoint (резерв)",
+            "server": "203.0.113.20",
+            "port": 443,
+            "primary": False,
+        },
+    ]
+
+
 def test_reconcile_materializes_entry_local_telemt_egress_through_socks5(tmp_path: Path) -> None:
     settings = Settings(
         agent_data_root=str(tmp_path),

@@ -259,3 +259,45 @@ def test_issue_mtproto_access_profile_rotates_across_ingress_hosts(tmp_path) -> 
 
     assert {profile["server"] for profile in profiles} == set(payload["servers"])
     assert [profile["ingressGeneration"] for profile in profiles] == [0, 1, 2]
+
+
+def test_issue_mtproto_access_profile_returns_entry_primary_and_endpoint_backup(tmp_path) -> None:
+    profile_path = tmp_path / "public-profile.json"
+    access_state_path = tmp_path / "issued.json"
+    _write_profile(profile_path)
+    payload = json.loads(profile_path.read_text(encoding="utf-8"))
+    payload["routes"] = [
+        {
+            "id": "entry",
+            "label": "Через Entry (основной)",
+            "server": "entry.tracegate.test",
+            "port": 443,
+            "primary": True,
+        },
+        {
+            "id": "endpoint-direct",
+            "label": "Напрямую к Endpoint (резерв)",
+            "server": "203.0.113.20",
+            "port": 443,
+            "primary": False,
+        },
+    ]
+    profile_path.write_text(json.dumps(payload), encoding="utf-8")
+    settings = Settings(
+        mtproto_public_profile_file=str(profile_path),
+        mtproto_issued_state_file=str(access_state_path),
+    )
+
+    profile, _previous_entries, _next_entries, _changed = issue_mtproto_access_profile(
+        settings,
+        telegram_id=123456,
+    )
+
+    assert profile["server"] == "entry.tracegate.test"
+    assert [row["id"] for row in profile["links"]] == ["entry", "endpoint-direct"]
+    assert [row["server"] for row in profile["links"]] == ["entry.tracegate.test", "203.0.113.20"]
+    assert profile["links"][0]["primary"] is True
+    assert profile["links"][1]["primary"] is False
+    assert profile["links"][0]["clientSecretHex"] == profile["links"][1]["clientSecretHex"]
+    assert "server=entry.tracegate.test" in profile["links"][0]["httpsUrl"]
+    assert "server=203.0.113.20" in profile["links"][1]["httpsUrl"]

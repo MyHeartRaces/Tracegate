@@ -393,6 +393,9 @@ class Settings(BaseSettings):
     mtproto_transport: str = "tls"
     mtproto_public_port: int = 443
     mtproto_route_mode: str = "endpoint-direct"
+    # Optional literal host/IP advertised as a second, direct-to-Endpoint
+    # MTProto route. The primary mtproto_domain remains the Entry route.
+    mtproto_direct_backup_host: str = ""
     mtproto_egress_socks_port: int = 11084
     mtproto_link_port: int = Field(default=9445, validation_alias=AliasChoices("MTPROTO_LINK_PORT"))
     mtproto_domain_fronting_host: str = ""

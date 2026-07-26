@@ -440,7 +440,9 @@ class MaterializedBundleRenderContext:
     # it is deliberately separate from mtproto_upstream, which stays the
     # role-local Telemt listener.
     mtproto_entry_link_upstream: str
+    mtproto_link_port: int
     mtproto_route_mode: str
+    mtproto_direct_backup_host: str
     mtproto_egress_socks_port: int
     mtproto_entry_backhaul_uuid: str
     decoy_dir: str
@@ -652,6 +654,7 @@ class MaterializedBundleRenderContext:
             label="MTPROTO_ENTRY_LINK_UPSTREAM",
         )
         mtproto_route_mode = _first(env, "MTPROTO_ROUTE_MODE", default="entry-endpoint-tunnel")
+        mtproto_direct_backup_host = _first(env, "MTPROTO_DIRECT_BACKUP_HOST")
         mtproto_egress_socks_port = _int_env(
             env,
             "MTPROTO_EGRESS_SOCKS_PORT",
@@ -767,7 +770,9 @@ class MaterializedBundleRenderContext:
             mtproto_tls_domain=mtproto_tls_domain,
             mtproto_upstream=mtproto_upstream,
             mtproto_entry_link_upstream=mtproto_entry_link_upstream,
+            mtproto_link_port=mtproto_link_port,
             mtproto_route_mode=mtproto_route_mode,
+            mtproto_direct_backup_host=mtproto_direct_backup_host,
             mtproto_egress_socks_port=mtproto_egress_socks_port,
             mtproto_entry_backhaul_uuid=mtproto_entry_backhaul_uuid,
             decoy_dir=decoy_dir,
@@ -1567,13 +1572,25 @@ def render_materialized_bundles(ctx: MaterializedBundleRenderContext) -> None:
             "\nbackend be_transit_shadowtls\n"
             "  server transit_shadowtls 127.0.0.1:14443 check\n"
         )
-    # entry-endpoint-tunnel: Telemt on the Endpoint listens on its own source-gated
-    # link port (default 9445) and the Entry relay dials it directly, so the public
-    # :443 frontend carries no MTProto backend. entry-local mode terminates Telemt on
-    # the Entry, so the Endpoint has no MTProto backend in that mode either.
     mtproto_acl = ""
     mtproto_route = ""
     mtproto_backend = ""
+    if (
+        ctx.mtproto_route_mode == "entry-endpoint-tunnel"
+        and ctx.mtproto_domain
+        and ctx.mtproto_direct_backup_host
+    ):
+        # Optional direct backup: the Endpoint public :443 demux forwards the
+        # same FakeTLS SNI to Endpoint-local Telemt. The primary path remains
+        # Entry -> source-gated :9445; this loopback hop is only for clients
+        # explicitly using the backup Endpoint address.
+        mtproto_sni = str(ctx.mtproto_tls_domain or ctx.mtproto_domain).strip()
+        mtproto_acl = f"  acl mtproto_tls_sni req.ssl_sni -i {mtproto_sni}"
+        mtproto_route = "  use_backend be_transit_mtproto if mtproto_tls_sni"
+        mtproto_backend = (
+            "\nbackend be_transit_mtproto\n"
+            f"  server transit_mtproto 127.0.0.1:{ctx.mtproto_link_port} check send-proxy-v2\n"
+        )
     transit_haproxy = transit_haproxy.replace("REPLACE_MTPROTO_ACL", mtproto_acl)
     transit_haproxy = transit_haproxy.replace("REPLACE_MTPROTO_ROUTE", mtproto_route)
     transit_haproxy = transit_haproxy.replace("REPLACE_MTPROTO_BACKEND", mtproto_backend)
