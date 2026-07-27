@@ -736,13 +736,15 @@ def _slo_alert_rules(ds_uid: str, *, folder_uid: str) -> list[dict[str, Any]]:
             group=group,
             ds_uid=ds_uid,
             expr=(
-                'max(histogram_quantile(0.95, sum by (le, component) (rate(tracegate_http_request_duration_seconds_bucket{namespace="tracegate",job="tracegate-agent"}[5m]))))'
+                'max(histogram_quantile(0.95, sum by (le, component) '
+                '(rate(tracegate_http_request_duration_seconds_bucket'
+                '{namespace="tracegate",job="tracegate-agent",route!="/metrics"}[5m]))))'
             ),
             evaluator="gt",
             threshold=1.0,
             annotations={
                 "summary": "Agent HTTP latency p95 is above 1s (5m)",
-                "description": "Max agent HTTP request duration p95 is above 1s",
+                "description": "Max agent control HTTP request duration p95 is above 1s; internal metrics collection is excluded",
             },
             labels={
                 **base_labels,

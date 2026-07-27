@@ -393,6 +393,7 @@ def test_slo_alert_rules_cover_api_bot_and_agent() -> None:
         in agent_latency["data"][0]["model"]["expr"]
     )
     assert 'job="tracegate-agent"' in agent_latency["data"][0]["model"]["expr"]
+    assert 'route!="/metrics"' in agent_latency["data"][0]["model"]["expr"]
     assert (
         agent_latency["data"][1]["model"]["conditions"][0]["evaluator"]["type"] == "gt"
     )
