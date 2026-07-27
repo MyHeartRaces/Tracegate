@@ -17,8 +17,9 @@ def check(root: Path, *, compose_runtime: bool = False) -> None:
     deploy_path = root / "deploy/host/tracegate-host-deploy"
     install_path = root / "deploy/host/tracegate-host-install"
     backup_path = root / "deploy/host/tracegate-db-backup"
+    qdisc_path = root / "deploy/host/tracegate-network-qdisc"
     env_path = root / "deploy/host/deploy.env.example"
-    for path in (deploy_path, install_path, backup_path, env_path):
+    for path in (deploy_path, install_path, backup_path, qdisc_path, env_path):
         _require(path.is_file(), f"missing host deployment file: {path.relative_to(root)}")
     _require(not (root / "deploy/host/compose.yaml").exists(), "retired Compose file is still present")
     _require(not (root / "deploy/host/tracegate-host.service").exists(), "retired Compose unit is still present")
@@ -97,6 +98,7 @@ def check(root: Path, *, compose_runtime: bool = False) -> None:
         "tracegate-db-backup.service": "/usr/local/sbin/tracegate-db-backup",
         "tracegate-db-backup.timer": "Persistent=true",
         "tracegate-backhaul-fragment@.service": "tracegate-backhaul-fragment-config %i",
+        "tracegate-network-qdisc.service": "/usr/local/sbin/tracegate-network-qdisc",
     }
     for name, token in units.items():
         text = (root / "deploy/systemd" / name).read_text()
@@ -110,7 +112,7 @@ def check(root: Path, *, compose_runtime: bool = False) -> None:
     for forbidden in ("TRACEGATE_IMAGE", "POSTGRES_IMAGE", "TRACEGATE_COMPOSE_PROFILES"):
         _require(forbidden not in env, f"deployment example still contains Compose field: {forbidden}")
 
-    for script in (deploy_path, install_path, backup_path):
+    for script in (deploy_path, install_path, backup_path, qdisc_path):
         subprocess.run(["bash", "-n", str(script)], check=True)
 
     dockerfile_path = root / "Dockerfile"

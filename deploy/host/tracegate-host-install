@@ -61,11 +61,13 @@ done
 install -m 0755 "${runtime}/deploy/systemd/tracegate-shadowtls-env" "${LOCAL_SBIN_DIR}/tracegate-shadowtls-env"
 install -m 0755 "${runtime}/deploy/systemd/tracegate-telemt-permissions" "${LOCAL_SBIN_DIR}/tracegate-telemt-permissions"
 install -m 0755 "${runtime}/deploy/host/tracegate-db-backup" "${LOCAL_SBIN_DIR}/tracegate-db-backup"
+install -m 0755 "${runtime}/deploy/host/tracegate-network-qdisc" "${LOCAL_SBIN_DIR}/tracegate-network-qdisc"
 install -m 0755 "${runtime}/deploy/host/tracegate-certbot-deploy-hook" \
   "${LETSENCRYPT_DEPLOY_HOOK_DIR}/reload-tracegate-tls.sh"
 install -m 0644 "${runtime}/deploy/host/90-tracegate-quic.conf" "${SYSCTL_DIR}/90-tracegate-quic.conf"
 "${SYSCTL}" -p "${SYSCTL_DIR}/90-tracegate-quic.conf"
 "${SYSTEMCTL}" daemon-reload
+"${SYSTEMCTL}" enable --now tracegate-network-qdisc.service
 
 echo "staged Tracegate host release ${VERSION} under ${release_root}"
 echo "activate with ${runtime}/deploy/host/tracegate-host-deploy deploy ${VERSION}"

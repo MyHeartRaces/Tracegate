@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Reapply the `fq` queue discipline after the default-route interface becomes
+  available, so BBR pacing does not silently remain on the boot-time
+  `fq_codel` discipline after a live runtime deployment.
+
 ## v3.1.28 - 2026-07-26
 
 - Restored the dedicated Entry-to-Endpoint Telegram Proxy path as the primary route.

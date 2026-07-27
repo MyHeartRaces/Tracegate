@@ -62,6 +62,13 @@ def check_host_runtime(root: Path) -> None:
     host_install = _read(root / "deploy/host/tracegate-host-install")
     _require(host_install, "90-tracegate-quic.conf", label="host installer")
     _require(host_install, '"${SYSCTL}" -p', label="host installer")
+    _require(host_install, "tracegate-network-qdisc", label="host installer")
+
+    qdisc_script = _read(root / "deploy/host/tracegate-network-qdisc")
+    _require(qdisc_script, 'qdisc replace dev "${interface}" root fq', label="host qdisc helper")
+    qdisc_unit = _read(root / "deploy/systemd/tracegate-network-qdisc.service")
+    _require(qdisc_unit, "After=network-online.target", label="host qdisc unit")
+    _require(qdisc_unit, "ExecStart=/usr/local/sbin/tracegate-network-qdisc", label="host qdisc unit")
 
     entry_firewall = _read(root / "bundles/base-entry/nftables.conf")
     transit_firewall = _read(root / "bundles/base-transit/nftables.conf")

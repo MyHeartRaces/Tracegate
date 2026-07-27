@@ -1,0 +1,12 @@
+[Unit]
+Description=Tracegate TCP pacing qdisc
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/tracegate-network-qdisc
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

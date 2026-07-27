@@ -25,6 +25,7 @@ def _release(root: Path, version: str) -> Path:
     _executable(runtime / "deploy/systemd/tracegate-shadowtls-env")
     _executable(runtime / "deploy/systemd/tracegate-telemt-permissions")
     _executable(runtime / "deploy/host/tracegate-db-backup")
+    _executable(runtime / "deploy/host/tracegate-network-qdisc")
     _executable(runtime / "deploy/host/tracegate-certbot-deploy-hook")
     (runtime / "scripts/check_host_runtime.py").write_text("raise SystemExit(0)\n")
     (runtime / "scripts/check_host_deploy.py").write_text("raise SystemExit(0)\n")

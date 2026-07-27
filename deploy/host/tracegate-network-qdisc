@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+IP="${TRACEGATE_IP:-ip}"
+TC="${TRACEGATE_TC:-tc}"
+NETWORK_INTERFACE="${TRACEGATE_NETWORK_INTERFACE:-}"
+
+command -v "${IP}" >/dev/null 2>&1 || {
+  echo "tracegate network qdisc: missing command: ${IP}" >&2
+  exit 2
+}
+command -v "${TC}" >/dev/null 2>&1 || {
+  echo "tracegate network qdisc: missing command: ${TC}" >&2
+  exit 2
+}
+
+if [ -n "${NETWORK_INTERFACE}" ]; then
+  interfaces=("${NETWORK_INTERFACE}")
+else
+  interfaces=()
+  while IFS= read -r interface; do
+    [ -z "${interface}" ] || interfaces+=("${interface}")
+  done < <(
+      "${IP}" -o route show default |
+        awk '{for (field_no = 1; field_no <= NF; field_no++) if ($field_no == "dev") print $(field_no + 1)}' |
+        sort -u
+    )
+fi
+
+[ "${#interfaces[@]}" -gt 0 ] || {
+  echo "tracegate network qdisc: no default-route interface found" >&2
+  exit 2
+}
+
+for interface in "${interfaces[@]}"; do
+  "${IP}" link show dev "${interface}" >/dev/null
+  "${TC}" qdisc replace dev "${interface}" root fq
+done

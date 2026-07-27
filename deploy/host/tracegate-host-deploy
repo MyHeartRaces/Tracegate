@@ -29,6 +29,7 @@ load_deploy_env() {
     endpoint)
       RUNTIME_ENV="${TRACEGATE_RUNTIME_ENV:-${ETC_DIR}/tracegate.env}"
       ROLE_UNITS=(
+        tracegate-network-qdisc.service
         tracegate-wireguard.service
         tracegate-xray@transit.service
         tracegate-nginx@transit.service
@@ -58,6 +59,7 @@ load_deploy_env() {
     entry)
       RUNTIME_ENV="${TRACEGATE_ENTRY_RUNTIME_ENV:-${ETC_DIR}/tracegate-entry.env}"
       ROLE_UNITS=(
+        tracegate-network-qdisc.service
         tracegate-entry-firewall.service
         tracegate-xray@entry.service
         tracegate-hysteria@entry.service
@@ -135,6 +137,8 @@ sync_release_files() {
     install -m 0755 "${runtime}/deploy/systemd/tracegate-telemt-permissions" "${LOCAL_SBIN_DIR}/tracegate-telemt-permissions"
   [ ! -f "${runtime}/deploy/host/tracegate-db-backup" ] || \
     install -m 0755 "${runtime}/deploy/host/tracegate-db-backup" "${LOCAL_SBIN_DIR}/tracegate-db-backup"
+  [ ! -f "${runtime}/deploy/host/tracegate-network-qdisc" ] || \
+    install -m 0755 "${runtime}/deploy/host/tracegate-network-qdisc" "${LOCAL_SBIN_DIR}/tracegate-network-qdisc"
   [ ! -f "${runtime}/deploy/host/tracegate-certbot-deploy-hook" ] || \
     install -m 0755 "${runtime}/deploy/host/tracegate-certbot-deploy-hook" \
       "${LETSENCRYPT_DEPLOY_HOOK_DIR}/reload-tracegate-tls.sh"
