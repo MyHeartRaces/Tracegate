@@ -214,7 +214,7 @@ def check_host_runtime(root: Path) -> None:
     _require(sync_unit, "desired-state.json", label="WireGuard peer synchronizer unit")
     _require(sync_unit, "WIREGUARD_SYNC_KEEP_STALE_PEERS=false", label="WireGuard peer synchronizer unit")
 
-    latest_units = (
+    application_units = (
         "tracegate-api.service",
         "tracegate-bot.service",
         "tracegate-dispatcher.service",
@@ -222,10 +222,10 @@ def check_host_runtime(root: Path) -> None:
         "tracegate-agent-entry.service",
         "tracegate-entry-firewall.service",
         "tracegate-db-backup.service",
+    )
+    rolling_units = (
         "tracegate-xray@.service",
         "tracegate-xray-ss2022.service",
-        "tracegate-hysteria@.service",
-        "tracegate-hysteria-salamander.service",
         "tracegate-shadowtls.service",
         "tracegate-shadowtls-entry2.service",
         "tracegate-shadowtls-entry.service",
@@ -234,24 +234,24 @@ def check_host_runtime(root: Path) -> None:
         "tracegate-backhaul-fragment@.service",
         "tracegate-wstunnel-wireguard.service",
         "tracegate-mtproto@.service",
-        "tracegate-prometheus.service",
-        "tracegate-grafana.service",
     )
-    for unit_name in latest_units:
+    pinned_units = {
+        "tracegate-hysteria@.service": "docker.io/tobyxdd/hysteria:v2.12.2",
+        "tracegate-hysteria-salamander.service": "docker.io/tobyxdd/hysteria:v2.12.2",
+        "tracegate-prometheus.service": "prom/prometheus:v3.14.0",
+        "tracegate-grafana.service": "grafana/grafana:13.2.0",
+    }
+    for unit_name in application_units:
         unit = _read(root / "deploy/systemd" / unit_name)
-        if unit_name in {
-            "tracegate-api.service",
-            "tracegate-bot.service",
-            "tracegate-dispatcher.service",
-            "tracegate-agent.service",
-            "tracegate-agent-entry.service",
-            "tracegate-entry-firewall.service",
-            "tracegate-db-backup.service",
-        }:
-            if "k3s" in unit.lower() or "kubectl" in unit.lower():
-                raise HostRuntimeCheckError(f"{unit_name} still references retired cluster runtime")
-            continue
-        _require(unit, ":latest", label=unit_name)
+        if "k3s" in unit.lower() or "kubectl" in unit.lower():
+            raise HostRuntimeCheckError(f"{unit_name} still references retired cluster runtime")
+
+    for unit_name in (*rolling_units, *pinned_units):
+        unit = _read(root / "deploy/systemd" / unit_name)
+        if unit_name in pinned_units:
+            _require(unit, pinned_units[unit_name], label=unit_name)
+        else:
+            _require(unit, ":latest", label=unit_name)
         _require(unit, "docker pull", label=unit_name)
         _require(unit, "SuccessExitStatus=143", label=unit_name)
         if "@sha256:" in unit:

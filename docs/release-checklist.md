@@ -6,8 +6,9 @@
 - `make release-check` passes.
 - `scripts/build_release_artifacts.sh VERSION` produces wheel, sdist,
   `tracegate-host-runtime-VERSION.tar.gz` and `SHA256SUMS`.
-- Runtime containers use their upstream `latest` tags and are pulled before service start;
-  mutable `latest` and version tags are not production inputs.
+- Rolling runtime containers use their upstream `latest` tags and are pulled
+  before service start. Compatibility-sensitive runtimes use reviewed version
+  tags that have passed production-config and legacy-client probes.
 - The public privacy scanner reports no live address, domain, credential,
   private key, client export or operator filesystem path.
 

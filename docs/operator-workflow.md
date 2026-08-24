@@ -6,7 +6,8 @@ Docker Compose, systemd and private role overlays.
 1. Build and validate the public release with `make release-check` and
    `scripts/build_release_artifacts.sh VERSION`.
 2. Record the selected application and PostgreSQL image tags in the private
-   repository. Production follows `latest` and pulls it before promotion.
+   repository. Rolling engines pull `latest` before promotion; compatibility-
+   sensitive engines use the reviewed version tags tracked in systemd units.
 3. Render/decrypt the reviewed private inventory into root-only files outside
    both repositories.
 4. Verify checksums, install the host-runtime archive into a new release

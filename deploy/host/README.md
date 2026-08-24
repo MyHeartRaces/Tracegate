@@ -29,8 +29,10 @@ Private inputs remain outside the public release:
    restored automatically. `tracegate-host-deploy rollback` performs the same
    restoration explicitly. Database migrations are never downgraded.
 
-The application wheel is versioned and immutable. Upstream data-plane engines
-continue to track `latest`; their systemd units pull before every start.
+The application wheel is versioned and immutable. Xray, ShadowTLS, Telemt and
+wstunnel continue to track `latest`; their systemd units pull before every
+start. Compatibility-sensitive Hysteria and observability runtimes use reviewed
+version tags and are also pulled before every start.
 
 When a provider blocks outbound NTP/UDP 123, set
 `TRACEGATE_ENABLE_RTC_CLOCK_SYNC=true` in that host's `deploy.env` only after

@@ -23,9 +23,10 @@ WireGuard or WSTunnel data plane.
 Before packaging or rollout, run `python3 scripts/check_host_runtime.py` and
 `tracegate-host-private-preflight` for each role-specific private profile tree.
 
-The units in this directory are the canonical host data-plane runtime. They
-pull upstream `latest` images before every start. Environment-specific values
-stay outside the release. `tracegate-shadowtls-env` derives the root-only
+The units in this directory are the canonical host data-plane runtime. Rolling
+engines pull upstream `latest` images before every start; compatibility-
+sensitive engines use reviewed version tags and are pulled the same way.
+Environment-specific values stay outside the release. `tracegate-shadowtls-env` derives the root-only
 ShadowTLS service environment from `/etc/tracegate/tracegate.env`; the example
 file documents the two resulting fields without containing a real secret.
 
