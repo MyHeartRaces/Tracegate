@@ -18,10 +18,10 @@ def test_dockerfile_does_not_embed_retired_mtg_runtime() -> None:
 def test_compatibility_checked_runtime_versions_are_pinned() -> None:
     repo_root = Path(__file__).resolve().parents[1]
     expected_images = {
-        "tracegate-hysteria@.service": "docker.io/tobyxdd/hysteria:v2.12.2",
-        "tracegate-hysteria-salamander.service": "docker.io/tobyxdd/hysteria:v2.12.2",
-        "tracegate-prometheus.service": "prom/prometheus:v3.14.0",
-        "tracegate-grafana.service": "grafana/grafana:13.2.0",
+        "tracegate-hysteria@.service": "docker.io/tobyxdd/hysteria:v2.13.0",
+        "tracegate-hysteria-salamander.service": "docker.io/tobyxdd/hysteria:v2.13.0",
+        "tracegate-prometheus.service": "prom/prometheus:v3.15.1",
+        "tracegate-grafana.service": "grafana/grafana:13.2.4",
     }
 
     for unit_name, image in expected_images.items():
