@@ -1877,6 +1877,7 @@ async def admin_users(callback: CallbackQuery) -> None:
                 active_users=active_users,
                 blocked_users=active_blocked_users,
                 active_mtproto_grants=mtproto_rows,
+                hidden_user_ids=set(settings.admin_users_report_hidden_ids),
             )
         )
     except ApiClientError as exc:
