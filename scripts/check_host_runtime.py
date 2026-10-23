@@ -236,10 +236,10 @@ def check_host_runtime(root: Path) -> None:
         "tracegate-mtproto@.service",
     )
     pinned_units = {
-        "tracegate-hysteria@.service": "docker.io/tobyxdd/hysteria:v2.12.2",
-        "tracegate-hysteria-salamander.service": "docker.io/tobyxdd/hysteria:v2.12.2",
-        "tracegate-prometheus.service": "prom/prometheus:v3.14.0",
-        "tracegate-grafana.service": "grafana/grafana:13.2.0",
+        "tracegate-hysteria@.service": "docker.io/tobyxdd/hysteria:v2.13.0",
+        "tracegate-hysteria-salamander.service": "docker.io/tobyxdd/hysteria:v2.13.0",
+        "tracegate-prometheus.service": "prom/prometheus:v3.15.1",
+        "tracegate-grafana.service": "grafana/grafana:13.2.4",
     }
     for unit_name in application_units:
         unit = _read(root / "deploy/systemd" / unit_name)

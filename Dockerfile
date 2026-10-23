@@ -16,7 +16,7 @@ COPY --from=xray-runtime /usr/local/bin/xray /usr/local/bin/xray
 COPY --from=xray-runtime /usr/local/share/xray/geoip.dat /usr/local/bin/geoip.dat
 COPY --from=xray-runtime /usr/local/share/xray/geosite.dat /usr/local/bin/geosite.dat
 
-COPY pyproject.toml /app/
+COPY pyproject.toml requirements.lock /app/
 COPY alembic.ini /app/
 COPY alembic /app/alembic
 COPY src /app/src
@@ -36,6 +36,6 @@ RUN apt-get update \
         ca-certificates \
     && rm -rf /var/lib/apt/lists/* \
     && pip install --no-cache-dir --upgrade pip \
-    && pip install --no-cache-dir .
+    && pip install --no-cache-dir -c requirements.lock .
 
 CMD ["tracegate-api"]

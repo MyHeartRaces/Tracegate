@@ -1,43 +1,48 @@
 [build-system]
-requires = ["setuptools>=68", "wheel"]
+requires = ["setuptools>=84.2.1", "wheel>=0.48.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "tracegate"
-version = "3.1.35"
+version = "3.1.36"
 description = "Tracegate 3 control-plane, node-agent and Telegram bot"
-requires-python = ">=3.11"
+requires-python = ">=3.11,<3.15"
 authors = [{name = "Tracegate"}]
 license = "GPL-3.0-only"
 license-files = ["LICENSE"]
 dependencies = [
-  "fastapi>=0.115.0",
-  "uvicorn[standard]>=0.34.0",
-  "sqlalchemy>=2.0.36",
-  "alembic>=1.14.0",
-  "asyncpg>=0.30.0",
-  "psycopg[binary]>=3.2.0",
-  "pydantic>=2.10.0",
-  "pydantic-settings>=2.6.0",
-  "pyyaml>=6.0.0",
-  "httpx>=0.28.0",
-  "prometheus-client>=0.20.0",
-  "aiogram>=3.15.0",
-  "aiohttp>=3.14.4",
-  "python-dateutil>=2.9.0",
-  "qrcode[pil]>=7.4.2",
-  "grpcio>=1.70.0",
-  "protobuf>=5.29.0",
-  "cryptography>=50.0.0",
+  "fastapi>=0.161.1",
+  "uvicorn[standard]>=0.54.0",
+  "sqlalchemy[asyncio]>=2.0.55,<2.1",
+  "alembic>=1.20.1",
+  "asyncpg>=0.32.0",
+  "psycopg[binary]>=3.3.6",
+  "pydantic>=2.13.5,<2.14",
+  "pydantic-settings>=2.16.1",
+  "pyyaml>=6.0.3",
+  "httpx>=0.28.1",
+  "prometheus-client>=0.26.0",
+  "aiogram>=3.31.0",
+  "aiohttp>=3.14.5",
+  "python-dateutil>=3.0.0",
+  "qrcode[pil]>=8.2",
+  "grpcio>=1.84.1",
+  "protobuf>=7.36.2",
+  "cryptography>=50.0.2",
+  # Security floors for runtime dependencies introduced by HTTP, QR, and migration tooling.
+  "certifi>=2026.10.19",
+  "pillow>=13.0.0",
+  "multidict>=7.1.0",
+  "mako>=1.4.3",
 ]
 
 [project.optional-dependencies]
 dev = [
-  "build>=1.2.2",
-  "pytest>=8.3.0",
-  "pytest-asyncio>=0.25.0",
-  "ruff>=0.8.0",
-  "grpcio-tools>=1.70.0",
+  "build>=1.6.1",
+  "pytest>=9.1.1",
+  "pytest-asyncio>=1.4.0",
+  "ruff>=0.17.2",
+  "grpcio-tools>=1.84.1",
 ]
 
 [project.scripts]
@@ -82,3 +87,7 @@ asyncio_mode = "auto"
 
 [tool.ruff]
 extend-exclude = ["src/xray"]
+
+[tool.ruff.lint]
+# Preserve the existing checks when upgrading Ruff's expanded default rule set.
+select = ["E4", "E7", "E9", "F"]

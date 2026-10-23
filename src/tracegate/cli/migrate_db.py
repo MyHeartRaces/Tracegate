@@ -30,7 +30,9 @@ def _alembic_config(*, sync_database_url: str) -> Config:
         raise RuntimeError(f"alembic.ini not found: {path}")
 
     cfg = Config(str(path))
-    cfg.set_main_option("sqlalchemy.url", sync_database_url)
+    # Alembic uses ConfigParser interpolation; preserve URL-encoded credentials
+    # and Unix socket paths containing literal percent escapes.
+    cfg.set_main_option("sqlalchemy.url", sync_database_url.replace("%", "%%"))
     return cfg
 
 
