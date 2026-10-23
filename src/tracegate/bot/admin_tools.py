@@ -71,8 +71,13 @@ def build_admin_users_report(
     active_users: list[dict],
     blocked_users: list[dict],
     active_mtproto_grants: list[dict] | None = None,
+    hidden_user_ids: set[int] | None = None,
     max_rows: int = 80,
 ) -> str:
+    hidden = hidden_user_ids or set()
+    all_users = [row for row in all_users if int(row.get("telegram_id") or 0) not in hidden]
+    active_users = [row for row in active_users if int(row.get("telegram_id") or 0) not in hidden]
+    blocked_users = [row for row in blocked_users if int(row.get("telegram_id") or 0) not in hidden]
     all_sorted = sorted(all_users, key=lambda row: (str(row.get("role") or ""), int(row.get("telegram_id") or 0)))
     active_sorted = sorted(active_users, key=lambda row: (str(row.get("role") or ""), int(row.get("telegram_id") or 0)))
     blocked_sorted = sorted(blocked_users, key=lambda row: int(row.get("telegram_id") or 0))

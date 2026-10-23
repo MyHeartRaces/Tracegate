@@ -94,6 +94,28 @@ def test_build_admin_mtproto_report_lists_active_grants() -> None:
     assert "Источник: bot" in report
 
 
+def test_admin_report_hides_configured_accounts_but_preserves_proxy_grants() -> None:
+    visible = {"telegram_id": 1, "telegram_username": "visible_user", "role": "user"}
+    hidden = {"telegram_id": 2, "telegram_username": "hidden_user", "role": "user"}
+    users = [visible, hidden]
+    report = build_admin_users_report(
+        all_users=users,
+        active_users=users,
+        blocked_users=[hidden],
+        active_mtproto_grants=[{"telegram_id": 2, "display": "hidden_proxy", "role": "user"}],
+        hidden_user_ids={2},
+    )
+
+    assert "👥 Пользователи Tracegate: 1" in report
+    assert "🔌 Активные подключения: 1" in report
+    assert "⛔ Активные блокировки: 0" in report
+    assert "@visible_user (1)" in report
+    assert "@hidden_user (2)" not in report
+    assert "🔐 Активные Telegram Proxy: 1" in report
+    assert "hidden_proxy" in report
+    assert [row["telegram_id"] for row in users] == [1, 2]
+
+
 def test_format_role_label_translates_known_roles() -> None:
     assert format_role_label("user") == "Пользователь"
     assert format_role_label("admin") == "Администратор"

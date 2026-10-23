@@ -77,6 +77,9 @@ class Settings(BaseSettings):
     dispatcher_outbox_retention_max_batches_per_run: int = 20
 
     bot_token: str = ""
+    # Accounts omitted from the general/admin connection lists while their
+    # Telegram Proxy grants remain visible in the dedicated Proxy section.
+    admin_users_report_hidden_ids: list[int] = Field(default_factory=list)
     bot_api_base_url: str = "http://localhost:8080"
     bot_api_token: str = ""
     # Telegram bot can run either in polling mode (default) or via webhooks.
