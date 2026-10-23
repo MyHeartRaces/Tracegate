@@ -1,6 +1,6 @@
 FROM ghcr.io/xtls/xray-core:latest AS xray-runtime
 
-FROM python:slim
+FROM python:3.12-slim
 
 ARG VCS_REF=""
 LABEL org.opencontainers.image.title="tracegate" \
