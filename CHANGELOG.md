@@ -1,10 +1,83 @@
 # Changelog
 
-## Unreleased
+## v4.0.0 - 2026-11-12
 
+- Engine units never pull at start: every engine unit starts the image
+  recorded by immutable digest in the local artifact store
+  (`/var/lib/tracegate/artifacts`), verified by a read-only pre-start check,
+  so a restart can never change an engine version and an unreachable registry
+  no longer keeps a service down.
+- Added the tracked engine artifact registry `deploy/host/artifacts.json` and
+  the `tracegate-artifacts` operator CLI (`components`, `status`, `capture`,
+  `stage`, `promote`, `rollback`, `verify`); `stage` is the only command that
+  contacts a registry.
+- `tracegate-host-deploy deploy` now captures the running engine digests and
+  verifies the store before changing any state, and both host scripts install
+  the `tracegate-artifact-verify` helper.
 - Reapply the `fq` queue discipline after the default-route interface becomes
   available, so BBR pacing does not silently remain on the boot-time
   `fq_codel` discipline after a live runtime deployment.
+- Three-state Grafana alerting: missing metrics and failed rule queries no
+  longer render as service failures. Rules that used `noDataState: Alerting`
+  now report `NoData` and every rule uses `execErrState: Error`; the webhook
+  renders these as "NO DATA" and "QUERY ERROR", and neither ever escalates as
+  critical regardless of its severity label. The backhaul egress expressions
+  no longer map absent probe metrics to "all Chain egress failed".
+- New warning rule `tg-ops-backhaul-probe-nodata` ("NO DATA: backhaul egress
+  probe metrics missing") reports which backhaul channel's egress probe
+  metrics are absent. Rule changes take effect only after the operator
+  re-runs the Grafana bootstrap on the host, which is a separate approved
+  step.
+- Removed two client transport families: WireGuard over WebSocket (WGWS) and
+  the client Shadowsocks-2022 + ShadowTLS v3 profile. Neither can be issued;
+  existing rows still load, display and can be revoked, and migration
+  `c3a5e9d1f204` revokes the remaining ones. Their units
+  (`tracegate-shadowtls`, `tracegate-wireguard`, `tracegate-wireguard-sync`,
+  `tracegate-wstunnel-wireguard`) are stopped and removed by the next host
+  deploy. The client `ss2022-in` inbound, its HAProxy route on TCP/443, the
+  `/wgws` nginx path and the WireGuard forward/NAT rules are gone.
+- The Entry-to-Endpoint backhaul, which also uses Shadowsocks-2022 inside
+  ShadowTLS v3, is unchanged; a render-invariance test with a golden file
+  taken before the removal guards it.
+- A private profile handoff written by a pre-upgrade agent that still lists
+  entries of the retired families now produces a warning instead of a
+  validation error; the next agent reconcile rewrites it empty.
+- Port model: Endpoint TCP/8443 is now a declared public listener. The
+  Endpoint HAProxy frontend binds TCP/443 and TCP/8443 with identical SNI
+  dispatch, the Endpoint firewall template accepts TCP/8443, and the Endpoint
+  runtime contract, health checks, handoffs and preflight expect
+  `listen tcp/8443`. UDP/8443 stays dropped on both roles; Entry keeps TCP/8443
+  closed. The legacy MTProto fallback mode (`MTPROTO_PUBLIC_PORT=8443`) keeps its
+  `listen tcp/8443 mtproto fallback` check.
+- Direct VLESS/REALITY revisions are issued on `REALITY_DIRECT_PORT` (default
+  8443), including re-issues of existing connections; the previous revision
+  stays active in the second slot until the next re-issue. Chain stays on
+  TCP/443 and the WebSocket/gRPC backups are unchanged.
+- Telegram Proxy in the Entry tunnel mode is delivered only through Entry on
+  TCP/443; the direct Endpoint backup route is no longer delivered. With
+  `MTPROTO_DIRECT_BACKUP_HOST` set, Endpoint keeps routing the FakeTLS SNI on
+  TCP/443 only (never TCP/8443), so backup links users saved earlier keep
+  working. Entry never listens on TCP/8443 outside the legacy fallback mode.
+  Secrets are unchanged.
+- Hysteria2 port hopping for Direct revisions (`HYSTERIA_GECKO_HOP_PORTS`,
+  `HYSTERIA_SALAMANDER_HOP_PORTS`, randomized hop interval between
+  `HYSTERIA_HOP_MIN_INTERVAL_S` and `HYSTERIA_HOP_MAX_INTERVAL_S`). On by
+  default: the Endpoint host deploy generates a private random range per obfs
+  listener into the runtime environment when the keys are absent (an empty
+  value disables hopping). The Endpoint firewall gains a
+  `tracegate_hysteria_hop` nat table only when a range is configured; the
+  Hysteria containers get no extra privileges. Exports use the official
+  multi-port URI/YAML syntax and sing-box `server_ports` with `hop_interval`.
+  New issues and re-issues carry the range; stored revisions are unchanged.
+- Hysteria revisions verify the server certificate against the SNI
+  (`HYSTERIA_TLS_VERIFY`, default true), including re-issues; verification is
+  skipped only for an IP-literal server name or an explicit `tls_insecure`
+  override. No certificate pinning and no ECH by default. The obfuscation
+  chosen at creation (Gecko or Salamander) is kept on re-issue;
+  `HYSTERIA_DEFAULT_OBFS` (default gecko) applies when none was chosen. Chain
+  stays Gecko.
+- Telegram Proxy link messages now ask the user to update Telegram to the
+  latest version.
 
 ## v3.1.28 - 2026-07-26
 

@@ -38,8 +38,24 @@ def check(root: Path, *, compose_runtime: bool = False) -> None:
         "TRACEGATE_BACKUP_COMMAND",
         "wait_healthy",
         "database migrations were not downgraded",
+        "TRACEGATE_ARTIFACTS_CLI",
+        "capture --units",
+        "verify --units",
+        "tracegate-artifact-verify",
     ):
         _require(token in deploy, f"host deploy script is missing contract: {token}")
+    _require(
+        deploy.index("capture --units") < deploy.index("verify --units"),
+        "host deploy must capture engine digests before verifying the store",
+    )
+    _require(
+        deploy.index("verify --units") < deploy.rindex("capture_previous_state"),
+        "host deploy must verify the artifact store before changing any state",
+    )
+    _require(
+        deploy.index("capture --units") < deploy.rindex("sync_release_files"),
+        "host deploy must capture engine digests before installing unit files",
+    )
     for forbidden in ("docker compose", "TRACEGATE_IMAGE", "POSTGRES_IMAGE", "deploy.env.previous"):
         _require(forbidden not in deploy, f"host deploy script still contains retired contract: {forbidden}")
     _require(
@@ -84,6 +100,8 @@ def check(root: Path, *, compose_runtime: bool = False) -> None:
         "check_host_deploy.py",
         "90-tracegate-quic.conf",
         "systemctl",
+        "tracegate-artifacts",
+        "tracegate-artifact-verify",
     ):
         _require(token in installer, f"host installer is missing contract: {token}")
     _require("current.new" not in installer, "installer must stage without switching the active release")

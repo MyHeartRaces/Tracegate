@@ -127,8 +127,8 @@ def test_sync_inbound_users_skips_non_user_manager_inbound(monkeypatch) -> None:
     )
     monkeypatch.setattr(
         xray_api,
-        "add_shadowsocks2022_user",
-        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("unexpected ss2022 add")),
+        "add_hysteria_user",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("unexpected add")),
     )
     monkeypatch.setattr(
         xray_api,
@@ -138,8 +138,8 @@ def test_sync_inbound_users_skips_non_user_manager_inbound(monkeypatch) -> None:
 
     changed = xray_api.sync_inbound_users(
         Settings(),
-        inbound_tag="ss2022-in",
-        desired_email_to_user={"V3 - 1 - c3": {"protocol": "shadowsocks2022", "key": "user-key"}},
+        inbound_tag="hy2-in",
+        desired_email_to_user={"V3 - 1 - c3": {"protocol": "hysteria", "auth": "hy2-token-value"}},
     )
 
     assert changed is False

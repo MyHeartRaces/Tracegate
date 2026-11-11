@@ -1,0 +1,409 @@
+{
+  "bridge_env_helpers": {
+    "tracegate-backhaul-fragment-config": "#!/usr/bin/env python3\n\"\"\"Render one secret-free Xray TCP stream-slicing config for a ShadowTLS leg.\"\"\"\n\nfrom __future__ import annotations\n\nimport ipaddress\nimport json\nimport os\nfrom pathlib import Path\nimport re\nimport sys\nimport tempfile\nfrom urllib.parse import urlsplit\n\n\n_RANGE_RE = re.compile(r\"^(\\d+)(?:-(\\d+))?$\")\n\n\ndef _endpoint(value: str, *, default_port: int, label: str, loopback: bool = False) -> tuple[str, int]:\n    raw = str(value or \"\").strip()\n    if not raw:\n        raise ValueError(f\"{label} is missing\")\n    parsed = urlsplit(f\"//{raw}\")\n    host = str(parsed.hostname or \"\").strip()\n    port = int(parsed.port or default_port)\n    if not host or not 1 <= port <= 65535:\n        raise ValueError(f\"{label} must be host:port\")\n    if loopback:\n        try:\n            address = ipaddress.ip_address(host)\n        except ValueError as exc:\n            raise ValueError(f\"{label} must use a loopback IP\") from exc\n        if not address.is_loopback:\n            raise ValueError(f\"{label} must use a loopback IP\")\n    return host, port\n\n\ndef _range(value: str, *, label: str, minimum: int, maximum: int) -> str:\n    raw = str(value or \"\").strip()\n    match = _RANGE_RE.fullmatch(raw)\n    if match is None:\n        raise ValueError(f\"{label} must be an integer or integer range\")\n    lower = int(match.group(1))\n    upper = int(match.group(2) or lower)\n    if not minimum <= lower <= upper <= maximum:\n        raise ValueError(f\"{label} must stay within {minimum}-{maximum}\")\n    return raw\n\n\ndef _config(leg: str) -> tuple[Path, dict[str, object]]:\n    if leg not in {\"1\", \"2\"}:\n        raise ValueError(\"fragment leg must be 1 or 2\")\n    suffix = \"\" if leg == \"1\" else \"2\"\n    remote_default_port = 9443 if leg == \"1\" else 9444\n    local_default_port = 16443 if leg == \"1\" else 16444\n    remote_host, remote_port = _endpoint(\n        os.environ.get(f\"SHADOWTLS_BACKHAUL{suffix}_TARGET\", \"\"),\n        default_port=remote_default_port,\n        label=f\"SHADOWTLS_BACKHAUL{suffix}_TARGET\",\n    )\n    local_host, local_port = _endpoint(\n        os.environ.get(f\"SHADOWTLS_BACKHAUL_FRAGMENT{leg}_LISTEN\", f\"127.0.0.1:{local_default_port}\"),\n        default_port=local_default_port,\n        label=f\"SHADOWTLS_BACKHAUL_FRAGMENT{leg}_LISTEN\",\n        loopback=True,\n    )\n    packets_key = f\"SHADOWTLS_BACKHAUL_FRAGMENT{leg}_PACKETS\"\n    packets = _range(\n        os.environ.get(\n            packets_key,\n            os.environ.get(\"SHADOWTLS_BACKHAUL_FRAGMENT_PACKETS\", \"1-1\"),\n        ),\n        label=packets_key,\n        minimum=1,\n        maximum=3,\n    )\n    # ShadowTLS v3 authenticates the original ClientHello record. Xray's\n    # `tlshello` mode rewrites TLS record framing and invalidates that HMAC, so\n    # only byte-preserving TCP stream slicing is accepted here.\n    if not packets.startswith(\"1\"):\n        raise ValueError(\"SHADOWTLS_BACKHAUL_FRAGMENT_PACKETS must include the first stream write\")\n    length_key = f\"SHADOWTLS_BACKHAUL_FRAGMENT{leg}_LENGTH\"\n    length = _range(\n        os.environ.get(\n            length_key,\n            os.environ.get(\"SHADOWTLS_BACKHAUL_FRAGMENT_LENGTH\", \"1-4\"),\n        ),\n        label=length_key,\n        minimum=1,\n        maximum=512,\n    )\n    interval_key = f\"SHADOWTLS_BACKHAUL_FRAGMENT{leg}_INTERVAL_MS\"\n    interval = _range(\n        os.environ.get(\n            interval_key,\n            os.environ.get(\"SHADOWTLS_BACKHAUL_FRAGMENT_INTERVAL_MS\", \"1-2\"),\n        ),\n        label=interval_key,\n        minimum=0,\n        maximum=100,\n    )\n    path = Path(\n        os.environ.get(\n            \"TRACEGATE_BACKHAUL_FRAGMENT_CONFIG_FILE\",\n            f\"/etc/tracegate/private/backhaul-fragment/{leg}.json\",\n        )\n    )\n    payload: dict[str, object] = {\n        \"log\": {\"loglevel\": \"warning\"},\n        \"inbounds\": [\n            {\n                \"tag\": f\"backhaul-fragment-{leg}-in\",\n                \"listen\": local_host,\n                \"port\": local_port,\n                \"protocol\": \"dokodemo-door\",\n                \"settings\": {\"address\": remote_host, \"port\": remote_port, \"network\": \"tcp\"},\n            }\n        ],\n        \"outbounds\": [\n            {\n                \"tag\": f\"backhaul-fragment-{leg}-out\",\n                \"protocol\": \"freedom\",\n                \"settings\": {\n                    \"domainStrategy\": \"AsIs\",\n                    \"fragment\": {\"packets\": packets, \"length\": length, \"interval\": interval},\n                },\n            }\n        ],\n        \"routing\": {\n            \"rules\": [\n                {\n                    \"type\": \"field\",\n                    \"inboundTag\": [f\"backhaul-fragment-{leg}-in\"],\n                    \"outboundTag\": f\"backhaul-fragment-{leg}-out\",\n                }\n            ]\n        },\n    }\n    return path, payload\n\n\ndef main() -> int:\n    try:\n        path, payload = _config(sys.argv[1] if len(sys.argv) > 1 else \"\")\n    except (ValueError, OSError) as exc:\n        print(f\"tracegate backhaul fragment config: {exc}\", file=sys.stderr)\n        return 2\n    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)\n    path.parent.chmod(0o700)\n    fd, temporary = tempfile.mkstemp(dir=path.parent, suffix=\".tmp\")\n    try:\n        with os.fdopen(fd, \"w\", encoding=\"utf-8\") as stream:\n            json.dump(payload, stream, ensure_ascii=True, indent=2)\n            stream.write(\"\\n\")\n        os.chmod(temporary, 0o600)\n        os.replace(temporary, path)\n    finally:\n        if os.path.exists(temporary):\n            os.unlink(temporary)\n    return 0\n\n\nif __name__ == \"__main__\":\n    raise SystemExit(main())\n",
+    "tracegate-shadowtls-backhaul-env": "#!/usr/bin/env bash\nset -euo pipefail\n\n# Renders the Endpoint-side ShadowTLS v3 backhaul server environment. This\n# server terminates the source-gated backhaul port and forwards the decapsulated\n# stream to the isolated SS2022 backhaul inbound (127.0.0.1:18444). The public\n# port must be restricted to the Entry source address by host nftables.\n\nruntime_env=\"${TRACEGATE_ENV_FILE:-/etc/tracegate/tracegate.env}\"\ntarget_env=\"${TRACEGATE_SHADOWTLS_BACKHAUL_ENV_FILE:-/etc/tracegate/private/shadowtls/backhaul.env}\"\n\ntest -f \"${runtime_env}\" || {\n  echo \"tracegate shadowtls backhaul env: missing ${runtime_env}\" >&2\n  exit 1\n}\n\nset -a\n# shellcheck disable=SC1090\nsource \"${runtime_env}\"\nset +a\n\nlisten=\"${SHADOWTLS_BACKHAUL_LISTEN:-0.0.0.0:9443}\"\ntls_target=\"${SHADOWTLS_BACKHAUL_TLS_TARGET:-${SHADOWTLS_BACKHAUL_SNI:-${SHADOWTLS_BACKHAUL_SERVER_NAME:-}}}\"\npassword=\"${SHADOWTLS_BACKHAUL_PASSWORD:-}\"\nif [[ \"${listen}\" != *:* ]]; then\n  listen=\"0.0.0.0:${listen}\"\nfi\nif [[ \"${tls_target}\" != *:* ]]; then\n  tls_target=\"${tls_target}:443\"\nfi\ntest -n \"${tls_target%%:*}\" || {\n  echo \"tracegate shadowtls backhaul env: TLS target is missing\" >&2\n  exit 1\n}\ntest -n \"${password}\" || {\n  echo \"tracegate shadowtls backhaul env: password is missing\" >&2\n  exit 1\n}\n\ninstall -d -m 0700 \"$(dirname -- \"${target_env}\")\"\ntmp=\"${target_env}.tmp\"\numask 077\nprintf 'SHADOWTLS_BACKHAUL_LISTEN=%q\\nSHADOWTLS_BACKHAUL_TLS_TARGET=%q\\nSHADOWTLS_BACKHAUL_PASSWORD=%q\\n' \\\n  \"${listen}\" \"${tls_target}\" \"${password}\" >\"${tmp}\"\nchmod 0600 \"${tmp}\"\nmv -f \"${tmp}\" \"${target_env}\"\n",
+    "tracegate-shadowtls-backhaul2-env": "#!/usr/bin/env bash\nset -euo pipefail\n\n# Renders the Endpoint-side ShadowTLS v3 backhaul server #2 environment (pool leg 2,\n# a second ShadowTLS front on a dedicated source-gated port). Mirrors the leg-1\n# renderer but reads the SHADOWTLS_BACKHAUL2_* keys and forwards the decapsulated\n# stream to the same isolated SS2022 backhaul inbound (127.0.0.1:18444).\n\nruntime_env=\"${TRACEGATE_ENV_FILE:-/etc/tracegate/tracegate.env}\"\ntarget_env=\"${TRACEGATE_SHADOWTLS_BACKHAUL2_ENV_FILE:-/etc/tracegate/private/shadowtls/backhaul2.env}\"\n\ntest -f \"${runtime_env}\" || {\n  echo \"tracegate shadowtls backhaul2 env: missing ${runtime_env}\" >&2\n  exit 1\n}\n\nset -a\n# shellcheck disable=SC1090\nsource \"${runtime_env}\"\nset +a\n\nlisten=\"${SHADOWTLS_BACKHAUL2_LISTEN:-0.0.0.0:9444}\"\ntls_target=\"${SHADOWTLS_BACKHAUL2_TLS_TARGET:-${SHADOWTLS_BACKHAUL2_SNI:-}}\"\npassword=\"${SHADOWTLS_BACKHAUL2_PASSWORD:-${SHADOWTLS_BACKHAUL_PASSWORD:-}}\"\nif [[ \"${listen}\" != *:* ]]; then\n  listen=\"0.0.0.0:${listen}\"\nfi\nif [[ \"${tls_target}\" != *:* ]]; then\n  tls_target=\"${tls_target}:443\"\nfi\ntest -n \"${tls_target%%:*}\" || {\n  echo \"tracegate shadowtls backhaul2 env: TLS target is missing\" >&2\n  exit 1\n}\ntest -n \"${password}\" || {\n  echo \"tracegate shadowtls backhaul2 env: password is missing\" >&2\n  exit 1\n}\n\ninstall -d -m 0700 \"$(dirname -- \"${target_env}\")\"\ntmp=\"${target_env}.tmp\"\numask 077\nprintf 'SHADOWTLS_BACKHAUL2_LISTEN=%q\\nSHADOWTLS_BACKHAUL2_TLS_TARGET=%q\\nSHADOWTLS_BACKHAUL2_PASSWORD=%q\\n' \\\n  \"${listen}\" \"${tls_target}\" \"${password}\" >\"${tmp}\"\nchmod 0600 \"${tmp}\"\nmv -f \"${tmp}\" \"${target_env}\"\n",
+    "tracegate-shadowtls-entry-env": "#!/usr/bin/env bash\nset -euo pipefail\n\n# Renders the Entry-side ShadowTLS v3 backhaul client environment from the\n# operator runtime env. The client wraps the loopback SS2022 outbound\n# (127.0.0.1:15443) into a ShadowTLS session to the Endpoint backhaul listener.\n\nruntime_env=\"${TRACEGATE_ENV_FILE:-/etc/tracegate/tracegate-entry.env}\"\ntarget_env=\"${TRACEGATE_SHADOWTLS_ENTRY_ENV_FILE:-/etc/tracegate/private/shadowtls/entry.env}\"\n\ntest -f \"${runtime_env}\" || {\n  echo \"tracegate shadowtls entry env: missing ${runtime_env}\" >&2\n  exit 1\n}\n\nset -a\n# shellcheck disable=SC1090\nsource \"${runtime_env}\"\nset +a\n\nremote_target=\"${SHADOWTLS_BACKHAUL_TARGET:-}\"\ntarget=\"${SHADOWTLS_BACKHAUL_FRAGMENT1_LISTEN:-127.0.0.1:16443}\"\nsni=\"${SHADOWTLS_BACKHAUL_SNI:-${SHADOWTLS_BACKHAUL_SERVER_NAME:-}}\"\npassword=\"${SHADOWTLS_BACKHAUL_PASSWORD:-}\"\nif [[ \"${remote_target}\" != *:* ]]; then\n  remote_target=\"${remote_target}:9443\"\nfi\ntest -n \"${remote_target%%:*}\" || {\n  echo \"tracegate shadowtls entry env: SHADOWTLS_BACKHAUL_TARGET is missing\" >&2\n  exit 1\n}\n[[ \"${target}\" == 127.*:* || \"${target}\" == \"[::1]:\"* ]] || {\n  echo \"tracegate shadowtls entry env: fragment listener must be loopback\" >&2\n  exit 1\n}\ntest -n \"${sni}\" || {\n  echo \"tracegate shadowtls entry env: SHADOWTLS_BACKHAUL_SNI is missing\" >&2\n  exit 1\n}\ntest -n \"${password}\" || {\n  echo \"tracegate shadowtls entry env: SHADOWTLS_BACKHAUL_PASSWORD is missing\" >&2\n  exit 1\n}\n\ninstall -d -m 0700 \"$(dirname -- \"${target_env}\")\"\ntmp=\"${target_env}.tmp\"\numask 077\nprintf 'SHADOWTLS_BACKHAUL_TARGET=%q\\nSHADOWTLS_BACKHAUL_SNI=%q\\nSHADOWTLS_BACKHAUL_PASSWORD=%q\\n' \\\n  \"${target}\" \"${sni}\" \"${password}\" >\"${tmp}\"\nchmod 0600 \"${tmp}\"\nmv -f \"${tmp}\" \"${target_env}\"\n",
+    "tracegate-shadowtls-entry2-env": "#!/usr/bin/env bash\nset -euo pipefail\n\n# Renders the Entry-side ShadowTLS v3 backhaul client #2 environment (pool leg 2).\n# Wraps the loopback SS2022 outbound (127.0.0.1:15444) into a ShadowTLS session to\n# the Endpoint leg-2 backhaul listener, presenting the leg-2 front SNI.\n\nruntime_env=\"${TRACEGATE_ENV_FILE:-/etc/tracegate/tracegate-entry.env}\"\ntarget_env=\"${TRACEGATE_SHADOWTLS_ENTRY2_ENV_FILE:-/etc/tracegate/private/shadowtls/entry2.env}\"\n\ntest -f \"${runtime_env}\" || {\n  echo \"tracegate shadowtls entry2 env: missing ${runtime_env}\" >&2\n  exit 1\n}\n\nset -a\n# shellcheck disable=SC1090\nsource \"${runtime_env}\"\nset +a\n\nremote_target=\"${SHADOWTLS_BACKHAUL2_TARGET:-}\"\ntarget=\"${SHADOWTLS_BACKHAUL_FRAGMENT2_LISTEN:-127.0.0.1:16444}\"\nsni=\"${SHADOWTLS_BACKHAUL2_SNI:-}\"\npassword=\"${SHADOWTLS_BACKHAUL2_PASSWORD:-${SHADOWTLS_BACKHAUL_PASSWORD:-}}\"\nif [[ \"${remote_target}\" != *:* ]]; then\n  remote_target=\"${remote_target}:9444\"\nfi\ntest -n \"${remote_target%%:*}\" || {\n  echo \"tracegate shadowtls entry2 env: SHADOWTLS_BACKHAUL2_TARGET is missing\" >&2\n  exit 1\n}\n[[ \"${target}\" == 127.*:* || \"${target}\" == \"[::1]:\"* ]] || {\n  echo \"tracegate shadowtls entry2 env: fragment listener must be loopback\" >&2\n  exit 1\n}\ntest -n \"${sni}\" || {\n  echo \"tracegate shadowtls entry2 env: SHADOWTLS_BACKHAUL2_SNI is missing\" >&2\n  exit 1\n}\ntest -n \"${password}\" || {\n  echo \"tracegate shadowtls entry2 env: password is missing\" >&2\n  exit 1\n}\n\ninstall -d -m 0700 \"$(dirname -- \"${target_env}\")\"\ntmp=\"${target_env}.tmp\"\numask 077\nprintf 'SHADOWTLS_BACKHAUL2_TARGET=%q\\nSHADOWTLS_BACKHAUL2_SNI=%q\\nSHADOWTLS_BACKHAUL2_PASSWORD=%q\\n' \\\n  \"${target}\" \"${sni}\" \"${password}\" >\"${tmp}\"\nchmod 0600 \"${tmp}\"\nmv -f \"${tmp}\" \"${target_env}\"\n"
+  },
+  "bridge_unit_files": {
+    "tracegate-backhaul-fragment@.service": "[Unit]\nDescription=Tracegate ShadowTLS backhaul TCP fragment sidecar (leg %i)\nAfter=docker.service network-online.target\nRequires=docker.service\n\n[Service]\nEnvironmentFile=/etc/tracegate/tracegate-entry.env\nRestart=always\nRestartSec=3\nTimeoutStopSec=20\nSuccessExitStatus=143\nEnvironmentFile=/var/lib/tracegate/artifacts/active/xray.env\nExecStartPre=/usr/local/sbin/tracegate-artifact-verify xray\nExecStartPre=/opt/tracegate/current/deploy/systemd/tracegate-backhaul-fragment-config %i\nExecStartPre=-/usr/bin/docker rm -f tracegate-backhaul-fragment-%i\nExecStart=/usr/bin/docker run --rm --name tracegate-backhaul-fragment-%i --network host --read-only --user 0:0 --cap-drop ALL --security-opt no-new-privileges:true -v /etc/tracegate/private/backhaul-fragment/%i.json:/etc/xray/config.json:ro ${TRACEGATE_IMAGE} run -c /etc/xray/config.json\nExecStop=/usr/bin/docker stop tracegate-backhaul-fragment-%i\n\n[Install]\nWantedBy=multi-user.target\n",
+    "tracegate-shadowtls-backhaul.service": "[Unit]\nDescription=Tracegate ShadowTLS v3 Endpoint backhaul server\nAfter=docker.service network-online.target tracegate-xray-ss2022.service\nRequires=docker.service\n\n[Service]\n# Optional: the ExecStartPre env script renders this on first start.\nEnvironmentFile=-/etc/tracegate/private/shadowtls/backhaul.env\nRestart=always\nRestartSec=3\nTimeoutStopSec=20\nSuccessExitStatus=143\nEnvironmentFile=/var/lib/tracegate/artifacts/active/shadowtls.env\nExecStartPre=/usr/local/sbin/tracegate-artifact-verify shadowtls\nExecStartPre=/opt/tracegate/current/deploy/systemd/tracegate-shadowtls-backhaul-env\nExecStartPre=-/usr/bin/docker rm -f tracegate-shadowtls-backhaul\nExecStart=/usr/bin/docker run --rm --name tracegate-shadowtls-backhaul --network host --read-only --cap-drop ALL --security-opt no-new-privileges:true --entrypoint shadow-tls ${TRACEGATE_IMAGE} --v3 server --listen $SHADOWTLS_BACKHAUL_LISTEN --server 127.0.0.1:18444 --tls $SHADOWTLS_BACKHAUL_TLS_TARGET --password $SHADOWTLS_BACKHAUL_PASSWORD\nExecStop=/usr/bin/docker stop tracegate-shadowtls-backhaul\n\n[Install]\nWantedBy=multi-user.target\n",
+    "tracegate-shadowtls-backhaul2.service": "[Unit]\nDescription=Tracegate ShadowTLS v3 Endpoint backhaul server #2 (pool leg 2 front)\nAfter=docker.service network-online.target tracegate-xray-ss2022.service\nRequires=docker.service\n\n[Service]\n# Optional: the ExecStartPre env script renders this on first start.\nEnvironmentFile=-/etc/tracegate/private/shadowtls/backhaul2.env\nRestart=always\nRestartSec=3\nTimeoutStopSec=20\nSuccessExitStatus=143\nEnvironmentFile=/var/lib/tracegate/artifacts/active/shadowtls.env\nExecStartPre=/usr/local/sbin/tracegate-artifact-verify shadowtls\nExecStartPre=/opt/tracegate/current/deploy/systemd/tracegate-shadowtls-backhaul2-env\nExecStartPre=-/usr/bin/docker rm -f tracegate-shadowtls-backhaul2\nExecStart=/usr/bin/docker run --rm --name tracegate-shadowtls-backhaul2 --network host --read-only --cap-drop ALL --security-opt no-new-privileges:true --entrypoint shadow-tls ${TRACEGATE_IMAGE} --v3 server --listen $SHADOWTLS_BACKHAUL2_LISTEN --server 127.0.0.1:18444 --tls $SHADOWTLS_BACKHAUL2_TLS_TARGET --password $SHADOWTLS_BACKHAUL2_PASSWORD\nExecStop=/usr/bin/docker stop tracegate-shadowtls-backhaul2\n\n[Install]\nWantedBy=multi-user.target\n",
+    "tracegate-shadowtls-entry.service": "[Unit]\nDescription=Tracegate ShadowTLS v3 Entry backhaul client\nAfter=docker.service network-online.target tracegate-backhaul-fragment@1.service\nRequires=docker.service tracegate-backhaul-fragment@1.service\n\n[Service]\n# Entry runtime env is tracegate-entry.env (there is no tracegate.env on Entry).\nEnvironment=TRACEGATE_ENV_FILE=/etc/tracegate/tracegate-entry.env\n# Optional: the ExecStartPre env script renders this on first start.\nEnvironmentFile=-/etc/tracegate/private/shadowtls/entry.env\nRestart=always\nRestartSec=3\nTimeoutStopSec=20\nSuccessExitStatus=143\nEnvironmentFile=/var/lib/tracegate/artifacts/active/shadowtls.env\nExecStartPre=/usr/local/sbin/tracegate-artifact-verify shadowtls\nExecStartPre=/opt/tracegate/current/deploy/systemd/tracegate-shadowtls-entry-env\nExecStartPre=-/usr/bin/docker rm -f tracegate-shadowtls-entry\nExecStart=/usr/bin/docker run --rm --name tracegate-shadowtls-entry --network host --read-only --cap-drop ALL --security-opt no-new-privileges:true --entrypoint shadow-tls ${TRACEGATE_IMAGE} --v3 client --listen 127.0.0.1:15443 --server $SHADOWTLS_BACKHAUL_TARGET --sni $SHADOWTLS_BACKHAUL_SNI --password $SHADOWTLS_BACKHAUL_PASSWORD\nExecStop=/usr/bin/docker stop tracegate-shadowtls-entry\n\n[Install]\nWantedBy=multi-user.target\n",
+    "tracegate-shadowtls-entry2.service": "[Unit]\nDescription=Tracegate ShadowTLS v3 Entry backhaul client #2 (pool leg 2 front)\nAfter=docker.service network-online.target tracegate-backhaul-fragment@2.service\nRequires=docker.service tracegate-backhaul-fragment@2.service\n\n[Service]\n# Entry runtime env is tracegate-entry.env (there is no tracegate.env on Entry).\nEnvironment=TRACEGATE_ENV_FILE=/etc/tracegate/tracegate-entry.env\n# Optional: the ExecStartPre env script renders this on first start.\nEnvironmentFile=-/etc/tracegate/private/shadowtls/entry2.env\nRestart=always\nRestartSec=3\nTimeoutStopSec=20\nSuccessExitStatus=143\nEnvironmentFile=/var/lib/tracegate/artifacts/active/shadowtls.env\nExecStartPre=/usr/local/sbin/tracegate-artifact-verify shadowtls\nExecStartPre=/opt/tracegate/current/deploy/systemd/tracegate-shadowtls-entry2-env\nExecStartPre=-/usr/bin/docker rm -f tracegate-shadowtls-entry2\nExecStart=/usr/bin/docker run --rm --name tracegate-shadowtls-entry2 --network host --read-only --cap-drop ALL --security-opt no-new-privileges:true --entrypoint shadow-tls ${TRACEGATE_IMAGE} --v3 client --listen 127.0.0.1:15444 --server $SHADOWTLS_BACKHAUL2_TARGET --sni $SHADOWTLS_BACKHAUL2_SNI --password $SHADOWTLS_BACKHAUL2_PASSWORD\nExecStop=/usr/bin/docker stop tracegate-shadowtls-entry2\n\n[Install]\nWantedBy=multi-user.target\n",
+    "tracegate-xray-ss2022.service": "[Unit]\nDescription=Tracegate isolated Xray Shadowsocks-2022 runtime\nAfter=docker.service network-online.target\nWants=network-online.target\nRequires=docker.service\n\n[Service]\nRestart=always\nRestartSec=3\nTimeoutStopSec=20\nSuccessExitStatus=143\nEnvironmentFile=/var/lib/tracegate/artifacts/active/xray.env\nExecStartPre=/usr/local/sbin/tracegate-artifact-verify xray\nExecStartPre=-/usr/bin/docker rm -f tracegate-xray-ss2022\nExecStart=/usr/bin/docker run --rm --name tracegate-xray-ss2022 --network host --read-only --user 0:0 --cap-drop ALL --security-opt no-new-privileges:true -v /var/lib/tracegate/agent-transit/runtime/xray-ss2022/config.json:/etc/xray/config.json:ro ${TRACEGATE_IMAGE} run -c /etc/xray/config.json\nExecStop=/usr/bin/docker stop tracegate-xray-ss2022\n\n[Install]\nWantedBy=multi-user.target\n"
+  },
+  "entry_haproxy_mtproto_section": [
+    "  acl mtproto_tls_sni req.ssl_sni -i proxied.tracegate.test",
+    "  use_backend be_mtproto_tls if mtproto_tls_sni",
+    "backend be_mtproto_tls",
+    "  server mtproto transit.tracegate.test:9445 check-send-proxy send-proxy-v2 inter 10s",
+    "",
+    ""
+  ],
+  "entry_xray": {
+    "api": {
+      "services": [
+        "HandlerService",
+        "StatsService",
+        "ObservatoryService"
+      ],
+      "tag": "api"
+    },
+    "inbounds": [
+      {
+        "listen": "127.0.0.1",
+        "port": 8080,
+        "protocol": "dokodemo-door",
+        "settings": {
+          "address": "127.0.0.1"
+        },
+        "tag": "api"
+      },
+      {
+        "listen": "127.0.0.1",
+        "port": 18083,
+        "protocol": "http",
+        "settings": {},
+        "tag": "backhaul-probe-reality-in"
+      },
+      {
+        "listen": "127.0.0.1",
+        "port": 2443,
+        "protocol": "vless",
+        "settings": {
+          "clients": [],
+          "decryption": "none"
+        },
+        "sniffing": {
+          "destOverride": [
+            "http",
+            "tls",
+            "quic"
+          ],
+          "enabled": true
+        },
+        "streamSettings": {
+          "network": "raw",
+          "realitySettings": {
+            "dest": "origin-entry.example:443",
+            "privateKey": "entry-private-key",
+            "serverNames": [
+              "origin-entry.example"
+            ],
+            "shortIds": [
+              "entry-short-id"
+            ],
+            "show": false,
+            "xver": 0
+          },
+          "security": "reality"
+        },
+        "tag": "entry-in"
+      },
+      {
+        "listen": "127.0.0.1",
+        "port": 10000,
+        "protocol": "vless",
+        "settings": {
+          "clients": [],
+          "decryption": "none"
+        },
+        "sniffing": {
+          "destOverride": [
+            "http",
+            "tls",
+            "quic"
+          ],
+          "enabled": true
+        },
+        "streamSettings": {
+          "network": "ws",
+          "security": "none",
+          "wsSettings": {
+            "heartbeatPeriod": 15,
+            "path": "/stealth/ws"
+          }
+        },
+        "tag": "vless-ws-in"
+      },
+      {
+        "listen": "127.0.0.1",
+        "port": 10001,
+        "protocol": "vless",
+        "settings": {
+          "clients": [],
+          "decryption": "none"
+        },
+        "sniffing": {
+          "destOverride": [
+            "http",
+            "tls",
+            "quic"
+          ],
+          "enabled": true
+        },
+        "streamSettings": {
+          "grpcSettings": {
+            "serviceName": "tracegate.v1.Edge"
+          },
+          "network": "grpc",
+          "security": "none"
+        },
+        "tag": "vless-grpc-in"
+      }
+    ],
+    "log": {
+      "loglevel": "warning"
+    },
+    "observatory": {
+      "enableConcurrency": true,
+      "probeInterval": "10s",
+      "probeUrl": "https://www.google.com/generate_204",
+      "subjectSelector": [
+        "to-transit"
+      ]
+    },
+    "outbounds": [
+      {
+        "protocol": "freedom",
+        "settings": {
+          "domainStrategy": "UseIPv4"
+        },
+        "tag": "api"
+      },
+      {
+        "protocol": "freedom",
+        "settings": {
+          "domainStrategy": "UseIPv4"
+        },
+        "tag": "direct"
+      },
+      {
+        "mux": {
+          "concurrency": 8,
+          "enabled": true
+        },
+        "protocol": "vless",
+        "settings": {
+          "vnext": [
+            {
+              "address": "transit.tracegate.test",
+              "port": 9446,
+              "users": [
+                {
+                  "encryption": "none",
+                  "flow": "",
+                  "id": "00000000-0000-4000-8000-000000000123"
+                }
+              ]
+            }
+          ]
+        },
+        "streamSettings": {
+          "network": "raw",
+          "realitySettings": {
+            "fingerprint": "chrome",
+            "publicKey": "transit-public-key",
+            "serverName": "backhaul-front.example",
+            "shortId": "transit-short-id"
+          },
+          "security": "reality"
+        },
+        "tag": "to-transit"
+      },
+      {
+        "protocol": "shadowsocks",
+        "settings": {
+          "servers": [
+            {
+              "address": "127.0.0.1",
+              "method": "2022-blake3-aes-256-gcm",
+              "password": "backhaul-256-key",
+              "port": 15443,
+              "uot": false
+            }
+          ]
+        },
+        "streamSettings": {
+          "network": "tcp",
+          "security": "none"
+        },
+        "tag": "to-transit-ss"
+      },
+      {
+        "protocol": "shadowsocks",
+        "settings": {
+          "servers": [
+            {
+              "address": "127.0.0.1",
+              "method": "2022-blake3-aes-256-gcm",
+              "password": "backhaul-256-key",
+              "port": 15444,
+              "uot": false
+            }
+          ]
+        },
+        "streamSettings": {
+          "network": "tcp",
+          "security": "none"
+        },
+        "tag": "to-transit-ss2"
+      },
+      {
+        "protocol": "blackhole",
+        "tag": "block"
+      }
+    ],
+    "policy": {
+      "levels": {
+        "0": {
+          "connIdle": 300,
+          "downlinkOnly": 5,
+          "handshake": 4,
+          "statsUserDownlink": true,
+          "statsUserUplink": true,
+          "uplinkOnly": 2
+        }
+      },
+      "system": {
+        "statsInboundDownlink": true,
+        "statsInboundUplink": true,
+        "statsOutboundDownlink": true,
+        "statsOutboundUplink": true
+      }
+    },
+    "routing": {
+      "balancers": [
+        {
+          "fallbackTag": "to-transit",
+          "selector": [
+            "to-transit-ss"
+          ],
+          "strategy": {
+            "type": "leastPing"
+          },
+          "tag": "backhaul-balancer"
+        }
+      ],
+      "domainStrategy": "IPIfNonMatch",
+      "rules": [
+        {
+          "inboundTag": [
+            "api"
+          ],
+          "outboundTag": "api",
+          "type": "field"
+        },
+        {
+          "inboundTag": [
+            "backhaul-probe-reality-in"
+          ],
+          "outboundTag": "to-transit",
+          "type": "field"
+        },
+        {
+          "inboundTag": [
+            "entry-in",
+            "vless-ws-in",
+            "vless-grpc-in"
+          ],
+          "outboundTag": "block",
+          "protocol": [
+            "bittorrent"
+          ],
+          "type": "field"
+        },
+        {
+          "ip": [
+            "geoip:private"
+          ],
+          "outboundTag": "block",
+          "type": "field"
+        },
+        {
+          "balancerTag": "backhaul-balancer",
+          "inboundTag": [
+            "entry-in",
+            "vless-ws-in",
+            "vless-grpc-in"
+          ],
+          "type": "field"
+        }
+      ]
+    },
+    "stats": {}
+  },
+  "transit_haproxy_fe_reality_backhaul": "frontend fe_transit_reality_backhaul\n  bind :9446\n  default_backend be_transit_reality\n",
+  "transit_nftables_link_block": [
+    "    # BEGIN tracegate-managed-entry-link-firewall",
+    "    # Generated after private overlays; only the peer host may reach this link.",
+    "    ip saddr 192.0.2.10 tcp dport { 9443, 9444, 9445, 9446 } accept",
+    "    tcp dport { 9443, 9444, 9445, 9446 } drop",
+    "    # END tracegate-managed-entry-link-firewall"
+  ],
+  "transit_xray_ss2022": {
+    "api_inbound": {
+      "listen": "127.0.0.1",
+      "port": 10086,
+      "protocol": "dokodemo-door",
+      "settings": {
+        "address": "127.0.0.1"
+      },
+      "tag": "api"
+    },
+    "outbounds": [
+      {
+        "protocol": "freedom",
+        "settings": {
+          "domainStrategy": "UseIPv4"
+        },
+        "tag": "api"
+      },
+      {
+        "protocol": "freedom",
+        "settings": {
+          "domainStrategy": "UseIPv4"
+        },
+        "tag": "direct"
+      },
+      {
+        "protocol": "blackhole",
+        "tag": "block"
+      }
+    ],
+    "routing_rules": [
+      {
+        "inboundTag": [
+          "api"
+        ],
+        "outboundTag": "api",
+        "type": "field"
+      },
+      {
+        "inboundTag": [
+          "ss2022-backhaul-in"
+        ],
+        "outboundTag": "block",
+        "protocol": [
+          "bittorrent"
+        ],
+        "type": "field"
+      },
+      {
+        "inboundTag": [
+          "ss2022-backhaul-in"
+        ],
+        "outboundTag": "direct",
+        "type": "field"
+      },
+      {
+        "ip": [
+          "geoip:private"
+        ],
+        "outboundTag": "block",
+        "type": "field"
+      }
+    ],
+    "ss2022_backhaul_in_inbound": {
+      "listen": "127.0.0.1",
+      "port": 18444,
+      "protocol": "shadowsocks",
+      "settings": {
+        "clients": [],
+        "method": "2022-blake3-aes-256-gcm",
+        "network": "tcp",
+        "password": "backhaul-256-key"
+      },
+      "sniffing": {
+        "destOverride": [
+          "http",
+          "tls"
+        ],
+        "enabled": true
+      },
+      "tag": "ss2022-backhaul-in"
+    }
+  }
+}

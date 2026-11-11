@@ -30,7 +30,6 @@ load_deploy_env() {
       RUNTIME_ENV="${TRACEGATE_RUNTIME_ENV:-${ETC_DIR}/tracegate.env}"
       ROLE_UNITS=(
         tracegate-network-qdisc.service
-        tracegate-wireguard.service
         tracegate-xray@transit.service
         tracegate-nginx@transit.service
         tracegate-haproxy@transit.service
@@ -38,12 +37,9 @@ load_deploy_env() {
         tracegate-xray-ss2022.service
         tracegate-hysteria@transit.service
         tracegate-hysteria-salamander.service
-        tracegate-shadowtls.service
         tracegate-shadowtls-backhaul.service
         tracegate-shadowtls-backhaul2.service
         tracegate-mtproto@transit.service
-        tracegate-wstunnel-wireguard.service
-        tracegate-wireguard-sync.service
         tracegate-prometheus.service
         tracegate-grafana.service
         tracegate-api.service
@@ -124,17 +120,23 @@ validate_release() {
 sync_release_files() {
   local runtime="$1" unit
   install -d -m 0755 "${SYSTEMD_DIR}" "${SYSCTL_DIR}" "${LOCAL_SBIN_DIR}" "${LETSENCRYPT_DEPLOY_HOOK_DIR}"
-  for unit in tracegate-host.service tracegate-shadowsocks2022.service; do
+  for unit in \
+    tracegate-host.service \
+    tracegate-shadowsocks2022.service \
+    tracegate-wireguard.service \
+    tracegate-wireguard-sync.service \
+    tracegate-wstunnel-wireguard.service \
+    tracegate-shadowtls.service; do
     "${SYSTEMCTL}" disable --now "${unit}" >/dev/null 2>&1 || true
     rm -f "${SYSTEMD_DIR}/${unit}"
   done
   for unit in "${runtime}"/deploy/systemd/*.service "${runtime}"/deploy/systemd/*.timer; do
     install -m 0644 "${unit}" "${SYSTEMD_DIR}/$(basename "${unit}")"
   done
-  [ ! -f "${runtime}/deploy/systemd/tracegate-shadowtls-env" ] || \
-    install -m 0755 "${runtime}/deploy/systemd/tracegate-shadowtls-env" "${LOCAL_SBIN_DIR}/tracegate-shadowtls-env"
   [ ! -f "${runtime}/deploy/systemd/tracegate-telemt-permissions" ] || \
     install -m 0755 "${runtime}/deploy/systemd/tracegate-telemt-permissions" "${LOCAL_SBIN_DIR}/tracegate-telemt-permissions"
+  [ ! -f "${runtime}/deploy/systemd/tracegate-artifact-verify" ] || \
+    install -m 0755 "${runtime}/deploy/systemd/tracegate-artifact-verify" "${LOCAL_SBIN_DIR}/tracegate-artifact-verify"
   [ ! -f "${runtime}/deploy/host/tracegate-db-backup" ] || \
     install -m 0755 "${runtime}/deploy/host/tracegate-db-backup" "${LOCAL_SBIN_DIR}/tracegate-db-backup"
   [ ! -f "${runtime}/deploy/host/tracegate-network-qdisc" ] || \
@@ -146,7 +148,6 @@ sync_release_files() {
     install -m 0644 "${runtime}/deploy/host/90-tracegate-quic.conf" "${SYSCTL_DIR}/90-tracegate-quic.conf"
     "${SYSCTL}" -p "${SYSCTL_DIR}/90-tracegate-quic.conf"
   fi
-  if [ -f "${ETC_DIR}/tracegate.env" ]; then "${LOCAL_SBIN_DIR}/tracegate-shadowtls-env"; fi
   "${SYSTEMCTL}" daemon-reload
 }
 
@@ -213,6 +214,20 @@ restore_previous() {
   restart_role
 }
 
+artifacts_cli_path() {
+  local version="$1"
+  printf '%s' "${TRACEGATE_ARTIFACTS_CLI:-$(release_path "${version}")/venv/bin/tracegate-artifacts}"
+}
+
+artifacts_status() {
+  local version="$1" cli
+  # Read-only preflight reporting: never writes and never blocks the deploy.
+  [ -d "${TRACEGATE_ARTIFACTS_DIR:-/var/lib/tracegate/artifacts}" ] || return 0
+  cli="$(artifacts_cli_path "${version}")"
+  [ -x "${cli}" ] || return 0
+  "${cli}" status --units "${ROLE_UNITS[@]}" || true
+}
+
 preflight() {
   local version="$1"
   load_deploy_env
@@ -222,13 +237,41 @@ preflight() {
     [ -e /dev/rtc0 ] || die "RTC clock sync is enabled but /dev/rtc0 is missing"
   fi
   validate_release "${version}"
+  artifacts_status "${version}"
   echo "native host preflight passed for ${TRACEGATE_HOST_ROLE} release ${version}"
 }
 
+# Hysteria port hopping is on by default on Endpoint. The ranges are private
+# per deployment: they are generated once on the host and stored in the
+# runtime env file, never in the repository. A key that is already present
+# (including an explicitly empty value, which disables hopping) is kept.
+ensure_hysteria_hop_ranges() {
+  local env_file="$1" spec key lo
+  [ -f "${env_file}" ] || die "missing runtime environment: ${env_file}"
+  for spec in HYSTERIA_GECKO_HOP_PORTS:20000 HYSTERIA_SALAMANDER_HOP_PORTS:26000; do
+    key="${spec%%:*}"
+    if grep -Eq "^[[:space:]]*(export[[:space:]]+)?${key}=" "${env_file}"; then
+      continue
+    fi
+    # LO in [base, base+3000]; HI = LO + 2999. The two bands never overlap and
+    # stay below the kernel's default ephemeral port range.
+    lo=$(( ${spec##*:} + $(od -An -N2 -tu2 /dev/urandom | tr -d ' ') % 3001 ))
+    printf '%s=%s-%s\n' "${key}" "${lo}" "$(( lo + 2999 ))" >>"${env_file}"
+    echo "generated ${key} for Hysteria port hopping in ${env_file}"
+  done
+}
+
 deploy() {
-  local version="$1" release
+  local version="$1" release artifacts_cli
   preflight "${version}"
   release="$(release_path "${version}")"
+  artifacts_cli="$(artifacts_cli_path "${version}")"
+  [ -x "${artifacts_cli}" ] || die "missing artifact CLI: ${artifacts_cli}"
+  # Record the digests of the engines that are still running and refuse the
+  # deploy unless the store can satisfy every engine unit of this role. This
+  # runs before any state changes: capture needs the old containers up.
+  "${artifacts_cli}" capture --units "${ROLE_UNITS[@]}"
+  "${artifacts_cli}" verify --units "${ROLE_UNITS[@]}"
   if [ "${TRACEGATE_HOST_ROLE}" = endpoint ]; then
     [ -n "${TRACEGATE_BACKUP_COMMAND:-}" ] || die "TRACEGATE_BACKUP_COMMAND is required on Endpoint"
     bash -lc "${TRACEGATE_BACKUP_COMMAND}"
@@ -240,6 +283,9 @@ deploy() {
       set +a
       "${release}/venv/bin/tracegate-migrate-db"
     )
+  fi
+  if [ "${TRACEGATE_HOST_ROLE}" = endpoint ]; then
+    ensure_hysteria_hop_ranges "${RUNTIME_ENV}"
   fi
   capture_previous_state
   sync_release_files "${release}/runtime"

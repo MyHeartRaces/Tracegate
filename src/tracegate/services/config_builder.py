@@ -8,6 +8,7 @@ from ipaddress import ip_address
 from typing import Any
 
 from tracegate.constants import (
+    TRACEGATE_ALT_PUBLIC_TCP_PORT,
     TRACEGATE_FORBIDDEN_PUBLIC_TCP_PORT,
     TRACEGATE_FORBIDDEN_PUBLIC_UDP_PORT,
     TRACEGATE_PUBLIC_UDP_PORT,
@@ -20,13 +21,8 @@ from tracegate.services.connection_profiles import (
     udp_chain_selected_profiles,
 )
 from tracegate.services.hysteria_credentials import build_hysteria_auth_payload
+from tracegate.services.hysteria_hopping import format_hop_range, parse_hop_range, validate_hop_intervals
 from tracegate.services.sni_catalog import SniCatalogEntry
-from tracegate.services.wireguard_keys import (
-    derive_wireguard_client_address,
-    derive_wireguard_public_key,
-    generate_wireguard_keypair,
-    generate_wireguard_preshared_key,
-)
 
 _LOCAL_SOCKS_PORT_BASE = 20000
 _LOCAL_SOCKS_PORT_SPAN = 40000
@@ -75,19 +71,19 @@ class EndpointSet:
     hysteria_ech_config_list_transit: str = ""
     hysteria_ech_force_query_entry: str = ""
     hysteria_ech_force_query_transit: str = ""
-    shadowtls_server_name_entry: str = ""
-    shadowtls_server_name_transit: str = ""
-    shadowtls_password_entry: str = ""
-    shadowtls_password_transit: str = ""
-    shadowsocks2022_method: str = "2022-blake3-aes-128-gcm"
-    shadowsocks2022_password_entry: str = ""
-    shadowsocks2022_password_transit: str = ""
-    wireguard_server_public_key: str = ""
-    wireguard_client_address: str = ""
-    wireguard_dns: str = "1.1.1.1"
-    wireguard_allowed_ips: tuple[str, ...] = ("0.0.0.0/0",)
-    wireguard_mtu: int = 1280
-    wstunnel_path: str = "/wgws"
+    # Public TCP port for Direct VLESS/REALITY. revisions.create_revision keeps a
+    # connection's previously issued port; only new connections get this value.
+    reality_direct_port: int = TRACEGATE_ALT_PUBLIC_TCP_PORT
+    # Optional Endpoint port hopping ranges ("LO-HI") per obfs listener.
+    hysteria_gecko_hop_ports: str = ""
+    hysteria_salamander_hop_ports: str = ""
+    hysteria_hop_min_interval_s: int = 20
+    hysteria_hop_max_interval_s: int = 60
+    # True: verify the Hysteria certificate against the SNI unless the server
+    # name is an IP literal or tls_insecure is explicitly overridden.
+    hysteria_tls_verify: bool = True
+    # Default obfs for Direct Hysteria issuance; Chain always stays Gecko.
+    hysteria_default_obfs: str = "gecko"
 
 
 def _build_local_socks_auth(
@@ -145,10 +141,6 @@ def _is_loopback_host(host: str) -> bool:
         return False
 
 
-def _is_placeholder(value: object) -> bool:
-    return str(value or "").strip().upper().startswith("REPLACE_")
-
-
 def _is_ip_literal(host: str) -> bool:
     normalized = str(host or "").strip().strip("[]")
     if not normalized:
@@ -191,15 +183,6 @@ def _normalize_loopback_listen(value: object, *, field_name: str) -> str:
         raise ValueError(f"{field_name} must use a TCP port in 1..65535, got {raw}")
 
     return f"127.0.0.1:{port}"
-
-
-def _normalize_http_path(value: object, *, field_name: str) -> str:
-    raw = str(value or "").strip()
-    if not raw.startswith("/"):
-        raise ValueError(f"{field_name} must be an absolute HTTP path")
-    if "://" in raw or any(ch.isspace() for ch in raw):
-        raise ValueError(f"{field_name} must be a clean HTTP path")
-    return raw
 
 
 def _normalize_int_range(value: object, *, field_name: str, min_value: int, max_value: int) -> int:
@@ -255,43 +238,6 @@ def _local_socks_payload(
     }
 
 
-def _derive_urlsafe_secret(*, user: User, device: Device, connection: Connection, purpose: str, length: int = 32) -> str:
-    seed = "|".join(
-        [
-            str(user.telegram_id),
-            str(device.id),
-            str(connection.id),
-            str(connection.protocol.value),
-            str(connection.variant.value),
-            purpose,
-        ]
-    ).encode("utf-8")
-    digest = hashlib.sha256(seed).digest()
-    return base64.urlsafe_b64encode(digest).decode("ascii").rstrip("=")[:length]
-
-
-def _shadowsocks2022_password(
-    *,
-    user: User,
-    device: Device,
-    connection: Connection,
-    method: str,
-) -> str:
-    key_len = 32 if "256" in method else 16
-    seed = "|".join(
-        [
-            str(user.telegram_id),
-            str(device.id),
-            str(connection.id),
-            str(connection.protocol.value),
-            str(connection.variant.value),
-            method,
-            "shadowsocks2022",
-        ]
-    ).encode("utf-8")
-    return base64.b64encode(hashlib.sha256(seed).digest()[:key_len]).decode("ascii")
-
-
 def _hysteria_gecko_password(*, endpoints: EndpointSet, is_chain: bool) -> str:
     password = (
         endpoints.hysteria_salamander_password_entry
@@ -312,6 +258,14 @@ def _hysteria_masquerade_payload() -> dict[str, Any]:
 
 
 def _hysteria_hygiene_payload(*, is_chain: bool, public_udp_port: int, obfs_type: str = "gecko") -> dict[str, Any]:
+    # Direct Hysteria terminates on Endpoint, where TCP/8443 is a declared
+    # public listener (same SNI demux as TCP/443); only UDP/8443 stays dropped
+    # there. Chain terminates on Entry, which keeps both dropped.
+    forbidden_public_ports: list[dict[str, Any]] = [
+        {"protocol": "udp", "port": TRACEGATE_FORBIDDEN_PUBLIC_UDP_PORT, "action": "drop"},
+    ]
+    if is_chain:
+        forbidden_public_ports.append({"protocol": "tcp", "port": TRACEGATE_FORBIDDEN_PUBLIC_TCP_PORT, "action": "drop"})
     return {
         "required": True,
         "required_layers": [
@@ -357,10 +311,7 @@ def _hysteria_hygiene_payload(*, is_chain: bool, public_udp_port: int, obfs_type
             "local_socks_auth": "required",
             "anonymous_local_proxy": "forbidden",
         },
-        "forbidden_public_ports": [
-            {"protocol": "udp", "port": TRACEGATE_FORBIDDEN_PUBLIC_UDP_PORT, "action": "drop"},
-            {"protocol": "tcp", "port": TRACEGATE_FORBIDDEN_PUBLIC_TCP_PORT, "action": "drop"},
-        ],
+        "forbidden_public_ports": forbidden_public_ports,
         "entry_transit_relay": bool(is_chain),
     }
 
@@ -469,11 +420,22 @@ def build_effective_config(
             sid = endpoints.reality_short_id_entry or endpoints.reality_short_id
         sni = selected_sni.fqdn
 
+        # Chain (client -> Entry) is always TCP/443. Direct (client -> Endpoint)
+        # uses the connection-sticky port resolved by create_revision.
+        if connection.mode == ConnectionMode.DIRECT:
+            reality_port = _normalize_int_range(
+                endpoints.reality_direct_port,
+                field_name="reality_direct_port",
+                min_value=1,
+                max_value=65535,
+            )
+        else:
+            reality_port = 443
         common = {
             "protocol": "vless",
             "transport": "reality_raw",
             "flow": "xtls-rprx-vision",
-            "port": 443,
+            "port": reality_port,
             # Use connection-scoped UUID so one user can have multiple VLESS connections safely.
             "uuid": str(connection.id),
             "device_id": str(device.id),
@@ -502,7 +464,7 @@ def build_effective_config(
                 "server": endpoints.transit_host,
                 "chain": None,
                 "design_constraints": {
-                    "fixed_port_tcp": 443,
+                    "fixed_port_tcp": reality_port,
                     "single_sni_for_all_legs": True,
                 },
             }
@@ -712,16 +674,23 @@ def build_effective_config(
             connection_id=str(connection.id),
             device_id=str(device.id),
         )
+        if endpoints.hysteria_tls_verify:
+            # Verify the certificate against the SNI; skip verification only for
+            # IP-literal server names or an explicit operator override.
+            tls_insecure = bool(overrides.get("tls_insecure", False)) or _is_ip_literal(server_name)
+        else:
+            tls_insecure = bool(overrides.get("tls_insecure", entry_host != server_name)) or _is_ip_literal(server_name)
         tls_payload: dict[str, Any] = {
             "server_name": server_name,
-            "insecure": bool(overrides.get("tls_insecure", entry_host != server_name)) or _is_ip_literal(server_name),
+            "insecure": tls_insecure,
             "alpn": ["h3"],
         }
         if ech_config_list:
             tls_payload["ech_config_list"] = ech_config_list
         if ech_force_query:
             tls_payload["ech_force_query"] = ech_force_query
-        obfs_type = str(overrides.get("hysteria_obfs") or "gecko").strip().lower()
+        default_obfs = "gecko" if is_chain else (str(endpoints.hysteria_default_obfs or "gecko").strip().lower() or "gecko")
+        obfs_type = str(overrides.get("hysteria_obfs") or default_obfs).strip().lower()
         if obfs_type not in {"gecko", "salamander"}:
             raise ValueError("Hysteria obfs must be gecko or salamander")
         if is_chain and obfs_type != "gecko":
@@ -748,6 +717,23 @@ def build_effective_config(
             max_value=bandwidth_max,
         )
 
+        port_hopping: dict[str, Any] | None = None
+        if not is_chain:
+            hop_range = parse_hop_range(
+                endpoints.hysteria_salamander_hop_ports if obfs_type == "salamander" else endpoints.hysteria_gecko_hop_ports,
+                label=f"hysteria_{obfs_type}_hop_ports",
+            )
+            if hop_range is not None:
+                min_interval, max_interval = validate_hop_intervals(
+                    endpoints.hysteria_hop_min_interval_s,
+                    endpoints.hysteria_hop_max_interval_s,
+                )
+                port_hopping = {
+                    "ports": format_hop_range(hop_range),
+                    "min_interval_s": min_interval,
+                    "max_interval_s": max_interval,
+                }
+
         obfs_payload: dict[str, Any] = {
             "type": obfs_type,
             "password": obfs_password,
@@ -756,7 +742,7 @@ def build_effective_config(
         if obfs_type == "gecko":
             obfs_payload.update({"min_packet_size": 512, "max_packet_size": 1200})
 
-        return {
+        effective: dict[str, Any] = {
             "protocol": "hysteria2",
             "profile": profile_name,
             "server": entry_host,
@@ -828,189 +814,8 @@ def build_effective_config(
             if is_chain
             else None,
         }
-
-    if connection.protocol == ConnectionProtocol.SHADOWSOCKS2022_SHADOWTLS:
-        if (connection.mode, connection.variant) not in {
-            (ConnectionMode.DIRECT, ConnectionVariant.V3),
-            (ConnectionMode.CHAIN, ConnectionVariant.V3),
-        }:
-            raise ValueError("Shadowsocks-2022 + ShadowTLS supports V3 direct or V3 chain")
-
-        is_chain = connection.mode == ConnectionMode.CHAIN
-        server = endpoints.entry_host if is_chain else endpoints.transit_host
-        selected_sni_fqdn = selected_sni.fqdn if selected_sni is not None else ""
-        shadowtls_server_name = str(
-            overrides.get("shadowtls_server_name")
-            or (endpoints.shadowtls_server_name_entry if is_chain else endpoints.shadowtls_server_name_transit)
-            or selected_sni_fqdn
-        ).strip()
-        if not shadowtls_server_name:
-            shadowtls_server_name = server
-        method = str(overrides.get("method") or endpoints.shadowsocks2022_method).strip()
-        if not method:
-            method = "2022-blake3-aes-128-gcm"
-        shadowtls_password = str(
-            overrides.get("shadowtls_password")
-            or (endpoints.shadowtls_password_entry if is_chain else endpoints.shadowtls_password_transit)
-            or _derive_urlsafe_secret(
-                user=user,
-                device=device,
-                connection=connection,
-                purpose="shadowtls-v3",
-                length=32,
-            )
-        ).strip()
-        shadowsocks2022_server_password = str(
-            endpoints.shadowsocks2022_password_entry if is_chain else endpoints.shadowsocks2022_password_transit
-        ).strip()
-        shadowsocks2022_user_password = str(
-            overrides.get("password")
-            or _shadowsocks2022_password(
-                user=user,
-                device=device,
-                connection=connection,
-                method=method,
-            )
-        ).strip()
-        shadowsocks2022_client_password = shadowsocks2022_user_password
-        if shadowsocks2022_server_password and ":" not in shadowsocks2022_user_password:
-            shadowsocks2022_client_password = f"{shadowsocks2022_server_password}:{shadowsocks2022_user_password}"
-
-        return {
-            "protocol": "shadowsocks2022",
-            "transport": "shadowtls_v3",
-            "profile": connection_profile_label(connection.protocol, connection.mode, connection.variant),
-            "server": server,
-            "port": 443,
-            "sni": shadowtls_server_name,
-            "method": method,
-            "password": shadowsocks2022_client_password,
-            "shadowtls": {
-                "version": 3,
-                "server_name": shadowtls_server_name,
-                "password": shadowtls_password,
-                "alpn": overrides.get("alpn", ["h2", "http/1.1"]),
-            },
-            "local_socks": _local_socks_payload(
-                listen=_local_socks_listen(overrides=overrides, user=user, device=device, connection=connection),
-                user=user,
-                device=device,
-                connection=connection,
-                overrides=overrides,
-            ),
-            "design_constraints": {
-                "fixed_port_tcp": 443,
-                "shadowtls_version": 3,
-                "entry_role_required": is_chain,
-                "private_interconnect": "shadowsocks2022-shadowtls-v3" if is_chain else None,
-                "backhaul_outside_xray": bool(is_chain),
-            },
-            "chain": (
-                _entry_transit_private_relay(endpoints=endpoints, inner_transport="shadowsocks2022-shadowtls-v3")
-                if is_chain
-                else None
-            ),
-        }
-
-    if connection.protocol == ConnectionProtocol.WIREGUARD_WSTUNNEL:
-        if (connection.mode, connection.variant) != (ConnectionMode.DIRECT, ConnectionVariant.V0):
-            raise ValueError("WireGuard over WSTunnel supports only V0 direct")
-
-        server = str(overrides.get("server") or endpoints.transit_host).strip()
-        tls_server_name = str(
-            overrides.get("tls_server_name") or endpoints.transit_server_name or server
-        ).strip()
-        allowed_ips_raw = overrides.get("allowed_ips", endpoints.wireguard_allowed_ips)
-        allowed_ips = (
-            [str(item).strip() for item in allowed_ips_raw if str(item).strip()]
-            if isinstance(allowed_ips_raw, (list, tuple))
-            else [str(allowed_ips_raw).strip()]
-        )
-        if not allowed_ips or allowed_ips == [""]:
-            allowed_ips = ["0.0.0.0/0"]
-        wstunnel_path = _normalize_http_path(
-            overrides.get("wstunnel_path") or endpoints.wstunnel_path,
-            field_name="wstunnel.path",
-        )
-        mtu = _normalize_int_range(
-            overrides.get("mtu", endpoints.wireguard_mtu),
-            field_name="wireguard.mtu",
-            min_value=1200,
-            max_value=1420,
-        )
-        persistent_keepalive = _normalize_int_range(
-            overrides.get("persistent_keepalive", 25),
-            field_name="wireguard.persistent_keepalive",
-            min_value=0,
-            max_value=60,
-        )
-        private_key = str(overrides.get("wireguard_private_key") or "").strip()
-        public_key = str(overrides.get("wireguard_public_key") or "").strip()
-        if not private_key or _is_placeholder(private_key):
-            generated_keypair = generate_wireguard_keypair()
-            private_key = generated_keypair.private_key
-            public_key = generated_keypair.public_key
-        elif not public_key or _is_placeholder(public_key):
-            public_key = derive_wireguard_public_key(private_key)
-
-        preshared_key = str(overrides.get("wireguard_preshared_key") or "").strip()
-        if not preshared_key or _is_placeholder(preshared_key):
-            preshared_key = generate_wireguard_preshared_key()
-
-        server_public_key = str(
-            overrides.get("wireguard_server_public_key") or endpoints.wireguard_server_public_key or ""
-        ).strip()
-        if not server_public_key or _is_placeholder(server_public_key):
-            raise ValueError("wireguard_server_public_key is required for WireGuard over WSTunnel")
-
-        wireguard_address = str(
-            overrides.get("wireguard_address")
-            or endpoints.wireguard_client_address
-            or derive_wireguard_client_address(connection.id)
-        ).strip()
-
-        return {
-            "protocol": "wireguard",
-            "transport": "wstunnel",
-            "profile": connection_profile_label(connection.protocol, connection.mode, connection.variant),
-            "server": server,
-            "port": 443,
-            "sni": tls_server_name,
-            "wstunnel": {
-                "mode": "wireguard-over-websocket",
-                "url": f"wss://{server}:443{wstunnel_path}",
-                "path": wstunnel_path,
-                "tls_server_name": tls_server_name,
-                "local_udp_listen": _normalize_loopback_listen(
-                    overrides.get("local_udp_listen") or "127.0.0.1:51820",
-                    field_name="wstunnel.local_udp_listen",
-                ),
-            },
-            "wireguard": {
-                "private_key": private_key,
-                "public_key": public_key,
-                "preshared_key": preshared_key,
-                "server_public_key": server_public_key,
-                "address": wireguard_address,
-                "allowed_ips": allowed_ips,
-                "dns": overrides.get("dns", endpoints.wireguard_dns),
-                "mtu": mtu,
-                "persistent_keepalive": persistent_keepalive,
-            },
-            "local_socks": _local_socks_payload(
-                listen=_local_socks_listen(overrides=overrides, user=user, device=device, connection=connection),
-                user=user,
-                device=device,
-                connection=connection,
-                overrides=overrides,
-            ),
-            "design_constraints": {
-                "fixed_port_tcp": 443,
-                "l3_overlay": True,
-                "route_wstunnel_server_outside_tunnel": True,
-                "live_peer_sync_required": True,
-            },
-            "chain": None,
-        }
+        if port_hopping is not None:
+            effective["port_hopping"] = port_hopping
+        return effective
 
     raise ValueError(f"Unsupported protocol: {connection.protocol}")

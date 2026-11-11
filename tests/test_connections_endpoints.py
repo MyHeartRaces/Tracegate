@@ -234,10 +234,10 @@ async def test_update_connection_redacts_sensitive_override_values_in_response()
         id=uuid4(),
         user_id=user.telegram_id,
         device_id=device.id,
-        protocol=ConnectionProtocol.WIREGUARD_WSTUNNEL,
+        protocol=ConnectionProtocol.VLESS_REALITY,
         mode=ConnectionMode.DIRECT,
-        variant=ConnectionVariant.V0,
-        profile_name="v0-wgws-wireguard",
+        variant=ConnectionVariant.V1,
+        profile_name="v1-direct-reality-vless",
         custom_overrides_json={},
         status=RecordStatus.ACTIVE,
     )
@@ -247,8 +247,6 @@ async def test_update_connection_redacts_sensitive_override_values_in_response()
         str(connection.id),
         ConnectionUpdate(
             custom_overrides_json={
-                "wireguard_private_key": "client-private",
-                "wireguard_preshared_key": "wg-psk",
                 "local_socks_username": "incy-user",
                 "local_socks_password": "incy-pass_01",
             }
@@ -257,12 +255,9 @@ async def test_update_connection_redacts_sensitive_override_values_in_response()
     )
 
     assert result.custom_overrides_json == {
-        "wireguard_private_key": "REDACTED",
-        "wireguard_preshared_key": "REDACTED",
         "local_socks_username": "incy-user",
         "local_socks_password": "REDACTED",
     }
-    assert connection.custom_overrides_json["wireguard_private_key"] == "client-private"
     assert connection.custom_overrides_json["local_socks_password"] == "incy-pass_01"
 
 
@@ -274,13 +269,11 @@ async def test_update_connection_preserves_existing_secret_when_patch_returns_re
         id=uuid4(),
         user_id=user.telegram_id,
         device_id=device.id,
-        protocol=ConnectionProtocol.WIREGUARD_WSTUNNEL,
+        protocol=ConnectionProtocol.VLESS_REALITY,
         mode=ConnectionMode.DIRECT,
-        variant=ConnectionVariant.V0,
-        profile_name="v0-wgws-wireguard",
+        variant=ConnectionVariant.V1,
+        profile_name="v1-direct-reality-vless",
         custom_overrides_json={
-            "wireguard_private_key": "client-private",
-            "wireguard_preshared_key": "wg-psk",
             "local_socks_username": "incy-user",
             "local_socks_password": "incy-pass_01",
         },
@@ -292,8 +285,6 @@ async def test_update_connection_preserves_existing_secret_when_patch_returns_re
         str(connection.id),
         ConnectionUpdate(
             custom_overrides_json={
-                "wireguard_private_key": "REDACTED",
-                "wireguard_preshared_key": "REDACTED",
                 "local_socks_username": "incy-user",
                 "local_socks_password": "REDACTED",
             }
@@ -302,14 +293,10 @@ async def test_update_connection_preserves_existing_secret_when_patch_returns_re
     )
 
     assert result.custom_overrides_json == {
-        "wireguard_private_key": "REDACTED",
-        "wireguard_preshared_key": "REDACTED",
         "local_socks_username": "incy-user",
         "local_socks_password": "REDACTED",
     }
     assert connection.custom_overrides_json == {
-        "wireguard_private_key": "client-private",
-        "wireguard_preshared_key": "wg-psk",
         "local_socks_username": "incy-user",
         "local_socks_password": "incy-pass_01",
     }
@@ -324,10 +311,10 @@ async def test_update_connection_rejects_redacted_secret_without_existing_value(
         id=uuid4(),
         user_id=user.telegram_id,
         device_id=device.id,
-        protocol=ConnectionProtocol.WIREGUARD_WSTUNNEL,
+        protocol=ConnectionProtocol.VLESS_REALITY,
         mode=ConnectionMode.DIRECT,
-        variant=ConnectionVariant.V0,
-        profile_name="v0-wgws-wireguard",
+        variant=ConnectionVariant.V1,
+        profile_name="v1-direct-reality-vless",
         custom_overrides_json={},
         status=RecordStatus.ACTIVE,
     )
@@ -336,7 +323,7 @@ async def test_update_connection_rejects_redacted_secret_without_existing_value(
     with pytest.raises(HTTPException) as exc_info:
         await update_connection(
             str(connection.id),
-            ConnectionUpdate(custom_overrides_json={"wireguard_private_key": "REDACTED"}),
+            ConnectionUpdate(custom_overrides_json={"local_socks_password": "REDACTED"}),
             session=session,  # type: ignore[arg-type]
         )
 

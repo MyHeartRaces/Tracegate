@@ -1,4 +1,3 @@
-import base64
 from datetime import datetime, timezone
 from uuid import uuid4
 
@@ -412,10 +411,14 @@ def test_hysteria_uses_fixed_public_udp_port_and_gecko() -> None:
     assert cfg["hygiene"]["udp"]["anti_replay"] is True
     assert cfg["hygiene"]["udp"]["anti_amplification"] is True
     assert cfg["hygiene"]["udp"]["mtu"] == {"mode": "clamp", "max_packet_size": 1252}
+    # Direct Hysteria terminates on Endpoint, where TCP/8443 is a declared
+    # public listener; only UDP/8443 stays dropped there.
     assert cfg["hygiene"]["forbidden_public_ports"] == [
         {"protocol": "udp", "port": TRACEGATE_FORBIDDEN_PUBLIC_UDP_PORT, "action": "drop"},
-        {"protocol": "tcp", "port": TRACEGATE_FORBIDDEN_PUBLIC_TCP_PORT, "action": "drop"},
     ]
+    assert TRACEGATE_FORBIDDEN_PUBLIC_TCP_PORT not in {
+        row["port"] for row in cfg["hygiene"]["forbidden_public_ports"] if row["protocol"] == "tcp"
+    }
     assert cfg["local_socks"]["auth"]["required"] is True
     assert cfg["local_socks"]["auth"]["username"].startswith("tg_v2_")
 
@@ -815,6 +818,8 @@ def test_hysteria_direct_connects_to_endpoint_shard_with_canonical_tls_name() ->
             transit_server_name="endpoint.example",
             entry_host="entry.example",
             hysteria_salamander_password_transit="salamander-secret",
+            # Legacy (pre-slice-4) heuristic: insecure whenever host != SNI.
+            hysteria_tls_verify=False,
         ),
     )
 
@@ -850,6 +855,8 @@ def test_hysteria_direct_allows_operator_sni_override() -> None:
             entry_host="entry.example",
             hysteria_server_name_transit="hysteria-front.ru",
             hysteria_salamander_password_transit="salamander-secret",
+            # Legacy (pre-slice-4) heuristic: insecure whenever host != SNI.
+            hysteria_tls_verify=False,
         ),
     )
 
@@ -1290,313 +1297,3 @@ def test_vless_tls_direct_preserves_optional_connect_host() -> None:
     assert cfg["connect_host"] == "edge-connect.tracegate.test"
     assert cfg["sni"] == "endpoint.tracegate.test"
     assert cfg["ws"]["host"] == "endpoint.tracegate.test"
-
-
-def test_shadowsocks2022_shadowtls_direct_v5_config_requires_local_socks_auth() -> None:
-    user = _user()
-    device = _device(user.telegram_id)
-    conn = Connection(
-        id=uuid4(),
-        user_id=user.telegram_id,
-        device_id=device.id,
-        protocol=ConnectionProtocol.SHADOWSOCKS2022_SHADOWTLS,
-        mode=ConnectionMode.DIRECT,
-        variant=ConnectionVariant.V3,
-        profile_name="v3-direct-shadowtls-shadowsocks",
-        custom_overrides_json={"local_socks_port": 18081},
-        status=RecordStatus.ACTIVE,
-    )
-    sni = SniCatalogEntry(id=2, fqdn="www.microsoft.com", enabled=True, is_test=False, providers=[], note=None)
-
-    cfg = build_effective_config(
-        user=user,
-        device=device,
-        connection=conn,
-        selected_sni=sni,
-        endpoints=EndpointSet(
-            transit_host="transit.example.com",
-            entry_host="entry.example.com",
-            shadowtls_password_transit="shadowtls-static",
-            shadowsocks2022_password_transit="ss-server-key",
-        ),
-    )
-
-    assert cfg["protocol"] == "shadowsocks2022"
-    assert cfg["transport"] == "shadowtls_v3"
-    assert cfg["profile"] == "v3-direct-shadowtls-shadowsocks"
-    assert cfg["server"] == "transit.example.com"
-    assert cfg["sni"] == "www.microsoft.com"
-    assert cfg["shadowtls"]["version"] == 3
-    assert cfg["password"].startswith("ss-server-key:")
-    assert cfg["shadowtls"]["password"] == "shadowtls-static"
-    assert cfg["local_socks"]["listen"] == "127.0.0.1:18081"
-    assert cfg["local_socks"]["auth"]["required"] is True
-    assert cfg["local_socks"]["auth"]["username"].startswith("tg_v3_")
-
-
-def test_shadowsocks2022_shadowtls_chain_v6_marks_private_interconnect() -> None:
-    user = _user()
-    device = _device(user.telegram_id)
-    conn = Connection(
-        id=uuid4(),
-        user_id=user.telegram_id,
-        device_id=device.id,
-        protocol=ConnectionProtocol.SHADOWSOCKS2022_SHADOWTLS,
-        mode=ConnectionMode.CHAIN,
-        variant=ConnectionVariant.V3,
-        profile_name="v3-chain-shadowtls-shadowsocks",
-        custom_overrides_json={},
-        status=RecordStatus.ACTIVE,
-    )
-
-    cfg = build_effective_config(
-        user=user,
-        device=device,
-        connection=conn,
-        selected_sni=None,
-        endpoints=EndpointSet(
-            transit_host="transit.example.com",
-            entry_host="entry.example.com",
-            shadowtls_server_name_entry="cdn.example.com",
-            shadowtls_password_entry="shadowtls-entry-static",
-            shadowsocks2022_password_entry="ss-entry-key",
-        ),
-    )
-
-    assert cfg["profile"] == "v3-chain-shadowtls-shadowsocks"
-    assert cfg["server"] == "entry.example.com"
-    assert cfg["sni"] == "cdn.example.com"
-    assert cfg["chain"]["type"] == "entry_transit_private_relay"
-    assert cfg["chain"]["carrier"] == "shadowsocks2022-shadowtls-v3"
-    assert cfg["chain"]["preferred_outer"] == "shadowtls-v3"
-    assert cfg["chain"]["outer_carrier"] == "tcp-shadowtls-v3"
-    assert cfg["chain"]["optional_packet_shaping"] is None
-    assert cfg["chain"]["managed_by"] == "link-crypto"
-    assert cfg["chain"]["selected_profiles"] == ["V1", "V3"]
-    assert cfg["chain"]["inner_transport"] == "shadowsocks2022-shadowtls-v3"
-    assert cfg["chain"]["xray_backhaul"] is False
-    assert cfg["password"].startswith("ss-entry-key:")
-    assert cfg["shadowtls"]["password"] == "shadowtls-entry-static"
-    assert cfg["design_constraints"]["private_interconnect"] == "shadowsocks2022-shadowtls-v3"
-    assert cfg["local_socks"]["auth"]["username"].startswith("tg_v3_")
-
-
-def test_wireguard_wstunnel_v7_config_requires_local_socks_auth() -> None:
-    user = _user()
-    device = _device(user.telegram_id)
-    conn = Connection(
-        id=uuid4(),
-        user_id=user.telegram_id,
-        device_id=device.id,
-        protocol=ConnectionProtocol.WIREGUARD_WSTUNNEL,
-        mode=ConnectionMode.DIRECT,
-        variant=ConnectionVariant.V0,
-        profile_name="v0-wgws-wireguard",
-        custom_overrides_json={
-            "wireguard_private_key": "client-private",
-            "wireguard_public_key": "client-public",
-            "wireguard_preshared_key": "wg-psk",
-            "wireguard_address": "10.70.0.2/32",
-            "wstunnel_path": "/cdn/ws",
-        },
-        status=RecordStatus.ACTIVE,
-    )
-
-    cfg = build_effective_config(
-        user=user,
-        device=device,
-        connection=conn,
-        selected_sni=None,
-        endpoints=EndpointSet(
-            transit_host="transit.example.com",
-            entry_host="entry.example.com",
-            transit_proxy_host="edge.example.com",
-            wireguard_server_public_key="server-public",
-        ),
-    )
-
-    assert cfg["protocol"] == "wireguard"
-    assert cfg["transport"] == "wstunnel"
-    assert cfg["profile"] == "v0-wgws-wireguard"
-    assert cfg["server"] == "transit.example.com"
-    assert cfg["wstunnel"]["url"] == "wss://transit.example.com:443/cdn/ws"
-    assert cfg["wireguard"]["private_key"] == "client-private"
-    assert cfg["wireguard"]["public_key"] == "client-public"
-    assert cfg["wireguard"]["preshared_key"] == "wg-psk"
-    assert cfg["wireguard"]["server_public_key"] == "server-public"
-    assert cfg["wireguard"]["address"] == "10.70.0.2/32"
-    assert cfg["local_socks"]["auth"]["required"] is True
-    assert cfg["local_socks"]["auth"]["username"].startswith("tg_v0_")
-
-
-def test_wireguard_wstunnel_connects_to_endpoint_shard_with_canonical_tls_name() -> None:
-    user = _user()
-    device = _device(user.telegram_id)
-    conn = Connection(
-        id=uuid4(),
-        user_id=user.telegram_id,
-        device_id=device.id,
-        protocol=ConnectionProtocol.WIREGUARD_WSTUNNEL,
-        mode=ConnectionMode.DIRECT,
-        variant=ConnectionVariant.V0,
-        profile_name="v0-wgws-wireguard",
-        custom_overrides_json={},
-        status=RecordStatus.ACTIVE,
-    )
-
-    cfg = build_effective_config(
-        user=user,
-        device=device,
-        connection=conn,
-        selected_sni=None,
-        endpoints=EndpointSet(
-            transit_host="token.r1.endpoint.example",
-            transit_server_name="endpoint.example",
-            entry_host="entry.example",
-            wireguard_server_public_key="server-public",
-        ),
-    )
-
-    assert cfg["server"] == "token.r1.endpoint.example"
-    assert cfg["sni"] == "endpoint.example"
-    assert cfg["wstunnel"]["url"] == "wss://token.r1.endpoint.example:443/wgws"
-    assert cfg["wstunnel"]["tls_server_name"] == "endpoint.example"
-
-
-def test_wireguard_wstunnel_generates_client_material_without_overrides() -> None:
-    user = _user()
-    device = _device(user.telegram_id)
-    connection_id = uuid4()
-    conn = Connection(
-        id=connection_id,
-        user_id=user.telegram_id,
-        device_id=device.id,
-        protocol=ConnectionProtocol.WIREGUARD_WSTUNNEL,
-        mode=ConnectionMode.DIRECT,
-        variant=ConnectionVariant.V0,
-        profile_name="v0-wgws-wireguard",
-        custom_overrides_json={},
-        status=RecordStatus.ACTIVE,
-    )
-
-    cfg = build_effective_config(
-        user=user,
-        device=device,
-        connection=conn,
-        selected_sni=None,
-        endpoints=EndpointSet(
-            transit_host="transit.example.com",
-            entry_host="entry.example.com",
-            wireguard_server_public_key="server-public",
-        ),
-    )
-
-    assert cfg["wireguard"]["server_public_key"] == "server-public"
-    assert cfg["wireguard"]["address"].startswith("10.70.")
-    assert cfg["wireguard"]["address"].endswith("/32")
-    assert "REPLACE_" not in str(cfg)
-    assert len(base64.b64decode(cfg["wireguard"]["private_key"], validate=True)) == 32
-    assert len(base64.b64decode(cfg["wireguard"]["public_key"], validate=True)) == 32
-    assert len(base64.b64decode(cfg["wireguard"]["preshared_key"], validate=True)) == 32
-
-
-def test_wireguard_rejects_non_loopback_local_udp_listener() -> None:
-    user = _user()
-    device = _device(user.telegram_id)
-    conn = Connection(
-        id=uuid4(),
-        user_id=user.telegram_id,
-        device_id=device.id,
-        protocol=ConnectionProtocol.WIREGUARD_WSTUNNEL,
-        mode=ConnectionMode.DIRECT,
-        variant=ConnectionVariant.V0,
-        profile_name="v0-wgws-wireguard",
-        custom_overrides_json={
-            "wireguard_private_key": "client-private",
-            "wireguard_public_key": "client-public",
-            "wireguard_address": "10.70.0.2/32",
-            "local_udp_listen": "0.0.0.0:51820",
-        },
-        status=RecordStatus.ACTIVE,
-    )
-
-    with pytest.raises(ValueError, match="wstunnel.local_udp_listen must be bound to loopback"):
-        build_effective_config(
-            user=user,
-            device=device,
-            connection=conn,
-            selected_sni=None,
-            endpoints=EndpointSet(
-                transit_host="transit.example.com",
-                entry_host="entry.example.com",
-                wireguard_server_public_key="server-public",
-            ),
-        )
-
-
-def test_wireguard_rejects_non_absolute_wstunnel_path() -> None:
-    user = _user()
-    device = _device(user.telegram_id)
-    conn = Connection(
-        id=uuid4(),
-        user_id=user.telegram_id,
-        device_id=device.id,
-        protocol=ConnectionProtocol.WIREGUARD_WSTUNNEL,
-        mode=ConnectionMode.DIRECT,
-        variant=ConnectionVariant.V0,
-        profile_name="v0-wgws-wireguard",
-        custom_overrides_json={
-            "wireguard_private_key": "client-private",
-            "wireguard_public_key": "client-public",
-            "wireguard_address": "10.70.0.2/32",
-            "wstunnel_path": "cdn/ws",
-        },
-        status=RecordStatus.ACTIVE,
-    )
-
-    with pytest.raises(ValueError, match="wstunnel.path must be an absolute HTTP path"):
-        build_effective_config(
-            user=user,
-            device=device,
-            connection=conn,
-            selected_sni=None,
-            endpoints=EndpointSet(
-                transit_host="transit.example.com",
-                entry_host="entry.example.com",
-                wireguard_server_public_key="server-public",
-            ),
-        )
-
-
-def test_wireguard_rejects_unsafe_mtu_override() -> None:
-    user = _user()
-    device = _device(user.telegram_id)
-    conn = Connection(
-        id=uuid4(),
-        user_id=user.telegram_id,
-        device_id=device.id,
-        protocol=ConnectionProtocol.WIREGUARD_WSTUNNEL,
-        mode=ConnectionMode.DIRECT,
-        variant=ConnectionVariant.V0,
-        profile_name="v0-wgws-wireguard",
-        custom_overrides_json={
-            "wireguard_private_key": "client-private",
-            "wireguard_public_key": "client-public",
-            "wireguard_address": "10.70.0.2/32",
-            "mtu": 9000,
-        },
-        status=RecordStatus.ACTIVE,
-    )
-
-    with pytest.raises(ValueError, match="wireguard.mtu must be in 1200..1420"):
-        build_effective_config(
-            user=user,
-            device=device,
-            connection=conn,
-            selected_sni=None,
-            endpoints=EndpointSet(
-                transit_host="transit.example.com",
-                entry_host="entry.example.com",
-                wireguard_server_public_key="server-public",
-            ),
-        )

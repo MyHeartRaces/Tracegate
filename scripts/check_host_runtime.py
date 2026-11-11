@@ -80,24 +80,23 @@ def check_host_runtime(root: Path) -> None:
         "tcp dport { 9443, 9444, 9445, 9446 } drop",
         label="Endpoint firewall bundle",
     )
+    # Public port model: Endpoint serves TCP/8443 with the same SNI dispatch as
+    # TCP/443; UDP/8443 stays dropped on both roles and the Entry template keeps
+    # TCP/8443 closed (the optional MTProto-only listener is rendered on demand).
+    _require(transit_firewall, "udp dport 8443 drop", label="Endpoint firewall bundle")
+    _require(transit_firewall, "tcp dport { 80, 443, 8443 } accept", label="Endpoint firewall bundle")
+    _require(entry_firewall, "udp dport 8443 drop", label="Entry firewall bundle")
+    _require(entry_firewall, "tcp dport { 4443, 8443 } drop", label="Entry firewall bundle")
+    transit_haproxy = _read(root / "bundles/base-transit/haproxy.cfg")
+    entry_haproxy = _read(root / "bundles/base-entry/haproxy.cfg")
+    _require(transit_haproxy, "  bind :443\n  bind :8443\n", label="Endpoint HAProxy bundle")
+    if ":8443" in entry_haproxy:
+        raise HostRuntimeCheckError("Entry HAProxy template must not bind TCP/8443")
 
     mtproto_unit = _read(root / "deploy/systemd/tracegate-mtproto@.service")
     _require(mtproto_unit, ":/app/config.toml:ro", label="Telemt systemd unit")
     if "--health-cmd" in mtproto_unit:
         raise HostRuntimeCheckError("Telemt unit must use its exec-form image healthcheck")
-
-    nginx = _read(root / "bundles/base-transit/nginx.conf")
-    wgws_match = re.search(r"location\s+/wgws\s*\{(?P<body>.*?)\n\s*\}", nginx, re.DOTALL)
-    if wgws_match is None:
-        raise HostRuntimeCheckError("Endpoint nginx bundle is missing /wgws")
-    wgws = wgws_match.group("body")
-    _require(wgws, "proxy_http_version 1.1;", label="WGWS nginx route")
-    _require(wgws, "proxy_set_header Upgrade $http_upgrade;", label="WGWS nginx route")
-    _require(wgws, "proxy_pass http://127.0.0.1:51821;", label="WGWS nginx route")
-
-    haproxy = _read(root / "bundles/base-transit/haproxy.cfg")
-    for placeholder in ("REPLACE_SHADOWTLS_ACL", "REPLACE_SHADOWTLS_ROUTE", "REPLACE_SHADOWTLS_BACKEND"):
-        _require(haproxy, placeholder, label="Endpoint HAProxy bundle")
 
     for role in ("entry", "transit"):
         xray_path = root / f"bundles/base-{role}/xray.json"
@@ -190,14 +189,9 @@ def check_host_runtime(root: Path) -> None:
     if '"tag": "ss2022-in"' in xray:
         raise HostRuntimeCheckError("primary Endpoint Xray bundle must not own SS2022")
     ss2022_xray = _read(root / "bundles/base-transit/xray-ss2022.json")
-    _require(ss2022_xray, '"tag": "ss2022-in"', label="isolated Endpoint SS2022 Xray bundle")
-    _require(ss2022_xray, '"method": "2022-blake3-aes-128-gcm"', label="isolated Endpoint SS2022 Xray bundle")
-    _require(
-        ss2022_xray,
-        '"password": "REPLACE_SHADOWSOCKS2022_SERVER_KEY"',
-        label="isolated Endpoint SS2022 Xray bundle",
-    )
     _require(ss2022_xray, '"tag": "ss2022-backhaul-in"', label="isolated Endpoint SS2022 backhaul inbound")
+    if '"tag": "ss2022-in"' in ss2022_xray:
+        raise HostRuntimeCheckError("isolated Endpoint SS2022 Xray bundle must not own the client-facing ss2022-in inbound")
     _require(
         ss2022_xray,
         '"method": "2022-blake3-aes-256-gcm"',
@@ -209,11 +203,6 @@ def check_host_runtime(root: Path) -> None:
         label="isolated Endpoint SS2022 backhaul inbound",
     )
 
-    sync_unit = _read(root / "deploy/systemd/tracegate-wireguard-sync.service")
-    _require(sync_unit, "tracegate-wireguard-sync-runner", label="WireGuard peer synchronizer unit")
-    _require(sync_unit, "desired-state.json", label="WireGuard peer synchronizer unit")
-    _require(sync_unit, "WIREGUARD_SYNC_KEEP_STALE_PEERS=false", label="WireGuard peer synchronizer unit")
-
     application_units = (
         "tracegate-api.service",
         "tracegate-bot.service",
@@ -223,47 +212,79 @@ def check_host_runtime(root: Path) -> None:
         "tracegate-entry-firewall.service",
         "tracegate-db-backup.service",
     )
-    rolling_units = (
-        "tracegate-xray@.service",
-        "tracegate-xray-ss2022.service",
-        "tracegate-shadowtls.service",
-        "tracegate-shadowtls-entry2.service",
-        "tracegate-shadowtls-entry.service",
-        "tracegate-shadowtls-backhaul2.service",
-        "tracegate-shadowtls-backhaul.service",
-        "tracegate-backhaul-fragment@.service",
-        "tracegate-wstunnel-wireguard.service",
-        "tracegate-mtproto@.service",
-    )
-    pinned_units = {
-        "tracegate-hysteria@.service": "docker.io/tobyxdd/hysteria:v2.13.0",
-        "tracegate-hysteria-salamander.service": "docker.io/tobyxdd/hysteria:v2.13.0",
-        "tracegate-prometheus.service": "prom/prometheus:v3.15.1",
-        "tracegate-grafana.service": "grafana/grafana:13.2.4",
-    }
     for unit_name in application_units:
         unit = _read(root / "deploy/systemd" / unit_name)
         if "k3s" in unit.lower() or "kubectl" in unit.lower():
             raise HostRuntimeCheckError(f"{unit_name} still references retired cluster runtime")
 
-    for unit_name in (*rolling_units, *pinned_units):
-        unit = _read(root / "deploy/systemd" / unit_name)
-        if unit_name in pinned_units:
-            _require(unit, pinned_units[unit_name], label=unit_name)
-        else:
-            _require(unit, ":latest", label=unit_name)
-        _require(unit, "docker pull", label=unit_name)
-        _require(unit, "SuccessExitStatus=143", label=unit_name)
-        if "@sha256:" in unit:
-            raise HostRuntimeCheckError(f"{unit_name} must not lock an image digest")
-        if unit_name.startswith("tracegate-xray"):
-            _require(unit, "--user 0:0", label=unit_name)
-        if unit_name.startswith("tracegate-backhaul-fragment"):
-            _require(unit, "--user 0:0", label=unit_name)
-            _require(unit, "tracegate-backhaul-fragment-config %i", label=unit_name)
-        if unit_name.startswith("tracegate-hysteria"):
-            _require(unit, "--user 0:0", label=unit_name)
-            _require(unit, "--cap-drop ALL --cap-add NET_BIND_SERVICE", label=unit_name)
+    # Engine units never pull at start: each starts the digest recorded in the
+    # local artifact store via ${TRACEGATE_IMAGE} and a pre-start verifier.
+    artifacts_registry = json.loads(_read(root / "deploy/host/artifacts.json"))
+    if artifacts_registry.get("schema_version") != 1:
+        raise HostRuntimeCheckError("artifacts registry has an unsupported schema_version")
+    raw_components = artifacts_registry.get("components")
+    if not isinstance(raw_components, dict) or not raw_components:
+        raise HostRuntimeCheckError("artifacts registry must list components")
+
+    registry_units: set[str] = set()
+    for component_name, spec in sorted(raw_components.items()):
+        label = f"artifacts registry component {component_name}"
+        if not re.match(r"^[a-z0-9-]+$", component_name):
+            raise HostRuntimeCheckError(f"{label} has an invalid name")
+        if not isinstance(spec, dict):
+            raise HostRuntimeCheckError(f"{label} must be an object")
+        for key in ("image", "channel", "units", "container_prefixes"):
+            if key not in spec:
+                raise HostRuntimeCheckError(f"{label} is missing {key}")
+        image = str(spec["image"])
+        if "@" in image or ":" in image.rsplit("/", 1)[-1]:
+            raise HostRuntimeCheckError(f"{label} image must not carry a tag or digest: {image}")
+        units = spec["units"]
+        if not isinstance(units, list) or not units:
+            raise HostRuntimeCheckError(f"{label} must list its systemd units")
+        registry_units.update(str(unit_name) for unit_name in units)
+        for unit_name in units:
+            unit = _read(root / "deploy/systemd" / str(unit_name))
+            if "docker pull" in unit:
+                raise HostRuntimeCheckError(f"{unit_name} must not pull images at start")
+            _require(
+                unit,
+                f"EnvironmentFile=/var/lib/tracegate/artifacts/active/{component_name}.env",
+                label=unit_name,
+            )
+            exec_start_pre = re.findall(r"(?m)^ExecStartPre=.*$", unit)
+            verifier = f"ExecStartPre=/usr/local/sbin/tracegate-artifact-verify {component_name}"
+            if not exec_start_pre or exec_start_pre[0] != verifier:
+                raise HostRuntimeCheckError(
+                    f"{unit_name} must run the artifact verifier as its first ExecStartPre"
+                )
+            exec_start_match = re.search(r"(?m)^ExecStart=(?P<cmd>.*)$", unit)
+            if exec_start_match is None:
+                raise HostRuntimeCheckError(f"{unit_name} is missing ExecStart")
+            exec_start = exec_start_match.group("cmd")
+            if "${TRACEGATE_IMAGE}" not in exec_start:
+                raise HostRuntimeCheckError(f"{unit_name} must start ${{TRACEGATE_IMAGE}}")
+            for forbidden in (image, ":latest", "@sha256:"):
+                if forbidden in exec_start:
+                    raise HostRuntimeCheckError(
+                        f"{unit_name} ExecStart must not reference {forbidden}"
+                    )
+            _require(unit, "SuccessExitStatus=143", label=unit_name)
+            if str(unit_name).startswith("tracegate-xray"):
+                _require(unit, "--user 0:0", label=unit_name)
+            if str(unit_name).startswith("tracegate-backhaul-fragment"):
+                _require(unit, "--user 0:0", label=unit_name)
+                _require(unit, "tracegate-backhaul-fragment-config %i", label=unit_name)
+            if str(unit_name).startswith("tracegate-hysteria"):
+                _require(unit, "--user 0:0", label=unit_name)
+                _require(unit, "--cap-drop ALL --cap-add NET_BIND_SERVICE", label=unit_name)
+
+    for unit_path in sorted((root / "deploy/systemd").glob("*.service")):
+        unit = unit_path.read_text(encoding="utf-8")
+        if "docker run" in unit and unit_path.name not in registry_units:
+            raise HostRuntimeCheckError(
+                f"{unit_path.name} runs docker but is not listed in deploy/host/artifacts.json"
+            )
 
     mtproto_path = root / "src/tracegate/services/mtproto.py"
     if mtproto_path.exists():

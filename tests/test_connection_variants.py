@@ -41,16 +41,12 @@ def test_tracegate3_connection_variants_are_validated() -> None:
         ConnectionMode.CHAIN,
         ConnectionVariant.V5,
     )
-    validate_variant(
-        ConnectionProtocol.SHADOWSOCKS2022_SHADOWTLS,
-        ConnectionMode.DIRECT,
-        ConnectionVariant.V3,
-    )
-    validate_variant(
-        ConnectionProtocol.WIREGUARD_WSTUNNEL,
-        ConnectionMode.DIRECT,
-        ConnectionVariant.V0,
-    )
+    for retired in (
+        (ConnectionProtocol.SHADOWSOCKS2022_SHADOWTLS, ConnectionMode.DIRECT, ConnectionVariant.V3),
+        (ConnectionProtocol.WIREGUARD_WSTUNNEL, ConnectionMode.DIRECT, ConnectionVariant.V0),
+    ):
+        with pytest.raises(ConnectionValidationError):
+            validate_variant(*retired)
 
 
 @pytest.mark.parametrize(
@@ -107,13 +103,16 @@ def test_connection_profile_sort_key_groups_created_connections_by_product_order
 
     ordered = sorted(shuffled, key=lambda item: connection_profile_sort_key(*item))
 
-    assert ordered == [
+    assert ordered[:6] == [
         (ConnectionProtocol.VLESS_REALITY, ConnectionMode.DIRECT, ConnectionVariant.V1),
         (ConnectionProtocol.HYSTERIA2, ConnectionMode.DIRECT, ConnectionVariant.V2),
         (ConnectionProtocol.VLESS_REALITY, ConnectionMode.CHAIN, ConnectionVariant.V1),
         (ConnectionProtocol.VLESS_WS_TLS, ConnectionMode.CHAIN, ConnectionVariant.V5),
         (ConnectionProtocol.VLESS_GRPC_TLS, ConnectionMode.DIRECT, ConnectionVariant.V0),
         (ConnectionProtocol.VLESS_WS_TLS, ConnectionMode.DIRECT, ConnectionVariant.V0),
+    ]
+    # Retired families are no longer issuable; existing rows still sort, after every current profile.
+    assert set(ordered[6:]) == {
         (ConnectionProtocol.SHADOWSOCKS2022_SHADOWTLS, ConnectionMode.DIRECT, ConnectionVariant.V3),
         (ConnectionProtocol.WIREGUARD_WSTUNNEL, ConnectionMode.DIRECT, ConnectionVariant.V0),
-    ]
+    }

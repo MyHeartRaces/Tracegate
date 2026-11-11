@@ -69,8 +69,9 @@ for a `tg://proxy` link.
   remain compatible, then migrate renewed grants to per-user secrets.
 - Regenerate Telemt `access.users` atomically on issue/revoke. Telemt watches
   the file, so user churn must not restart the gateway container or proxy process.
-- Pull the current Telemt `latest` image before service start and retain the
-  previous local image ID until the observation window closes.
+- Promote a staged Telemt digest explicitly with `tracegate-artifacts` and
+  retain the previous recorded digest (`last-good`) until the observation
+  window closes; engine units never pull at start.
 - Require Telemt's native startup, readiness and liveness health checks. A
   node-local listener being alive is not proof that the runtime is healthy.
 - Keep the Entry-to-Endpoint source ACL and exempt the trusted Entry address
@@ -144,7 +145,9 @@ them to shared logs.
 ## Rollout gates
 
 1. Materialize and validate the host HAProxy bundle with synthetic secrets.
-2. Confirm the Telemt image was freshly pulled and record the resolved image ID.
+2. Confirm the Telemt active digest is recorded in the artifact store and the
+   image is present locally (`tracegate-artifacts status telemt`), and record
+   the resolved digest.
 3. Verify both gateway hosts remain ready during a sequential rollout.
 4. Run an authenticated public-path MTProxy probe repeatedly, including a
    reconnect test and sustained payload interval.

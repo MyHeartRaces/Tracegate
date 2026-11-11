@@ -66,7 +66,7 @@ from tracegate.bot.keyboards import (
     sni_page_keyboard_issue,
     sni_page_keyboard_new,
 )
-from tracegate.client_export.config import ClientConfigExportError, client_profile_name, export_client_config
+from tracegate.client_export.config import ClientConfigExportError, export_client_config
 from tracegate.enums import ConnectionMode, ConnectionProtocol, ConnectionVariant
 from tracegate.observability import configure_logging
 from tracegate.services.bot_blocks import (
@@ -275,6 +275,10 @@ def _mtproto_access_label(user: dict) -> str | None:
     return full or None
 
 
+# Telegram Proxy relies on the current Telegram app TLS behaviour.
+MTPROTO_UPDATE_TELEGRAM_HINT = "Обновите Telegram до последней версии: прокси рассчитан на актуальные версии приложения."
+
+
 def _format_mtproto_delivery_message(*, result: dict, rotate: bool) -> str:
     grant = result.get("grant") if isinstance(result.get("grant"), dict) else {}
     profile = result.get("profile") if isinstance(result.get("profile"), dict) else {}
@@ -360,6 +364,7 @@ def _format_mtproto_link_message(profile: dict) -> str:
             link_lines.append(f"Сервер: {server}")
         if row_tg_uri:
             link_lines.extend(["tg://:", row_tg_uri])
+    link_lines.extend(["", MTPROTO_UPDATE_TELEGRAM_HINT])
     return "\n".join(link_lines)
 
 
@@ -1132,13 +1137,7 @@ async def _send_client_config(callback: CallbackQuery, revision: dict, *, contex
         prefer_attachment = bool(
             exported.attachment_content
             and exported.attachment_filename
-            and (
-                exported.attachment_filename.endswith(".xray.json")
-                or (
-                    exported.attachment_filename.endswith(".singbox.json")
-                    and client_profile_name(effective) == "Tracegate-Experimental(SS2022)"
-                )
-            )
+            and exported.attachment_filename.endswith(".xray.json")
         )
         summary_msg = await callback.message.answer(
             _format_config_delivery_message(
@@ -1625,7 +1624,6 @@ async def connection_create_category(callback: CallbackQuery) -> None:
     category_specs_by_name = {
         "direct": {"reality", "hysteria"},
         "backup": {"backup-grpc", "backup-ws"},
-        "experimental": {"backup-shadowtls", "backup-wgws"},
     }
     if category not in category_specs_by_name:
         await callback.answer(_msg_warn("Неизвестный тип подключения."), show_alert=True)
@@ -2314,10 +2312,8 @@ def _profile(spec: str) -> tuple[ConnectionProtocol, ConnectionMode, ConnectionV
         "v1": "reality",
         "v1direct": "reality",
         "v2direct": "hysteria",
-        "v3direct": "backup-shadowtls",
         "v0ws": "backup-ws",
         "v0grpc": "backup-grpc",
-        "v0wgws": "backup-wgws",
     }
     profiles = supported_profile_specs()
     key = aliases.get(normalized, normalized)
@@ -2333,10 +2329,8 @@ def _profile_key(spec: str) -> str:
         "v1": "reality",
         "v1direct": "reality",
         "v2direct": "hysteria",
-        "v3direct": "backup-shadowtls",
         "v0ws": "backup-ws",
         "v0grpc": "backup-grpc",
-        "v0wgws": "backup-wgws",
     }
     key = aliases.get(normalized, normalized)
     if key not in supported_profile_specs():

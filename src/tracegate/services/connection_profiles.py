@@ -16,8 +16,6 @@ _PROFILE_LIST_ORDER = {
     "entry-ws-legacy": 31,
     "backup-grpc": 110,
     "backup-ws": 120,
-    "backup-shadowtls": 130,
-    "backup-wgws": 140,
 }
 
 
@@ -85,12 +83,6 @@ def supported_profile_specs() -> dict[str, tuple[ConnectionProtocol, ConnectionM
         "entry-ws-legacy": (ConnectionProtocol.VLESS_WS_TLS, ConnectionMode.CHAIN, ConnectionVariant.V5),
         "backup-grpc": (ConnectionProtocol.VLESS_GRPC_TLS, ConnectionMode.DIRECT, ConnectionVariant.V0),
         "backup-ws": (ConnectionProtocol.VLESS_WS_TLS, ConnectionMode.DIRECT, ConnectionVariant.V0),
-        "backup-shadowtls": (
-            ConnectionProtocol.SHADOWSOCKS2022_SHADOWTLS,
-            ConnectionMode.DIRECT,
-            ConnectionVariant.V3,
-        ),
-        "backup-wgws": (ConnectionProtocol.WIREGUARD_WSTUNNEL, ConnectionMode.DIRECT, ConnectionVariant.V0),
     }
 
 
@@ -140,8 +132,6 @@ def enabled_profile_keys(enabled_profile_names: Iterable[str] | None) -> set[str
             "entry-ws-legacy": {"v5-universal-entry", "v5-entry-ws"},
             "backup-grpc": {"v0grpc", "v0-grpc-vless"},
             "backup-ws": {"v0ws", "v0-ws-vless"},
-            "backup-shadowtls": {"v3direct", "v3-direct-shadowtls-shadowsocks"},
-            "backup-wgws": {"v0wgws", "v0-wgws-wireguard"},
         }
         names.update(aliases.get(key, set()))
         if names & normalized:

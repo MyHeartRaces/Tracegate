@@ -108,8 +108,8 @@ def test_context_uses_shared_defaults_and_fallback_values(tmp_path: Path) -> Non
     assert ctx.entry_tls_server_name == "entry.tracegate.test"
     assert ctx.transit_tls_server_name == "transit.tracegate.test"
     assert ctx.grafana_tls_server_name == "grafana.tracegate.test"
-    assert ctx.shadowtls_server_name_transit == "shadowtls.example"
-    assert ctx.shadowsocks2022_password_transit == "ss2022-server-key"
+    assert not hasattr(ctx, "shadowtls_server_name_transit")
+    assert not hasattr(ctx, "shadowsocks2022_password_transit")
     assert ctx.mtproto_domain == "proxied.tracegate.test"
     assert ctx.mtproto_tls_domain == "proxied.tracegate.test"
     assert ctx.mtproto_upstream == "127.0.0.1:9443"
@@ -231,9 +231,6 @@ def test_render_materialized_bundles_rewrites_runtime_files(tmp_path: Path) -> N
     transit_reality_inbound = next(inbound for inbound in transit_xray["inbounds"] if inbound["tag"] == "vless-reality-in")
     transit_ws_inbound = next(inbound for inbound in transit_xray["inbounds"] if inbound["tag"] == "vless-ws-in")
     transit_grpc_inbound = next(inbound for inbound in transit_xray["inbounds"] if inbound["tag"] == "vless-grpc-in")
-    transit_ss2022_inbound = next(
-        inbound for inbound in transit_ss2022_xray["inbounds"] if inbound["tag"] == "ss2022-in"
-    )
 
     assert entry_inbound["streamSettings"]["realitySettings"]["dest"] == "origin-entry.example:443"
     assert entry_inbound["streamSettings"]["realitySettings"]["serverNames"] == ["origin-entry.example"]
@@ -265,14 +262,9 @@ def test_render_materialized_bundles_rewrites_runtime_files(tmp_path: Path) -> N
     assert transit_ws_inbound["streamSettings"]["wsSettings"]["path"] == "/stealth/ws"
     assert transit_ws_inbound["streamSettings"]["wsSettings"]["heartbeatPeriod"] == 15
     assert transit_grpc_inbound["streamSettings"]["grpcSettings"]["serviceName"] == "tracegate.v1.Edge"
-    assert transit_ss2022_inbound["listen"] == "127.0.0.1"
-    assert transit_ss2022_inbound["port"] == 18443
-    assert transit_ss2022_inbound["settings"] == {
-        "network": "tcp",
-        "method": "2022-blake3-aes-128-gcm",
-        "password": "ss2022-server-key",
-        "clients": [],
-    }
+    # The client SS2022 inbound is retired; the isolated process keeps only bridge inbounds.
+    assert "ss2022-in" not in {inbound["tag"] for inbound in transit_ss2022_xray["inbounds"]}
+    assert 18443 not in {inbound.get("port") for inbound in transit_ss2022_xray["inbounds"]}
 
     assert "hy2-in" not in {inbound["tag"] for inbound in entry_xray["inbounds"]}
     assert "hy2-in" not in {inbound["tag"] for inbound in transit_xray["inbounds"]}
@@ -315,10 +307,8 @@ def test_render_materialized_bundles_rewrites_runtime_files(tmp_path: Path) -> N
         for rule in transit_xray["routing"]["rules"]
         if isinstance(rule, dict)
     )
-    assert any(
-        rule.get("inboundTag") == ["ss2022-in"]
-        and rule.get("protocol") == ["bittorrent"]
-        and rule.get("outboundTag") == "block"
+    assert not any(
+        "ss2022-in" in (rule.get("inboundTag") or [])
         for rule in transit_ss2022_xray["routing"]["rules"]
         if isinstance(rule, dict)
     )
@@ -344,9 +334,10 @@ def test_render_materialized_bundles_rewrites_runtime_files(tmp_path: Path) -> N
     assert "be_transit_mtproto" not in transit_haproxy
     assert "127.0.0.1:9443" not in transit_haproxy
     assert "acl mtproto_tls_sni req.ssl_sni -i proxied.tracegate.test" in entry_haproxy
-    assert "acl shadowtls_sni req.ssl_sni -i shadowtls.example" in transit_haproxy
-    assert "use_backend be_transit_shadowtls if shadowtls_sni" in transit_haproxy
-    assert "server transit_shadowtls 127.0.0.1:14443 check" in transit_haproxy
+    assert "shadowtls_sni" not in transit_haproxy
+    assert "be_transit_shadowtls" not in transit_haproxy
+    assert "127.0.0.1:14443" not in transit_haproxy
+    assert "REPLACE_SHADOWTLS" not in transit_haproxy
     assert "server_name tls-transit.example grafana.tracegate.test;" in transit_nginx
     assert "location ^~ /v1/decoy/" in transit_nginx
     assert "proxy_pass http://127.0.0.1:8070;" in transit_nginx
@@ -567,7 +558,7 @@ def test_render_materialized_bundles_exposes_optional_endpoint_direct_mtproto_ba
 
     assert "server mtproto transit.tracegate.test:9555 check-send-proxy send-proxy-v2" in entry_haproxy
     assert "acl mtproto_tls_sni req.ssl_sni -i proxied.tracegate.test" in transit_haproxy
-    assert "use_backend be_transit_mtproto if mtproto_tls_sni" in transit_haproxy
+    assert "use_backend be_transit_mtproto if mtproto_tls_sni { dst_port 443 }" in transit_haproxy
     assert "server transit_mtproto 127.0.0.1:9555 check send-proxy-v2" in transit_haproxy
 
 

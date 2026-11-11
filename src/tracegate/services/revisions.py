@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 import hashlib
 from uuid import UUID
@@ -687,19 +687,47 @@ async def _resolve_endpoints(
         hysteria_ech_config_list_transit=settings.hysteria_ech_config_list_transit,
         hysteria_ech_force_query_entry=settings.hysteria_ech_force_query_entry,
         hysteria_ech_force_query_transit=settings.hysteria_ech_force_query_transit,
-        shadowtls_server_name_entry=settings.shadowtls_server_name_entry,
-        shadowtls_server_name_transit=settings.shadowtls_server_name_transit,
-        shadowtls_password_entry=settings.shadowtls_password_entry,
-        shadowtls_password_transit=settings.shadowtls_password_transit,
-        shadowsocks2022_method=settings.shadowsocks2022_method,
-        shadowsocks2022_password_entry=settings.shadowsocks2022_password_entry,
-        shadowsocks2022_password_transit=settings.shadowsocks2022_password_transit,
-        wireguard_server_public_key=settings.wireguard_server_public_key,
-        wireguard_dns=settings.wireguard_dns,
-        wireguard_allowed_ips=tuple(settings.wireguard_allowed_ips),
-        wireguard_mtu=settings.wireguard_mtu,
-        wstunnel_path=settings.wireguard_wstunnel_path,
+        reality_direct_port=settings.reality_direct_port,
+        hysteria_gecko_hop_ports=settings.hysteria_gecko_hop_ports,
+        hysteria_salamander_hop_ports=settings.hysteria_salamander_hop_ports,
+        hysteria_hop_min_interval_s=settings.hysteria_hop_min_interval_s,
+        hysteria_hop_max_interval_s=settings.hysteria_hop_max_interval_s,
+        hysteria_tls_verify=settings.hysteria_tls_verify,
+        hysteria_default_obfs=settings.hysteria_default_obfs,
     )
+
+
+def _latest_stored_config(connection: Connection, protocol: str) -> dict | None:
+    def _created(rev: ConnectionRevision) -> datetime:
+        created = rev.created_at or datetime.min
+        return created if created.tzinfo is not None else created.replace(tzinfo=timezone.utc)
+
+    for rev in sorted(connection.revisions, key=_created, reverse=True):
+        cfg = rev.effective_config_json
+        if isinstance(cfg, dict) and str(cfg.get("protocol") or "").strip().lower() == protocol:
+            return cfg
+    return None
+
+
+def _sticky_hysteria_endpoints(connection: Connection, endpoints: EndpointSet) -> EndpointSet:
+    """Keep a Hysteria connection on the obfuscation it was first issued with.
+
+    TLS verification behaviour and the hop range follow the current settings on
+    every re-issue; only the obfs type (Gecko/Salamander) stays sticky, because
+    switching obfs changes the client listener semantics the user's app is
+    configured for.
+    """
+
+    if connection.protocol != ConnectionProtocol.HYSTERIA2:
+        return endpoints
+    previous = _latest_stored_config(connection, "hysteria2")
+    if previous is None:
+        return endpoints
+    obfs = previous.get("obfs")
+    obfs_type = str(obfs.get("type") if isinstance(obfs, dict) else obfs or "").strip().lower()
+    if obfs_type not in {"gecko", "salamander"}:
+        return endpoints
+    return replace(endpoints, hysteria_default_obfs=obfs_type)
 
 
 def _is_allowed_reality_sni(fqdn: str) -> bool:
@@ -845,6 +873,7 @@ async def create_revision(
         transit_host_override=pair_assignment.host if pair_assignment and pair_role == "endpoint" else None,
     )
     _ensure_chain_endpoint_ready(connection, endpoints)
+    endpoints = _sticky_hysteria_endpoints(connection, endpoints)
 
     active_revisions = sorted(
         [r for r in connection.revisions if r.status == RecordStatus.ACTIVE],

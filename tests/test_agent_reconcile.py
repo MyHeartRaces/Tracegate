@@ -670,76 +670,6 @@ def test_reconcile_xray_populates_xray_native_hysteria_inbound_clients(tmp_path:
     assert changed2 == []
 
 
-def test_reconcile_isolated_xray_populates_shadowsocks2022_clients(tmp_path: Path) -> None:
-    _write(
-        tmp_path / "base/xray-ss2022/config.json",
-        json.dumps(
-            {
-                "inbounds": [
-                    {
-                        "tag": "ss2022-in",
-                        "listen": "127.0.0.1",
-                        "port": 18443,
-                        "protocol": "shadowsocks",
-                        "settings": {
-                            "network": "tcp",
-                            "method": "2022-blake3-aes-128-gcm",
-                            "password": "server-key",
-                            "clients": [],
-                        },
-                    }
-                ],
-                "outbounds": [{"tag": "direct", "protocol": "freedom"}],
-            }
-        ),
-    )
-    _write(
-        tmp_path / "users/123/connection-conn-v3.json",
-        json.dumps(
-            {
-                "user_id": "123",
-                "connection_id": "conn-v3",
-                "revision_id": "rev-v3",
-                "protocol": "shadowsocks2022_shadowtls",
-                "variant": "V3",
-                "mode": "direct",
-                "config": {
-                    "password": "server-key:user-key",
-                    "method": "2022-blake3-aes-128-gcm",
-                },
-            }
-        ),
-    )
-    settings = Settings(
-        agent_data_root=str(tmp_path),
-        agent_role="TRANSIT",
-        agent_runtime_profile="tracegate-3",
-    )
-
-    changed = reconcile_all(settings)
-
-    assert "xray-ss2022" in changed
-    runtime = json.loads((tmp_path / "runtime/xray-ss2022/config.json").read_text(encoding="utf-8"))
-    inbound = next(row for row in runtime["inbounds"] if row.get("tag") == "ss2022-in")
-    assert inbound["settings"]["clients"] == [
-        {
-            "password": "user-key",
-            "email": "V3 - 123 - conn-v3",
-        }
-    ]
-    assert reconcile_all(settings) == []
-
-    (tmp_path / "users/123/connection-conn-v3.json").unlink()
-    (tmp_path / "runtime/artifact-index.json").unlink()
-
-    revoked = reconcile_all(settings)
-
-    assert "xray-ss2022" in revoked
-    runtime_after_revoke = json.loads((tmp_path / "runtime/xray-ss2022/config.json").read_text(encoding="utf-8"))
-    inbound_after_revoke = next(row for row in runtime_after_revoke["inbounds"] if row.get("tag") == "ss2022-in")
-    assert inbound_after_revoke["settings"]["clients"] == []
-
-
 def test_reconcile_xray_centric_prunes_stale_hysteria_runtime_state(tmp_path: Path) -> None:
     settings = Settings(
         agent_data_root=str(tmp_path),
@@ -880,10 +810,10 @@ def test_reconcile_runtime_contract_exposes_private_wrapper_state(tmp_path: Path
     assert runtime_contract["contract"]["hysteriaMetricsSource"] == "xray_stats"
     assert runtime_contract["contract"]["expectedPorts"] == [
         {"protocol": "tcp", "port": 443, "name": "listen tcp/443"},
+        {"protocol": "tcp", "port": 8443, "name": "listen tcp/8443"},
         {"protocol": "udp", "port": 443, "name": "listen udp/443"},
     ]
     assert runtime_contract["contract"]["forbiddenPorts"] == [
-        {"protocol": "tcp", "port": 8443, "name": "blocked tcp/8443"},
         {"protocol": "udp", "port": 8443, "name": "blocked udp/8443"},
     ]
     assert runtime_contract["rollout"] == {
@@ -904,10 +834,9 @@ def test_reconcile_runtime_contract_exposes_private_wrapper_state(tmp_path: Path
         "udp443Owner": "xray",
         "udpPublicPort": 443,
         "forbiddenUdp443": False,
-        "forbiddenTcp8443": True,
-        "forbiddenPublicPorts": [
-            {"protocol": "tcp", "port": 8443, "action": "drop"},
-        ],
+        # Endpoint TCP/8443 is a declared public HAProxy listener.
+        "forbiddenTcp8443": False,
+        "forbiddenPublicPorts": [],
         "touchUdp443": False,
         "mtprotoDomain": "proxied.tracegate.test",
         "mtprotoTlsDomain": "proxied.tracegate.test",
@@ -1401,13 +1330,6 @@ def test_reconcile_materializes_entry_and_endpoint_mtproto_routes_for_tunnel(tmp
             "port": 443,
             "primary": True,
         },
-        {
-            "id": "endpoint-direct",
-            "label": "Напрямую к Endpoint (резерв)",
-            "server": "203.0.113.20",
-            "port": 443,
-            "primary": False,
-        },
     ]
 
 
@@ -1699,87 +1621,17 @@ def test_reconcile_materializes_private_profile_handoff_for_transit(tmp_path: Pa
     assert state["secretMaterial"] is True
     assert state["transportProfiles"]["localSocks"] == {"auth": "required", "allowAnonymousLocalhost": False}
     assert "V7-WireGuard-WSTunnel-Direct" in state["transportProfiles"]["clientNames"]
-    assert state["counts"] == {
-        "total": 3,
-        "shadowsocks2022ShadowTLS": 2,
-        "wireguardWSTunnel": 1,
-    }
-    shadowtls_by_mode = {row["mode"]: row for row in state["shadowsocks2022ShadowTLS"]}
-    assert sorted(row["profile"] for row in state["shadowsocks2022ShadowTLS"]) == [
-        "v3-chain-shadowtls-shadowsocks",
-        "v3-direct-shadowtls-shadowsocks",
-    ]
-    assert shadowtls_by_mode["direct"]["stage"] == "direct-transit-public"
-    assert shadowtls_by_mode["chain"]["stage"] == "transit-private-terminator"
-    assert shadowtls_by_mode["chain"]["chain"]["preferredOuter"] == "shadowtls-v3"
-    assert shadowtls_by_mode["chain"]["chain"]["outerCarrier"] == "tcp-shadowtls-v3"
-    assert shadowtls_by_mode["chain"]["chain"]["managedBy"] == "link-crypto"
-    assert shadowtls_by_mode["chain"]["chain"]["selectedProfiles"] == ["V1", "V3"]
-    assert shadowtls_by_mode["chain"]["chain"]["xrayBackhaul"] is False
-    assert "password" not in shadowtls_by_mode["direct"]["shadowtls"]
-    assert shadowtls_by_mode["direct"]["shadowtls"]["credentialScope"] == "node-static"
-    assert shadowtls_by_mode["direct"]["shadowtls"]["profileRef"] == {
-        "kind": "file",
-        "path": "/etc/tracegate/private/shadowtls/transit-config.yaml",
-        "secretMaterial": True,
-    }
-    assert shadowtls_by_mode["direct"]["shadowtls"]["manageUsers"] is False
-    assert shadowtls_by_mode["direct"]["shadowtls"]["restartOnUserChange"] is False
-    assert shadowtls_by_mode["chain"]["localSocks"]["auth"]["required"] is True
-    assert state["wireguardWSTunnel"][0]["wireguard"]["clientPublicKey"] == "client-public"
-    assert state["wireguardWSTunnel"][0]["wireguard"]["allowedIps"] == ["10.7.0.10/32"]
-    assert state["wireguardWSTunnel"][0]["wireguard"]["clientRouteAllowedIps"] == ["0.0.0.0/0", "::/0"]
-    assert state["wireguardWSTunnel"][0]["sync"] == {
-        "strategy": "wg-set",
-        "interface": "wg",
-        "applyMode": "live-peer-sync",
-        "removeStalePeers": True,
-        "restartWireGuard": False,
-        "restartWSTunnel": False,
-    }
-    assert state["wireguardWSTunnel"][0]["obfuscation"]["packetShaping"] == "none"
-    assert state["wireguardWSTunnel"][0]["obfuscation"]["hostWideInterception"] is False
-    assert "TRACEGATE_PROFILE_COUNT='3'" in env
+    # Artifacts of the retired client families may still sit on a host after the
+    # upgrade; the agent no longer hands them to the private profile runtime.
+    assert state["counts"] == {"total": 0}
+    assert "shadowsocks2022ShadowTLS" not in state
+    assert "wireguardWSTunnel" not in state
+    assert "TRACEGATE_PROFILE_COUNT='0'" in env
     assert profile_path.stat().st_mode & 0o777 == 0o600
     assert env_path.stat().st_mode & 0o777 == 0o600
 
     changed2 = reconcile_all(settings)
     assert changed2 == []
-
-
-def test_reconcile_normalizes_shadowtls_handoff_to_current_static_ss2022_server_key(tmp_path: Path) -> None:
-    settings = Settings(
-        agent_data_root=str(tmp_path),
-        agent_runtime_mode="systemd",
-        agent_role="TRANSIT",
-        agent_runtime_profile="xray-centric",
-        private_runtime_root=str(tmp_path / "private"),
-        private_zapret_profile_dir=str(tmp_path / "private-profiles"),
-        agent_reload_profiles_cmd="reload-profiles",
-    )
-    credentials_dir = tmp_path / "private-profiles" / "credentials"
-    credentials_dir.mkdir(parents=True)
-    (credentials_dir / "ss2022-transit-password").write_text("current-server-key\n", encoding="utf-8")
-    _write_tracegate21_profile_artifacts(tmp_path)
-    chain_path = tmp_path / "users/102/connection-v6.json"
-    chain = json.loads(chain_path.read_text(encoding="utf-8"))
-    chain["config"]["password"] = "old-server-key:ss-v6-secret"
-    chain_path.write_text(json.dumps(chain), encoding="utf-8")
-
-    changed = reconcile_all(settings)
-    assert changed == ["profiles"]
-
-    state = json.loads(
-        (tmp_path / "private" / "profiles" / "transit" / "desired-state.json").read_text(encoding="utf-8")
-    )
-    passwords = {
-        row["connectionId"]: row["shadowsocks2022"]["password"]
-        for row in state["shadowsocks2022ShadowTLS"]
-    }
-    assert passwords == {
-        "v3-direct": "current-server-key:ss-v5-secret",
-        "v3-chain": "current-server-key:ss-v6-secret",
-    }
 
 
 def test_reconcile_materializes_only_chain_profile_handoff_for_entry(tmp_path: Path) -> None:
@@ -1799,21 +1651,8 @@ def test_reconcile_materializes_only_chain_profile_handoff_for_entry(tmp_path: P
     state = json.loads(
         (tmp_path / "private" / "profiles" / "entry" / "desired-state.json").read_text(encoding="utf-8")
     )
-    assert state["counts"] == {
-        "total": 1,
-        "shadowsocks2022ShadowTLS": 1,
-        "wireguardWSTunnel": 0,
-    }
-    assert state["shadowsocks2022ShadowTLS"][0]["profile"] == "v3-chain-shadowtls-shadowsocks"
-    assert state["shadowsocks2022ShadowTLS"][0]["stage"] == "entry-public-to-transit-relay"
-    assert state["shadowsocks2022ShadowTLS"][0]["shadowtls"]["profileRef"]["path"] == "/etc/tracegate/private/shadowtls/entry-config.yaml"
-    assert state["shadowsocks2022ShadowTLS"][0]["shadowtls"]["restartOnUserChange"] is False
-    assert state["shadowsocks2022ShadowTLS"][0]["obfuscation"] == {
-        "scope": "entry-transit-private-relay",
-        "outer": "shadowtls-v3",
-        "packetShaping": "none",
-        "hostWideInterception": False,
-    }
+    assert state["counts"] == {"total": 0}
+    assert "shadowsocks2022ShadowTLS" not in state
 
 
 def test_reconcile_host_revalidates_private_profiles_when_reload_marker_is_missing_or_stale(tmp_path: Path) -> None:
@@ -2504,7 +2343,7 @@ def test_reconcile_allows_entry_mtproto_route_tcp8443(tmp_path: Path, route_mode
     ]
 
 
-def test_reconcile_blocks_transit_tcp8443_for_entry_local_mtproto(tmp_path: Path) -> None:
+def test_reconcile_transit_declares_tcp8443_listener_for_entry_local_mtproto(tmp_path: Path) -> None:
     settings = Settings(
         agent_data_root=str(tmp_path),
         agent_runtime_mode="systemd",
@@ -2521,14 +2360,70 @@ def test_reconcile_blocks_transit_tcp8443_for_entry_local_mtproto(tmp_path: Path
     reconcile_all(settings)
 
     runtime_contract = json.loads((tmp_path / "runtime/runtime-contract.json").read_text(encoding="utf-8"))
-    assert runtime_contract["fronting"]["forbiddenTcp8443"] is True
+    # MTProto runs on Entry in this mode, so Endpoint is not in the MTProto
+    # fallback mode; Endpoint still declares the plain tcp/8443 listener.
+    assert runtime_contract["fronting"]["forbiddenTcp8443"] is False
     assert runtime_contract["fronting"]["mtprotoFallbackPublicPort"] == 0
-    assert {"protocol": "tcp", "port": 8443, "name": "blocked tcp/8443"} in runtime_contract["contract"][
+    assert {"protocol": "tcp", "port": 8443, "name": "blocked tcp/8443"} not in runtime_contract["contract"][
         "forbiddenPorts"
+    ]
+    assert {"protocol": "tcp", "port": 8443, "name": "listen tcp/8443"} in runtime_contract["contract"][
+        "expectedPorts"
     ]
     assert {"protocol": "tcp", "port": 8443, "name": "listen tcp/8443 mtproto fallback"} not in runtime_contract[
         "contract"
     ]["expectedPorts"]
+    assert {"protocol": "udp", "port": 8443, "name": "blocked udp/8443"} in runtime_contract["contract"][
+        "forbiddenPorts"
+    ]
+
+
+def test_reconcile_transit_mtproto_fallback_keeps_legacy_listener_name(tmp_path: Path) -> None:
+    settings = Settings(
+        agent_data_root=str(tmp_path),
+        agent_runtime_mode="systemd",
+        agent_role="TRANSIT",
+        agent_runtime_profile="tracegate-3",
+        default_entry_host="entry.tracegate.test",
+        default_transit_host="endpoint.tracegate.test",
+        mtproto_domain="proto.tracegate.test",
+        mtproto_public_port=8443,
+    )
+
+    reconcile_all(settings)
+
+    runtime_contract = json.loads((tmp_path / "runtime/runtime-contract.json").read_text(encoding="utf-8"))
+    tcp8443_rows = [row for row in runtime_contract["contract"]["expectedPorts"] if row["port"] == 8443]
+    assert tcp8443_rows == [{"protocol": "tcp", "port": 8443, "name": "listen tcp/8443 mtproto fallback"}]
+    assert runtime_contract["fronting"]["mtprotoFallbackPublicPort"] == 8443
+    assert "mtprotoAltPublicPort" not in runtime_contract["fronting"]
+
+
+def test_reconcile_entry_tunnel_contract_keeps_tcp_8443_blocked(tmp_path: Path) -> None:
+    settings = Settings(
+        agent_data_root=str(tmp_path),
+        agent_runtime_mode="systemd",
+        agent_role="ENTRY",
+        agent_runtime_profile="tracegate-3",
+        default_entry_host="entry.tracegate.test",
+        default_transit_host="endpoint.tracegate.test",
+        mtproto_domain="proto.tracegate.test",
+        mtproto_route_mode="entry-endpoint-tunnel",
+    )
+
+    reconcile_all(settings)
+
+    runtime_contract = json.loads((tmp_path / "runtime/runtime-contract.json").read_text(encoding="utf-8"))
+    expected = runtime_contract["contract"]["expectedPorts"]
+    forbidden = runtime_contract["contract"]["forbiddenPorts"]
+    hygiene_ports = runtime_contract["hysteria"]["hygiene"]["forbiddenPublicPorts"]
+    assert all(row["port"] != 8443 for row in expected)
+    assert {"protocol": "tcp", "port": 8443, "name": "blocked tcp/8443"} in forbidden
+    assert {"protocol": "udp", "port": 8443, "name": "blocked udp/8443"} in forbidden
+    assert runtime_contract["fronting"]["forbiddenTcp8443"] is True
+    assert "mtprotoAltPublicPort" not in runtime_contract["fronting"]
+    assert {"protocol": "tcp", "port": 8443, "action": "drop"} in hygiene_ports
+    assert {"protocol": "udp", "port": 8443, "action": "drop"} in hygiene_ports
 
 
 def test_reconcile_xray_centric_live_sync_passes_hysteria_user_specs(

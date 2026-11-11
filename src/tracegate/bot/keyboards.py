@@ -229,11 +229,6 @@ def connection_create_categories_keyboard_for(
                 if enabled is None or enabled & {"backup-grpc", "backup-ws"}
                 else []
             ),
-            *(
-                [[InlineKeyboardButton(text="Experimental", callback_data=f"conncat:experimental:{device_id}")]]
-                if enabled is None or enabled & {"backup-shadowtls", "backup-wgws"}
-                else []
-            ),
             [InlineKeyboardButton(text="↩️ Назад", callback_data=f"device:{device_id}")],
         ]
     )
@@ -256,9 +251,6 @@ def connection_create_profiles_keyboard(
     elif category == "backup":
         add_row(rows, "backup-grpc", "VLESS+gRPC")
         add_row(rows, "backup-ws", "VLESS+WebSocket")
-    elif category == "experimental":
-        add_row(rows, "backup-shadowtls", "Shadowsocks-2022+ShadowTLS1.3")
-        add_row(rows, "backup-wgws", "Wireguard-over-WebSocket (WGWS)")
     rows.append([InlineKeyboardButton(text="↩️ Назад", callback_data=f"conn_create:{device_id}")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 

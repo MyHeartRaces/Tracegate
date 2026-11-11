@@ -26,7 +26,12 @@ from tracegate.services.connection_profiles import (
 )
 from tracegate.services.private_handoffs import write_private_runtime_handoffs
 from tracegate.services.role_targeting import target_roles_for_connection
-from tracegate.services.runtime_contract import resolve_runtime_contract
+from tracegate.services.runtime_contract import (
+    TRACEGATE_MTPROTO_FALLBACK_TCP_LISTENER,
+    mtproto_uses_tcp8443_fallback,
+    resolve_runtime_contract,
+    tcp8443_is_public_listener,
+)
 from tracegate.services.sni_catalog import load_catalog
 from tracegate.settings import Settings, effective_private_runtime_root
 
@@ -381,7 +386,20 @@ def _hysteria_loopback_endpoint(value: object) -> bool:
     return raw.startswith(("127.", "localhost:", "[::1]:"))
 
 
-def _collect_hysteria_runtime_state(runtime_hysteria: dict[str, object], *, config_path: Path) -> dict[str, object]:
+def _settings_tcp8443_public(settings: Settings) -> bool:
+    return tcp8443_is_public_listener(
+        role=settings.agent_role,
+        mtproto_public_port=settings.mtproto_public_port,
+        mtproto_route_mode=settings.mtproto_route_mode,
+    )
+
+
+def _collect_hysteria_runtime_state(
+    runtime_hysteria: dict[str, object],
+    *,
+    config_path: Path,
+    forbid_tcp8443: bool = True,
+) -> dict[str, object]:
     auth = runtime_hysteria.get("auth")
     auth_block = auth if isinstance(auth, dict) else {}
     auth_http = auth_block.get("http")
@@ -499,31 +517,24 @@ def _collect_hysteria_runtime_state(runtime_hysteria: dict[str, object], *, conf
                 "udp-idle-timeout",
                 "sniff",
             ],
+            # UDP/8443 is dropped on every role. TCP/8443 is declared drop only
+            # where it is not a public listener (Entry without the MTProto
+            # alternative port); Endpoint serves it through HAProxy.
             "forbiddenPublicPorts": [
                 {"protocol": "udp", "port": TRACEGATE_FORBIDDEN_PUBLIC_UDP_PORT, "action": "drop"},
-                {"protocol": "tcp", "port": TRACEGATE_FORBIDDEN_PUBLIC_TCP_PORT, "action": "drop"},
-            ],
+            ]
+            + (
+                [{"protocol": "tcp", "port": TRACEGATE_FORBIDDEN_PUBLIC_TCP_PORT, "action": "drop"}]
+                if forbid_tcp8443
+                else []
+            ),
         },
     }
 
 
 def _build_link_crypto_contract_payload(settings: Settings) -> dict[str, object]:
     role_upper = str(settings.agent_role or "").strip().upper()
-    try:
-        mtproto_public_port = int(settings.mtproto_public_port or TRACEGATE_PUBLIC_TCP_PORT)
-    except (TypeError, ValueError):
-        mtproto_public_port = TRACEGATE_PUBLIC_TCP_PORT
-    mtproto_route_mode = str(settings.mtproto_route_mode or "").strip().lower()
-    mtproto_uses_tcp8443 = (
-        mtproto_public_port == TRACEGATE_FORBIDDEN_PUBLIC_TCP_PORT
-        and (
-            (role_upper == "TRANSIT" and mtproto_route_mode != "entry-local-endpoint-egress")
-            or (
-                role_upper == "ENTRY"
-                and mtproto_route_mode in {"entry-transit-endpoint", "entry-local-endpoint-egress"}
-            )
-        )
-    )
+    tcp8443_public = _settings_tcp8443_public(settings)
     classes: list[str] = []
     local_ports: dict[str, int] = {}
     selected_profiles: dict[str, list[str]] = {}
@@ -712,7 +723,7 @@ def _build_link_crypto_contract_payload(settings: Settings) -> dict[str, object]
         "portSplit": {
             "publicUdpPort": TRACEGATE_PUBLIC_UDP_PORT,
             "forbidUdp443": False,
-            "forbidTcp8443": not mtproto_uses_tcp8443,
+            "forbidTcp8443": not tcp8443_public,
         },
         "requiredLayers": [
             "hysteria2-quic",
@@ -831,24 +842,29 @@ def _build_runtime_contract_payload(settings: Settings) -> dict[str, object]:
     )
     tcp443_owner = _contract_port_owner(contract, settings.agent_role, protocol="tcp", port=443)
     udp443_owner = public_udp_owner
-    role_upper = str(settings.agent_role or "").strip().upper()
     mtproto_public_port = int(settings.mtproto_public_port or TRACEGATE_PUBLIC_TCP_PORT)
     mtproto_route_mode = str(settings.mtproto_route_mode or "").strip().lower()
-    mtproto_uses_tcp8443 = (
-        (
-            (role_upper == "TRANSIT" and mtproto_route_mode != "entry-local-endpoint-egress")
-            or (
-                role_upper == "ENTRY"
-                and mtproto_route_mode in {"entry-transit-endpoint", "entry-local-endpoint-egress"}
-            )
-        )
-        and mtproto_public_port == TRACEGATE_FORBIDDEN_PUBLIC_TCP_PORT
+    mtproto_uses_tcp8443 = mtproto_uses_tcp8443_fallback(
+        role=settings.agent_role,
+        mtproto_public_port=mtproto_public_port,
+        mtproto_route_mode=mtproto_route_mode,
     )
+    tcp8443_public = _settings_tcp8443_public(settings)
     expected_ports = list(contract.expected_ports(settings.agent_role))
     forbidden_ports = list(contract.forbidden_ports(settings.agent_role))
+    tcp8443_listener_name = ""
     if mtproto_uses_tcp8443:
-        if ("tcp", TRACEGATE_FORBIDDEN_PUBLIC_TCP_PORT, "listen tcp/8443 mtproto fallback") not in expected_ports:
-            expected_ports.append(("tcp", TRACEGATE_FORBIDDEN_PUBLIC_TCP_PORT, "listen tcp/8443 mtproto fallback"))
+        tcp8443_listener_name = TRACEGATE_MTPROTO_FALLBACK_TCP_LISTENER
+    if tcp8443_listener_name:
+        # Endpoint already declares tcp/8443; replace its row so the legacy
+        # fallback name stays exactly as before. Entry gains the row here.
+        expected_ports = [
+            row
+            for row in expected_ports
+            if not (row[0] == "tcp" and row[1] == TRACEGATE_FORBIDDEN_PUBLIC_TCP_PORT)
+        ]
+        expected_ports.append(("tcp", TRACEGATE_FORBIDDEN_PUBLIC_TCP_PORT, tcp8443_listener_name))
+    if tcp8443_public:
         forbidden_ports = [
             row
             for row in forbidden_ports
@@ -983,11 +999,11 @@ def _build_runtime_contract_payload(settings: Settings) -> dict[str, object]:
             "udp443Owner": udp443_owner,
             "udpPublicPort": TRACEGATE_PUBLIC_UDP_PORT,
             "forbiddenUdp443": False,
-            "forbiddenTcp8443": not mtproto_uses_tcp8443,
+            "forbiddenTcp8443": not tcp8443_public,
             "forbiddenPublicPorts": [
                 {"protocol": "tcp", "port": TRACEGATE_FORBIDDEN_PUBLIC_TCP_PORT, "action": "drop"},
             ]
-            if not mtproto_uses_tcp8443
+            if not tcp8443_public
             else [],
             "touchUdp443": bool(settings.fronting_touch_udp_443),
             "mtprotoDomain": str(settings.mtproto_domain or "").strip(),
@@ -1016,6 +1032,9 @@ def _build_runtime_contract_payload(settings: Settings) -> dict[str, object]:
         "hysteria": _collect_hysteria_runtime_state(
             runtime_hysteria,
             config_path=runtime_hysteria_config_path,
+            # The legacy Entry MTProto fallback mode keeps its previous hygiene
+            # declaration; only Endpoint declares TCP/8443 open.
+            forbid_tcp8443=str(settings.agent_role or "").strip().upper() != "TRANSIT",
         ),
         "xray": runtime_xray,
     }
@@ -1187,31 +1206,6 @@ def _merge_hysteria_clients(existing: list[dict] | None, dynamic: list[dict]) ->
         if not isinstance(row, dict):
             continue
         key = str(row.get("email") or row.get("auth") or "").strip()
-        if not key:
-            continue
-        out[key] = row
-    return [out[key] for key in sorted(out, key=str)]
-
-
-def _merge_shadowsocks2022_clients(existing: list[dict] | None, dynamic: list[dict]) -> list[dict]:
-    """
-    Merge Xray Shadowsocks-2022 client rows by email/password.
-
-    The public SS2022 server key is static; per-connection user keys are applied
-    live through Xray HandlerService and persisted in the runtime config.
-    """
-    out: dict[str, dict] = {}
-    for row in existing or []:
-        if not isinstance(row, dict):
-            continue
-        key = str(row.get("email") or row.get("password") or "").strip()
-        if not key:
-            continue
-        out[key] = row
-    for row in dynamic:
-        if not isinstance(row, dict):
-            continue
-        key = str(row.get("email") or row.get("password") or "").strip()
         if not key:
             continue
         out[key] = row
@@ -1857,11 +1851,10 @@ def remove_connection_artifact_index(settings: Settings, connection_id: str) -> 
 
 
 def reconcile_xray_ss2022(settings: Settings) -> bool:
-    """Render the isolated SS2022 Xray runtime from active artifacts.
+    """Render the isolated SS2022 Xray runtime from the base bundle.
 
-    Xray's Shadowsocks-2022 inbound is not a HandlerService UserManager, so its
-    user list cannot be changed live. Keeping it in a dedicated process lets us
-    restart only the experimental SS surface without touching VLESS sessions.
+    Keeping the Shadowsocks-2022 surface in a dedicated process lets us restart
+    it without touching primary VLESS sessions.
     """
     paths = AgentPaths.from_settings(settings)
     base_path = paths.base / "xray-ss2022" / "config.json"
@@ -1870,43 +1863,6 @@ def reconcile_xray_ss2022(settings: Settings) -> bool:
         return False
 
     rendered = _load_json(base_path)
-    clients: list[dict[str, str]] = []
-    role_upper = str(settings.agent_role or "").strip().upper()
-    for row in load_all_user_artifacts(paths):
-        if not _artifact_applies_to_xray_public_runtime(settings, row):
-            continue
-        if str(row.get("protocol") or "").strip().lower() != "shadowsocks2022_shadowtls":
-            continue
-        mode = str(row.get("mode") or "").strip().lower()
-        if (mode == "chain" and role_upper != "ENTRY") or (mode != "chain" and role_upper != "TRANSIT"):
-            continue
-        cfg = row.get("config") if isinstance(row.get("config"), dict) else {}
-        password = str(cfg.get("password") or "").strip()
-        user_key = password.rpartition(":")[2].strip() if ":" in password else password
-        if not user_key:
-            continue
-        variant = str(row.get("variant") or "").strip() or "V?"
-        user_id = str(row.get("user_id") or "").strip() or "?"
-        connection_id = str(row.get("connection_id") or "").strip() or "?"
-        clients.append(
-            {
-                "password": user_key,
-                "email": f"{variant} - {user_id} - {connection_id}",
-            }
-        )
-    clients.sort(key=lambda row: str(row.get("email") or row.get("password") or ""))
-
-    inbound = next(
-        (
-            row
-            for row in rendered.get("inbounds", [])
-            if isinstance(row, dict) and str(row.get("tag") or "").strip() == "ss2022-in"
-        ),
-        None,
-    )
-    if inbound is None:
-        raise ValueError("isolated Xray SS2022 base config is missing ss2022-in")
-    inbound.setdefault("settings", {})["clients"] = clients
 
     current = _load_json(runtime_path) if runtime_path.exists() else None
     if current == rendered:
@@ -1952,7 +1908,6 @@ def reconcile_xray(settings: Settings) -> ReconcileXrayResult:
     clients_ws_encrypted: list[dict] = []
     clients_grpc: list[dict] = []
     clients_grpc_encrypted: list[dict] = []
-    clients_ss2022: list[dict] = []
     xray_public_artifacts = [row for row in artifacts if _artifact_applies_to_xray_public_runtime(settings, row)]
     clients_hysteria_xray = build_hysteria_xray_clients(xray_public_artifacts)
     selected_reality_sni: str | None = None
@@ -1965,14 +1920,6 @@ def reconcile_xray(settings: Settings) -> ReconcileXrayResult:
         user_id = str(row.get("user_id") or "").strip() or "?"
         connection_id = str(row.get("connection_id") or "").strip() or "?"
         return f"{variant} - {user_id} - {connection_id}"
-
-    def _ss2022_user_key(row: dict) -> str:
-        cfg = row.get("config") if isinstance(row.get("config"), dict) else {}
-        raw = str(cfg.get("password") or "").strip()
-        if ":" in raw:
-            _server_key, _sep, user_key = raw.rpartition(":")
-            return user_key.strip()
-        return raw
 
     # Prefer a stable, pre-seeded REALITY SNI allow-list.
     # In grouped mode each inbound owns its own SNI list.
@@ -1994,20 +1941,6 @@ def reconcile_xray(settings: Settings) -> ReconcileXrayResult:
         if not _artifact_applies_to_xray_public_runtime(settings, row):
             continue
         proto = (row.get("protocol") or "").strip().lower()
-        if proto == "shadowsocks2022_shadowtls":
-            role_upper = str(settings.agent_role or "").strip().upper()
-            mode = str(row.get("mode") or "").strip().lower()
-            if (mode == "chain" and role_upper != "ENTRY") or (mode != "chain" and role_upper != "TRANSIT"):
-                continue
-            user_key = _ss2022_user_key(row)
-            if user_key:
-                clients_ss2022.append(
-                    {
-                        "password": user_key,
-                        "email": _connection_marker(row),
-                    }
-                )
-            continue
         if proto not in {"vless_reality", "vless_ws_tls", "vless_grpc_tls"}:
             continue
         cfg = row.get("config") or {}
@@ -2082,7 +2015,6 @@ def reconcile_xray(settings: Settings) -> ReconcileXrayResult:
     clients_ws_encrypted.sort(key=lambda c: str(c.get("id") or ""))
     clients_grpc.sort(key=lambda c: str(c.get("id") or ""))
     clients_grpc_encrypted.sort(key=lambda c: str(c.get("id") or ""))
-    clients_ss2022.sort(key=lambda c: str(c.get("email") or c.get("password") or ""))
 
     inbounds = base.get("inbounds", [])
     if not isinstance(inbounds, list):
@@ -2094,7 +2026,6 @@ def reconcile_xray(settings: Settings) -> ReconcileXrayResult:
     managed_ws_encrypted_tags = {"vless-ws-enc-in"}
     managed_grpc_tags = {"vless-grpc-in"}
     managed_grpc_encrypted_tags = {"vless-grpc-enc-in"}
-    managed_ss2022_tags = {"ss2022-in", "shadowsocks2022-in"}
     has_tagged_reality = any(str((row or {}).get("tag") or "").strip() in managed_reality_tags for row in inbounds)
     has_tagged_ws = any(str((row or {}).get("tag") or "").strip() in managed_ws_tags for row in inbounds)
     has_tagged_grpc = any(str((row or {}).get("tag") or "").strip() in managed_grpc_tags for row in inbounds)
@@ -2379,29 +2310,6 @@ def reconcile_xray(settings: Settings) -> ReconcileXrayResult:
                     auth = str(row.get("auth") or "").strip()
                     if email and auth:
                         desired[email] = {"protocol": "hysteria", "auth": auth}
-                desired_by_tag[tag] = desired
-
-        is_ss2022 = str(inbound.get("protocol") or "").strip().lower() == "shadowsocks"
-        if is_ss2022:
-            inbound_settings = inbound.setdefault("settings", {})
-            method = str(inbound_settings.get("method") or "").strip().lower()
-            should_manage_ss2022 = tag in managed_ss2022_tags and "2022" in method
-            if not should_manage_ss2022:
-                continue
-            merged_clients = _merge_shadowsocks2022_clients(
-                inbound_settings.get("clients") if isinstance(inbound_settings.get("clients"), list) else [],
-                clients_ss2022,
-            )
-            inbound_settings["clients"] = merged_clients
-            if tag:
-                desired: dict[str, dict[str, str]] = {}
-                for row in merged_clients:
-                    if not isinstance(row, dict):
-                        continue
-                    email = str(row.get("email") or "").strip()
-                    key = str(row.get("password") or "").strip()
-                    if email and key:
-                        desired[email] = {"protocol": "shadowsocks2022", "key": key}
                 desired_by_tag[tag] = desired
 
     if contract.xray_backhaul_allowed:

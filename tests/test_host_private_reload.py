@@ -670,7 +670,7 @@ def test_host_private_reload_validates_profiles_and_writes_redacted_marker(tmp_p
     assert marker["summarySchema"] == "tracegate.host-private-reload-summary.v1"
     assert marker["component"] == "profiles"
     assert marker["summary"]["total"] == 0
-    assert marker["summary"]["protocols"]["shadowsocks2022ShadowTLS"] == 0
+    assert "protocols" not in marker["summary"]
     assert marker["summary"]["transportProfiles"]["clientCount"] == len(TRACEGATE22_CLIENT_PROFILES)
     assert marker["summary"]["transportProfiles"]["localSocks"] == {
         "auth": "required",
@@ -696,76 +696,16 @@ def test_host_private_reload_profile_marker_summarizes_without_profile_secrets(t
 
     marker = json.loads(Path(str(result["markerPath"])).read_text(encoding="utf-8"))
     summary = marker["summary"]
-    assert summary["protocols"] == {"shadowsocks2022ShadowTLS": 2, "wireguardWSTunnel": 1}
-    assert summary["variants"] == ["V0", "V3"]
+    # A handoff written by a pre-upgrade agent still lists entries of the retired
+    # client families. Reload succeeds with a warning and never renders a runtime
+    # for them.
+    assert summary["total"] == 3
+    assert summary["warnings"] >= 1
     assert summary["transportProfiles"]["clientNames"] == sorted(TRACEGATE22_CLIENT_PROFILES)
-    assert summary["transportProfiles"]["localSocks"]["auth"] == "required"
-    assert summary["localSocks"]["authRequired"] == 3
-    assert summary["localSocks"]["anonymous"] == 0
-    assert summary["chain"]["managedBy"] == ["link-crypto"]
-    assert summary["obfuscation"]["outers"] == ["shadowtls-v3", "wstunnel"]
-    assert summary["shadowtlsOuter"] == {
-        "total": 2,
-        "credentialScopes": ["node-static"],
-        "fileProfileRefs": 2,
-        "secretProfileRefs": 2,
-        "perUserPasswords": 0,
-        "manageUsers": 0,
-        "restartOnUserChange": 0,
-    }
-    assert summary["wireguardSync"] == {
-        "total": 1,
-        "strategies": ["wg-set"],
-        "interfaces": ["wg"],
-        "livePeerSync": 1,
-        "removeStalePeers": 1,
-        "restartWireGuard": 0,
-        "restartWSTunnel": 0,
-    }
     assert summary["sources"]["state"]["mtimeNs"] > 0
     assert summary["sources"]["env"]["mtimeNs"] > 0
-    ss_config = json.loads((private_root / "runtime/shadowsocks2022-transit-server.json").read_text(encoding="utf-8"))
-    assert len(ss_config["servers"]) == 1
-    ss_server = ss_config["servers"][0]
-    assert ss_server["server"] == "127.0.0.1"
-    assert ss_server["server_port"] == 18443
-    assert ss_server["password"] == "ss-server-secret"
-    assert sorted(user["password"] for user in ss_server["users"]) == ["ss-secret-v3-chain", "ss-secret-v3-direct"]
+    assert not (private_root / "runtime/shadowsocks2022-transit-server.json").exists()
     _assert_no_private_canaries(json.dumps(marker))
-
-
-def test_host_private_reload_writes_entry_shadowsocks2022_via_chain_socks(tmp_path: Path) -> None:
-    contract_path = tmp_path / "runtime" / "runtime-contract.json"
-    contract = _contract(contract_path)
-    private_root = tmp_path / "private"
-    _write_entry_profile_handoff(private_root, contract=contract, contract_path=contract_path)
-
-    result = run_private_reload(
-        component="profiles",
-        role="ENTRY",
-        private_runtime_root=private_root,
-        runtime_contract=contract_path,
-    )
-
-    assert Path(str(result["markerPath"])).exists()
-    ss_config = json.loads((private_root / "runtime/shadowsocks2022-entry-server.json").read_text(encoding="utf-8"))
-    inbound = ss_config["inbounds"][0]
-    assert inbound["type"] == "shadowsocks"
-    assert inbound["listen"] == "127.0.0.1"
-    assert inbound["listen_port"] == 18443
-    assert inbound["password"] == "ss-server-secret"
-    assert inbound["users"] == [{"name": "conn-v3-chain", "password": "ss-secret-v3-chain"}]
-    outbound = ss_config["outbounds"][0]
-    assert outbound == {
-        "type": "socks",
-        "tag": "chain-to-transit",
-        "server": "127.0.0.1",
-        "server_port": 11082,
-        "version": "5",
-        "network": "tcp",
-    }
-    assert ss_config["route"]["final"] == "chain-to-transit"
-    assert ss_config["route"]["rules"] == [{"inbound": ["ss2022-in"], "outbound": "chain-to-transit"}]
 
 
 def test_host_private_reload_validates_link_crypto_and_writes_marker(tmp_path: Path) -> None:

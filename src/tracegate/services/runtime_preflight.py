@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import shlex
 from dataclasses import dataclass
-from ipaddress import ip_address, ip_network
+from ipaddress import ip_address
 from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlparse
@@ -259,10 +259,9 @@ class PrivateProfileState:
     transport_profiles: dict[str, Any]
     secret_material: bool
     total_count: int
-    shadowsocks2022_shadowtls_count: int
-    wireguard_wstunnel_count: int
-    shadowsocks2022_shadowtls: tuple[dict[str, Any], ...]
-    wireguard_wstunnel: tuple[dict[str, Any], ...]
+    # Entries of client families retired in Tracegate 4 (WGWS, client SS2022)
+    # that a desired-state written by an older agent may still list.
+    retired_entry_count: int = 0
 
 
 @dataclass(frozen=True)
@@ -273,8 +272,6 @@ class PrivateProfileEnv:
     state_json: str
     secret_material: bool
     total_count: int
-    shadowsocks2022_shadowtls_count: int
-    wireguard_wstunnel_count: int
 
 
 @dataclass(frozen=True)
@@ -797,6 +794,9 @@ def load_mtproto_public_profile(path: str | Path) -> MTProtoPublicProfile:
     )
 
 
+_RETIRED_PRIVATE_PROFILE_KEYS = ("shadowsocks2022ShadowTLS", "wireguardWSTunnel")
+
+
 def load_private_profile_state(path: str | Path) -> PrivateProfileState:
     state_path = Path(path)
     try:
@@ -821,20 +821,7 @@ def load_private_profile_state(path: str | Path) -> PrivateProfileState:
         transport_profiles=payload.get("transportProfiles") if isinstance(payload.get("transportProfiles"), dict) else {},
         secret_material=bool(payload.get("secretMaterial", False)),
         total_count=_json_int(counts.get("total"), path=state_path, field_name="counts.total", label="private profile desired-state"),
-        shadowsocks2022_shadowtls_count=_json_int(
-            counts.get("shadowsocks2022ShadowTLS"),
-            path=state_path,
-            field_name="counts.shadowsocks2022ShadowTLS",
-            label="private profile desired-state",
-        ),
-        wireguard_wstunnel_count=_json_int(
-            counts.get("wireguardWSTunnel"),
-            path=state_path,
-            field_name="counts.wireguardWSTunnel",
-            label="private profile desired-state",
-        ),
-        shadowsocks2022_shadowtls=tuple(_dict_list(payload.get("shadowsocks2022ShadowTLS"))),
-        wireguard_wstunnel=tuple(_dict_list(payload.get("wireguardWSTunnel"))),
+        retired_entry_count=sum(len(_dict_list(payload.get(key))) for key in _RETIRED_PRIVATE_PROFILE_KEYS),
     )
 
 
@@ -872,28 +859,6 @@ def load_private_profile_env(path: str | Path) -> PrivateProfileEnv:
             _require_env_field(payload, env_path, "TRACEGATE_PROFILE_COUNT", label="private profile desired-state env"),
             path=env_path,
             field_name="TRACEGATE_PROFILE_COUNT",
-            label="private profile desired-state env",
-        ),
-        shadowsocks2022_shadowtls_count=_parse_int(
-            _require_env_field(
-                payload,
-                env_path,
-                "TRACEGATE_SHADOWSOCKS2022_SHADOWTLS_COUNT",
-                label="private profile desired-state env",
-            ),
-            path=env_path,
-            field_name="TRACEGATE_SHADOWSOCKS2022_SHADOWTLS_COUNT",
-            label="private profile desired-state env",
-        ),
-        wireguard_wstunnel_count=_parse_int(
-            _require_env_field(
-                payload,
-                env_path,
-                "TRACEGATE_WIREGUARD_WSTUNNEL_COUNT",
-                label="private profile desired-state env",
-            ),
-            path=env_path,
-            field_name="TRACEGATE_WIREGUARD_WSTUNNEL_COUNT",
             label="private profile desired-state env",
         ),
     )
@@ -2365,7 +2330,18 @@ def _validate_hysteria_runtime(contract: dict[str, Any], *, role_prefix: str) ->
                     f"{role_prefix} Hysteria hygiene must declare udp/{TRACEGATE_FORBIDDEN_PUBLIC_UDP_PORT} blocked",
                 )
             )
-        if ("tcp", TRACEGATE_FORBIDDEN_PUBLIC_TCP_PORT) not in forbidden_ports:
+        # Endpoint serves TCP/8443 through HAProxy; everywhere else hygiene
+        # keeps it dropped.
+        hygiene_tcp8443_open = role_prefix == "transit"
+        if hygiene_tcp8443_open and ("tcp", TRACEGATE_FORBIDDEN_PUBLIC_TCP_PORT) in forbidden_ports:
+            findings.append(
+                _finding(
+                    "error",
+                    f"{role_prefix}-hysteria-hygiene-open-tcp-8443",
+                    f"{role_prefix} Hysteria hygiene cannot declare tcp/{TRACEGATE_FORBIDDEN_PUBLIC_TCP_PORT} blocked while it is a declared listener",
+                )
+            )
+        if not hygiene_tcp8443_open and ("tcp", TRACEGATE_FORBIDDEN_PUBLIC_TCP_PORT) not in forbidden_ports:
             findings.append(
                 _finding(
                     "error",
@@ -3433,7 +3409,6 @@ def validate_obfuscation_env_contract(
 
 
 _PRIVATE_PROFILE_SCHEMA = "tracegate.private-profiles.v1"
-_COMMON_LOCAL_PROXY_PORTS = {1080, 10808, 7890, 7891, 8080}
 
 
 def _row_string(row: dict[str, Any], key: str) -> str:
@@ -3452,44 +3427,29 @@ def _row_dict(row: dict[str, Any], key: str) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
 
 
-def _looks_placeholder(value: object) -> bool:
-    raw = str(value or "").strip().upper()
-    if not raw:
-        return True
-    return raw.startswith("REPLACE_") or raw in {"CHANGE_ME", "TODO", "TBD"}
-
-
 def _validate_private_profile_counts(
     *,
     state: PrivateProfileState,
     prefix: str,
 ) -> list[RuntimePreflightFinding]:
     findings: list[RuntimePreflightFinding] = []
-    shadowtls_count = len(state.shadowsocks2022_shadowtls)
-    wireguard_count = len(state.wireguard_wstunnel)
-    total = shadowtls_count + wireguard_count
-    if state.total_count != total:
+    if state.retired_entry_count:
+        # Written by an agent from before the retirement. The entries are ignored
+        # and the file is rewritten empty at the next agent reconcile.
+        findings.append(
+            _finding(
+                "warning",
+                f"{prefix}-retired-entries",
+                f"{prefix.replace('-', ' ')} still lists {state.retired_entry_count} entries of retired client "
+                "families; they are ignored and cleared at the next agent reconcile",
+            )
+        )
+    if state.total_count not in {0, state.retired_entry_count}:
         findings.append(
             _finding(
                 "error",
                 f"{prefix}-count-total",
                 f"{prefix.replace('-', ' ')} total count diverges from private profile entries",
-            )
-        )
-    if state.shadowsocks2022_shadowtls_count != shadowtls_count:
-        findings.append(
-            _finding(
-                "error",
-                f"{prefix}-count-shadowtls",
-                f"{prefix.replace('-', ' ')} Shadowsocks2022/ShadowTLS count diverges from private profile entries",
-            )
-        )
-    if state.wireguard_wstunnel_count != wireguard_count:
-        findings.append(
-            _finding(
-                "error",
-                f"{prefix}-count-wireguard",
-                f"{prefix.replace('-', ' ')} WireGuard/WSTunnel count diverges from private profile entries",
             )
         )
     return findings
@@ -3557,310 +3517,6 @@ def _validate_private_profile_transport_profiles(
     return findings
 
 
-def _validate_private_local_socks(
-    *,
-    row: dict[str, Any],
-    code_prefix: str,
-    label: str,
-) -> list[RuntimePreflightFinding]:
-    findings: list[RuntimePreflightFinding] = []
-    local_socks = _row_dict(row, "localSocks")
-    auth = _row_dict(local_socks, "auth")
-    if not local_socks:
-        findings.append(_finding("error", f"{code_prefix}-local-socks", f"{label} must include a localSocks contract"))
-        return findings
-    findings.extend(
-        _validate_endpoint(
-            raw_value=_row_string(local_socks, "listen"),
-            code_prefix=f"{code_prefix}-local-socks-listen",
-            label=f"{label} local SOCKS5 listen endpoint",
-            require_loopback=True,
-            loopback_severity="error",
-        )
-    )
-    try:
-        _host, port = _parse_endpoint(_row_string(local_socks, "listen"))
-    except ValueError:
-        port = 0
-    if port in _COMMON_LOCAL_PROXY_PORTS:
-        findings.append(
-            _finding(
-                "warning",
-                f"{code_prefix}-local-socks-common-port",
-                f"{label} local SOCKS5 listen port {port} is commonly scanned; prefer generated high ports",
-            )
-        )
-    if not bool(local_socks.get("enabled", False)):
-        findings.append(_finding("error", f"{code_prefix}-local-socks-enabled", f"{label} local SOCKS adapter must stay enabled"))
-    if not bool(auth.get("required", False)):
-        findings.append(_finding("error", f"{code_prefix}-local-socks-auth", f"{label} local SOCKS5 auth must be required"))
-    if _row_string(auth, "mode") != "username_password":
-        findings.append(_finding("error", f"{code_prefix}-local-socks-auth-mode", f"{label} local SOCKS5 auth must use username_password"))
-    if not _row_string(auth, "username") or not _row_string(auth, "password"):
-        findings.append(_finding("error", f"{code_prefix}-local-socks-credentials", f"{label} local SOCKS5 auth needs username and password"))
-    return findings
-
-
-def _validate_private_obfuscation(
-    *,
-    row: dict[str, Any],
-    code_prefix: str,
-    label: str,
-    expected_outer: str,
-) -> list[RuntimePreflightFinding]:
-    findings: list[RuntimePreflightFinding] = []
-    obfuscation = _row_dict(row, "obfuscation")
-    if bool(obfuscation.get("hostWideInterception", True)):
-        findings.append(_finding("error", f"{code_prefix}-host-wide-interception", f"{label} must not enable host-wide interception"))
-    packet_shaping = str(obfuscation.get("packetShaping") or "").strip().lower()
-    outer = str(obfuscation.get("outer") or "").strip().lower()
-    if expected_outer and outer != expected_outer:
-        findings.append(_finding("error", f"{code_prefix}-outer", f"{label} obfuscation outer must be {expected_outer}"))
-    expected_packet_shaping = "none" if expected_outer in {"wstunnel", "shadowtls-v3"} else "zapret2-scoped"
-    if packet_shaping != expected_packet_shaping:
-        findings.append(
-            _finding(
-                "error",
-                f"{code_prefix}-packet-shaping",
-                f"{label} packet shaping must be {expected_packet_shaping}",
-            )
-        )
-    return findings
-
-
-def _validate_wireguard_peer_allowed_ips(
-    *,
-    values: list[object],
-    code_prefix: str,
-    label: str,
-) -> list[RuntimePreflightFinding]:
-    findings: list[RuntimePreflightFinding] = []
-    for raw_value in values:
-        token = str(raw_value or "").strip()
-        if not token:
-            continue
-        try:
-            network = ip_network(token, strict=False)
-        except ValueError:
-            findings.append(_finding("error", f"{code_prefix}-wireguard-allowed-ips-parse", f"{label} WireGuard allowedIps entry is invalid: {token}"))
-            continue
-        if network.prefixlen != network.max_prefixlen:
-            findings.append(
-                _finding(
-                    "error",
-                    f"{code_prefix}-wireguard-allowed-ips-host-route",
-                    f"{label} WireGuard allowedIps must be peer host routes, not client default or subnet routes",
-                )
-            )
-    return findings
-
-
-def _validate_private_shadowtls_profile(
-    *,
-    row: dict[str, Any],
-    role_upper: str,
-    index: int,
-    prefix: str,
-) -> list[RuntimePreflightFinding]:
-    findings: list[RuntimePreflightFinding] = []
-    variant = _row_string(row, "variant").upper()
-    mode = _row_string(row, "mode").lower()
-    chain = _row_dict(row, "chain")
-    is_chain = mode == "chain" or bool(chain)
-    suffix = variant.lower() if variant else f"row-{index}"
-    code_prefix = f"{prefix}-shadowtls-{suffix}"
-    label = f"{role_upper.lower()} Shadowsocks2022/ShadowTLS {variant or index}"
-
-    if _row_string(row, "protocol") != "shadowsocks2022_shadowtls":
-        findings.append(_finding("error", f"{code_prefix}-protocol", f"{label} protocol must be shadowsocks2022_shadowtls"))
-    if variant != "V3":
-        findings.append(_finding("error", f"{code_prefix}-variant", f"{label} must use V3"))
-
-    expected_profile = "v3-chain-shadowtls-shadowsocks" if is_chain else "v3-direct-shadowtls-shadowsocks"
-    if _row_string(row, "profile") != expected_profile:
-        findings.append(_finding("error", f"{code_prefix}-profile", f"{label} profile name must be {expected_profile}"))
-
-    expected_stage = "direct-transit-public"
-    if is_chain:
-        expected_stage = "entry-public-to-transit-relay" if role_upper == "ENTRY" else "transit-private-terminator"
-    if _row_string(row, "stage") != expected_stage:
-        findings.append(_finding("error", f"{code_prefix}-stage", f"{label} stage must be {expected_stage}"))
-
-    if role_upper == "ENTRY" and not is_chain:
-        findings.append(_finding("error", f"{code_prefix}-entry-mode", "Entry private profile handoff must only receive V3 chain relays"))
-    if role_upper == "TRANSIT" and variant != "V3":
-        findings.append(_finding("error", f"{code_prefix}-transit-variant", "Transit private profile handoff only supports V3 ShadowTLS entries"))
-
-    if _row_int(row, "port") != 443:
-        findings.append(_finding("error", f"{code_prefix}-port", f"{label} must stay on tcp/443"))
-
-    ss2022 = _row_dict(row, "shadowsocks2022")
-    if not _row_string(ss2022, "method"):
-        findings.append(_finding("error", f"{code_prefix}-ss-method", f"{label} missing Shadowsocks 2022 method"))
-    if _looks_placeholder(ss2022.get("password")):
-        findings.append(_finding("error", f"{code_prefix}-ss-password", f"{label} missing Shadowsocks 2022 password"))
-
-    shadowtls = _row_dict(row, "shadowtls")
-    if _row_int(shadowtls, "version") != 3:
-        findings.append(_finding("error", f"{code_prefix}-shadowtls-version", f"{label} must use ShadowTLS v3"))
-    if not _row_string(shadowtls, "serverName"):
-        findings.append(_finding("error", f"{code_prefix}-shadowtls-server-name", f"{label} missing ShadowTLS serverName"))
-    if _row_string(shadowtls, "password"):
-        findings.append(_finding("error", f"{code_prefix}-shadowtls-password", f"{label} must not carry per-user ShadowTLS password"))
-    if _row_string(shadowtls, "credentialScope") != "node-static":
-        findings.append(_finding("error", f"{code_prefix}-shadowtls-credential-scope", f"{label} ShadowTLS credentials must stay node-static"))
-    profile_ref = _row_dict(shadowtls, "profileRef")
-    if _row_string(profile_ref, "kind") != "file":
-        findings.append(_finding("error", f"{code_prefix}-shadowtls-profile-ref-kind", f"{label} ShadowTLS profileRef must be file-based"))
-    if not _row_string(profile_ref, "path"):
-        findings.append(_finding("error", f"{code_prefix}-shadowtls-profile-ref-path", f"{label} ShadowTLS profileRef path is missing"))
-    if not bool(profile_ref.get("secretMaterial", False)):
-        findings.append(_finding("error", f"{code_prefix}-shadowtls-profile-ref-secret", f"{label} ShadowTLS profileRef must point at private secret material"))
-    if bool(shadowtls.get("manageUsers", True)):
-        findings.append(_finding("error", f"{code_prefix}-shadowtls-manage-users", f"{label} ShadowTLS outer users must not be managed per user"))
-    if bool(shadowtls.get("restartOnUserChange", True)):
-        findings.append(_finding("error", f"{code_prefix}-shadowtls-restart-on-user-change", f"{label} ShadowTLS must not restart on user change"))
-
-    findings.extend(_validate_private_local_socks(row=row, code_prefix=code_prefix, label=label))
-    expected_outer = "shadowtls-v3"
-    findings.extend(_validate_private_obfuscation(row=row, code_prefix=code_prefix, label=label, expected_outer=expected_outer))
-
-    if is_chain:
-        if not chain:
-            findings.append(_finding("error", f"{code_prefix}-chain", f"{label} must include Entry-Transit chain metadata"))
-        else:
-            if str(chain.get("type") or "").strip() != "entry_transit_private_relay":
-                findings.append(_finding("error", f"{code_prefix}-chain-type", f"{label} chain type must be entry_transit_private_relay"))
-            if str(chain.get("linkClass") or "").strip() != "entry-transit":
-                findings.append(_finding("error", f"{code_prefix}-chain-class", f"{label} chain linkClass must be entry-transit"))
-            if str(chain.get("carrier") or "").strip().lower() != "shadowsocks2022-shadowtls-v3":
-                findings.append(_finding("error", f"{code_prefix}-chain-carrier", f"{label} chain carrier must be shadowsocks2022-shadowtls-v3"))
-            if str(chain.get("preferredOuter") or "").strip().lower() != "shadowtls-v3":
-                findings.append(_finding("error", f"{code_prefix}-chain-outer", f"{label} chain preferredOuter must be shadowtls-v3"))
-            if str(chain.get("outerCarrier") or "").strip().lower() != "tcp-shadowtls-v3":
-                findings.append(_finding("error", f"{code_prefix}-chain-outer-carrier", f"{label} chain outerCarrier must be tcp-shadowtls-v3"))
-            if str(chain.get("optionalPacketShaping") or "").strip().lower():
-                findings.append(_finding("error", f"{code_prefix}-chain-packet-shaping", f"{label} chain packet shaping must be empty"))
-            if str(chain.get("managedBy") or "").strip() != "link-crypto":
-                findings.append(_finding("error", f"{code_prefix}-chain-managed-by", f"{label} chain must be managed by link-crypto"))
-            selected_profiles = chain.get("selectedProfiles")
-            if not isinstance(selected_profiles, list) or not {"V1", "V3"}.issubset(
-                {str(item).strip() for item in selected_profiles}
-            ):
-                findings.append(_finding("error", f"{code_prefix}-chain-selected-profiles", f"{label} chain must cover V1/V3"))
-            if bool(chain.get("xrayBackhaul", True)):
-                findings.append(_finding("error", f"{code_prefix}-chain-xray-backhaul", f"{label} chain must stay outside Xray backhaul"))
-    elif chain:
-        findings.append(_finding("warning", f"{code_prefix}-chain", f"{label} direct V3 profile should not carry chain metadata"))
-
-    return findings
-
-
-def _validate_private_wireguard_profile(
-    *,
-    row: dict[str, Any],
-    role_upper: str,
-    index: int,
-    prefix: str,
-) -> list[RuntimePreflightFinding]:
-    findings: list[RuntimePreflightFinding] = []
-    suffix = _row_string(row, "variant").lower() or f"row-{index}"
-    code_prefix = f"{prefix}-wireguard-{suffix}"
-    label = f"{role_upper.lower()} WireGuard/WSTunnel {_row_string(row, 'variant') or index}"
-
-    if role_upper != "TRANSIT":
-        findings.append(_finding("error", f"{prefix}-wireguard-entry", "Entry private profile handoff must not receive V0 WireGuard/WSTunnel entries"))
-    if _row_string(row, "protocol") != "wireguard_wstunnel":
-        findings.append(_finding("error", f"{code_prefix}-protocol", f"{label} protocol must be wireguard_wstunnel"))
-    if _row_string(row, "variant").upper() != "V0":
-        findings.append(_finding("error", f"{code_prefix}-variant", f"{label} must use V0"))
-    if _row_string(row, "profile") != "v0-wgws-wireguard":
-        findings.append(_finding("error", f"{code_prefix}-profile", f"{label} profile name must be v0-wgws-wireguard"))
-    if _row_string(row, "stage") != "direct-transit-public":
-        findings.append(_finding("error", f"{code_prefix}-stage", f"{label} stage must be direct-transit-public"))
-    if _row_int(row, "port") != 443:
-        findings.append(_finding("error", f"{code_prefix}-port", f"{label} must stay on tcp/443"))
-
-    wstunnel = _row_dict(row, "wstunnel")
-    parsed_url = urlparse(_row_string(wstunnel, "url"))
-    parsed_url_port = 0
-    try:
-        parsed_url_port = int(parsed_url.port or 0)
-    except ValueError:
-        parsed_url_port = 0
-    wstunnel_path = _row_string(wstunnel, "path")
-    if (
-        parsed_url.scheme != "wss"
-        or not parsed_url.hostname
-        or parsed_url_port != 443
-        or not parsed_url.path.startswith("/")
-    ):
-        findings.append(_finding("error", f"{code_prefix}-wstunnel-url", f"{label} WSTunnel url must be wss://host:443/path"))
-    if not wstunnel_path.startswith("/") or "://" in wstunnel_path or any(ch.isspace() for ch in wstunnel_path):
-        findings.append(_finding("error", f"{code_prefix}-wstunnel-path", f"{label} WSTunnel path must be absolute"))
-    elif parsed_url.path and parsed_url.path != wstunnel_path:
-        findings.append(_finding("error", f"{code_prefix}-wstunnel-path-match", f"{label} WSTunnel path must match the URL path"))
-    local_udp_listen = _row_string(wstunnel, "localUdpListen")
-    if not local_udp_listen:
-        findings.append(_finding("error", f"{code_prefix}-wstunnel-local-udp", f"{label} WSTunnel localUdpListen is missing"))
-    else:
-        findings.extend(
-            _validate_endpoint(
-                raw_value=local_udp_listen,
-                code_prefix=f"{code_prefix}-wstunnel-local-udp",
-                label=f"{label} WSTunnel localUdpListen",
-                loopback_severity="error",
-            )
-        )
-    if not _row_string(wstunnel, "tlsServerName"):
-        findings.append(_finding("warning", f"{code_prefix}-wstunnel-sni", f"{label} WSTunnel tlsServerName is missing"))
-
-    wireguard = _row_dict(row, "wireguard")
-    for field_name in ("clientPublicKey", "clientPrivateKey", "serverPublicKey", "address"):
-        if _looks_placeholder(wireguard.get(field_name)):
-            findings.append(_finding("error", f"{code_prefix}-wireguard-{field_name}", f"{label} WireGuard {field_name} is missing or still a placeholder"))
-    if _looks_placeholder(wireguard.get("presharedKey")):
-        findings.append(_finding("warning", f"{code_prefix}-wireguard-preshared-key", f"{label} WireGuard presharedKey is missing"))
-    allowed_ips = wireguard.get("allowedIps")
-    if not isinstance(allowed_ips, list) or not [item for item in allowed_ips if str(item or "").strip()]:
-        findings.append(_finding("error", f"{code_prefix}-wireguard-allowed-ips", f"{label} WireGuard allowedIps must not be empty"))
-    else:
-        findings.extend(_validate_wireguard_peer_allowed_ips(values=allowed_ips, code_prefix=code_prefix, label=label))
-    mtu = _row_int(wireguard, "mtu")
-    if mtu < 1200 or mtu > 1420:
-        findings.append(_finding("error", f"{code_prefix}-wireguard-mtu", f"{label} WireGuard mtu must stay in 1200..1420"))
-    keepalive = _row_int(wireguard, "persistentKeepalive", default=25)
-    if keepalive < 0 or keepalive > 60:
-        findings.append(
-            _finding(
-                "error",
-                f"{code_prefix}-wireguard-persistent-keepalive",
-                f"{label} WireGuard persistentKeepalive must stay in 0..60",
-            )
-        )
-
-    sync = _row_dict(row, "sync")
-    if not sync:
-        findings.append(_finding("error", f"{code_prefix}-sync", f"{label} must include a WireGuard live sync contract"))
-    else:
-        if _row_string(sync, "strategy") != "wg-set":
-            findings.append(_finding("error", f"{code_prefix}-sync-strategy", f"{label} sync strategy must be wg-set"))
-        if _row_string(sync, "applyMode") != "live-peer-sync":
-            findings.append(_finding("error", f"{code_prefix}-sync-apply-mode", f"{label} sync applyMode must be live-peer-sync"))
-        if not _row_string(sync, "interface"):
-            findings.append(_finding("error", f"{code_prefix}-sync-interface", f"{label} sync interface is required"))
-        if not bool(sync.get("removeStalePeers", False)):
-            findings.append(_finding("error", f"{code_prefix}-sync-remove-stale", f"{label} sync must remove stale peers without restarting"))
-        if bool(sync.get("restartWireGuard", True)):
-            findings.append(_finding("error", f"{code_prefix}-sync-restart-wireguard", f"{label} sync must not restart WireGuard"))
-        if bool(sync.get("restartWSTunnel", True)):
-            findings.append(_finding("error", f"{code_prefix}-sync-restart-wstunnel", f"{label} sync must not restart WSTunnel"))
-
-    findings.extend(_validate_private_local_socks(row=row, code_prefix=code_prefix, label=label))
-    findings.extend(_validate_private_obfuscation(row=row, code_prefix=code_prefix, label=label, expected_outer="wstunnel"))
-    return findings
-
-
 def validate_private_profile_state(
     *,
     state: PrivateProfileState,
@@ -3894,11 +3550,6 @@ def validate_private_profile_state(
 
     findings.extend(_validate_private_profile_counts(state=state, prefix=prefix))
     findings.extend(_validate_private_profile_transport_profiles(state=state, contract=contract, prefix=prefix))
-
-    for index, row in enumerate(state.shadowsocks2022_shadowtls):
-        findings.extend(_validate_private_shadowtls_profile(row=row, role_upper=role_upper, index=index, prefix=prefix))
-    for index, row in enumerate(state.wireguard_wstunnel):
-        findings.extend(_validate_private_wireguard_profile(row=row, role_upper=role_upper, index=index, prefix=prefix))
 
     return findings
 
@@ -3937,15 +3588,8 @@ def validate_private_profile_env(
             findings.append(_finding("error", f"{prefix}-runtime-profile", f"{prefix.replace('-', ' ')} runtimeProfile diverges from desired-state.json"))
         if env.total_count != state.total_count:
             findings.append(_finding("error", f"{prefix}-count-total", f"{prefix.replace('-', ' ')} total count diverges from desired-state.json"))
-        if env.shadowsocks2022_shadowtls_count != state.shadowsocks2022_shadowtls_count:
-            findings.append(_finding("error", f"{prefix}-count-shadowtls", f"{prefix.replace('-', ' ')} ShadowTLS count diverges from desired-state.json"))
-        if env.wireguard_wstunnel_count != state.wireguard_wstunnel_count:
-            findings.append(_finding("error", f"{prefix}-count-wireguard", f"{prefix.replace('-', ' ')} WireGuard/WSTunnel count diverges from desired-state.json"))
     elif not env.state_json:
         findings.append(_finding("warning", f"{prefix}-state-json", f"{prefix.replace('-', ' ')} does not advertise desired-state.json"))
-
-    if env.total_count != env.shadowsocks2022_shadowtls_count + env.wireguard_wstunnel_count:
-        findings.append(_finding("error", f"{prefix}-count-sum", f"{prefix.replace('-', ' ')} total count diverges from protocol counts"))
 
     return findings
 
@@ -3963,6 +3607,13 @@ _LINK_CRYPTO_UDP_REQUIRED_PROFILES = {
     "router-entry-udp": {"V2"},
     "router-transit-udp": {"V2"},
 }
+# Class-required profiles are bridge/router vocabulary (e.g. the SS2022+ShadowTLS
+# backhaul class selects V3) and stay valid even though the retired client
+# families no longer appear in the runtime contract's client profile list.
+_LINK_CRYPTO_CLASS_PROFILE_VARIANTS = frozenset(
+    set().union(*_LINK_CRYPTO_REQUIRED_PROFILES.values())
+    | set().union(*_LINK_CRYPTO_UDP_REQUIRED_PROFILES.values())
+)
 
 
 def _transport_profile_variants(transport_profiles: dict[str, Any]) -> set[str]:
@@ -4950,16 +4601,23 @@ def _validate_link_crypto_udp_hardening(
 
 
 def _contract_mtproto_uses_tcp8443(contract: dict[str, Any], *, role_upper: str) -> bool:
+    """Whether the contract declares TCP/8443 as a public listener for this role.
+
+    Endpoint (TRANSIT) always serves TCP/8443; Entry only in the legacy MTProto
+    fallback mode. The name is kept for the existing link-crypto call sites.
+    """
+
     fronting = _row_dict(contract, "fronting")
+    if bool(fronting.get("forbiddenTcp8443", True)):
+        return False
+    if role_upper == "TRANSIT":
+        return True
     route_mode = str(fronting.get("mtprotoRouteMode") or "").strip().lower()
     return (
-        (
-            (role_upper == "TRANSIT" and route_mode != "entry-local-endpoint-egress")
-            or (role_upper == "ENTRY" and route_mode in {"entry-transit-endpoint", "entry-local-endpoint-egress"})
-        )
+        role_upper == "ENTRY"
+        and route_mode in {"entry-transit-endpoint", "entry-local-endpoint-egress"}
         and _row_int(fronting, "mtprotoPublicPort") == TRACEGATE_FORBIDDEN_PUBLIC_TCP_PORT
         and _row_int(fronting, "mtprotoFallbackPublicPort") == TRACEGATE_FORBIDDEN_PUBLIC_TCP_PORT
-        and not bool(fronting.get("forbiddenTcp8443", True))
     )
 
 
@@ -5254,7 +4912,9 @@ def validate_link_crypto_state(
     findings.extend(_validate_link_crypto_transport_profiles(state=state, contract=contract, prefix=prefix))
     findings.extend(_validate_link_crypto_contract_alignment(state=state, contract=contract, role_upper=role_upper, prefix=prefix))
 
-    known_profile_variants = _transport_profile_variants(state.transport_profiles)
+    known_profile_variants = (
+        _transport_profile_variants(state.transport_profiles) | _LINK_CRYPTO_CLASS_PROFILE_VARIANTS
+    )
     for index, row in enumerate(state.links):
         findings.extend(
             _validate_link_crypto_row(
@@ -6605,6 +6265,33 @@ def validate_private_helper_unit_contract(
     return findings
 
 
+def _contract_tcp8443_mode(contract: dict[str, Any], *, role_prefix: str) -> str:
+    """Classify how a contract may use TCP/8443.
+
+    ``"mtproto-fallback"``: legacy MTProto fallback (primary MTProto port 8443).
+    ``"endpoint"``: Endpoint (TRANSIT) declared public listener.
+    ``""``: TCP/8443 must stay blocked.
+    """
+
+    fronting = _fronting_block(contract)
+    route_mode = str(fronting.get("mtprotoRouteMode") or "").strip().lower()
+    mtproto_uses_tcp8443 = (
+        (role_prefix == "transit" and route_mode != "entry-local-endpoint-egress")
+        or (role_prefix == "entry" and route_mode in {"entry-transit-endpoint", "entry-local-endpoint-egress"})
+    ) and _row_int(fronting, "mtprotoPublicPort") == TRACEGATE_FORBIDDEN_PUBLIC_TCP_PORT
+    if mtproto_uses_tcp8443:
+        return "mtproto-fallback"
+    if role_prefix == "transit":
+        return "endpoint"
+    return ""
+
+
+_TCP8443_LISTENER_NAMES = {
+    "mtproto-fallback": "listen tcp/8443 mtproto fallback",
+    "endpoint": "listen tcp/8443",
+}
+
+
 def _validate_forbidden_public_ports(contract: dict[str, Any], *, role_prefix: str) -> list[RuntimePreflightFinding]:
     findings: list[RuntimePreflightFinding] = []
     contract_block = contract.get("contract")
@@ -6615,22 +6302,15 @@ def _validate_forbidden_public_ports(contract: dict[str, Any], *, role_prefix: s
         (_row_string(row, "protocol").lower(), _row_int(row, "port")): _row_string(row, "name")
         for row in rows
     }
-    mtproto_uses_tcp8443 = (
-        (
-            (
-                role_prefix == "transit"
-                and str(fronting.get("mtprotoRouteMode") or "").strip().lower() != "entry-local-endpoint-egress"
-            )
-            or (
-                role_prefix == "entry"
-                and str(fronting.get("mtprotoRouteMode") or "").strip().lower()
-                in {"entry-transit-endpoint", "entry-local-endpoint-egress"}
-            )
-        )
-        and int(fronting.get("mtprotoPublicPort") or 0) == TRACEGATE_FORBIDDEN_PUBLIC_TCP_PORT
-    )
+    expected_rows = _dict_list(contract_block.get("expectedPorts"))
+    expected_actual = {
+        (_row_string(row, "protocol").lower(), _row_int(row, "port")): _row_string(row, "name")
+        for row in expected_rows
+    }
+    tcp8443_mode = _contract_tcp8443_mode(contract, role_prefix=role_prefix)
+    tcp8443_public = bool(tcp8443_mode)
     required = {}
-    if not mtproto_uses_tcp8443:
+    if not tcp8443_public:
         required[("tcp", TRACEGATE_FORBIDDEN_PUBLIC_TCP_PORT)] = f"blocked tcp/{TRACEGATE_FORBIDDEN_PUBLIC_TCP_PORT}"
     for (protocol, port), expected_name in required.items():
         actual_name = actual.get((protocol, port))
@@ -6642,18 +6322,22 @@ def _validate_forbidden_public_ports(contract: dict[str, Any], *, role_prefix: s
                     f"{role_prefix} runtime-contract must declare {expected_name} as a forbidden public surface",
                 )
             )
-    if mtproto_uses_tcp8443:
-        expected_rows = _dict_list(contract_block.get("expectedPorts"))
-        expected_actual = {
-            (_row_string(row, "protocol").lower(), _row_int(row, "port")): _row_string(row, "name")
-            for row in expected_rows
-        }
-        if expected_actual.get(("tcp", TRACEGATE_FORBIDDEN_PUBLIC_TCP_PORT)) != "listen tcp/8443 mtproto fallback":
+    if ("udp", TRACEGATE_FORBIDDEN_PUBLIC_UDP_PORT) in expected_actual:
+        findings.append(
+            _finding(
+                "error",
+                f"{role_prefix}-expected-udp-{TRACEGATE_FORBIDDEN_PUBLIC_UDP_PORT}",
+                f"{role_prefix} runtime-contract must never declare udp/{TRACEGATE_FORBIDDEN_PUBLIC_UDP_PORT} as a listener",
+            )
+        )
+    if tcp8443_public:
+        expected_name = _TCP8443_LISTENER_NAMES[tcp8443_mode]
+        if expected_actual.get(("tcp", TRACEGATE_FORBIDDEN_PUBLIC_TCP_PORT)) != expected_name:
             findings.append(
                 _finding(
                     "error",
                     f"{role_prefix}-expected-tcp-{TRACEGATE_FORBIDDEN_PUBLIC_TCP_PORT}",
-                    f"{role_prefix} runtime-contract must declare tcp/{TRACEGATE_FORBIDDEN_PUBLIC_TCP_PORT} as the MTProto fallback listener",
+                    f"{role_prefix} runtime-contract must declare tcp/{TRACEGATE_FORBIDDEN_PUBLIC_TCP_PORT} as {expected_name}",
                 )
             )
         if ("tcp", TRACEGATE_FORBIDDEN_PUBLIC_TCP_PORT) in actual:
@@ -6661,7 +6345,7 @@ def _validate_forbidden_public_ports(contract: dict[str, Any], *, role_prefix: s
                 _finding(
                     "error",
                     f"{role_prefix}-forbidden-tcp-{TRACEGATE_FORBIDDEN_PUBLIC_TCP_PORT}-mtproto",
-                    f"{role_prefix} runtime-contract cannot mark tcp/{TRACEGATE_FORBIDDEN_PUBLIC_TCP_PORT} forbidden while MTProto uses it",
+                    f"{role_prefix} runtime-contract cannot mark tcp/{TRACEGATE_FORBIDDEN_PUBLIC_TCP_PORT} forbidden while it is a declared listener",
                 )
             )
 
@@ -6679,12 +6363,12 @@ def _validate_forbidden_public_ports(contract: dict[str, Any], *, role_prefix: s
                     f"{role_prefix} fronting contract must mark {protocol}/{port} as drop-only",
                 )
             )
-    if mtproto_uses_tcp8443 and fronting_actual.get(("tcp", TRACEGATE_FORBIDDEN_PUBLIC_TCP_PORT)) == "drop":
+    if tcp8443_public and fronting_actual.get(("tcp", TRACEGATE_FORBIDDEN_PUBLIC_TCP_PORT)) == "drop":
         findings.append(
             _finding(
                 "error",
                 f"{role_prefix}-fronting-forbidden-tcp-{TRACEGATE_FORBIDDEN_PUBLIC_TCP_PORT}-mtproto",
-                f"{role_prefix} fronting contract cannot mark tcp/{TRACEGATE_FORBIDDEN_PUBLIC_TCP_PORT} drop-only while MTProto uses it",
+                f"{role_prefix} fronting contract cannot mark tcp/{TRACEGATE_FORBIDDEN_PUBLIC_TCP_PORT} drop-only while it is a declared listener",
             )
         )
 
@@ -6696,13 +6380,13 @@ def _validate_forbidden_public_ports(contract: dict[str, Any], *, role_prefix: s
                 f"{role_prefix} fronting contract has an invalid forbiddenUdp443 flag",
             )
         )
-    if mtproto_uses_tcp8443:
+    if tcp8443_public:
         if bool(fronting.get("forbiddenTcp8443", False)):
             findings.append(
                 _finding(
                     "error",
                     f"{role_prefix}-fronting-forbidden-tcp-8443-flag",
-                    f"{role_prefix} fronting contract must clear forbiddenTcp8443 when MTProto uses tcp/{TRACEGATE_FORBIDDEN_PUBLIC_TCP_PORT}",
+                    f"{role_prefix} fronting contract must clear forbiddenTcp8443 while tcp/{TRACEGATE_FORBIDDEN_PUBLIC_TCP_PORT} is a declared listener",
                 )
             )
     elif not bool(fronting.get("forbiddenTcp8443", False)):

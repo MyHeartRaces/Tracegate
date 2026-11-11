@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+# Verify the recorded active artifact for one engine component before systemd
+# starts it. Read-only: never pulls, never writes. Exit 0 when the recorded
+# digest reference exists locally; exit 1 with one actionable line otherwise.
+set -euo pipefail
+
+fail() {
+  echo "tracegate-artifact-verify $component: $1" >&2
+  exit 1
+}
+
+component="${1:-}"
+if [[ ! "${component}" =~ ^[a-z0-9-]+$ ]]; then
+  echo "usage: tracegate-artifact-verify <component>" >&2
+  exit 2
+fi
+
+root="${TRACEGATE_ARTIFACTS_DIR:-/var/lib/tracegate/artifacts}"
+env_file="${root}/active/${component}.env"
+
+if [ ! -f "${env_file}" ]; then
+  fail "no active artifact recorded; run: tracegate-artifacts capture ${component} (or: tracegate-artifacts stage ${component})"
+fi
+
+line="$(head -n 1 "${env_file}")"
+if [ "$(wc -l < "${env_file}")" -ne 1 ] || \
+   [[ ! "${line}" =~ ^TRACEGATE_IMAGE=[a-z0-9./_-]+@sha256:[0-9a-f]{64}$ ]]; then
+  fail "active artifact file is malformed; run: tracegate-artifacts capture ${component}"
+fi
+
+image="${line#TRACEGATE_IMAGE=}"
+if ! docker image inspect "${image}" >/dev/null 2>&1; then
+  fail "active image is not present locally: ${image}; run: tracegate-artifacts stage ${component}, then promote it"
+fi

@@ -6,9 +6,10 @@
 - `make release-check` passes.
 - `scripts/build_release_artifacts.sh VERSION` produces wheel, sdist,
   `tracegate-host-runtime-VERSION.tar.gz` and `SHA256SUMS`.
-- Rolling runtime containers use their upstream `latest` tags and are pulled
-  before service start. Compatibility-sensitive runtimes use reviewed version
-  tags that have passed production-config and legacy-client probes.
+- Engine units never pull at start: every engine starts the image recorded by
+  immutable digest in the host artifact store (`tracegate-artifacts verify`
+  passes for the target role), and `deploy/host/artifacts.json` lists exactly
+  the components that run containers.
 - The public privacy scanner reports no live address, domain, credential,
   private key, client export or operator filesystem path.
 
@@ -29,14 +30,12 @@
 - Verify release checksums and install into a new `/opt/tracegate/releases/*`
   directory; do not overwrite the current release.
 - `tracegate-host-deploy preflight` passes using the production env files.
-- Docker Compose resolves successfully and every application/PostgreSQL image
-  is pinned by digest.
+- `tracegate-artifacts verify --units <role units>` passes on the target host
+  and `tracegate-artifacts status` shows no drift for the role.
 - The configured off-host PostgreSQL backup command succeeds and a restore was
   tested recently.
-- Required firewall, TLS renewal, nginx/HAProxy, Xray, Hysteria, ShadowTLS,
-  WGWS, WireGuard and Telemt services are healthy for the target role.
-- The WGWS synchronizer can add and revoke a disposable peer without restarting
-  WireGuard.
+- Required firewall, TLS renewal, nginx/HAProxy, Xray, Hysteria, ShadowTLS
+  and Telemt services are healthy for the target role.
 
 ## Upgrade
 
@@ -45,8 +44,16 @@
 - Require `/ready` (including a database query), agent health and sustained
   payload probes before completing the rollout.
 - Verify Telegram Proxy issue/revoke, Reality, both Hysteria variants, Chain,
-  both Backup variants, SS2022/ShadowTLS and WGWS.
-- Verify Grafana traffic panels in MB and the new Telemt/SS/WGWS collectors.
+  both Backup variants and SS2022/ShadowTLS.
+- Verify Grafana traffic panels in MB and the new Telemt/SS collectors.
+
+## Engine update
+
+- Updating an engine is explicit, never a side effect of a restart:
+  `tracegate-artifacts stage <component>`, probe the staged engine through the
+  real client path, `tracegate-artifacts promote <component> <digest>`,
+  restart one affected unit, probe again, then continue with the rest.
+- Record the promoted digests and the probe results in the private repository.
 
 ## Rollback
 

@@ -49,8 +49,57 @@ def test_client_config_bundle_collects_universal_links_artifacts_and_singbox() -
                     "profile": "Hysteria2",
                 },
             ),
+        ],
+        subject_type="device",
+        subject_id="dev-1",
+        generated_at=datetime(2026, 5, 19, 12, 0, tzinfo=timezone.utc),
+    )
+
+    assert bundle["schema"] == "tracegate.client-config-bundle.v1"
+    assert bundle["generatedAt"] == "2026-05-19T12:00:00Z"
+    assert bundle["subject"] == {"type": "device", "id": "dev-1"}
+    assert bundle["counts"] == {
+        "profiles": 2,
+        "links": 2,
+        "singboxOutbounds": 1,
+        "errors": 0,
+    }
+    assert render_subscription_text(bundle) == "\n".join(bundle["subscription"]["links"])
+    assert render_subscription_base64(bundle) == bundle["subscription"]["base64"]
+    assert base64.b64decode(bundle["subscription"]["base64"]).decode("utf-8") == render_subscription_text(bundle)
+
+    links = bundle["subscription"]["links"]
+    assert any(link.startswith("vless://11111111-2222-3333-4444-555555555555@") for link in links)
+    assert any(link.startswith("hysteria2://u%3Ap@hy.example.com:4443/") for link in links)
+    assert not any(link.startswith("ss://") for link in links)
+
+    selector = bundle["singbox"]["outbounds"][0]
+    assert selector["type"] == "selector"
+    assert selector["tag"] == "proxy"
+    assert selector["default"] in selector["outbounds"]
+    assert all("protocol" not in outbound for outbound in bundle["singbox"]["outbounds"])
+    assert any(outbound["type"] == "vless" and outbound["transport"]["type"] == "ws" for outbound in bundle["singbox"]["outbounds"])
+    assert not any(outbound["type"] == "wireguard" for outbound in bundle["singbox"]["outbounds"])
+    assert bundle["singbox"]["route"] == {
+        "auto_detect_interface": True,
+        "final": "proxy",
+        "rules": [{"domain": ["edge.example.com"], "outbound": "direct"}],
+    }
+
+    profiles = {profile["profile"]: profile for profile in bundle["profiles"]}
+    assert profiles["Tracegate-Backup(WebSocket)"]["singbox"]["supported"] is True
+    assert profiles["Tracegate-Hysteria(Gecko)"]["singbox"]["supported"] is False
+    assert profiles["Tracegate-Hysteria(Gecko)"]["artifacts"][0]["filename"].endswith(".hysteria.yaml")
+    assert profiles["Tracegate-Hysteria(Gecko)"]["warnings"] == [
+        "hysteria_gecko_requires_official_hysteria_client"
+    ]
+
+
+def test_client_config_bundle_reports_retired_families_as_errors_without_crashing() -> None:
+    bundle = build_client_config_bundle(
+        [
             _item(
-                3,
+                1,
                 {
                     "protocol": "shadowsocks2022",
                     "transport": "shadowtls_v3",
@@ -67,7 +116,7 @@ def test_client_config_bundle_collects_universal_links_artifacts_and_singbox() -
                 },
             ),
             _item(
-                4,
+                2,
                 {
                     "protocol": "wireguard",
                     "transport": "wstunnel",
@@ -91,53 +140,9 @@ def test_client_config_bundle_collects_universal_links_artifacts_and_singbox() -
         generated_at=datetime(2026, 5, 19, 12, 0, tzinfo=timezone.utc),
     )
 
-    assert bundle["schema"] == "tracegate.client-config-bundle.v1"
-    assert bundle["generatedAt"] == "2026-05-19T12:00:00Z"
-    assert bundle["subject"] == {"type": "device", "id": "dev-1"}
-    assert bundle["counts"] == {
-        "profiles": 4,
-        "links": 3,
-        "singboxOutbounds": 2,
-        "errors": 0,
-    }
-    assert render_subscription_text(bundle) == "\n".join(bundle["subscription"]["links"])
-    assert render_subscription_base64(bundle) == bundle["subscription"]["base64"]
-    assert base64.b64decode(bundle["subscription"]["base64"]).decode("utf-8") == render_subscription_text(bundle)
-
-    links = bundle["subscription"]["links"]
-    assert any(link.startswith("vless://11111111-2222-3333-4444-555555555555@") for link in links)
-    assert any(link.startswith("hysteria2://u%3Ap@hy.example.com:4443/") for link in links)
-    assert any(link.startswith("ss://") for link in links)
-
-    selector = bundle["singbox"]["outbounds"][0]
-    assert selector["type"] == "selector"
-    assert selector["tag"] == "proxy"
-    assert selector["default"] in selector["outbounds"]
-    assert all("protocol" not in outbound for outbound in bundle["singbox"]["outbounds"])
-    assert any(outbound["type"] == "vless" and outbound["transport"]["type"] == "ws" for outbound in bundle["singbox"]["outbounds"])
-    assert not any(outbound["type"] == "wireguard" for outbound in bundle["singbox"]["outbounds"])
-    assert bundle["singbox"]["route"] == {
-        "auto_detect_interface": True,
-        "final": "proxy",
-        "rules": [{"domain": ["edge.example.com", "ss.example.com"], "outbound": "direct"}],
-    }
-
-    ss_outbound = next(outbound for outbound in bundle["singbox"]["outbounds"] if outbound["type"] == "shadowsocks")
-    assert ss_outbound["detour"].startswith("tg-2-tracegate-experimental-ss2022-")
-    assert any(outbound["tag"] == ss_outbound["detour"] for outbound in bundle["singbox"]["outbounds"])
-
-    profiles = {profile["profile"]: profile for profile in bundle["profiles"]}
-    assert profiles["Tracegate-Backup(WebSocket)"]["singbox"]["supported"] is True
-    assert profiles["Tracegate-Hysteria(Gecko)"]["singbox"]["supported"] is False
-    assert profiles["Tracegate-Hysteria(Gecko)"]["artifacts"][0]["filename"].endswith(".hysteria.yaml")
-    assert profiles["Tracegate-Hysteria(Gecko)"]["warnings"] == [
-        "hysteria_gecko_requires_official_hysteria_client"
-    ]
-    assert profiles["Tracegate-Experimental(SS2022)"]["artifacts"][0]["kind"] == "sing-box-config"
-    assert profiles["Tracegate-Experimental(WGWS)"]["singbox"]["supported"] is False
-    assert profiles["Tracegate-Experimental(WGWS)"]["artifacts"][0]["kind"] == "wgws-config"
-    assert profiles["Tracegate-Experimental(WGWS)"]["artifacts"][0]["json"]["type"] == "wgws"
-    assert profiles["Tracegate-Experimental(WGWS)"]["warnings"] == ["wireguard_wstunnel_requires_wgws_transport"]
+    assert bundle["counts"]["errors"] == 2
+    assert bundle["counts"]["links"] == 0
+    assert bundle["subscription"]["links"] == []
 
 
 def test_client_config_bundle_routes_connect_host_direct_without_fake_sni_bypass() -> None:

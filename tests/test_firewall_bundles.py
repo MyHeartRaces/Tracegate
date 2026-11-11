@@ -29,8 +29,10 @@ def test_tracegate2_firewalls_do_not_depend_on_cluster_runtime_or_wireguard() ->
 
 def test_transit_accepts_public_hysteria_and_interconnect_udp_ports() -> None:
     conf_t = Path("bundles/base-transit/nftables.conf").read_text(encoding="utf-8")
-    assert "tcp dport { 80, 443 } accept" in conf_t
-    assert "tcp dport { 4443, 8443 } drop" in conf_t
+    # Endpoint TCP/8443 is a declared public HAProxy listener; UDP/8443 stays dropped.
+    assert "tcp dport { 80, 443, 8443 } accept" in conf_t
+    assert "tcp dport 4443 drop" in conf_t
+    assert "tcp dport { 4443, 8443 } drop" not in conf_t
     assert "udp dport { 443, 4443, 8444 } accept" in conf_t
     assert "udp dport 443 drop" not in conf_t
     assert "udp dport 8443 drop" in conf_t
@@ -46,24 +48,18 @@ def test_interserver_tcp_links_are_materialized_as_source_gated() -> None:
     assert "tcp dport { 9443, 9444, 9445, 9446 } drop" in transit
 
 
-def test_transit_forwards_and_masquerades_generated_wgws_pool() -> None:
-    conf = Path("bundles/base-transit/nftables.conf").read_text(encoding="utf-8")
-    assert 'iifname "wg" ip saddr 10.70.0.0/16 accept' in conf
-    assert "table ip tracegate_wg_nat" in conf
-    assert 'ip saddr 10.70.0.0/16 oifname "eth0" masquerade' in conf
-
-
 def test_firewalls_explicitly_drop_crossed_hysteria_ports_before_accept_rules() -> None:
     for path in ("bundles/base-entry/nftables.conf", "bundles/base-transit/nftables.conf"):
         conf = Path(path).read_text(encoding="utf-8")
-        tcp_accept = "tcp dport 443 accept" if "tcp dport 443 accept" in conf else "tcp dport { 80, 443 } accept"
+        tcp_accept = "tcp dport 443 accept" if "tcp dport 443 accept" in conf else "tcp dport { 80, 443, 8443 } accept"
+        tcp_drop = "tcp dport { 4443, 8443 } drop" if "base-entry" in path else "tcp dport 4443 drop"
         udp_accept = (
             "udp dport { 443, 4443, 8444 } accept"
             if "base-transit" in path
             else "udp dport { 443, 4443 } accept"
         )
         assert conf.index("udp dport 8443 drop") < conf.index(udp_accept)
-        assert conf.index("tcp dport { 4443, 8443 } drop") < conf.index(tcp_accept)
+        assert conf.index(tcp_drop) < conf.index(tcp_accept)
 
 
 def test_entry_and_transit_bundles_define_proxy_fronting_stack() -> None:
@@ -85,6 +81,8 @@ def test_entry_and_transit_bundles_define_proxy_fronting_stack() -> None:
 
     assert "bind REPLACE_ENTRY_BIND_HOST:443" in entry_haproxy
     assert "bind :443" in transit_haproxy
+    assert "bind :8443" in transit_haproxy
+    assert ":8443" not in entry_haproxy
 
     assert "REPLACE_MTPROTO_ACL" in transit_haproxy
     assert "REPLACE_MTPROTO_ROUTE" in transit_haproxy
@@ -100,8 +98,8 @@ def test_entry_and_transit_bundles_define_proxy_fronting_stack() -> None:
 
     assert "listen 80;" in transit_nginx
     assert "location ^~ /grafana/" in transit_nginx
-    assert "location /wgws" in transit_nginx
-    assert "proxy_pass http://127.0.0.1:51821;" in transit_nginx
+    assert "location /wgws" not in transit_nginx
+    assert "127.0.0.1:51821" not in transit_nginx
     assert "proxy_pass http://127.0.0.1:18080;" in transit_nginx
     assert "location ^~ /v1/decoy/" not in entry_nginx
     assert "location = /vault/mtproto" not in entry_nginx

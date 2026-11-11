@@ -418,6 +418,16 @@ async def _send_telegram_message(
     return False
 
 
+def _grafana_alert_state(labels: dict[str, Any]) -> str:
+    alertname = str(labels.get("alertname") or "").strip()
+    slo_type = str(labels.get("slo_type") or "").strip()
+    if alertname == "DatasourceNoData" or slo_type == "no_data":
+        return "no_data"
+    if alertname == "DatasourceError":
+        return "error"
+    return "failed"
+
+
 def _format_grafana_alert_webhook_message(
     payload: dict[str, Any],
 ) -> tuple[str, int, str]:
@@ -435,16 +445,65 @@ def _format_grafana_alert_webhook_message(
         else {}
     )
 
+    alert_states: list[str] = []
+    for alert in alert_list:
+        if not isinstance(alert, dict):
+            continue
+        alert_labels = (
+            alert.get("labels") if isinstance(alert.get("labels"), dict) else {}
+        )
+        alert_states.append(_grafana_alert_state(alert_labels))
+
     title = (
         str(common_annotations.get("summary") or "").strip()
         or str(common_labels.get("alertname") or "").strip()
         or "Grafana alert"
     )
+    if alert_states and all(state in {"no_data", "error"} for state in alert_states):
+        rule_names: list[str] = []
+        for alert in alert_list:
+            if not isinstance(alert, dict):
+                continue
+            labels = (
+                alert.get("labels") if isinstance(alert.get("labels"), dict) else {}
+            )
+            annotations = (
+                alert.get("annotations")
+                if isinstance(alert.get("annotations"), dict)
+                else {}
+            )
+            name = (
+                str(labels.get("rulename") or "").strip()
+                or str(annotations.get("summary") or "").strip()
+                or str(labels.get("alertname") or "").strip()
+            )
+            if name and name not in rule_names:
+                rule_names.append(name)
+        if all(state == "no_data" for state in alert_states):
+            state_title = "No data"
+        elif all(state == "error" for state in alert_states):
+            state_title = "Query error"
+        else:
+            state_title = "No data / query error"
+        shown_names = ", ".join(rule_names[:3])
+        if len(rule_names) > 3:
+            shown_names = f"{shown_names} …"
+        title = f"{state_title} for: {shown_names}" if shown_names else state_title
     status_label = status_raw or "unknown"
-    status_header = {
-        "firing": "🚨 Grafana Alert",
-        "resolved": "✅ Grafana Recovered",
-    }.get(status_raw, "ℹ️ Grafana Alert")
+    if status_raw == "firing" and alert_states:
+        if all(state == "no_data" for state in alert_states):
+            status_header = "⚪ Grafana: no data"
+        elif all(state == "error" for state in alert_states):
+            status_header = "⚠️ Grafana: query error"
+        elif all(state in {"no_data", "error"} for state in alert_states):
+            status_header = "⚪ Grafana: no data / query error"
+        else:
+            status_header = "🚨 Grafana Alert"
+    else:
+        status_header = {
+            "firing": "🚨 Grafana Alert",
+            "resolved": "✅ Grafana Recovered",
+        }.get(status_raw, "ℹ️ Grafana Alert")
     lines = [
         status_header,
         "",
@@ -474,14 +533,32 @@ def _format_grafana_alert_webhook_message(
         summary = str(
             annotations.get("summary") or labels.get("alertname") or "alert"
         ).strip()
+        state = _grafana_alert_state(labels)
+        if state in {"no_data", "error"}:
+            rulename = str(labels.get("rulename") or "").strip()
+            if rulename:
+                summary = rulename
+            state_prefix = "NO DATA" if state == "no_data" else "QUERY ERROR"
+            lines.extend(
+                [
+                    "",
+                    f"• {state_prefix}: {component} / {alert_type} ({severity})",
+                    f"  {summary}",
+                ]
+            )
+            if state == "no_data":
+                lines.append("  Signal missing; this is not a confirmed failure.")
+            else:
+                lines.append("  Query failed; this is not a confirmed failure.")
+        else:
+            lines.extend(
+                [
+                    "",
+                    f"• {component} / {alert_type} ({severity})",
+                    f"  {summary}",
+                ]
+            )
         target_parts = _grafana_alert_target_parts(labels)
-        lines.extend(
-            [
-                "",
-                f"• {component} / {alert_type} ({severity})",
-                f"  {summary}",
-            ]
-        )
         if target_parts:
             lines.append(f"  Target: {' / '.join(target_parts)}")
     if len(alert_list) > 4:
@@ -493,10 +570,14 @@ def _format_grafana_alert_webhook_message(
 def _grafana_alert_webhook_has_critical(payload: dict[str, Any]) -> bool:
     alerts = payload.get("alerts")
     alert_list = alerts if isinstance(alerts, list) else []
+    has_failed_alert = False
     for alert in alert_list:
         if not isinstance(alert, dict):
             continue
         labels = alert.get("labels") if isinstance(alert.get("labels"), dict) else {}
+        if _grafana_alert_state(labels) in {"no_data", "error"}:
+            continue
+        has_failed_alert = True
         if str(labels.get("severity") or "").strip().lower() == "critical":
             return True
 
@@ -505,6 +586,8 @@ def _grafana_alert_webhook_has_critical(payload: dict[str, Any]) -> bool:
         if isinstance(payload.get("commonLabels"), dict)
         else {}
     )
+    if alert_list and not has_failed_alert:
+        return False
     return str(common_labels.get("severity") or "").strip().lower() == "critical"
 
 

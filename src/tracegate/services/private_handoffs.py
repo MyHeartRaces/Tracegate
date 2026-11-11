@@ -7,7 +7,6 @@ from typing import Any
 from urllib.parse import urlparse
 
 from tracegate.constants import (
-    TRACEGATE_FORBIDDEN_PUBLIC_TCP_PORT,
     TRACEGATE_INTERCONNECT_UDP_PORT,
     TRACEGATE_PUBLIC_TCP_PORT,
     TRACEGATE_PUBLIC_UDP_PORT,
@@ -22,6 +21,7 @@ from tracegate.services.mtproto import (
     load_mtproto_issued_secret_entries,
     normalize_mtproto_domain,
 )
+from tracegate.services.runtime_contract import tcp8443_is_public_listener
 from tracegate.services.connection_profiles import (
     router_transit_tcp_selected_profiles,
     router_transit_udp_selected_profiles,
@@ -201,15 +201,6 @@ def _private_file_ref(path: str) -> dict[str, Any]:
     }
 
 
-def _shadowtls_profile_path(settings: Settings, *, role_upper: str) -> str:
-    profile_dir = Path(str(settings.private_shadowtls_profile_dir or "").strip() or "/etc/tracegate/private/shadowtls")
-    if role_upper == "ENTRY":
-        profile_name = str(settings.private_shadowtls_profile_entry or "").strip() or "entry-config.yaml"
-    else:
-        profile_name = str(settings.private_shadowtls_profile_transit or "").strip() or "transit-config.yaml"
-    return str(profile_dir / profile_name)
-
-
 def _private_profile_root(settings: Settings) -> Path:
     raw = str(settings.private_zapret_profile_dir or "").strip()
     profile_root = Path(raw or "/etc/tracegate/private")
@@ -383,18 +374,13 @@ def _udp_link_hardening(settings: Settings) -> dict[str, Any]:
     }
 
 
-def _mtproto_uses_tcp8443(settings: Settings, *, role_upper: str) -> bool:
-    try:
-        mtproto_public_port = int(settings.mtproto_public_port or TRACEGATE_PUBLIC_TCP_PORT)
-    except (TypeError, ValueError):
-        mtproto_public_port = TRACEGATE_PUBLIC_TCP_PORT
-    mtproto_route_mode = str(settings.mtproto_route_mode or "").strip().lower()
-    return mtproto_public_port == TRACEGATE_FORBIDDEN_PUBLIC_TCP_PORT and (
-        (role_upper == "TRANSIT" and mtproto_route_mode != "entry-local-endpoint-egress")
-        or (
-            role_upper == "ENTRY"
-            and mtproto_route_mode in {"entry-transit-endpoint", "entry-local-endpoint-egress"}
-        )
+def _tcp8443_public(settings: Settings, *, role_upper: str) -> bool:
+    # Endpoint always serves TCP/8443; Entry only in the legacy MTProto
+    # fallback mode.
+    return tcp8443_is_public_listener(
+        role=role_upper,
+        mtproto_public_port=settings.mtproto_public_port or TRACEGATE_PUBLIC_TCP_PORT,
+        mtproto_route_mode=settings.mtproto_route_mode,
     )
 
 
@@ -405,7 +391,7 @@ def _udp_link_dpi_resistance(settings: Settings, *, role_upper: str) -> dict[str
         "portSplit": {
             "publicUdpPort": TRACEGATE_INTERCONNECT_UDP_PORT,
             "forbidUdp443": True,
-            "forbidTcp8443": not _mtproto_uses_tcp8443(settings, role_upper=role_upper),
+            "forbidTcp8443": not _tcp8443_public(settings, role_upper=role_upper),
         },
         "requiredLayers": [
             "hysteria2-quic",
@@ -1638,9 +1624,11 @@ def _write_mtproto_state(
                     for port in public_ports
                 ],
             }
-            direct_backup_host = str(settings.mtproto_direct_backup_host or "").strip()
-            if is_tunnel and direct_backup_host:
-                normalized_backup_host = normalize_mtproto_domain(direct_backup_host)
+            if is_tunnel and str(settings.mtproto_direct_backup_host or "").strip():
+                # Telegram Proxy is delivered only through Entry on the public
+                # port. MTPROTO_DIRECT_BACKUP_HOST still makes Endpoint serve
+                # the FakeTLS SNI on TCP/443 so backup links users saved
+                # earlier keep working, but no backup route is delivered.
                 profile_payload["routes"] = [
                     {
                         "id": "entry",
@@ -1648,13 +1636,6 @@ def _write_mtproto_state(
                         "server": normalized_domain,
                         "port": int(payload["publicPort"]),
                         "primary": True,
-                    },
-                    {
-                        "id": "endpoint-direct",
-                        "label": "Напрямую к Endpoint (резерв)",
-                        "server": normalized_backup_host,
-                        "port": int(payload["publicPort"]),
-                        "primary": False,
                     },
                 ]
             changed = _write_secret_text_if_changed(profile_path, _json_text(profile_payload)) or changed
@@ -1712,234 +1693,11 @@ def _string_list(value: object) -> list[str]:
     return [raw] if raw else []
 
 
-def _wireguard_peer_allowed_ips(wireguard: dict[str, Any]) -> list[str]:
-    address = wireguard.get("address")
-    if isinstance(address, (list, tuple, set)):
-        return _string_list(address)
-    raw = str(address or "").strip()
-    if not raw:
-        return []
-    return [item.strip() for item in raw.replace(";", ",").split(",") if item.strip()]
-
-
 def _int_value(value: object, default: int) -> int:
     try:
         return int(value)
     except (TypeError, ValueError):
         return default
-
-
-def _local_socks_state(config: dict[str, Any]) -> dict[str, Any]:
-    local_socks = _mapping(config.get("local_socks"))
-    auth = _mapping(local_socks.get("auth"))
-    return {
-        "enabled": bool(local_socks.get("enabled", True)),
-        "listen": str(local_socks.get("listen") or "").strip(),
-        "auth": {
-            "required": bool(auth.get("required", True)),
-            "mode": str(auth.get("mode") or "").strip(),
-            "username": str(auth.get("username") or "").strip(),
-            "password": str(auth.get("password") or "").strip(),
-        },
-    }
-
-
-def _profile_metadata(row: dict[str, Any], config: dict[str, Any], *, role_upper: str) -> dict[str, Any]:
-    return {
-        "role": role_upper,
-        "userId": str(row.get("user_id") or "").strip(),
-        "userDisplay": str(row.get("user_display") or "").strip(),
-        "deviceId": str(row.get("device_id") or "").strip(),
-        "deviceName": str(row.get("device_name") or "").strip(),
-        "connectionId": str(row.get("connection_id") or "").strip(),
-        "connectionAlias": str(row.get("connection_alias") or "").strip(),
-        "revisionId": str(row.get("revision_id") or "").strip(),
-        "variant": str(row.get("variant") or "").strip(),
-        "mode": str(row.get("mode") or "").strip(),
-        "profile": str(config.get("profile") or "").strip(),
-    }
-
-
-def _profile_stage(*, protocol: str, mode: str, role_upper: str, chain: dict[str, Any] | None) -> str:
-    is_chain = str(mode or "").strip().lower() == "chain" or chain is not None
-    if protocol == "wireguard_wstunnel":
-        return "direct-transit-public"
-    if is_chain:
-        return "entry-public-to-transit-relay" if role_upper == "ENTRY" else "transit-private-terminator"
-    return "direct-transit-public"
-
-
-def _chain_state(config: dict[str, Any]) -> dict[str, Any] | None:
-    chain = config.get("chain")
-    if not isinstance(chain, dict):
-        return None
-    return {
-        "type": str(chain.get("type") or "").strip(),
-        "entry": str(chain.get("entry") or "").strip(),
-        "transit": str(chain.get("transit") or "").strip(),
-        "linkClass": str(chain.get("link_class") or "").strip(),
-        "carrier": str(chain.get("carrier") or "").strip(),
-        "preferredOuter": str(chain.get("preferred_outer") or "").strip(),
-        "outerCarrier": str(chain.get("outer_carrier") or "").strip(),
-        "optionalPacketShaping": str(chain.get("optional_packet_shaping") or "").strip(),
-        "managedBy": str(chain.get("managed_by") or "").strip(),
-        "selectedProfiles": _string_list(chain.get("selected_profiles")),
-        "innerTransport": str(chain.get("inner_transport") or "").strip(),
-        "xrayBackhaul": bool(chain.get("xray_backhaul", True)),
-        "clientRateLimit": chain.get("client_rate_limit") if isinstance(chain.get("client_rate_limit"), dict) else {},
-    }
-
-
-def _shadowsocks2022_static_server_key(settings: Settings, *, role_upper: str) -> str:
-    raw = (
-        settings.shadowsocks2022_password_entry
-        if role_upper == "ENTRY"
-        else settings.shadowsocks2022_password_transit
-    )
-    value = str(raw or "").strip()
-    if not value:
-        filename = "ss2022-entry-password" if role_upper == "ENTRY" else "ss2022-transit-password"
-        value = str(_read_text(_private_profile_root(settings) / "credentials" / filename) or "").strip()
-    if not value:
-        return ""
-    server_key, sep, _user_key = value.rpartition(":")
-    return server_key.strip() if sep else value
-
-
-def _shadowsocks2022_profile_password(
-    settings: Settings,
-    config: dict[str, Any],
-    *,
-    role_upper: str,
-) -> str:
-    password = str(config.get("password") or "").strip()
-    static_server_key = _shadowsocks2022_static_server_key(settings, role_upper=role_upper)
-    if not password or not static_server_key:
-        return password
-    _server_key, sep, user_key = password.rpartition(":")
-    user_key = user_key.strip() if sep else password
-    if not user_key:
-        return password
-    return f"{static_server_key}:{user_key}"
-
-
-def _obfuscation_policy(*, protocol: str, mode: str, chain: dict[str, Any] | None) -> dict[str, Any]:
-    if str(mode or "").strip().lower() == "chain" or chain is not None:
-        return {
-            "scope": "entry-transit-private-relay",
-            "outer": "shadowtls-v3",
-            "packetShaping": "none",
-            "hostWideInterception": False,
-        }
-    if protocol == "wireguard_wstunnel":
-        return {
-            "scope": "public-wss-443",
-            "outer": "wstunnel",
-            "packetShaping": "none",
-            "hostWideInterception": False,
-        }
-    return {
-        "scope": "public-tcp-443",
-        "outer": "shadowtls-v3",
-        "packetShaping": "none",
-        "hostWideInterception": False,
-    }
-
-
-def _shadowtls_profile_state(settings: Settings, row: dict[str, Any], *, role_upper: str) -> dict[str, Any] | None:
-    config = _mapping(row.get("config"))
-    connection_id = str(row.get("connection_id") or "").strip()
-    if not connection_id:
-        return None
-    mode = str(row.get("mode") or "").strip()
-    shadowtls = _mapping(config.get("shadowtls"))
-    chain = _chain_state(config)
-    return {
-        **_profile_metadata(row, config, role_upper=role_upper),
-        "protocol": "shadowsocks2022_shadowtls",
-        "stage": _profile_stage(
-            protocol="shadowsocks2022_shadowtls",
-            mode=mode,
-            role_upper=role_upper,
-            chain=chain,
-        ),
-        "server": str(config.get("server") or "").strip(),
-        "port": _int_value(config.get("port"), 443),
-        "sni": str(config.get("sni") or "").strip(),
-        "shadowsocks2022": {
-            "method": str(config.get("method") or "").strip(),
-            "password": _shadowsocks2022_profile_password(settings, config, role_upper=role_upper),
-        },
-        "shadowtls": {
-            "version": _int_value(shadowtls.get("version"), 3),
-            "serverName": str(shadowtls.get("server_name") or "").strip(),
-            "alpn": _string_list(shadowtls.get("alpn")),
-            "credentialScope": "node-static",
-            "profileRef": {
-                "kind": "file",
-                "path": _shadowtls_profile_path(settings, role_upper=role_upper),
-                "secretMaterial": True,
-            },
-            "manageUsers": False,
-            "restartOnUserChange": False,
-        },
-        "localSocks": _local_socks_state(config),
-        "chain": chain,
-        "obfuscation": _obfuscation_policy(protocol="shadowsocks2022_shadowtls", mode=mode, chain=chain),
-    }
-
-
-def _wireguard_profile_state(row: dict[str, Any], *, role_upper: str) -> dict[str, Any] | None:
-    config = _mapping(row.get("config"))
-    connection_id = str(row.get("connection_id") or "").strip()
-    if not connection_id:
-        return None
-    mode = str(row.get("mode") or "").strip()
-    wireguard = _mapping(config.get("wireguard"))
-    wstunnel = _mapping(config.get("wstunnel"))
-    return {
-        **_profile_metadata(row, config, role_upper=role_upper),
-        "protocol": "wireguard_wstunnel",
-        "stage": _profile_stage(
-            protocol="wireguard_wstunnel",
-            mode=mode,
-            role_upper=role_upper,
-            chain=None,
-        ),
-        "server": str(config.get("server") or "").strip(),
-        "port": _int_value(config.get("port"), 443),
-        "sni": str(config.get("sni") or "").strip(),
-        "wstunnel": {
-            "mode": str(wstunnel.get("mode") or "wireguard-over-websocket").strip(),
-            "url": str(wstunnel.get("url") or "").strip(),
-            "path": str(wstunnel.get("path") or "").strip(),
-            "tlsServerName": str(wstunnel.get("tls_server_name") or "").strip(),
-            "localUdpListen": str(wstunnel.get("local_udp_listen") or "").strip(),
-        },
-        "wireguard": {
-            "clientPublicKey": str(wireguard.get("public_key") or "").strip(),
-            "clientPrivateKey": str(wireguard.get("private_key") or "").strip(),
-            "serverPublicKey": str(wireguard.get("server_public_key") or "").strip(),
-            "presharedKey": str(wireguard.get("preshared_key") or "").strip(),
-            "address": str(wireguard.get("address") or "").strip(),
-            "allowedIps": _wireguard_peer_allowed_ips(wireguard),
-            "clientRouteAllowedIps": _string_list(wireguard.get("allowed_ips")),
-            "dns": str(wireguard.get("dns") or "").strip(),
-            "mtu": _int_value(wireguard.get("mtu"), 1280),
-            "persistentKeepalive": _int_value(wireguard.get("persistent_keepalive"), 25),
-        },
-        "sync": {
-            "strategy": "wg-set",
-            "interface": str(wireguard.get("interface") or "wg").strip(),
-            "applyMode": "live-peer-sync",
-            "removeStalePeers": True,
-            "restartWireGuard": False,
-            "restartWSTunnel": False,
-        },
-        "localSocks": _local_socks_state(config),
-        "chain": None,
-        "obfuscation": _obfuscation_policy(protocol="wireguard_wstunnel", mode=mode, chain=None),
-    }
 
 
 def _write_profile_state(
@@ -1952,23 +1710,6 @@ def _write_profile_state(
     role_upper = str(runtime_contract_payload.get("role") or "").strip().upper() or "UNKNOWN"
     role_lower = role_upper.lower()
 
-    shadowtls_profiles: list[dict[str, Any]] = []
-    wireguard_profiles: list[dict[str, Any]] = []
-    for row in user_artifacts:
-        protocol = str(row.get("protocol") or "").strip().lower()
-        if protocol == "shadowsocks2022_shadowtls":
-            state = _shadowtls_profile_state(settings, row, role_upper=role_upper)
-            if state is not None:
-                shadowtls_profiles.append(state)
-        elif protocol == "wireguard_wstunnel":
-            state = _wireguard_profile_state(row, role_upper=role_upper)
-            if state is not None:
-                wireguard_profiles.append(state)
-
-    shadowtls_profiles.sort(key=lambda row: str(row.get("connectionId") or ""))
-    wireguard_profiles.sort(key=lambda row: str(row.get("connectionId") or ""))
-    total = len(shadowtls_profiles) + len(wireguard_profiles)
-
     payload = {
         "schema": "tracegate.private-profiles.v1",
         "version": 1,
@@ -1978,12 +1719,8 @@ def _write_profile_state(
         "secretMaterial": True,
         "transportProfiles": runtime_contract_payload.get("transportProfiles") or {},
         "counts": {
-            "total": total,
-            "shadowsocks2022ShadowTLS": len(shadowtls_profiles),
-            "wireguardWSTunnel": len(wireguard_profiles),
+            "total": 0,
         },
-        "shadowsocks2022ShadowTLS": shadowtls_profiles,
-        "wireguardWSTunnel": wireguard_profiles,
     }
 
     state_dir = _profiles_state_dir(settings, role_lower=role_lower)
@@ -1994,9 +1731,7 @@ def _write_profile_state(
         f"TRACEGATE_PROFILE_RUNTIME_PROFILE={_shell_quote(payload['runtimeProfile'])}",
         f"TRACEGATE_PROFILE_STATE_JSON={_shell_quote(str(json_path))}",
         f"TRACEGATE_PROFILE_SECRET_MATERIAL={_shell_quote(_bool_text(True))}",
-        f"TRACEGATE_PROFILE_COUNT={_shell_quote(total)}",
-        f"TRACEGATE_SHADOWSOCKS2022_SHADOWTLS_COUNT={_shell_quote(len(shadowtls_profiles))}",
-        f"TRACEGATE_WIREGUARD_WSTUNNEL_COUNT={_shell_quote(len(wireguard_profiles))}",
+        f"TRACEGATE_PROFILE_COUNT={_shell_quote(0)}",
     ]
 
     changed = False

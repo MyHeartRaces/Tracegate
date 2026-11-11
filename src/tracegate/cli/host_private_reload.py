@@ -122,74 +122,6 @@ def _source_fingerprint(path: Path) -> dict[str, int]:
     }
 
 
-def _profile_local_socks_summary(rows: list[dict[str, Any]]) -> dict[str, object]:
-    auth_rows = [_nested_dict(_nested_dict(row, "localSocks"), "auth") for row in rows]
-    return {
-        "total": len(rows),
-        "authRequired": len([auth for auth in auth_rows if bool(auth.get("required", False))]),
-        "anonymous": len([auth for auth in auth_rows if not bool(auth.get("required", False))]),
-        "usernamePassword": len([auth for auth in auth_rows if str(auth.get("mode") or "").strip() == "username_password"]),
-    }
-
-
-def _profile_obfuscation_summary(rows: list[dict[str, Any]]) -> dict[str, object]:
-    obfuscation_rows = [_nested_dict(row, "obfuscation") for row in rows]
-    return {
-        "outers": _sorted_unique([row.get("outer") for row in obfuscation_rows]),
-        "packetShaping": _sorted_unique([row.get("packetShaping") for row in obfuscation_rows]),
-        "hostWideInterception": len([row for row in obfuscation_rows if bool(row.get("hostWideInterception", False))]),
-    }
-
-
-def _profile_shadowtls_outer_summary(rows: list[dict[str, Any]]) -> dict[str, object]:
-    shadowtls_rows = [_nested_dict(row, "shadowtls") for row in rows if _row_string(row, "protocol") == "shadowsocks2022_shadowtls"]
-    profile_refs = [_nested_dict(row, "profileRef") for row in shadowtls_rows]
-    return {
-        "total": len(shadowtls_rows),
-        "credentialScopes": _sorted_unique([row.get("credentialScope") for row in shadowtls_rows]),
-        "fileProfileRefs": len([row for row in profile_refs if _row_string(row, "kind") == "file"]),
-        "secretProfileRefs": len([row for row in profile_refs if bool(row.get("secretMaterial", False))]),
-        "perUserPasswords": len([row for row in shadowtls_rows if _row_string(row, "password")]),
-        "manageUsers": len([row for row in shadowtls_rows if bool(row.get("manageUsers", False))]),
-        "restartOnUserChange": len([row for row in shadowtls_rows if bool(row.get("restartOnUserChange", False))]),
-    }
-
-
-def _profile_wireguard_sync_summary(rows: list[dict[str, Any]]) -> dict[str, object]:
-    wireguard_rows = [row for row in rows if _row_string(row, "protocol") == "wireguard_wstunnel"]
-    sync_rows = [_nested_dict(row, "sync") for row in wireguard_rows]
-    return {
-        "total": len(wireguard_rows),
-        "strategies": _sorted_unique([row.get("strategy") for row in sync_rows]),
-        "interfaces": _sorted_unique([row.get("interface") for row in sync_rows]),
-        "livePeerSync": len([row for row in sync_rows if _row_string(row, "applyMode") == "live-peer-sync"]),
-        "removeStalePeers": len([row for row in sync_rows if bool(row.get("removeStalePeers", False))]),
-        "restartWireGuard": len([row for row in sync_rows if bool(row.get("restartWireGuard", False))]),
-        "restartWSTunnel": len([row for row in sync_rows if bool(row.get("restartWSTunnel", False))]),
-    }
-
-
-def _profile_chain_summary(rows: list[dict[str, Any]]) -> dict[str, object]:
-    chain_rows = [_nested_dict(row, "chain") for row in rows if isinstance(row.get("chain"), dict)]
-    return {
-        "total": len(chain_rows),
-        "managedBy": _sorted_unique([row.get("managedBy") for row in chain_rows]),
-        "carriers": _sorted_unique([row.get("carrier") for row in chain_rows]),
-        "xrayBackhaul": len([row for row in chain_rows if bool(row.get("xrayBackhaul", True))]),
-    }
-
-
-def _profile_stage_summary(rows: list[dict[str, Any]]) -> dict[str, object]:
-    by_variant: dict[str, list[str]] = {}
-    for row in rows:
-        variant = _row_string(row, "variant")
-        stage = _row_string(row, "stage")
-        if not variant or not stage:
-            continue
-        by_variant.setdefault(variant, []).append(stage)
-    return {variant: _sorted_unique(stages) for variant, stages in sorted(by_variant.items(), key=lambda item: item[0])}
-
-
 def _transport_profiles_summary(transport_profiles: dict[str, Any]) -> dict[str, object]:
     client_names = transport_profiles.get("clientNames")
     local_socks = _nested_dict(transport_profiles, "localSocks")
@@ -209,120 +141,15 @@ def _profiles_summary(
     *,
     findings: list[RuntimePreflightFinding],
 ) -> dict[str, object]:
-    shadowtls_rows = list(state.shadowsocks2022_shadowtls)
-    wireguard_rows = list(state.wireguard_wstunnel)
-    rows = [*shadowtls_rows, *wireguard_rows]
     return {
         "total": state.total_count,
-        "protocols": {
-            "shadowsocks2022ShadowTLS": state.shadowsocks2022_shadowtls_count,
-            "wireguardWSTunnel": state.wireguard_wstunnel_count,
-        },
-        "variants": _sorted_unique([row.get("variant") for row in rows]),
-        "profiles": _sorted_unique([row.get("profile") for row in rows]),
         "transportProfiles": _transport_profiles_summary(state.transport_profiles),
-        "stages": _profile_stage_summary(rows),
-        "localSocks": _profile_local_socks_summary(rows),
-        "chain": _profile_chain_summary(rows),
-        "obfuscation": _profile_obfuscation_summary(rows),
-        "shadowtlsOuter": _profile_shadowtls_outer_summary(rows),
-        "wireguardSync": _profile_wireguard_sync_summary(rows),
         "sources": {
             "state": _source_fingerprint(state.path),
             "env": _source_fingerprint(env.path),
         },
         "warnings": len([finding for finding in findings if finding.severity == "warning"]),
     }
-
-
-def _split_shadowsocks2022_password(value: object) -> tuple[str, str]:
-    raw = str(value or "").strip()
-    server_key, sep, user_key = raw.rpartition(":")
-    if not sep:
-        raise HostPrivateReloadError("Shadowsocks-2022 V3 password must use server-key:user-key format")
-    server_key = server_key.strip()
-    user_key = user_key.strip()
-    if not server_key or not user_key:
-        raise HostPrivateReloadError("Shadowsocks-2022 V3 password contains an empty server or user key")
-    return server_key, user_key
-
-
-def _write_shadowsocks2022_runtime_config(*, state: PrivateProfileState, root: Path, role_lower: str) -> None:
-    rows = list(state.shadowsocks2022_shadowtls)
-    config_path = root / "runtime" / f"shadowsocks2022-{role_lower}-server.json"
-    if not rows:
-        try:
-            config_path.unlink()
-        except FileNotFoundError:
-            pass
-        return
-
-    method = _row_string(_nested_dict(rows[0], "shadowsocks2022"), "method") or "2022-blake3-aes-128-gcm"
-    server_password = ""
-    users: list[dict[str, str]] = []
-    for row in rows:
-        ss2022 = _nested_dict(row, "shadowsocks2022")
-        row_method = _row_string(ss2022, "method") or method
-        if row_method != method:
-            raise HostPrivateReloadError("all V3 Shadowsocks-2022 rows for one role must use the same method")
-        row_server_password, row_user_password = _split_shadowsocks2022_password(ss2022.get("password"))
-        if not server_password:
-            server_password = row_server_password
-        elif row_server_password != server_password:
-            raise HostPrivateReloadError("all V3 Shadowsocks-2022 rows for one role must share the same server key")
-        users.append(
-            {
-                "name": _row_string(row, "connectionId") or f"v3-{len(users) + 1}",
-                "password": row_user_password,
-            }
-        )
-
-    server = {
-        "server": "127.0.0.1",
-        "server_port": 18443,
-        "method": method,
-        "password": server_password,
-        "users": users,
-        "timeout": 300,
-        "mode": "tcp_only",
-    }
-    if role_lower == "entry":
-        payload = {
-            "log": {"level": "info"},
-            "inbounds": [
-                {
-                    "type": "shadowsocks",
-                    "tag": "ss2022-in",
-                    "listen": "127.0.0.1",
-                    "listen_port": 18443,
-                    "network": "tcp",
-                    "method": method,
-                    "password": server_password,
-                    "users": users,
-                }
-            ],
-            "outbounds": [
-                {
-                    "type": "socks",
-                    "tag": "chain-to-transit",
-                    "server": "127.0.0.1",
-                    "server_port": 11082,
-                    "version": "5",
-                    "network": "tcp",
-                }
-            ],
-            "route": {
-                "rules": [{"inbound": ["ss2022-in"], "outbound": "chain-to-transit"}],
-                "final": "chain-to-transit",
-            },
-        }
-    else:
-        payload = {"servers": [server]}
-    config_path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = config_path.with_suffix(config_path.suffix + ".tmp")
-    tmp.write_text(json.dumps(payload, ensure_ascii=True, indent=2) + "\n", encoding="utf-8")
-    tmp.replace(config_path)
-    config_path.chmod(0o600)
 
 
 def _link_crypto_zapret2_summary(rows: list[dict[str, Any]]) -> dict[str, object]:
@@ -639,7 +466,6 @@ def _validate_profiles(*, role: str, root: Path, contract_path: Path) -> dict[st
         ),
     ]
     _raise_for_errors(findings, component="profiles")
-    _write_shadowsocks2022_runtime_config(state=state, root=root, role_lower=role_lower)
     return _profiles_summary(state, env, findings=findings)
 
 

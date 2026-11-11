@@ -1,12 +1,19 @@
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic import AliasChoices, Field, field_validator
+from pydantic import AliasChoices, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from tracegate.constants import (
+    TRACEGATE_ALT_PUBLIC_TCP_PORT,
+    TRACEGATE_FORBIDDEN_PUBLIC_UDP_PORT,
     TRACEGATE_INTERCONNECT_UDP_PORT,
     TRACEGATE_PUBLIC_UDP_PORT,
+)
+from tracegate.services.hysteria_hopping import (
+    HysteriaHopRangeError,
+    validate_hop_intervals,
+    validate_hop_ranges,
 )
 from tracegate.services.runtime_contract import normalize_runtime_profile_name, resolve_runtime_contract
 
@@ -115,7 +122,7 @@ class Settings(BaseSettings):
         "VLESS Reality - основной прямой профиль.\n"
         "Hysteria2 - быстрый UDP-профиль; зависит от качества UDP у оператора.\n"
         "Entry Chain (Mobile) - универсальный мобильный профиль через Entry.\n"
-        "Backup - VLESS gRPC, VLESS WebSocket, Shadowsocks и WireGuard over WebSocket.\n"
+        "Backup - VLESS gRPC и VLESS WebSocket.\n"
         "Telegram Proxy - отдельный MTProto-доступ для Telegram, не замена VPN-профилю.\n\n"
         "Клиенты:\n"
         "Рекомендуемые клиенты: Karing, INCY, Shadowrocket.\n"
@@ -290,7 +297,7 @@ class Settings(BaseSettings):
     agent_reload_fronting_cmd: str = ""
     # Optional MTProto gateway reload hook used when account-bound MTProto grants rotate.
     agent_reload_mtproto_cmd: str = ""
-    # Optional private profile adapter reload hook used by sing-box / WSTunnel / WireGuard wrappers.
+    # Optional private profile adapter reload hook used by sing-box wrappers.
     agent_reload_profiles_cmd: str = ""
     # Optional private link-crypto reload hook used by sing-box / router relay wrappers.
     agent_reload_link_crypto_cmd: str = ""
@@ -312,9 +319,6 @@ class Settings(BaseSettings):
     private_shadowsocks2022_link_profile_dir: str = "/etc/tracegate/private/link-crypto-ss2022"
     private_shadowsocks2022_link_client_profile: str = "client.json"
     private_shadowsocks2022_link_server_profile: str = "server.json"
-    private_shadowtls_profile_dir: str = "/etc/tracegate/private/shadowtls"
-    private_shadowtls_profile_entry: str = "entry-config.yaml"
-    private_shadowtls_profile_transit: str = "transit-config.yaml"
     private_link_crypto_enabled: bool = True
     private_link_crypto_generation: int = 1
     private_link_crypto_bind_host: str = "127.0.0.1"
@@ -396,8 +400,10 @@ class Settings(BaseSettings):
     mtproto_transport: str = "tls"
     mtproto_public_port: int = 443
     mtproto_route_mode: str = "endpoint-direct"
-    # Optional literal host/IP advertised as a second, direct-to-Endpoint
-    # MTProto route. The primary mtproto_domain remains the Entry route.
+    # Optional literal host/IP of the legacy direct-to-Endpoint MTProto route.
+    # When set, Endpoint keeps serving the FakeTLS SNI on TCP/443 so links
+    # users saved earlier keep working; new deliveries carry the Entry route
+    # only.
     mtproto_direct_backup_host: str = ""
     mtproto_egress_socks_port: int = 11084
     mtproto_link_port: int = Field(default=9445, validation_alias=AliasChoices("MTPROTO_LINK_PORT"))
@@ -490,6 +496,10 @@ class Settings(BaseSettings):
     # Avoid major sites that negotiate post-quantum key exchange and break
     # REALITY for modern-fingerprint clients.
     reality_dest: str = "ibtcom.ru:443"
+    # Public TCP port written into Direct VLESS/REALITY connections. A re-issue
+    # switches to the current port (the previous revision stays active in the
+    # second slot). Chain REALITY always stays on 443.
+    reality_direct_port: int = TRACEGATE_ALT_PUBLIC_TCP_PORT
     # Optional SNI compatibility filter (used by the API/bot).
     # If empty, all enabled SNIs from DB are allowed.
     reality_sni_allow_suffixes: list[str] = Field(default_factory=list)
@@ -524,6 +534,22 @@ class Settings(BaseSettings):
     # Optional second direct listener. Salamander and Gecko cannot share one
     # Hysteria UDP socket, so Salamander uses a dedicated public port.
     hysteria_salamander_udp_port: int = 8444
+    # Optional Endpoint (Direct) port hopping: "LO-HI" ranges redirected by a
+    # Tracegate-rendered nftables table to the Gecko or Salamander listener.
+    # Empty disables hopping; re-issues follow the current range (obfs stays
+    # sticky, see _sticky_hysteria_endpoints).
+    hysteria_gecko_hop_ports: str = ""
+    hysteria_salamander_hop_ports: str = ""
+    hysteria_hop_min_interval_s: int = 20
+    hysteria_hop_max_interval_s: int = 60
+    # Hysteria revisions verify the server certificate against the SNI;
+    # insecure is set only for IP-literal server names or the explicit
+    # tls_insecure override. Re-issues follow the current setting (obfs stays
+    # sticky, see _sticky_hysteria_endpoints).
+    hysteria_tls_verify: bool = True
+    # Default obfuscation for NEW Direct Hysteria issuance (gecko|salamander).
+    # An explicit per-connection override still wins; Chain stays Gecko.
+    hysteria_default_obfs: str = "gecko"
     # Optional client-facing TLS SNI override. Leave empty unless the Hysteria
     # server certificate covers the chosen name; dns-san sniGuard will fail closed.
     hysteria_server_name_entry: str = Field(
@@ -574,52 +600,6 @@ class Settings(BaseSettings):
         default="",
         validation_alias=AliasChoices("HYSTERIA_ECH_FORCE_QUERY_TRANSIT", "HYSTERIA_ECH_FORCE_QUERY"),
     )
-    # Shadowsocks-2022 + ShadowTLS V3 uses static node-side outer credentials,
-    # while Shadowsocks user keys remain per connection.
-    shadowtls_server_name_entry: str = Field(
-        default="2gis.ru",
-        validation_alias=AliasChoices("SHADOWTLS_SERVER_NAME_ENTRY", "SHADOWTLS_SERVER_NAME"),
-    )
-    shadowtls_server_name_transit: str = Field(
-        default="2gis.ru",
-        validation_alias=AliasChoices("SHADOWTLS_SERVER_NAME_TRANSIT", "SHADOWTLS_SERVER_NAME"),
-    )
-    shadowtls_password_entry: str = Field(
-        default="",
-        validation_alias=AliasChoices("SHADOWTLS_PASSWORD_ENTRY", "SHADOWTLS_PASSWORD"),
-    )
-    shadowtls_password_transit: str = Field(
-        default="",
-        validation_alias=AliasChoices("SHADOWTLS_PASSWORD_TRANSIT", "SHADOWTLS_PASSWORD"),
-    )
-    shadowsocks2022_password_entry: str = Field(
-        default="",
-        validation_alias=AliasChoices("SHADOWSOCKS2022_PASSWORD_ENTRY", "SHADOWSOCKS2022_PASSWORD"),
-    )
-    shadowsocks2022_password_transit: str = Field(
-        default="",
-        validation_alias=AliasChoices("SHADOWSOCKS2022_PASSWORD_TRANSIT", "SHADOWSOCKS2022_PASSWORD"),
-    )
-    shadowsocks2022_method: str = Field(
-        default="2022-blake3-aes-128-gcm",
-        validation_alias=AliasChoices("SHADOWSOCKS2022_METHOD", "SS2022_METHOD"),
-    )
-    # WireGuard over WSTunnel V0 direct surface. The server public key is safe
-    # for client configs; private server material stays in private profiles.
-    wireguard_server_public_key: str = Field(
-        default="",
-        validation_alias=AliasChoices("WIREGUARD_SERVER_PUBLIC_KEY", "WG_SERVER_PUBLIC_KEY"),
-    )
-    wireguard_dns: str = Field(default="1.1.1.1", validation_alias=AliasChoices("WIREGUARD_DNS", "WG_DNS"))
-    wireguard_allowed_ips: list[str] = Field(
-        default_factory=lambda: ["0.0.0.0/0"],
-        validation_alias=AliasChoices("WIREGUARD_ALLOWED_IPS", "WG_ALLOWED_IPS"),
-    )
-    wireguard_mtu: int = Field(default=1280, validation_alias=AliasChoices("WIREGUARD_MTU", "WG_MTU"))
-    wireguard_wstunnel_path: str = Field(
-        default="/wgws",
-        validation_alias=AliasChoices("WIREGUARD_WSTUNNEL_PATH", "WG_WSTUNNEL_PATH"),
-    )
 
     @property
     def mtproto_link_trusted_cidr_list(self) -> list[str]:
@@ -630,6 +610,43 @@ class Settings(BaseSettings):
     @classmethod
     def _normalize_agent_runtime_profile(cls, value: object) -> str:
         return normalize_runtime_profile_name(str(value or ""))
+
+    @field_validator("reality_direct_port")
+    @classmethod
+    def _validate_reality_direct_port(cls, value: int) -> int:
+        if not 1 <= int(value) <= 65535:
+            raise ValueError("reality_direct_port must be in 1..65535")
+        return int(value)
+
+    @field_validator("hysteria_default_obfs", mode="before")
+    @classmethod
+    def _validate_hysteria_default_obfs(cls, value: object) -> str:
+        normalized = str(value or "gecko").strip().lower()
+        if normalized not in {"gecko", "salamander"}:
+            raise ValueError("hysteria_default_obfs must be gecko or salamander")
+        return normalized
+
+    @model_validator(mode="after")
+    def _validate_port_model(self) -> "Settings":
+        try:
+            validate_hop_ranges(
+                {
+                    "hysteria_gecko_hop_ports": self.hysteria_gecko_hop_ports,
+                    "hysteria_salamander_hop_ports": self.hysteria_salamander_hop_ports,
+                },
+                reserved_udp_ports=(
+                    TRACEGATE_PUBLIC_UDP_PORT,
+                    TRACEGATE_INTERCONNECT_UDP_PORT,
+                    TRACEGATE_FORBIDDEN_PUBLIC_UDP_PORT,
+                    int(self.hysteria_udp_port or 0),
+                    int(self.hysteria_salamander_udp_port or 0),
+                    int(self.private_udp_link_remote_port or 0),
+                ),
+            )
+            validate_hop_intervals(self.hysteria_hop_min_interval_s, self.hysteria_hop_max_interval_s)
+        except HysteriaHopRangeError as exc:
+            raise ValueError(str(exc)) from exc
+        return self
 
     @field_validator("agent_runtime_mode", mode="before")
     @classmethod

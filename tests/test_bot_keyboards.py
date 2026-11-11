@@ -209,8 +209,8 @@ def test_connection_create_profiles_keyboard_uses_new_profile_names() -> None:
     assert "VLESS+WebSocket" in texts
 
     experimental = _button_texts(connection_create_profiles_keyboard(category="experimental", device_id="dev-42"))
-    assert "Shadowsocks-2022+ShadowTLS1.3" in experimental
-    assert "Wireguard-over-WebSocket (WGWS)" in experimental
+    assert "Shadowsocks-2022+ShadowTLS1.3" not in experimental
+    assert "Wireguard-over-WebSocket (WGWS)" not in experimental
 
 
 def test_hysteria_obfs_keyboard_recommends_salamander_and_offers_gecko() -> None:

@@ -126,34 +126,6 @@ def _dashboard_megabytes(builder):  # noqa: ANN001, ANN201
             panels.extend(
                 [
                     {
-                        "id": 90,
-                        "type": "timeseries",
-                        "title": "WGWS traffic RX/TX",
-                        "datasource": _ds(ds_uid),
-                        "targets": [
-                            {
-                                "refId": "A",
-                                "expr": _connection_rate_expr(
-                                    "tracegate_wireguard_connection_rx_bytes",
-                                    user_scoped=user_scoped,
-                                    protocol_regex="wireguard_wstunnel",
-                                ),
-                                "legendFormat": "{{connection_label}} RX",
-                            },
-                            {
-                                "refId": "B",
-                                "expr": _connection_rate_expr(
-                                    "tracegate_wireguard_connection_tx_bytes",
-                                    user_scoped=user_scoped,
-                                    protocol_regex="wireguard_wstunnel",
-                                ),
-                                "legendFormat": "{{connection_label}} TX",
-                            },
-                        ],
-                        "fieldConfig": {"defaults": {"unit": "Bps"}, "overrides": []},
-                        "gridPos": {"h": 8, "w": 12, "x": 0, "y": max_y},
-                    },
-                    {
                         "id": 91,
                         "type": "timeseries",
                         "title": "Telegram Proxy traffic",
@@ -568,6 +540,10 @@ def _slo_alert_rule(
     for_duration: str = "2m",
     no_data_state: str = "OK",
 ) -> dict[str, Any]:
+    if no_data_state not in {"OK", "NoData"}:
+        raise ValueError(
+            f"unsupported no_data_state {no_data_state!r}; use 'OK' or 'NoData'"
+        )
     return {
         "uid": uid,
         "title": title,
@@ -582,7 +558,7 @@ def _slo_alert_rule(
             ),
         ],
         "noDataState": no_data_state,
-        "execErrState": "Alerting",
+        "execErrState": "Error",
         "for": for_duration,
         "annotations": annotations,
         "labels": labels,
@@ -615,7 +591,7 @@ def _slo_alert_rules(ds_uid: str, *, folder_uid: str) -> list[dict[str, Any]]:
                 "severity": "critical",
             },
             for_duration="10m",
-            no_data_state="Alerting",
+            no_data_state="NoData",
         ),
         _slo_alert_rule(
             uid="tg-slo-bot-availability-low",
@@ -659,7 +635,7 @@ def _slo_alert_rules(ds_uid: str, *, folder_uid: str) -> list[dict[str, Any]]:
                 "severity": "critical",
             },
             for_duration="10m",
-            no_data_state="Alerting",
+            no_data_state="NoData",
         ),
         _slo_alert_rule(
             uid="tg-slo-api-http-success-low",
@@ -841,12 +817,12 @@ def _ops_alert_rules(
         'min by (channel) (tracegate_backhaul_egress_probe_success{channel=~"shadowtls-primary-.+"})'
     )
     reality_fallback_required = (
-        '(1 - (max(tracegate_backhaul_egress_probe_success{channel="shadowtls-primary-a"}) or vector(0))) '
-        '* (1 - (max(tracegate_backhaul_egress_probe_success{channel="shadowtls-primary-b"}) or vector(0))) '
-        '* (max(tracegate_backhaul_egress_probe_success{channel="reality-fallback"}) or vector(0))'
+        '(1 - max(tracegate_backhaul_egress_probe_success{channel="shadowtls-primary-a"})) '
+        '* (1 - max(tracegate_backhaul_egress_probe_success{channel="shadowtls-primary-b"})) '
+        '* max(tracegate_backhaul_egress_probe_success{channel="reality-fallback"})'
     )
     backhaul_all_failed = (
-        '1 - (max(tracegate_backhaul_egress_probe_success{channel=~"shadowtls-primary-.+|reality-fallback"}) or vector(0))'
+        '1 - max(tracegate_backhaul_egress_probe_success{channel=~"shadowtls-primary-.+|reality-fallback"})'
     )
     backhaul_latency = (
         "max by (channel) "
@@ -904,7 +880,7 @@ def _ops_alert_rules(
                 "severity": "critical",
             },
             for_duration="2m",
-            no_data_state="Alerting",
+            no_data_state="NoData",
         ),
         _slo_alert_rule(
             uid="tg-ops-node-count-low",
@@ -929,7 +905,7 @@ def _ops_alert_rules(
                 "severity": "critical",
             },
             for_duration="2m",
-            no_data_state="Alerting",
+            no_data_state="NoData",
         ),
         _slo_alert_rule(
             uid="tg-ops-target-down",
@@ -951,7 +927,7 @@ def _ops_alert_rules(
                 "severity": "critical",
             },
             for_duration="2m",
-            no_data_state="Alerting",
+            no_data_state="NoData",
         ),
         _slo_alert_rule(
             uid="tg-ops-pod-not-seen",
@@ -1337,7 +1313,7 @@ def _ops_alert_rules(
                 "severity": "warning",
             },
             for_duration="3m",
-            no_data_state="Alerting",
+            no_data_state="NoData",
         ),
         _slo_alert_rule(
             uid="tg-ops-backhaul-primary-degraded",
@@ -1359,7 +1335,7 @@ def _ops_alert_rules(
                 "severity": "warning",
             },
             for_duration="2m",
-            no_data_state="Alerting",
+            no_data_state="NoData",
         ),
         _slo_alert_rule(
             uid="tg-ops-reality-fallback-required",
@@ -1381,7 +1357,7 @@ def _ops_alert_rules(
                 "severity": "critical",
             },
             for_duration="1m",
-            no_data_state="Alerting",
+            no_data_state="NoData",
         ),
         _slo_alert_rule(
             uid="tg-ops-backhaul-all-egress-failed",
@@ -1403,7 +1379,36 @@ def _ops_alert_rules(
                 "severity": "critical",
             },
             for_duration="1m",
-            no_data_state="Alerting",
+            no_data_state="NoData",
+        ),
+        _slo_alert_rule(
+            uid="tg-ops-backhaul-probe-nodata",
+            title="NO DATA: backhaul egress probe metrics missing",
+            folder_uid=folder_uid,
+            group=group,
+            ds_uid=ds_uid,
+            expr=(
+                'absent(tracegate_backhaul_egress_probe_success{channel="shadowtls-primary-a"}) '
+                'or absent(tracegate_backhaul_egress_probe_success{channel="shadowtls-primary-b"}) '
+                'or absent(tracegate_backhaul_egress_probe_success{channel="reality-fallback"})'
+            ),
+            evaluator="gt",
+            threshold=0.0,
+            annotations={
+                "summary": "Backhaul egress probe metrics are missing",
+                "description": (
+                    "The Entry agent is not reporting backhaul egress probe results, "
+                    "so channel health is unknown; this is not a confirmed failure"
+                ),
+            },
+            labels={
+                **base_labels,
+                "component": "backhaul",
+                "slo_type": "no_data",
+                "severity": "warning",
+            },
+            for_duration="5m",
+            no_data_state="OK",
         ),
         _slo_alert_rule(
             uid="tg-ops-backhaul-latency-high",
@@ -1425,7 +1430,7 @@ def _ops_alert_rules(
                 "severity": "warning",
             },
             for_duration="3m",
-            no_data_state="Alerting",
+            no_data_state="NoData",
         ),
         _slo_alert_rule(
             uid="tg-ops-peer-packet-loss",
@@ -1447,7 +1452,7 @@ def _ops_alert_rules(
                 "severity": "warning",
             },
             for_duration="3m",
-            no_data_state="Alerting",
+            no_data_state="NoData",
         ),
         _slo_alert_rule(
             uid="tg-ops-tcp-retransmits-high",
@@ -1491,7 +1496,7 @@ def _ops_alert_rules(
                 "severity": "warning",
             },
             for_duration="3m",
-            no_data_state="Alerting",
+            no_data_state="NoData",
         ),
         _slo_alert_rule(
             uid="tg-ops-haproxy-backend-down",
@@ -1579,7 +1584,7 @@ def _ops_alert_rules(
                 "severity": "critical",
             },
             for_duration="2m",
-            no_data_state="Alerting",
+            no_data_state="NoData",
         ),
         _slo_alert_rule(
             uid="tg-ops-telemt-me-route-drops",
@@ -1877,7 +1882,7 @@ def _dashboard_user(ds_uid: str) -> dict[str, Any]:
                         "expr": _connection_rate_expr(
                             "tracegate_xray_connection_rx_bytes",
                             user_scoped=True,
-                            protocol_regex="vless_.*|shadowsocks2022_shadowtls|wireguard_wstunnel",
+                            protocol_regex="vless_.*",
                         ),
                         "legendFormat": "{{connection_label}}",
                     }
@@ -1895,7 +1900,7 @@ def _dashboard_user(ds_uid: str) -> dict[str, Any]:
                         "expr": _connection_rate_expr(
                             "tracegate_xray_connection_tx_bytes",
                             user_scoped=True,
-                            protocol_regex="vless_.*|shadowsocks2022_shadowtls|wireguard_wstunnel",
+                            protocol_regex="vless_.*",
                         ),
                         "legendFormat": "{{connection_label}}",
                     }
@@ -1937,44 +1942,6 @@ def _dashboard_user(ds_uid: str) -> dict[str, Any]:
                     }
                 ],
                 "gridPos": {"h": 8, "w": 12, "x": 12, "y": 24},
-            },
-            {
-                "id": 18,
-                "type": "timeseries",
-                "title": "Shadowsocks RX rate (bytes/s) by connection",
-                "datasource": _ds(ds_uid),
-                "targets": [
-                    {
-                        "refId": "A",
-                        "expr": _connection_rate_expr(
-                            "tracegate_xray_connection_rx_bytes",
-                            user_scoped=True,
-                            protocol_regex="shadowsocks2022_shadowtls",
-                        ),
-                        "legendFormat": "{{connection_label}}",
-                    }
-                ],
-                "fieldConfig": {"defaults": {"unit": "Bps"}, "overrides": []},
-                "gridPos": {"h": 8, "w": 12, "x": 0, "y": 16},
-            },
-            {
-                "id": 19,
-                "type": "timeseries",
-                "title": "Shadowsocks TX rate (bytes/s) by connection",
-                "datasource": _ds(ds_uid),
-                "targets": [
-                    {
-                        "refId": "A",
-                        "expr": _connection_rate_expr(
-                            "tracegate_xray_connection_tx_bytes",
-                            user_scoped=True,
-                            protocol_regex="shadowsocks2022_shadowtls",
-                        ),
-                        "legendFormat": "{{connection_label}}",
-                    }
-                ],
-                "fieldConfig": {"defaults": {"unit": "Bps"}, "overrides": []},
-                "gridPos": {"h": 8, "w": 12, "x": 12, "y": 16},
             },
             {
                 "id": 5,
@@ -2198,7 +2165,7 @@ def _dashboard_admin(ds_uid: str) -> dict[str, Any]:
                         "refId": "A",
                         "expr": _connection_rate_expr(
                             "tracegate_xray_connection_rx_bytes",
-                            protocol_regex="vless_.*|shadowsocks2022_shadowtls|wireguard_wstunnel",
+                            protocol_regex="vless_.*",
                         ),
                         "legendFormat": "{{connection_label}}",
                     },
@@ -2215,7 +2182,7 @@ def _dashboard_admin(ds_uid: str) -> dict[str, Any]:
                         "refId": "A",
                         "expr": _connection_rate_expr(
                             "tracegate_xray_connection_tx_bytes",
-                            protocol_regex="vless_.*|shadowsocks2022_shadowtls|wireguard_wstunnel",
+                            protocol_regex="vless_.*",
                         ),
                         "legendFormat": "{{connection_label}}",
                     },
@@ -2255,42 +2222,6 @@ def _dashboard_admin(ds_uid: str) -> dict[str, Any]:
                     },
                 ],
                 "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8},
-            },
-            {
-                "id": 29,
-                "type": "timeseries",
-                "title": "Shadowsocks RX rate (bytes/s) by connection",
-                "datasource": _ds(ds_uid),
-                "targets": [
-                    {
-                        "refId": "A",
-                        "expr": _connection_rate_expr(
-                            "tracegate_xray_connection_rx_bytes",
-                            protocol_regex="shadowsocks2022_shadowtls",
-                        ),
-                        "legendFormat": "{{connection_label}}",
-                    },
-                ],
-                "fieldConfig": {"defaults": {"unit": "Bps"}, "overrides": []},
-                "gridPos": {"h": 8, "w": 12, "x": 0, "y": 16},
-            },
-            {
-                "id": 30,
-                "type": "timeseries",
-                "title": "Shadowsocks TX rate (bytes/s) by connection",
-                "datasource": _ds(ds_uid),
-                "targets": [
-                    {
-                        "refId": "A",
-                        "expr": _connection_rate_expr(
-                            "tracegate_xray_connection_tx_bytes",
-                            protocol_regex="shadowsocks2022_shadowtls",
-                        ),
-                        "legendFormat": "{{connection_label}}",
-                    },
-                ],
-                "fieldConfig": {"defaults": {"unit": "Bps"}, "overrides": []},
-                "gridPos": {"h": 8, "w": 12, "x": 12, "y": 16},
             },
             {
                 "id": 3,
@@ -2881,6 +2812,8 @@ def _dashboard_admin_metadata(ds_uid: str) -> dict[str, Any]:
                 "targets": [
                     {
                         "refId": "A",
+                        "instant": True,
+                        "range": False,
                         "expr": (
                             "(sum(increase(tracegate_xray_connection_rx_bytes[$__range])) or vector(0)) + "
                             + _hysteria_total_expr(
@@ -2914,6 +2847,8 @@ def _dashboard_admin_metadata(ds_uid: str) -> dict[str, Any]:
                 "targets": [
                     {
                         "refId": "A",
+                        "instant": True,
+                        "range": False,
                         "expr": (
                             "(sum(increase(tracegate_xray_connection_tx_bytes[$__range])) or vector(0)) + "
                             + _hysteria_total_expr(
@@ -2947,6 +2882,8 @@ def _dashboard_admin_metadata(ds_uid: str) -> dict[str, Any]:
                 "targets": [
                     {
                         "refId": "A",
+                        "instant": True,
+                        "range": False,
                         "expr": (
                             "(sum(increase(tracegate_xray_connection_rx_bytes[$__range])) or vector(0)) + "
                             + _hysteria_total_expr(

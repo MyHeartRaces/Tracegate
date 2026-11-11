@@ -111,9 +111,8 @@ networking. Public bundles are materialized with operator-provided private
 state; the repository never contains live credentials or rendered production
 configuration.
 
-Run `make host-check` to validate the public Entry/Endpoint bundles, WGWS
-WebSocket routing, ShadowTLS HAProxy handoff, Telemt loopback API and peer-sync
-unit before packaging.
+Run `make host-check` to validate the public Entry/Endpoint bundles, the
+ShadowTLS backhaul units and the Telemt loopback API before packaging.
 
 ## Security Posture
 

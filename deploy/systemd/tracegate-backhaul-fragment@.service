@@ -9,10 +9,11 @@ Restart=always
 RestartSec=3
 TimeoutStopSec=20
 SuccessExitStatus=143
+EnvironmentFile=/var/lib/tracegate/artifacts/active/xray.env
+ExecStartPre=/usr/local/sbin/tracegate-artifact-verify xray
 ExecStartPre=/opt/tracegate/current/deploy/systemd/tracegate-backhaul-fragment-config %i
-ExecStartPre=/usr/bin/docker pull ghcr.io/xtls/xray-core:latest
 ExecStartPre=-/usr/bin/docker rm -f tracegate-backhaul-fragment-%i
-ExecStart=/usr/bin/docker run --rm --name tracegate-backhaul-fragment-%i --network host --read-only --user 0:0 --cap-drop ALL --security-opt no-new-privileges:true -v /etc/tracegate/private/backhaul-fragment/%i.json:/etc/xray/config.json:ro ghcr.io/xtls/xray-core:latest run -c /etc/xray/config.json
+ExecStart=/usr/bin/docker run --rm --name tracegate-backhaul-fragment-%i --network host --read-only --user 0:0 --cap-drop ALL --security-opt no-new-privileges:true -v /etc/tracegate/private/backhaul-fragment/%i.json:/etc/xray/config.json:ro ${TRACEGATE_IMAGE} run -c /etc/xray/config.json
 ExecStop=/usr/bin/docker stop tracegate-backhaul-fragment-%i
 
 [Install]

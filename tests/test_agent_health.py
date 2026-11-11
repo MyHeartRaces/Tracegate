@@ -274,7 +274,9 @@ async def test_gather_health_checks_transit_native_systemd_runtime(monkeypatch):
     names = [row["name"] for row in checks]
     assert "listen tcp/443" in names
     assert f"listen udp/{TRACEGATE_PUBLIC_UDP_PORT}" in names
-    assert "blocked tcp/8443" in names
+    assert "blocked tcp/8443" not in names
+    assert "listen tcp/8443" in names
+    assert "blocked udp/8443" in names
     assert "process xray" in names
     assert "process haproxy" in names
     assert "process hysteria" not in names
@@ -340,7 +342,7 @@ async def test_gather_health_checks_allows_entry_mtproto_route_tcp8443(monkeypat
 
 
 @pytest.mark.asyncio
-async def test_gather_health_checks_blocks_transit_tcp8443_for_entry_local_mtproto(monkeypatch):
+async def test_gather_health_checks_transit_tcp8443_listener_for_entry_local_mtproto(monkeypatch):
     monkeypatch.setattr(system, "check_port", lambda protocol, port: (False, f"{protocol}:{port}"))
     monkeypatch.setattr(system, "check_port_blocked", lambda protocol, port: (True, f"{protocol}:{port}"))
     monkeypatch.setattr(system, "check_process", lambda name: (True, name))
@@ -362,8 +364,12 @@ async def test_gather_health_checks_blocks_transit_tcp8443_for_entry_local_mtpro
     )
 
     by_name = {row["name"]: row for row in checks}
+    # Endpoint always declares tcp/8443 now; without the fallback mode it keeps
+    # the plain listener name and is never reported as blocked.
     assert "listen tcp/8443 mtproto fallback" not in by_name
-    assert by_name["blocked tcp/8443"]["ok"] is True
+    assert "blocked tcp/8443" not in by_name
+    assert "listen tcp/8443" in by_name
+    assert by_name["blocked udp/8443"]["ok"] is True
 
 
 @pytest.mark.asyncio
@@ -387,7 +393,9 @@ async def test_gather_health_checks_default_profile_is_tracegate22(monkeypatch):
     names = [row["name"] for row in checks]
     assert "listen tcp/443" in names
     assert f"listen udp/{TRACEGATE_PUBLIC_UDP_PORT}" in names
-    assert "blocked tcp/8443" in names
+    assert "blocked tcp/8443" not in names
+    assert "listen tcp/8443" in names
+    assert "blocked udp/8443" in names
     assert "process xray" in names
     assert "process hysteria" in names
     assert "process haproxy" in names
@@ -416,8 +424,26 @@ async def test_gather_health_checks_transit_xray_centric_profile_skips_hysteria_
     names = [row["name"] for row in checks]
     assert "listen tcp/443" in names
     assert f"listen udp/{TRACEGATE_PUBLIC_UDP_PORT}" in names
-    assert "blocked tcp/8443" in names
+    assert "blocked tcp/8443" not in names
+    assert "listen tcp/8443" in names
+    assert "blocked udp/8443" in names
     assert "process xray" in names
     assert "process haproxy" in names
     assert "process hysteria" not in names
     assert "hysteria stats API auth" not in names
+
+
+@pytest.mark.asyncio
+async def test_gather_health_checks_transit_fails_when_tcp8443_not_listening(monkeypatch):
+    monkeypatch.setattr(system, "check_port", _tracegate22_port_check)
+    monkeypatch.setattr(system, "check_process", lambda name: (True, name))
+
+    async def _stats(url, secret):
+        return True, "auth=200"
+
+    monkeypatch.setattr(system, "check_hysteria_stats_secret", _stats)
+
+    checks = await system.gather_health_checks("http://127.0.0.1:9999/traffic", "secret", "TRANSIT", "systemd")
+
+    by_name = {row["name"]: row for row in checks}
+    assert by_name["listen tcp/8443"]["ok"] is False

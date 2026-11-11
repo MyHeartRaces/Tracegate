@@ -4,7 +4,7 @@ import base64
 import hashlib
 import json
 from dataclasses import dataclass
-from ipaddress import ip_address, ip_network
+from ipaddress import ip_address
 from typing import Any
 from urllib.parse import quote, urlencode, urlparse
 
@@ -44,10 +44,6 @@ class ExportResult:
 def _q(s: str) -> str:
     # Share links typically expect URL-encoded fragments/params.
     return quote(s, safe="")
-
-
-def _b64url_no_padding(raw: str) -> str:
-    return base64.urlsafe_b64encode(raw.encode("utf-8")).decode("ascii").rstrip("=")
 
 
 def _encode_query(params: dict[str, Any], *, safe: str = "") -> str:
@@ -90,8 +86,6 @@ def _artifact_filename_fragment(profile_name: str) -> str:
         "Tracegate-Chain": "chain",
         "Tracegate-Backup(gRPC)": "backup-vless-grpc",
         "Tracegate-Backup(WebSocket)": "backup-vless-websocket",
-        "Tracegate-Experimental(SS2022)": "experimental-shadowsocks",
-        "Tracegate-Experimental(WGWS)": "experimental-wgws",
     }.get(profile_name, _safe_filename_fragment(profile_name))
 
 
@@ -120,13 +114,6 @@ def client_profile_name(effective: dict[str, Any]) -> str:
         return "Tracegate-Backup(WebSocket)"
     if protocol == "vless" and transport in {"grpc_tls", "grpc+tls", "grpc-tls"}:
         return "Tracegate-Backup(gRPC)"
-    if (
-        protocol in {"shadowsocks2022", "shadowsocks2022_shadowtls"}
-        or transport == "shadowtls_v3"
-    ):
-        return "Tracegate-Experimental(SS2022)"
-    if protocol == "wireguard" or transport in {"wireguard_wstunnel", "wstunnel"}:
-        return "Tracegate-Experimental(WGWS)"
     return str(effective.get("profile") or "Tracegate").strip() or "Tracegate"
 
 
@@ -199,48 +186,6 @@ def _singbox_direct_route_rules_for_outbounds(
     return rules
 
 
-def _ip_prefix_families(values: list[str]) -> set[int]:
-    families: set[int] = set()
-    for value in values:
-        normalized = str(value or "").strip().strip("[]")
-        if not normalized:
-            continue
-        try:
-            families.add(ip_network(normalized, strict=False).version)
-        except ValueError:
-            try:
-                families.add(ip_address(normalized.split("/", 1)[0]).version)
-            except ValueError:
-                continue
-    return families
-
-
-def _wireguard_default_allowed_ips(local_addresses: list[str]) -> list[str]:
-    families = _ip_prefix_families(local_addresses)
-    allowed = ["0.0.0.0/0"] if not families or 4 in families else []
-    if 6 in families:
-        allowed.append("::/0")
-    return allowed or ["0.0.0.0/0"]
-
-
-def _wireguard_allowed_ips_for_local_addresses(
-    allowed_ips: list[str], local_addresses: list[str]
-) -> list[str]:
-    families = _ip_prefix_families(local_addresses)
-    if not families:
-        return allowed_ips
-    filtered: list[str] = []
-    for value in allowed_ips:
-        try:
-            family = ip_network(value, strict=False).version
-        except ValueError:
-            filtered.append(value)
-            continue
-        if family in families:
-            filtered.append(value)
-    return filtered or _wireguard_default_allowed_ips(local_addresses)
-
-
 def _client_connect_server(effective: dict[str, Any]) -> str:
     return str(effective.get("connect_host") or effective.get("server") or "").strip()
 
@@ -296,65 +241,6 @@ def _parse_local_socks_listen(effective: dict[str, Any]) -> tuple[str, int]:
     if port < 1 or port > 65535:
         raise ClientConfigExportError(f"Invalid local SOCKS5 listen port: {listen}")
     return "127.0.0.1", port
-
-
-def _parse_loopback_listen_endpoint(
-    raw_value: object, *, label: str, default: str
-) -> tuple[str, int]:
-    listen = str(raw_value or default).strip()
-    if listen.startswith("["):
-        host_end = listen.find("]")
-        if host_end < 0 or host_end + 1 >= len(listen) or listen[host_end + 1] != ":":
-            raise ClientConfigExportError(f"Invalid {label} endpoint: {listen}")
-        host = listen[1:host_end]
-        port_raw = listen[host_end + 2 :]
-    else:
-        host, sep, port_raw = listen.rpartition(":")
-        if not sep:
-            host = "127.0.0.1"
-            port_raw = listen
-    host = host.strip() or "127.0.0.1"
-    if not _is_loopback_host(host):
-        raise ClientConfigExportError(f"{label} must stay on loopback, got {listen}")
-    try:
-        port = int(str(port_raw).strip())
-    except (TypeError, ValueError):
-        raise ClientConfigExportError(f"Invalid {label} port: {listen}") from None
-    if port < 1 or port > 65535:
-        raise ClientConfigExportError(f"Invalid {label} port: {listen}")
-    return "127.0.0.1", port
-
-
-def _validated_wstunnel_url(wstunnel: dict[str, Any]) -> str:
-    url = str(wstunnel.get("url") or "").strip()
-    parsed = urlparse(url)
-    try:
-        port = int(parsed.port or 0)
-    except ValueError:
-        port = 0
-    path = str(parsed.path or "")
-    if (
-        parsed.scheme != "wss"
-        or not parsed.hostname
-        or port != 443
-        or not path.startswith("/")
-        or "://" in path
-        or any(ch.isspace() for ch in path)
-        or bool(parsed.query)
-        or bool(parsed.fragment)
-    ):
-        raise ClientConfigExportError("WSTunnel target must be wss://host:443/path")
-    return url
-
-
-def _validated_wireguard_mtu(wireguard: dict[str, Any]) -> int:
-    try:
-        mtu = int(wireguard.get("mtu") or 1280)
-    except (TypeError, ValueError) as exc:
-        raise ClientConfigExportError("WireGuard MTU must be an integer") from exc
-    if mtu < 1200 or mtu > 1420:
-        raise ClientConfigExportError("WireGuard MTU must stay within 1200..1420")
-    return mtu
 
 
 def _local_socks_endpoint(effective: dict[str, Any]) -> tuple[str, int]:
@@ -534,6 +420,35 @@ def _build_singbox_client_attachment(
     return json.dumps(config, ensure_ascii=True, indent=2).encode("utf-8"), filename
 
 
+def _hysteria_port_hopping(effective: dict[str, Any]) -> dict[str, Any] | None:
+    """Return the stored port-hopping block of a Hysteria revision, if any.
+
+    Only revisions issued with a configured hop range carry ``port_hopping``;
+    every other stored config exports exactly as before.
+    """
+
+    block = effective.get("port_hopping")
+    if not isinstance(block, dict):
+        return None
+    raw_ports = str(block.get("ports") or "").strip()
+    lower_raw, sep, upper_raw = raw_ports.partition("-")
+    try:
+        lower = int(lower_raw)
+        upper = int(upper_raw)
+        min_interval = int(block.get("min_interval_s") or 0)
+        max_interval = int(block.get("max_interval_s") or 0)
+    except (TypeError, ValueError):
+        raise ClientConfigExportError("Invalid Hysteria2 port hopping block") from None
+    if not sep or not 1 <= lower < upper <= 65535 or min_interval <= 0 or max_interval <= min_interval:
+        raise ClientConfigExportError("Invalid Hysteria2 port hopping block")
+    return {
+        "lower": lower,
+        "upper": upper,
+        "min_interval_s": min_interval,
+        "max_interval_s": max_interval,
+    }
+
+
 def _build_hysteria_client_attachment(
     effective: dict[str, Any],
     *,
@@ -545,6 +460,7 @@ def _build_hysteria_client_attachment(
     obfs_password: str,
     min_packet_size: int,
     max_packet_size: int,
+    port_hopping: dict[str, Any] | None = None,
 ) -> tuple[bytes, str]:
     """Build an official Hysteria client config for Gecko.
 
@@ -556,8 +472,12 @@ def _build_hysteria_client_attachment(
     profile_name = client_profile_name(effective)
     local_host, local_port = _local_socks_endpoint(effective)
     socks_username, socks_password = _local_socks_auth(effective)
-    config = {
-        "server": f"{server}:{port}",
+    server_address = f"{server}:{port}"
+    if port_hopping is not None:
+        # Official multi-port syntax: the listener port plus the hop range.
+        server_address = f"{server}:{port},{port_hopping['lower']}-{port_hopping['upper']}"
+    config: dict[str, Any] = {
+        "server": server_address,
         "auth": auth,
         "tls": {"sni": sni or server, "insecure": insecure},
         "obfs": {
@@ -579,198 +499,17 @@ def _build_hysteria_client_attachment(
             "disableUDP": False,
         },
     }
+    if port_hopping is not None:
+        config["transport"] = {
+            "type": "udp",
+            "udp": {
+                "minHopInterval": f"{port_hopping['min_interval_s']}s",
+                "maxHopInterval": f"{port_hopping['max_interval_s']}s",
+            },
+        }
     filename = f"{_artifact_filename_fragment(profile_name)}.hysteria.yaml"
     rendered = yaml.safe_dump(config, sort_keys=False, allow_unicode=False)
     return rendered.encode("utf-8"), filename
-
-
-def _build_wgws_client_attachment(
-    effective: dict[str, Any],
-    *,
-    wstunnel_url: str,
-    local_udp_host: str,
-    local_udp_port: int,
-    local_addresses: list[str],
-    private_key: str,
-    peer_public_key: str,
-    preshared_key: str,
-    mtu: int,
-) -> tuple[bytes, str]:
-    profile_name = client_profile_name(effective)
-    parsed = urlparse(wstunnel_url)
-    ws_server = str(parsed.hostname or "").strip()
-    ws_port = int(parsed.port or 443)
-    ws_path = parsed.path or "/wgws"
-    wstunnel = (
-        effective.get("wstunnel") if isinstance(effective.get("wstunnel"), dict) else {}
-    )
-    wireguard = (
-        effective.get("wireguard")
-        if isinstance(effective.get("wireguard"), dict)
-        else {}
-    )
-    allowed_ips = wireguard.get("allowed_ips")
-    if isinstance(allowed_ips, str):
-        allowed_ip_values = [allowed_ips] if allowed_ips else []
-    elif isinstance(allowed_ips, (list, tuple)):
-        allowed_ip_values = [
-            str(item).strip() for item in allowed_ips if str(item).strip()
-        ]
-    else:
-        allowed_ip_values = []
-    if not allowed_ip_values:
-        allowed_ip_values = _wireguard_default_allowed_ips(local_addresses)
-    allowed_ip_values = _wireguard_allowed_ips_for_local_addresses(
-        allowed_ip_values, local_addresses
-    )
-
-    local_socks_host, local_socks_port = _local_socks_endpoint(effective)
-    socks_username, socks_password = _local_socks_auth(effective)
-    persistent_keepalive = int(wireguard.get("persistent_keepalive") or 25)
-    endpoint_peer: dict[str, Any] = {
-        "address": local_udp_host,
-        "port": local_udp_port,
-        "public_key": peer_public_key,
-        "allowed_ips": allowed_ip_values,
-        "persistent_keepalive_interval": persistent_keepalive,
-    }
-    if preshared_key:
-        endpoint_peer["pre_shared_key"] = preshared_key
-    endpoint: dict[str, Any] = {
-        "type": "wireguard",
-        "tag": "proxy",
-        # The peer is the loopback UDP listener owned by wstunnel. Without an
-        # explicit direct detour, sing-box 1.13 can recursively route its own
-        # WireGuard handshake into the WireGuard endpoint.
-        "detour": "direct",
-        "system": False,
-        "address": local_addresses,
-        "private_key": private_key,
-        "peers": [endpoint_peer],
-        "mtu": mtu,
-        "workers": 4,
-    }
-    singbox = {
-        "log": {"level": "warn"},
-        "inbounds": [
-            {
-                "type": "mixed",
-                "tag": "local-in",
-                "listen": local_socks_host,
-                "listen_port": local_socks_port,
-                "users": [{"username": socks_username, "password": socks_password}],
-            }
-        ],
-        "endpoints": [endpoint],
-        # A completely empty direct outbound is rejected as an endpoint detour
-        # by sing-box 1.13. Binding to loopback is portable and also guarantees
-        # that WG packets cannot bypass the local wstunnel listener.
-        "outbounds": [
-            {
-                "type": "direct",
-                "tag": "direct",
-                "inet4_bind_address": local_udp_host,
-            }
-        ],
-        "route": {"auto_detect_interface": True, "final": "proxy"},
-    }
-    local_address_families = _ip_prefix_families(local_addresses)
-    if local_address_families == {4}:
-        singbox["dns"] = {
-            "servers": [
-                {
-                    "type": "udp",
-                    "tag": "cloudflare",
-                    "server": "1.1.1.1",
-                    "server_port": 53,
-                }
-            ],
-            "final": "cloudflare",
-            "strategy": "ipv4_only",
-        }
-    elif local_address_families == {6}:
-        singbox["dns"] = {
-            "servers": [
-                {
-                    "type": "udp",
-                    "tag": "cloudflare-v6",
-                    "server": "2606:4700:4700::1111",
-                    "server_port": 53,
-                }
-            ],
-            "final": "cloudflare-v6",
-            "strategy": "ipv6_only",
-        }
-
-    tls_server_name = str(
-        wstunnel.get("tls_server_name") or effective.get("sni") or ws_server
-    ).strip()
-    host_header = str(wstunnel.get("host") or tls_server_name or ws_server).strip()
-    headers = (
-        {str(key): str(value) for key, value in (wstunnel.get("headers") or {}).items()}
-        if isinstance(wstunnel.get("headers"), dict)
-        else {}
-    )
-    if host_header and host_header != ws_server:
-        headers.setdefault("Host", host_header)
-    local_udp_listen = f"{local_udp_host}:{local_udp_port}"
-    websocket = {
-        "server": ws_server,
-        "server_port": ws_port,
-        "tls": parsed.scheme == "wss",
-        "sni": tls_server_name,
-        "host": host_header or ws_server,
-        "path": ws_path,
-        "headers": headers,
-    }
-    wstunnel_command_parts = [
-        "wstunnel client",
-        "--websocket-ping-frequency-sec 15",
-        f"--http-upgrade-path-prefix {ws_path.lstrip('/')}",
-    ]
-    if tls_server_name and tls_server_name != ws_server:
-        wstunnel_command_parts.append(f"--tls-sni-override {tls_server_name}")
-    if host_header:
-        wstunnel_command_parts.append(f"-H 'Host: {host_header}'")
-    wstunnel_command_parts.extend(
-        [
-            f"-L udp://{local_udp_listen}:127.0.0.1:{local_udp_port}?timeout_sec=0",
-            f"wss://{ws_server}:{ws_port}",
-        ]
-    )
-    attachment = {
-        "type": "wgws",
-        "schema": "tracegate.wgws-client.v1",
-        "name": profile_name,
-        "endpoint": f"{ws_server}:{ws_port}",
-        "wireguard": {
-            "local_address": local_addresses,
-            "private_key": private_key,
-            "peer_public_key": peer_public_key,
-            "allowed_ips": allowed_ip_values,
-            "dns": wireguard.get("dns") or "1.1.1.1",
-            "mtu": mtu,
-            "persistent_keepalive": persistent_keepalive,
-        },
-        "websocket": websocket,
-        "wstunnel": {
-            "mode": "wireguard-over-websocket",
-            "url": wstunnel_url,
-            "local_udp_listen": local_udp_listen,
-            "remote_udp_endpoint": f"127.0.0.1:{local_udp_port}",
-            "http_upgrade_path_prefix": ws_path.lstrip("/"),
-            "client_command": " ".join(wstunnel_command_parts),
-        },
-        "singbox": singbox,
-        "local_socks": {
-            "listen": f"{local_socks_host}:{local_socks_port}",
-            "auth": {"username": socks_username, "password": socks_password},
-        },
-    }
-    if preshared_key:
-        attachment["wireguard"]["pre_shared_key"] = preshared_key
-    filename = f"{_artifact_filename_fragment(profile_name)}.wgws.json"
-    return json.dumps(attachment, ensure_ascii=True, indent=2).encode("utf-8"), filename
 
 
 def _is_hysteria_chain_profile(effective: dict[str, Any]) -> bool:
@@ -861,10 +600,6 @@ def export_client_config(effective: dict[str, Any]) -> ExportResult:
         )
     if proto == "hysteria2":
         return _export_hysteria2(effective)
-    if proto in {"shadowsocks2022", "shadowsocks"}:
-        return _export_shadowsocks2022_shadowtls(effective)
-    if proto == "wireguard":
-        return _export_wireguard_wstunnel(effective)
     if proto == "mtproto":
         return _export_mtproto(effective)
     raise ClientConfigExportError(f"Unsupported protocol for export: {proto!r}")
@@ -1126,6 +861,7 @@ def _export_hysteria2(effective: dict[str, Any]) -> ExportResult:
 
     if not server:
         raise ClientConfigExportError("Missing fields for Hysteria2 export")
+    port_hopping = _hysteria_port_hopping(effective)
     if obfs_type not in {"gecko", "salamander"} or not obfs_password:
         raise ClientConfigExportError(
             "Hysteria2 export requires Gecko or Salamander obfs with a password"
@@ -1158,7 +894,11 @@ def _export_hysteria2(effective: dict[str, Any]) -> ExportResult:
         share_auth = token
         authority = _q(token)
 
-    uri = f"hysteria2://{authority}@{server}:{port}/?{_encode_query(params)}#{_q(str(name))}"
+    uri_ports = str(port)
+    if port_hopping is not None:
+        # Official multi-port URI syntax; the hop interval is client-side only.
+        uri_ports = f"{port},{port_hopping['lower']}-{port_hopping['upper']}"
+    uri = f"hysteria2://{authority}@{server}:{uri_ports}/?{_encode_query(params)}#{_q(str(name))}"
     singbox_tls: dict[str, Any] = {
         "enabled": True,
         "server_name": sni or str(server),
@@ -1177,22 +917,35 @@ def _export_hysteria2(effective: dict[str, Any]) -> ExportResult:
             obfs_password=obfs_password,
             min_packet_size=int(obfs.get("min_packet_size") or 512),
             max_packet_size=int(obfs.get("max_packet_size") or 1200),
+            port_hopping=port_hopping,
         )
         attachment_mime = "application/yaml"
     else:
+        singbox_outbound: dict[str, Any] = {
+            "type": "hysteria2",
+            "tag": "proxy",
+            "server": server,
+            "server_port": port,
+            "up_mbps": _hysteria_export_mbps(effective, "up_mbps"),
+            "down_mbps": _hysteria_export_mbps(effective, "down_mbps"),
+            "password": share_auth,
+            "obfs": {"type": obfs_type, "password": obfs_password},
+            "tls": singbox_tls,
+        }
+        if port_hopping is not None:
+            # sing-box multi-port form. Only the fixed hop_interval is emitted:
+            # older sing-box builds in mainstream clients reject unknown fields
+            # such as hop_interval_max.
+            singbox_outbound.pop("server_port")
+            singbox_outbound = {
+                **{key: value for key, value in singbox_outbound.items() if key in {"type", "tag", "server"}},
+                "server_ports": [f"{port_hopping['lower']}:{port_hopping['upper']}"],
+                "hop_interval": f"{port_hopping['min_interval_s']}s",
+                **{key: value for key, value in singbox_outbound.items() if key not in {"type", "tag", "server"}},
+            }
         attachment_content, attachment_filename = _build_singbox_client_attachment(
             effective,
-            {
-                "type": "hysteria2",
-                "tag": "proxy",
-                "server": server,
-                "server_port": port,
-                "up_mbps": _hysteria_export_mbps(effective, "up_mbps"),
-                "down_mbps": _hysteria_export_mbps(effective, "down_mbps"),
-                "password": share_auth,
-                "obfs": {"type": obfs_type, "password": obfs_password},
-                "tls": singbox_tls,
-            },
+            singbox_outbound,
         )
         attachment_mime = "application/json"
     return ExportResult(
@@ -1256,142 +1009,4 @@ def _export_mtproto(effective: dict[str, Any]) -> ExportResult:
 
     return ExportResult(
         kind="uri", title=f"Telegram Proxy link · {profile}", content=links.https_url
-    )
-
-
-def _export_shadowsocks2022_shadowtls(effective: dict[str, Any]) -> ExportResult:
-    server = str(effective.get("server") or "").strip()
-    port = int(effective.get("port") or 443)
-    method = str(effective.get("method") or "2022-blake3-aes-128-gcm").strip()
-    password = str(effective.get("password") or "").strip()
-    shadowtls = effective.get("shadowtls") or {}
-    shadowtls_password = str(shadowtls.get("password") or "").strip()
-    shadowtls_server_name = str(
-        shadowtls.get("server_name") or effective.get("sni") or server
-    ).strip()
-    profile = client_profile_name(effective)
-
-    if not server or not password or not shadowtls_password:
-        raise ClientConfigExportError(
-            "Missing fields for Shadowsocks-2022 + ShadowTLS export"
-        )
-
-    userinfo = _b64url_no_padding(f"{method}:{password}")
-    plugin_opts = _encode_query(
-        {
-            "plugin": ";".join(
-                [
-                    "shadow-tls",
-                    f"host={shadowtls_server_name}",
-                    f"password={shadowtls_password}",
-                    "version=3",
-                ]
-            )
-        }
-    )
-    uri = f"ss://{userinfo}@{server}:{port}?{plugin_opts}#{_q(profile)}"
-    attachment_content, attachment_filename = _build_singbox_client_attachment(
-        effective,
-        [
-            {
-                "type": "shadowsocks",
-                "tag": "proxy",
-                "server": server,
-                "server_port": port,
-                "method": method,
-                "password": password,
-                "detour": "shadowtls-out",
-            },
-            {
-                "type": "shadowtls",
-                "tag": "shadowtls-out",
-                "server": server,
-                "server_port": port,
-                "version": 3,
-                "password": shadowtls_password,
-                "tls": {
-                    "enabled": True,
-                    "server_name": shadowtls_server_name,
-                    "alpn": ["h2", "http/1.1"],
-                    "utls": {
-                        "enabled": True,
-                        "fingerprint": "chrome",
-                    },
-                },
-            },
-        ],
-    )
-
-    return ExportResult(
-        kind="uri",
-        title="Shadowsocks-2022 + ShadowTLS",
-        content=uri,
-        extra_messages=(
-            (
-                "Shadowsocks import note",
-                "Use the attached sing-box JSON first. The ss:// link and QR require client-side "
-                "ShadowTLS v3 plugin support; clients that import it as plain Shadowsocks will time out.",
-            ),
-        ),
-        attachment_content=attachment_content,
-        attachment_filename=attachment_filename,
-        attachment_mime="application/json",
-    )
-
-
-def _export_wireguard_wstunnel(effective: dict[str, Any]) -> ExportResult:
-    server = str(effective.get("server") or "").strip()
-    wstunnel = effective.get("wstunnel") or {}
-    wireguard = effective.get("wireguard") or {}
-    profile = client_profile_name(effective)
-    private_key = str(wireguard.get("private_key") or "").strip()
-    peer_public_key = str(wireguard.get("server_public_key") or "").strip()
-    address = wireguard.get("address") or ""
-    if isinstance(address, str):
-        local_addresses = [address] if address else []
-    else:
-        local_addresses = [str(item).strip() for item in address if str(item).strip()]
-
-    if not server or not private_key or not peer_public_key or not local_addresses:
-        raise ClientConfigExportError(
-            "Missing fields for WireGuard over WSTunnel export"
-        )
-
-    wstunnel_url = _validated_wstunnel_url(wstunnel)
-    local_udp_host, local_udp_port = _parse_loopback_listen_endpoint(
-        wstunnel.get("local_udp_listen"),
-        label="WSTunnel local UDP listen",
-        default="127.0.0.1:51820",
-    )
-
-    mtu = _validated_wireguard_mtu(wireguard)
-    preshared_key = str(wireguard.get("preshared_key") or "").strip()
-    attachment_content, attachment_filename = _build_wgws_client_attachment(
-        effective,
-        wstunnel_url=wstunnel_url,
-        local_udp_host=local_udp_host,
-        local_udp_port=local_udp_port,
-        local_addresses=local_addresses,
-        private_key=private_key,
-        peer_public_key=peer_public_key,
-        preshared_key=preshared_key,
-        mtu=mtu,
-    )
-    extra_messages = (_local_socks_extra_message(effective),)
-    extra_messages = (
-        ("WGWS transport", wstunnel_url),
-        ("WG local UDP", f"{local_udp_host}:{local_udp_port}"),
-        *extra_messages,
-    )
-    return ExportResult(
-        kind="attachment",
-        title="WGWS config",
-        content=(
-            f"Use the attached WGWS config for {profile}. It includes WireGuard keys, "
-            "the WebSocket transport, and the inner sing-box endpoint config."
-        ),
-        extra_messages=extra_messages,
-        attachment_content=attachment_content,
-        attachment_filename=attachment_filename,
-        attachment_mime="application/json",
     )

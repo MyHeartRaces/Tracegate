@@ -1,3 +1,5 @@
+import json
+
 import pytest
 
 from tracegate.cli.grafana_bootstrap import (
@@ -6,6 +8,7 @@ from tracegate.cli.grafana_bootstrap import (
     _dashboard_operator,
     _dashboard_user,
     _same_object_matchers,
+    _slo_alert_rule,
     _slo_alert_rules,
     _upsert_notification_policies_for_slo,
 )
@@ -79,41 +82,21 @@ def test_hysteria_panels_use_per_connection_rate_metrics() -> None:
         assert panel["targets"][0]["legendFormat"] == "{{connection_label}}"
 
 
-def test_shadowsocks_panels_use_per_connection_rate_metrics() -> None:
-    user_dashboard = _dashboard_user("prom")
-    for panel_id in [18, 19]:
-        panel = _panel_by_id(user_dashboard, panel_id)
-        expr = panel["targets"][0]["expr"]
-        assert "tracegate_xray_connection_" in expr
-        assert 'protocol=~"shadowsocks2022_shadowtls"' in expr
-        assert 'user_pid="${__user.login}"' in expr
-        assert "0 * max by (connection_label, protocol)" in expr
-        assert panel["targets"][0]["legendFormat"] == "{{connection_label}}"
-
-
 def test_new_transport_panels_are_account_scoped_and_use_megabytes() -> None:
     user_dashboard = _dashboard_user("prom")
-    wg = _panel_by_id(user_dashboard, 90)
+    panel_ids = {panel.get("id") for panel in user_dashboard["panels"]}
+    assert 90 not in panel_ids
+    assert "tracegate_wireguard_" not in json.dumps(user_dashboard)
     telegram = _panel_by_id(user_dashboard, 91)
-
-    assert "tracegate_wireguard_connection_rx_bytes" in wg["targets"][0]["expr"]
-    assert 'user_pid="${__user.login}"' in wg["targets"][0]["expr"]
-    assert wg["fieldConfig"]["defaults"]["unit"] == "MB/s"
-    assert "/ 1000000" in wg["targets"][0]["expr"]
 
     assert "tracegate_mtproto_user_traffic_bytes" in telegram["targets"][0]["expr"]
     assert 'user_pid="${__user.login}"' in telegram["targets"][0]["expr"]
     assert telegram["fieldConfig"]["defaults"]["unit"] == "MB/s"
 
     admin_dashboard = _dashboard_admin("prom")
-    for panel_id in [29, 30]:
-        panel = _panel_by_id(admin_dashboard, panel_id)
-        expr = panel["targets"][0]["expr"]
-        assert "tracegate_xray_connection_" in expr
-        assert 'protocol=~"shadowsocks2022_shadowtls"' in expr
-        assert "connection_label" in expr
-        assert "0 * max by (connection_label, protocol)" in expr
-        assert panel["targets"][0]["legendFormat"] == "{{connection_label}}"
+    rendered = json.dumps(admin_dashboard) + json.dumps(user_dashboard)
+    assert "shadowsocks2022_shadowtls" not in rendered
+    assert "wireguard_wstunnel" not in rendered
 
 
 def test_connection_rate_panels_use_megabytes_per_second() -> None:
@@ -145,7 +128,7 @@ def test_dashboards_only_reference_current_connection_runtimes() -> None:
 
 def test_user_panels_scope_queries_by_logged_in_user_pid() -> None:
     dashboard = _dashboard_user("prom")
-    for panel_id in [1, 11, 12, 18, 19]:
+    for panel_id in [1, 11, 12]:
         panel = _panel_by_id(dashboard, panel_id)
         expr = panel["targets"][0]["expr"]
         assert 'user_pid="${__user.login}"' in expr
@@ -364,7 +347,7 @@ def test_slo_alert_rules_cover_api_bot_and_agent() -> None:
     assert api_avail["for"] == "10m"
     assert api_avail["labels"]["component"] == "api"
     assert api_avail["labels"]["slo_type"] == "availability"
-    assert api_avail["noDataState"] == "Alerting"
+    assert api_avail["noDataState"] == "NoData"
     assert (
         'avg_over_time(up{namespace="tracegate",job="tracegate-api"}[5m])'
         in api_avail["data"][0]["model"]["expr"]
@@ -468,7 +451,7 @@ def test_ops_alert_rules_cover_nodes_pods_delivery_and_runtime_health() -> None:
 
     telemt_writers = by_uid["tg-ops-telemt-me-writers-low"]
     assert "telemt_me_writers_active_current" in telemt_writers["data"][0]["model"]["expr"]
-    assert telemt_writers["noDataState"] == "Alerting"
+    assert telemt_writers["noDataState"] == "NoData"
 
     telemt_drops = by_uid["tg-ops-telemt-me-route-drops"]
     telemt_drops_expr = telemt_drops["data"][0]["model"]["expr"]
@@ -495,7 +478,7 @@ def test_ops_alert_rules_cover_nodes_pods_delivery_and_runtime_health() -> None:
     assert node_down["labels"]["kind"] == "slo"
     assert 'job="tracegate-node-exporter"' in node_down["data"][0]["model"]["expr"]
     assert "max_over_time" in node_down["data"][0]["model"]["expr"]
-    assert node_down["noDataState"] == "Alerting"
+    assert node_down["noDataState"] == "NoData"
 
     node_count = by_uid["tg-ops-node-count-low"]
     assert "max_over_time" in node_count["data"][0]["model"]["expr"]
@@ -553,6 +536,80 @@ def test_ops_alert_rules_cover_nodes_pods_delivery_and_runtime_health() -> None:
     oom = by_uid["tg-ops-oom-kill"]
     assert "node_vmstat_oom_kill" in oom["data"][0]["model"]["expr"]
     assert oom["labels"]["severity"] == "critical"
+
+
+def test_alert_rules_never_alert_on_missing_data_or_query_errors() -> None:
+    rules = _slo_alert_rules("prom", folder_uid="tracegate-admin")
+
+    for rule in rules:
+        assert rule["noDataState"] in {"OK", "NoData"}, rule["uid"]
+        assert rule["execErrState"] == "Error", rule["uid"]
+
+
+def test_slo_alert_rule_rejects_alerting_no_data_state() -> None:
+    with pytest.raises(ValueError, match="no_data_state"):
+        _slo_alert_rule(
+            uid="tg-test-invalid-no-data-state",
+            title="test",
+            folder_uid="tracegate-admin",
+            group="tracegate-slo",
+            ds_uid="prom",
+            expr="up",
+            evaluator="lt",
+            threshold=1.0,
+            annotations={},
+            labels={},
+            no_data_state="Alerting",
+        )
+
+
+def test_backhaul_alert_expressions_do_not_map_missing_data_to_failure() -> None:
+    rules = _slo_alert_rules("prom", folder_uid="tracegate-admin")
+    by_uid = {rule["uid"]: rule for rule in rules}
+
+    for uid in (
+        "tg-ops-reality-fallback-required",
+        "tg-ops-backhaul-all-egress-failed",
+    ):
+        rule = by_uid[uid]
+        assert "vector(0)" not in rule["data"][0]["model"]["expr"], uid
+        assert rule["noDataState"] == "NoData", uid
+
+    all_failed = by_uid["tg-ops-backhaul-all-egress-failed"]
+    assert all_failed["data"][0]["model"]["expr"] == (
+        '1 - max(tracegate_backhaul_egress_probe_success'
+        '{channel=~"shadowtls-primary-.+|reality-fallback"})'
+    )
+    fallback = by_uid["tg-ops-reality-fallback-required"]
+    assert fallback["data"][0]["model"]["expr"] == (
+        '(1 - max(tracegate_backhaul_egress_probe_success{channel="shadowtls-primary-a"})) '
+        '* (1 - max(tracegate_backhaul_egress_probe_success{channel="shadowtls-primary-b"})) '
+        '* max(tracegate_backhaul_egress_probe_success{channel="reality-fallback"})'
+    )
+
+
+def test_backhaul_probe_no_data_rule_exists() -> None:
+    rules = _slo_alert_rules("prom", folder_uid="tracegate-admin")
+    by_uid = {rule["uid"]: rule for rule in rules}
+
+    rule = by_uid["tg-ops-backhaul-probe-nodata"]
+    assert len(rule["uid"]) <= 40
+    assert rule["title"] == "NO DATA: backhaul egress probe metrics missing"
+    assert rule["folderUID"] == "tracegate-admin"
+    assert rule["ruleGroup"] == "tracegate-slo"
+    assert rule["data"][0]["model"]["expr"] == (
+        'absent(tracegate_backhaul_egress_probe_success{channel="shadowtls-primary-a"}) '
+        'or absent(tracegate_backhaul_egress_probe_success{channel="shadowtls-primary-b"}) '
+        'or absent(tracegate_backhaul_egress_probe_success{channel="reality-fallback"})'
+    )
+    condition = rule["data"][1]["model"]["conditions"][0]
+    assert condition["evaluator"]["type"] == "gt"
+    assert condition["evaluator"]["params"] == [0.0]
+    assert rule["for"] == "5m"
+    assert rule["noDataState"] == "OK"
+    assert rule["labels"]["component"] == "backhaul"
+    assert rule["labels"]["slo_type"] == "no_data"
+    assert rule["labels"]["severity"] == "warning"
 
 def test_notification_policy_matchers_are_compared_order_insensitively() -> None:
     left = [["kind", "=", "slo"], ["service", "=", "tracegate"]]

@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from tracegate.constants import (
+    TRACEGATE_ALT_PUBLIC_TCP_PORT,
     TRACEGATE_FORBIDDEN_PUBLIC_TCP_PORT,
     TRACEGATE_FORBIDDEN_PUBLIC_UDP_PORT,
     TRACEGATE_PUBLIC_TCP_PORT,
@@ -91,8 +92,6 @@ TRACEGATE3_CLIENT_PROFILES = (
     "v5-entry-ws",
     "v0-grpc-vless",
     "v0-ws-vless",
-    "v3-direct-shadowtls-shadowsocks",
-    "v0-wgws-wireguard",
     MTPROTO_FAKE_TLS_PROFILE_NAME,
 )
 # Compatibility import for older agents and private overlays during migration.
@@ -102,7 +101,61 @@ _TRACEGATE_FORBIDDEN_PUBLIC_PORTS = (
     ("tcp", TRACEGATE_FORBIDDEN_PUBLIC_TCP_PORT, f"blocked tcp/{TRACEGATE_FORBIDDEN_PUBLIC_TCP_PORT}"),
     ("udp", TRACEGATE_FORBIDDEN_PUBLIC_UDP_PORT, f"blocked udp/{TRACEGATE_FORBIDDEN_PUBLIC_UDP_PORT}"),
 )
+# Endpoint (TRANSIT) HAProxy binds TCP/8443 with the same SNI dispatch as
+# TCP/443, so only UDP/8443 stays forbidden there.
+_TRACEGATE_TRANSIT_FORBIDDEN_PUBLIC_PORTS = (
+    ("udp", TRACEGATE_FORBIDDEN_PUBLIC_UDP_PORT, f"blocked udp/{TRACEGATE_FORBIDDEN_PUBLIC_UDP_PORT}"),
+)
 _TRACEGATE_PUBLIC_UDP_LISTENER = f"listen udp/{TRACEGATE_PUBLIC_UDP_PORT}"
+TRACEGATE_TRANSIT_ALT_TCP_LISTENER = f"listen tcp/{TRACEGATE_ALT_PUBLIC_TCP_PORT}"
+TRACEGATE_MTPROTO_FALLBACK_TCP_LISTENER = f"listen tcp/{TRACEGATE_FORBIDDEN_PUBLIC_TCP_PORT} mtproto fallback"
+_TRACEGATE_TRANSIT_EXPECTED_PORTS = (
+    ("tcp", TRACEGATE_PUBLIC_TCP_PORT, "listen tcp/443"),
+    ("tcp", TRACEGATE_ALT_PUBLIC_TCP_PORT, TRACEGATE_TRANSIT_ALT_TCP_LISTENER),
+    ("udp", TRACEGATE_PUBLIC_UDP_PORT, _TRACEGATE_PUBLIC_UDP_LISTENER),
+)
+
+
+def mtproto_uses_tcp8443_fallback(
+    *,
+    role: str | None,
+    mtproto_public_port: object,
+    mtproto_route_mode: str | None,
+) -> bool:
+    """Legacy MTProto fallback mode: MTProto's primary public port is TCP/8443."""
+
+    role_upper = str(role or "").strip().upper()
+    route_mode = str(mtproto_route_mode or "").strip().lower()
+    try:
+        public_port = int(mtproto_public_port or 0)
+    except (TypeError, ValueError):
+        public_port = 0
+    return public_port == TRACEGATE_FORBIDDEN_PUBLIC_TCP_PORT and (
+        (role_upper == "TRANSIT" and route_mode != "entry-local-endpoint-egress")
+        or (role_upper == "ENTRY" and route_mode in {"entry-transit-endpoint", "entry-local-endpoint-egress"})
+    )
+
+
+def tcp8443_is_public_listener(
+    *,
+    role: str | None,
+    mtproto_public_port: object = TRACEGATE_PUBLIC_TCP_PORT,
+    mtproto_route_mode: str | None = "",
+) -> bool:
+    """Whether TCP/8443 is a declared public listener for this role.
+
+    TRANSIT always serves TCP/8443 (identical SNI dispatch to TCP/443). ENTRY
+    serves it only in the legacy MTProto fallback mode and never otherwise.
+    """
+
+    role_upper = str(role or "").strip().upper()
+    if role_upper == "TRANSIT":
+        return True
+    return mtproto_uses_tcp8443_fallback(
+        role=role_upper,
+        mtproto_public_port=mtproto_public_port,
+        mtproto_route_mode=mtproto_route_mode,
+    )
 
 
 _XRAY_CENTRIC_CONTRACT = AgentRuntimeContract(
@@ -116,12 +169,9 @@ _XRAY_CENTRIC_CONTRACT = AgentRuntimeContract(
         ("tcp", TRACEGATE_PUBLIC_TCP_PORT, "listen tcp/443"),
         ("udp", TRACEGATE_PUBLIC_UDP_PORT, _TRACEGATE_PUBLIC_UDP_LISTENER),
     ),
-    expected_ports_transit=(
-        ("tcp", TRACEGATE_PUBLIC_TCP_PORT, "listen tcp/443"),
-        ("udp", TRACEGATE_PUBLIC_UDP_PORT, _TRACEGATE_PUBLIC_UDP_LISTENER),
-    ),
+    expected_ports_transit=_TRACEGATE_TRANSIT_EXPECTED_PORTS,
     forbidden_ports_entry=_TRACEGATE_FORBIDDEN_PUBLIC_PORTS,
-    forbidden_ports_transit=_TRACEGATE_FORBIDDEN_PUBLIC_PORTS,
+    forbidden_ports_transit=_TRACEGATE_TRANSIT_FORBIDDEN_PUBLIC_PORTS,
     process_checks_entry=(
         RuntimeProcessCheck(name="process xray", mode="all", process_names=("xray",)),
         RuntimeProcessCheck(name="process haproxy", mode="all", process_names=("haproxy",)),
@@ -146,12 +196,9 @@ _TRACEGATE21_CONTRACT = AgentRuntimeContract(
         ("tcp", TRACEGATE_PUBLIC_TCP_PORT, "listen tcp/443"),
         ("udp", TRACEGATE_PUBLIC_UDP_PORT, _TRACEGATE_PUBLIC_UDP_LISTENER),
     ),
-    expected_ports_transit=(
-        ("tcp", TRACEGATE_PUBLIC_TCP_PORT, "listen tcp/443"),
-        ("udp", TRACEGATE_PUBLIC_UDP_PORT, _TRACEGATE_PUBLIC_UDP_LISTENER),
-    ),
+    expected_ports_transit=_TRACEGATE_TRANSIT_EXPECTED_PORTS,
     forbidden_ports_entry=_TRACEGATE_FORBIDDEN_PUBLIC_PORTS,
-    forbidden_ports_transit=_TRACEGATE_FORBIDDEN_PUBLIC_PORTS,
+    forbidden_ports_transit=_TRACEGATE_TRANSIT_FORBIDDEN_PUBLIC_PORTS,
     process_checks_entry=(
         RuntimeProcessCheck(name="process xray", mode="all", process_names=("xray",)),
         RuntimeProcessCheck(name="process haproxy", mode="all", process_names=("haproxy",)),
@@ -176,12 +223,9 @@ _TRACEGATE3_CONTRACT = AgentRuntimeContract(
         ("tcp", TRACEGATE_PUBLIC_TCP_PORT, "listen tcp/443"),
         ("udp", TRACEGATE_PUBLIC_UDP_PORT, _TRACEGATE_PUBLIC_UDP_LISTENER),
     ),
-    expected_ports_transit=(
-        ("tcp", TRACEGATE_PUBLIC_TCP_PORT, "listen tcp/443"),
-        ("udp", TRACEGATE_PUBLIC_UDP_PORT, _TRACEGATE_PUBLIC_UDP_LISTENER),
-    ),
+    expected_ports_transit=_TRACEGATE_TRANSIT_EXPECTED_PORTS,
     forbidden_ports_entry=_TRACEGATE_FORBIDDEN_PUBLIC_PORTS,
-    forbidden_ports_transit=_TRACEGATE_FORBIDDEN_PUBLIC_PORTS,
+    forbidden_ports_transit=_TRACEGATE_TRANSIT_FORBIDDEN_PUBLIC_PORTS,
     process_checks_entry=(
         RuntimeProcessCheck(name="process xray", mode="all", process_names=("xray",)),
         RuntimeProcessCheck(name="process hysteria", mode="all", process_names=("hysteria",)),

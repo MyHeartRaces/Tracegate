@@ -7,6 +7,7 @@ from tracegate.services.runtime_contract import (
     TRACEGATE22_CLIENT_PROFILES,
     normalize_runtime_profile_name,
     resolve_runtime_contract,
+    tcp8443_is_public_listener,
 )
 
 
@@ -31,10 +32,10 @@ def test_resolve_current_runtime_contract_and_aliases() -> None:
     )
     assert contract.expected_ports("TRANSIT") == (
         ("tcp", 443, "listen tcp/443"),
+        ("tcp", 8443, "listen tcp/8443"),
         ("udp", TRACEGATE_PUBLIC_UDP_PORT, f"listen udp/{TRACEGATE_PUBLIC_UDP_PORT}"),
     )
     assert contract.forbidden_ports("TRANSIT") == (
-        ("tcp", 8443, "blocked tcp/8443"),
         ("udp", TRACEGATE_FORBIDDEN_PUBLIC_UDP_PORT, f"blocked udp/{TRACEGATE_FORBIDDEN_PUBLIC_UDP_PORT}"),
     )
     assert contract.requires_transit_stats_secret("ENTRY") is False
@@ -104,10 +105,10 @@ def test_tracegate21_runtime_contract_has_no_xray_backhaul() -> None:
     assert contract.requires_transit_stats_secret("TRANSIT") is False
     assert contract.expected_ports("TRANSIT") == (
         ("tcp", 443, "listen tcp/443"),
+        ("tcp", 8443, "listen tcp/8443"),
         ("udp", TRACEGATE_PUBLIC_UDP_PORT, f"listen udp/{TRACEGATE_PUBLIC_UDP_PORT}"),
     )
     assert contract.forbidden_ports("TRANSIT") == (
-        ("tcp", 8443, "blocked tcp/8443"),
         ("udp", TRACEGATE_FORBIDDEN_PUBLIC_UDP_PORT, f"blocked udp/{TRACEGATE_FORBIDDEN_PUBLIC_UDP_PORT}"),
     )
 
@@ -115,3 +116,30 @@ def test_tracegate21_runtime_contract_has_no_xray_backhaul() -> None:
 def test_unknown_runtime_profile_is_rejected() -> None:
     with pytest.raises(RuntimeContractError, match="unsupported runtime profile"):
         resolve_runtime_contract("totally-custom")
+
+
+@pytest.mark.parametrize("profile", ["tracegate-3", "xray-centric", "tracegate-2.1"])
+def test_transit_declares_tcp8443_listener_and_entry_keeps_it_blocked(profile: str) -> None:
+    contract = resolve_runtime_contract(profile)
+
+    assert ("tcp", 8443, "listen tcp/8443") in contract.expected_ports("TRANSIT")
+    assert all(not (row[0] == "tcp" and row[1] == 8443) for row in contract.forbidden_ports("TRANSIT"))
+    assert ("udp", 8443, "blocked udp/8443") in contract.forbidden_ports("TRANSIT")
+    assert ("tcp", 8443, "blocked tcp/8443") in contract.forbidden_ports("ENTRY")
+    assert ("udp", 8443, "blocked udp/8443") in contract.forbidden_ports("ENTRY")
+    assert all(row[1] != 8443 for row in contract.expected_ports("ENTRY"))
+
+
+def test_tcp8443_public_listener_helper() -> None:
+    assert tcp8443_is_public_listener(role="TRANSIT") is True
+    assert tcp8443_is_public_listener(role="ENTRY") is False
+    assert (
+        tcp8443_is_public_listener(
+            role="ENTRY", mtproto_public_port=8443, mtproto_route_mode="entry-transit-endpoint"
+        )
+        is True
+    )
+    assert (
+        tcp8443_is_public_listener(role="ENTRY", mtproto_public_port=8443, mtproto_route_mode="endpoint-direct")
+        is False
+    )

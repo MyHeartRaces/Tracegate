@@ -1,0 +1,72 @@
+{
+  "schema_version": 1,
+  "components": {
+    "xray": {
+      "image": "ghcr.io/xtls/xray-core",
+      "channel": "latest",
+      "units": [
+        "tracegate-xray@.service",
+        "tracegate-xray-ss2022.service",
+        "tracegate-backhaul-fragment@.service"
+      ],
+      "container_prefixes": [
+        "tracegate-xray-",
+        "tracegate-backhaul-fragment-"
+      ]
+    },
+    "telemt": {
+      "image": "ghcr.io/telemt/telemt",
+      "channel": "latest",
+      "units": [
+        "tracegate-mtproto@.service"
+      ],
+      "container_prefixes": [
+        "tracegate-mtproto-"
+      ]
+    },
+    "shadowtls": {
+      "image": "ghcr.io/ihciah/shadow-tls",
+      "channel": "latest",
+      "units": [
+        "tracegate-shadowtls-backhaul.service",
+        "tracegate-shadowtls-backhaul2.service",
+        "tracegate-shadowtls-entry.service",
+        "tracegate-shadowtls-entry2.service"
+      ],
+      "container_prefixes": [
+        "tracegate-shadowtls"
+      ]
+    },
+    "hysteria": {
+      "image": "docker.io/tobyxdd/hysteria",
+      "channel": "v2.13.0",
+      "units": [
+        "tracegate-hysteria@.service",
+        "tracegate-hysteria-salamander.service"
+      ],
+      "container_prefixes": [
+        "tracegate-hysteria-"
+      ]
+    },
+    "prometheus": {
+      "image": "prom/prometheus",
+      "channel": "v3.15.1",
+      "units": [
+        "tracegate-prometheus.service"
+      ],
+      "container_prefixes": [
+        "tracegate-prometheus"
+      ]
+    },
+    "grafana": {
+      "image": "grafana/grafana",
+      "channel": "13.2.4",
+      "units": [
+        "tracegate-grafana.service"
+      ],
+      "container_prefixes": [
+        "tracegate-grafana"
+      ]
+    }
+  }
+}

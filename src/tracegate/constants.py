@@ -3,3 +3,7 @@ TRACEGATE_PUBLIC_UDP_PORT = 443
 TRACEGATE_INTERCONNECT_UDP_PORT = 4443
 TRACEGATE_FORBIDDEN_PUBLIC_TCP_PORT = 8443
 TRACEGATE_FORBIDDEN_PUBLIC_UDP_PORT = 8443
+# Endpoint (TRANSIT) serves the same SNI demux on TCP/8443 as on TCP/443.
+# TCP/8443 stays forbidden on Entry unless the optional Telegram Proxy
+# alternative port is enabled. UDP/8443 stays forbidden on both roles.
+TRACEGATE_ALT_PUBLIC_TCP_PORT = 8443

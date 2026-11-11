@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import ipaddress
 import json
 from pathlib import Path
 import re
@@ -47,8 +46,6 @@ _ZAPRET_APPLY_MODE_KEYS = {
     "ZAPRET_APPLY_MODE",
 }
 _BROAD_APPLY_MODES = {"all", "all-flows", "host-wide", "hostwide", "transparent-all"}
-_WIREGUARD_FORBIDDEN_HOOK_KEYS = {"preup", "postup", "predown", "postdown"}
-_WIREGUARD_FORBIDDEN_INTERFACE_KEYS = _WIREGUARD_FORBIDDEN_HOOK_KEYS | {"dns", "saveconfig"}
 _SHADOWSOCKS2022_SECRET_KEYS = {"password", "psk", "key", "server_key", "user_key"}
 _MTPROTO_RAW_SECRET_RE = re.compile(r"[0-9a-fA-F]{32}")
 _RESTLS_SECRET_KEYS = {"password", "secret", "token", "private_key", "key", "cert", "certificate", "tls_key"}
@@ -268,123 +265,6 @@ def _validate_mtproto_secret(path: Path, content: str, *, label: str) -> None:
         )
 
 
-def _parse_wireguard_sections(content: str) -> dict[str, set[str]]:
-    sections: dict[str, set[str]] = {}
-    current_section = ""
-    for raw_line in content.splitlines():
-        line = raw_line.split("#", 1)[0].split(";", 1)[0].strip()
-        if not line or line.startswith(("#", ";")):
-            continue
-        if line.startswith("[") and line.endswith("]"):
-            current_section = line[1:-1].strip().lower()
-            if current_section:
-                sections.setdefault(current_section, set())
-            continue
-        if "=" not in line:
-            continue
-        key, _value = line.split("=", 1)
-        key_normalized = key.strip().lower()
-        if current_section and key_normalized:
-            sections.setdefault(current_section, set()).add(key_normalized)
-    return sections
-
-
-def _parse_wireguard_values(content: str) -> dict[str, dict[str, list[str]]]:
-    sections: dict[str, dict[str, list[str]]] = {}
-    current_section = ""
-    for raw_line in content.splitlines():
-        line = raw_line.split("#", 1)[0].split(";", 1)[0].strip()
-        if not line:
-            continue
-        if line.startswith("[") and line.endswith("]"):
-            current_section = line[1:-1].strip().lower()
-            if current_section:
-                sections.setdefault(current_section, {})
-            continue
-        if "=" not in line or not current_section:
-            continue
-        key, value = line.split("=", 1)
-        key_normalized = key.strip().lower()
-        value_normalized = value.strip()
-        if key_normalized and value_normalized:
-            sections.setdefault(current_section, {}).setdefault(key_normalized, []).append(value_normalized)
-    return sections
-
-
-def _looks_wireguard_config(path: Path) -> bool:
-    normalized_parts = {part.lower() for part in path.parts}
-    return "wireguard" in normalized_parts or path.name.lower() in {"wg.conf", "wg0.conf"}
-
-
-def _validate_wireguard_allowed_ips(values: list[str], *, label: str, path: Path) -> None:
-    for value in values:
-        for token in re.split(r"[\s,]+", value):
-            if not token:
-                continue
-            try:
-                network = ipaddress.ip_network(token, strict=False)
-            except ValueError as exc:
-                raise HostPrivatePreflightError(f"{label} WireGuard AllowedIPs entry is invalid: {token}") from exc
-            if (network.version == 4 and network.prefixlen <= 1) or (
-                network.version == 6 and network.prefixlen <= 1
-            ):
-                raise HostPrivatePreflightError(
-                    f"{label} WireGuard config must not install default or split-default routes via AllowedIPs: {path}"
-                )
-
-
-def _validate_wireguard_mtu(values: list[str], *, label: str) -> None:
-    for value in values:
-        try:
-            mtu = int(value)
-        except ValueError as exc:
-            raise HostPrivatePreflightError(f"{label} WireGuard Interface MTU must be an integer") from exc
-        if mtu < 1200 or mtu > 1420:
-            raise HostPrivatePreflightError(f"{label} WireGuard Interface MTU must stay within 1200..1420")
-
-
-def _validate_wireguard_keepalive(values: list[str], *, label: str) -> None:
-    for value in values:
-        try:
-            keepalive = int(value)
-        except ValueError as exc:
-            raise HostPrivatePreflightError(f"{label} WireGuard PersistentKeepalive must be an integer") from exc
-        if keepalive < 0 or keepalive > 60:
-            raise HostPrivatePreflightError(f"{label} WireGuard PersistentKeepalive must stay within 0..60")
-
-
-def _validate_wireguard_config(path: Path, content: str, *, label: str) -> None:
-    if not _looks_wireguard_config(path):
-        return
-    sections = _parse_wireguard_sections(content)
-    values = _parse_wireguard_values(content)
-    interface_keys = sections.get("interface", set())
-    if not interface_keys:
-        raise HostPrivatePreflightError(f"{label} WireGuard config is missing [Interface]: {path}")
-    if "privatekey" not in interface_keys:
-        raise HostPrivatePreflightError(f"{label} WireGuard config is missing Interface PrivateKey: {path}")
-    if not {"address", "listenport"}.intersection(interface_keys):
-        raise HostPrivatePreflightError(f"{label} WireGuard config must declare Interface Address or ListenPort: {path}")
-    forbidden = sorted(interface_keys.intersection(_WIREGUARD_FORBIDDEN_INTERFACE_KEYS))
-    if forbidden:
-        raise HostPrivatePreflightError(
-            f"{label} WireGuard config contains wg-quick host-network side effects: {', '.join(forbidden)}"
-        )
-    if path.name.lower() in {"wg.conf", "wg0.conf"}:
-        addresses = values.get("interface", {}).get("address", [])
-        address_tokens = [token for value in addresses for token in re.split(r"[\s,]+", value) if token]
-        try:
-            interfaces = [ipaddress.ip_interface(token) for token in address_tokens]
-        except ValueError as exc:
-            raise HostPrivatePreflightError(f"{label} WireGuard Interface Address is invalid") from exc
-        if not any(str(interface) == "10.70.0.1/16" for interface in interfaces):
-            raise HostPrivatePreflightError(
-                f"{label} WireGuard server must use 10.70.0.1/16 for generated WGWS peers: {path}"
-            )
-    _validate_wireguard_mtu(values.get("interface", {}).get("mtu", []), label=label)
-    for peer_values in [section for section_name, section in values.items() if section_name == "peer"]:
-        _validate_wireguard_allowed_ips(peer_values.get("allowedips", []), label=label, path=path)
-        _validate_wireguard_keepalive(peer_values.get("persistentkeepalive", []), label=label)
 
 
 def _parse_env(content: str) -> dict[str, str]:
@@ -476,7 +356,6 @@ def validate_private_mount(
         _validate_shadowsocks2022_config(path, parsed, label=normalized)
         _validate_shadowtls_config(path, parsed, label=normalized)
         _validate_mtproto_secret(path, content, label=normalized)
-        _validate_wireguard_config(path, content, label=normalized)
         checked_required += 1
 
     checked_zapret = 0

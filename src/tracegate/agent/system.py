@@ -9,7 +9,11 @@ import httpx
 
 from tracegate.constants import TRACEGATE_FORBIDDEN_PUBLIC_TCP_PORT
 from tracegate.services.bundle_files import decode_bundle_file_content
-from tracegate.services.runtime_contract import resolve_runtime_contract
+from tracegate.services.runtime_contract import (
+    TRACEGATE_MTPROTO_FALLBACK_TCP_LISTENER,
+    mtproto_uses_tcp8443_fallback,
+    resolve_runtime_contract,
+)
 
 
 def _safe_path(root: Path, relative: str) -> Path:
@@ -217,21 +221,23 @@ async def gather_health_checks(
         raise ValueError("agent health checks require the native systemd runtime")
     contract = resolve_runtime_contract(runtime_profile)
     checks: list[dict] = []
-    role_upper = str(role or "").strip().upper()
-    route_mode = str(mtproto_route_mode or "").strip().lower()
-    mtproto_uses_tcp8443 = int(mtproto_public_port or 0) == TRACEGATE_FORBIDDEN_PUBLIC_TCP_PORT and (
-        (role_upper == "TRANSIT" and route_mode != "entry-local-endpoint-egress")
-        or (role_upper == "ENTRY" and route_mode in {"entry-transit-endpoint", "entry-local-endpoint-egress"})
+    mtproto_uses_tcp8443 = mtproto_uses_tcp8443_fallback(
+        role=role,
+        mtproto_public_port=mtproto_public_port,
+        mtproto_route_mode=mtproto_route_mode,
     )
 
     for protocol, port, name in contract.expected_ports(role):
+        if protocol == "tcp" and port == TRACEGATE_FORBIDDEN_PUBLIC_TCP_PORT and mtproto_uses_tcp8443:
+            # Endpoint always declares tcp/8443; keep the legacy fallback name.
+            name = TRACEGATE_MTPROTO_FALLBACK_TCP_LISTENER
         ok, details = check_port(protocol, port)
         checks.append({"name": name, "ok": ok, "details": details})
 
     for protocol, port, name in contract.forbidden_ports(role):
         if protocol == "tcp" and port == TRACEGATE_FORBIDDEN_PUBLIC_TCP_PORT and mtproto_uses_tcp8443:
             ok, details = check_port(protocol, port)
-            checks.append({"name": "listen tcp/8443 mtproto fallback", "ok": ok, "details": details})
+            checks.append({"name": TRACEGATE_MTPROTO_FALLBACK_TCP_LISTENER, "ok": ok, "details": details})
             continue
         ok, details = check_port_blocked(protocol, port)
         checks.append({"name": name, "ok": ok, "details": details})

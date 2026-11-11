@@ -45,7 +45,7 @@ rm -rf "${temporary}"
 "${venv}/bin/python" -m pip install --disable-pip-version-check --no-input --upgrade pip
 "${venv}/bin/python" -m pip install --disable-pip-version-check --no-input \
   -c "${runtime}/requirements.lock" "${runtime}/packages/$(basename "${wheel}")"
-for command in tracegate-api tracegate-agent tracegate-backhaul-fronts tracegate-bot tracegate-dispatcher tracegate-migrate-db tracegate-host-private-preflight; do
+for command in tracegate-api tracegate-agent tracegate-backhaul-fronts tracegate-bot tracegate-dispatcher tracegate-migrate-db tracegate-host-private-preflight tracegate-artifacts; do
   [ -x "${venv}/bin/${command}" ] || die "wheel did not install ${command}"
 done
 trap - EXIT
@@ -58,8 +58,8 @@ done
 for unit in "${runtime}"/deploy/systemd/*.service "${runtime}"/deploy/systemd/*.timer; do
   install -m 0644 "${unit}" "${SYSTEMD_DIR}/$(basename "${unit}")"
 done
-install -m 0755 "${runtime}/deploy/systemd/tracegate-shadowtls-env" "${LOCAL_SBIN_DIR}/tracegate-shadowtls-env"
 install -m 0755 "${runtime}/deploy/systemd/tracegate-telemt-permissions" "${LOCAL_SBIN_DIR}/tracegate-telemt-permissions"
+install -m 0755 "${runtime}/deploy/systemd/tracegate-artifact-verify" "${LOCAL_SBIN_DIR}/tracegate-artifact-verify"
 install -m 0755 "${runtime}/deploy/host/tracegate-db-backup" "${LOCAL_SBIN_DIR}/tracegate-db-backup"
 install -m 0755 "${runtime}/deploy/host/tracegate-network-qdisc" "${LOCAL_SBIN_DIR}/tracegate-network-qdisc"
 install -m 0755 "${runtime}/deploy/host/tracegate-certbot-deploy-hook" \

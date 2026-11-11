@@ -46,26 +46,7 @@ def _query_xray_user_traffic_bytes(settings: Settings) -> dict[str, dict[str, in
     # Local import keeps agent startup lighter when Xray isn't present/enabled.
     from .xray_api import query_user_traffic_bytes
 
-    merged = query_user_traffic_bytes(settings, reset=False)
-    if str(settings.agent_role or "").strip().upper() != "TRANSIT":
-        return merged
-    secondary_target = str(settings.agent_xray_ss2022_api_server or "").strip()
-    if (
-        not secondary_target
-        or secondary_target == str(settings.agent_xray_api_server or "").strip()
-    ):
-        return merged
-    secondary_settings = settings.model_copy(
-        update={"agent_xray_api_server": secondary_target}
-    )
-    secondary = query_user_traffic_bytes(secondary_settings, reset=False)
-    for marker, row in secondary.items():
-        bucket = merged.setdefault(marker, {"uplink": 0, "downlink": 0})
-        bucket["uplink"] = int(bucket.get("uplink") or 0) + int(row.get("uplink") or 0)
-        bucket["downlink"] = int(bucket.get("downlink") or 0) + int(
-            row.get("downlink") or 0
-        )
-    return merged
+    return query_user_traffic_bytes(settings, reset=False)
 
 
 def _query_xray_inbound_traffic_bytes(settings: Settings) -> dict[str, dict[str, int]]:
@@ -168,57 +149,6 @@ def _mtproto_stats_enabled(settings: Settings) -> bool:
     route_mode = str(getattr(settings, "mtproto_route_mode", "") or "").strip().lower()
     owner = "ENTRY" if route_mode == "entry-local-endpoint-egress" else "TRANSIT"
     return role == owner
-
-
-def _wireguard_connection_traffic_bytes(state_path: Path) -> dict[str, tuple[int, int]]:
-    """Map `wg show all dump` peer counters to Tracegate connection markers."""
-    state = _load_json_mapping(state_path)
-    peers: dict[str, str] = {}
-    for row in _list_value(state, "wireguardWSTunnel"):
-        if not isinstance(row, dict):
-            continue
-        wireguard = (
-            row.get("wireguard") if isinstance(row.get("wireguard"), dict) else {}
-        )
-        public_key = str(wireguard.get("clientPublicKey") or "").strip()
-        variant = str(row.get("variant") or "V0").strip() or "V0"
-        user_id = str(row.get("userId") or "").strip()
-        connection_id = str(row.get("connectionId") or "").strip()
-        if public_key and user_id and connection_id:
-            peers[public_key] = f"{variant} - {user_id} - {connection_id}"
-    if not peers:
-        return {}
-    completed = subprocess.run(
-        ["wg", "show", "all", "dump"],
-        check=False,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        timeout=5,
-    )
-    if completed.returncode != 0:
-        raise RuntimeError(completed.stderr.strip() or "wg dump failed")
-    result: dict[str, tuple[int, int]] = {}
-    for line in completed.stdout.splitlines():
-        fields = line.split("\t")
-        # `wg show all dump` prefixes peer rows with the interface name, while
-        # `wg show <interface> dump` starts directly with the public key.
-        if len(fields) >= 9 and fields[1] in peers:
-            public_key = fields[1]
-            rx_index, tx_index = 6, 7
-        elif len(fields) >= 8 and fields[0] in peers:
-            public_key = fields[0]
-            rx_index, tx_index = 5, 6
-        else:
-            continue
-        try:
-            result[peers[public_key]] = (
-                max(0, int(fields[rx_index])),
-                max(0, int(fields[tx_index])),
-            )
-        except (TypeError, ValueError):
-            continue
-    return result
 
 
 def _read_loadavg() -> tuple[float, float, float] | None:
@@ -787,40 +717,6 @@ class AgentMetricsCollector:
                 mtproto_traffic.add_metric([telegram_id], total_octets)
             yield mtproto_ok
             yield mtproto_traffic
-
-        wg_ok = GaugeMetricFamily(
-            "tracegate_wireguard_stats_scrape_ok",
-            "WireGuard peer traffic stats scrape status (1=ok, 0=error)",
-        )
-        wg_rx = GaugeMetricFamily(
-            "tracegate_wireguard_connection_rx_bytes",
-            "WGWS connection received bytes (server RX)",
-            labels=["connection_marker"],
-        )
-        wg_tx = GaugeMetricFamily(
-            "tracegate_wireguard_connection_tx_bytes",
-            "WGWS connection transmitted bytes (server TX)",
-            labels=["connection_marker"],
-        )
-        role_lower = str(self.settings.agent_role or "").strip().lower()
-        wg_state_path = (
-            Path(effective_private_runtime_root(self.settings))
-            / "profiles"
-            / role_lower
-            / "desired-state.json"
-        )
-        try:
-            wg_rows = _wireguard_connection_traffic_bytes(wg_state_path)
-            wg_ok.add_metric([], 1)
-        except Exception:
-            wg_rows = {}
-            wg_ok.add_metric([], 0)
-        for marker, (rx_bytes, tx_bytes) in wg_rows.items():
-            wg_rx.add_metric([marker], rx_bytes)
-            wg_tx.add_metric([marker], tx_bytes)
-        yield wg_ok
-        yield wg_rx
-        yield wg_tx
 
         is_transit = str(self.settings.agent_role) == "TRANSIT"
         if (

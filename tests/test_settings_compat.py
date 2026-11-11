@@ -61,8 +61,8 @@ def test_settings_use_less_popular_default_camouflage_domains() -> None:
     assert settings.sni_seed == ["ibtcom.ru"]
     assert settings.hysteria_server_name_entry == ""
     assert settings.hysteria_server_name_transit == ""
-    assert settings.shadowtls_server_name_entry == "2gis.ru"
-    assert settings.shadowtls_server_name_transit == "2gis.ru"
+    assert not hasattr(settings, "shadowtls_server_name_entry")
+    assert not hasattr(settings, "shadowtls_server_name_transit")
     assert settings.reality_backhaul_port == 9446
 
 

@@ -92,7 +92,6 @@ def test_entry_metrics_export_each_backhaul_channel(monkeypatch, tmp_path) -> No
     monkeypatch.setattr(metrics, "_read_meminfo", lambda: None)
     monkeypatch.setattr(metrics, "_read_network_totals", lambda: [])
     monkeypatch.setattr(metrics, "_query_xray_user_traffic_bytes", lambda _settings: {})
-    monkeypatch.setattr(metrics, "_wireguard_connection_traffic_bytes", lambda _path: {})
     monkeypatch.setattr(
         metrics,
         "_query_xray_outbound_observations",

@@ -95,6 +95,151 @@ def test_grafana_alert_webhook_detects_only_critical_payloads() -> None:
     assert _grafana_alert_webhook_has_critical(common_only) is True
 
 
+def _no_data_payload(*, rulename: str | None = "OPS: all Chain backhaul egress failed") -> dict:
+    labels = {
+        "alertname": "DatasourceNoData",
+        "datasource_uid": "prom",
+        "severity": "critical",
+    }
+    if rulename is not None:
+        labels["rulename"] = rulename
+    return {
+        "status": "firing",
+        "commonLabels": {"alertname": "DatasourceNoData"},
+        "alerts": [{"labels": labels, "annotations": {}}],
+    }
+
+
+def test_grafana_webhook_formats_single_no_data_alert() -> None:
+    payload = _no_data_payload()
+
+    text, alert_count, status_raw = _format_grafana_alert_webhook_message(payload)
+
+    assert status_raw == "firing"
+    assert alert_count == 1
+    assert text.startswith("⚪ Grafana: no data")
+    assert "No data for: OPS: all Chain backhaul egress failed" in text
+    assert "• NO DATA:" in text
+    assert "OPS: all Chain backhaul egress failed" in text
+    assert "Signal missing; this is not a confirmed failure." in text
+    assert "🚨" not in text
+    # severity=critical on a no-data alert must not escalate
+    assert _grafana_alert_webhook_has_critical(payload) is False
+
+
+def test_grafana_webhook_formats_single_query_error_alert() -> None:
+    payload = {
+        "status": "firing",
+        "commonLabels": {"alertname": "DatasourceError"},
+        "alerts": [
+            {
+                "labels": {
+                    "alertname": "DatasourceError",
+                    "datasource_uid": "prom",
+                    "rulename": "OPS: all Chain backhaul egress failed",
+                    "severity": "critical",
+                },
+                "annotations": {},
+            }
+        ],
+    }
+
+    text, alert_count, status_raw = _format_grafana_alert_webhook_message(payload)
+
+    assert status_raw == "firing"
+    assert alert_count == 1
+    assert text.startswith("⚠️ Grafana: query error")
+    assert "Query error for: OPS: all Chain backhaul egress failed" in text
+    assert "• QUERY ERROR:" in text
+    assert "Query failed; this is not a confirmed failure." in text
+    assert "🚨" not in text
+    assert _grafana_alert_webhook_has_critical(payload) is False
+
+
+def test_grafana_webhook_mixed_failed_and_no_data_keeps_critical() -> None:
+    payload = _sample_payload(status="firing")
+    payload["alerts"].append(
+        {
+            "labels": {
+                "alertname": "DatasourceNoData",
+                "datasource_uid": "prom",
+                "rulename": "NO DATA: backhaul egress probe metrics missing",
+            },
+            "annotations": {},
+        }
+    )
+
+    text, alert_count, _ = _format_grafana_alert_webhook_message(payload)
+
+    assert alert_count == 2
+    assert text.startswith("🚨 Grafana Alert")
+    assert "• agent / availability (critical)" in text
+    assert "• NO DATA:" in text
+    assert "Signal missing; this is not a confirmed failure." in text
+    assert _grafana_alert_webhook_has_critical(payload) is True
+
+
+def test_grafana_webhook_mixed_no_data_and_error_headers() -> None:
+    payload = _no_data_payload()
+    payload["alerts"].append(
+        {
+            "labels": {
+                "alertname": "DatasourceError",
+                "datasource_uid": "prom",
+                "rulename": "OPS: Chain full-egress latency high",
+            },
+            "annotations": {},
+        }
+    )
+
+    text, _, _ = _format_grafana_alert_webhook_message(payload)
+
+    assert text.startswith("⚪ Grafana: no data / query error")
+    assert "No data / query error for: " in text
+    assert _grafana_alert_webhook_has_critical(payload) is False
+
+
+def test_grafana_webhook_no_data_without_rulename_falls_back() -> None:
+    payload = _no_data_payload(rulename=None)
+
+    text, alert_count, status_raw = _format_grafana_alert_webhook_message(payload)
+
+    assert status_raw == "firing"
+    assert alert_count == 1
+    assert text.startswith("⚪ Grafana: no data")
+    assert "• NO DATA:" in text
+    assert "Signal missing; this is not a confirmed failure." in text
+    assert "DatasourceNoData" in text
+    assert _grafana_alert_webhook_has_critical(payload) is False
+
+
+def test_grafana_webhook_no_data_rule_label_is_classified_and_not_critical() -> None:
+    payload = {
+        "status": "firing",
+        "commonLabels": {"slo_type": "no_data"},
+        "alerts": [
+            {
+                "labels": {
+                    "alertname": "NO DATA: backhaul egress probe metrics missing",
+                    "component": "backhaul",
+                    "slo_type": "no_data",
+                    "severity": "warning",
+                },
+                "annotations": {
+                    "summary": "Backhaul egress probe metrics are missing",
+                },
+            }
+        ],
+    }
+
+    text, _, _ = _format_grafana_alert_webhook_message(payload)
+
+    assert text.startswith("⚪ Grafana: no data")
+    assert "• NO DATA: backhaul / no_data (warning)" in text
+    assert "Signal missing; this is not a confirmed failure." in text
+    assert _grafana_alert_webhook_has_critical(payload) is False
+
+
 def test_grafana_login_handles_get_and_head() -> None:
     methods = {
         method

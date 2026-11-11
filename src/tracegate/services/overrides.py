@@ -46,19 +46,6 @@ def _parse_port(raw: object, *, field_name: str) -> int:
     return port
 
 
-def _parse_int_range(raw: object, *, field_name: str, min_value: int, max_value: int) -> int:
-    value = str(raw if raw is not None else "").strip()
-    if not value:
-        raise OverrideValidationError(f"{field_name} must not be empty")
-    try:
-        parsed = int(value)
-    except ValueError as exc:
-        raise OverrideValidationError(f"{field_name} must be an integer") from exc
-    if parsed < min_value or parsed > max_value:
-        raise OverrideValidationError(f"{field_name} must be in {min_value}..{max_value}")
-    return parsed
-
-
 def _parse_loopback_endpoint(raw: object, *, field_name: str) -> tuple[str, int]:
     value = str(raw or "").strip()
     if not value:
@@ -109,16 +96,6 @@ def _validate_loopback_endpoint_override(overrides: dict[str, Any], key: str) ->
         _parse_loopback_endpoint(overrides[key], field_name=key)
 
 
-def _validate_absolute_http_path_override(overrides: dict[str, Any], key: str) -> None:
-    if key not in overrides or overrides.get(key) is None:
-        return
-    value = str(overrides.get(key) or "").strip()
-    if not value.startswith("/"):
-        raise OverrideValidationError(f"{key} must be an absolute HTTP path")
-    if "://" in value or any(ch.isspace() for ch in value):
-        raise OverrideValidationError(f"{key} must be a clean HTTP path")
-
-
 def _validate_host_override(overrides: dict[str, Any], key: str) -> None:
     if key not in overrides or overrides.get(key) is None:
         return
@@ -131,11 +108,6 @@ def _validate_host_override(overrides: dict[str, Any], key: str) -> None:
         return
     if ":" in value:
         raise OverrideValidationError(f"{key} must not include a port")
-
-
-def _validate_int_range_override(overrides: dict[str, Any], key: str, *, min_value: int, max_value: int) -> None:
-    if key in overrides and overrides.get(key) is not None:
-        _parse_int_range(overrides[key], field_name=key, min_value=min_value, max_value=max_value)
 
 
 def _validate_hysteria_client_mode(overrides: dict[str, Any]) -> None:
@@ -238,49 +210,6 @@ def validate_overrides(protocol: ConnectionProtocol, overrides: dict[str, Any]) 
         _validate_local_socks_credentials(overrides)
         _validate_loopback_endpoint_override(overrides, "socks_listen")
         _validate_loopback_endpoint_override(overrides, "http_listen")
-
-    elif protocol == ConnectionProtocol.SHADOWSOCKS2022_SHADOWTLS:
-        allowed = {
-            "local_socks_port",
-            "local_socks_username",
-            "local_socks_password",
-            "method",
-            "password",
-            "shadowtls_password",
-            "shadowtls_server_name",
-            "alpn",
-        }
-        forbidden = {"port", "server_port", "shadowtls_port"}
-        _ensure_keys(overrides, allowed, forbidden)
-        _validate_local_socks_port(overrides)
-        _validate_local_socks_credentials(overrides)
-
-    elif protocol == ConnectionProtocol.WIREGUARD_WSTUNNEL:
-        allowed = {
-            "local_socks_port",
-            "local_socks_username",
-            "local_socks_password",
-            "server",
-            "tls_server_name",
-            "wstunnel_path",
-            "local_udp_listen",
-            "wireguard_private_key",
-            "wireguard_public_key",
-            "wireguard_preshared_key",
-            "wireguard_address",
-            "allowed_ips",
-            "dns",
-            "mtu",
-            "persistent_keepalive",
-        }
-        forbidden = {"port", "server_port", "wireguard_port", "wstunnel_port"}
-        _ensure_keys(overrides, allowed, forbidden)
-        _validate_local_socks_port(overrides)
-        _validate_local_socks_credentials(overrides)
-        _validate_loopback_endpoint_override(overrides, "local_udp_listen")
-        _validate_absolute_http_path_override(overrides, "wstunnel_path")
-        _validate_int_range_override(overrides, "mtu", min_value=1200, max_value=1420)
-        _validate_int_range_override(overrides, "persistent_keepalive", min_value=0, max_value=60)
 
     else:
         raise OverrideValidationError(f"Unsupported protocol: {protocol}")

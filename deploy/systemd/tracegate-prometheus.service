@@ -9,9 +9,10 @@ Restart=always
 RestartSec=3
 TimeoutStopSec=20
 SuccessExitStatus=143
-ExecStartPre=/usr/bin/docker pull prom/prometheus:v3.15.1
+EnvironmentFile=/var/lib/tracegate/artifacts/active/prometheus.env
+ExecStartPre=/usr/local/sbin/tracegate-artifact-verify prometheus
 ExecStartPre=-/usr/bin/docker rm -f tracegate-prometheus
-ExecStart=/usr/bin/docker run --rm --name tracegate-prometheus --network host --read-only --cap-drop ALL --security-opt no-new-privileges:true -v /etc/tracegate/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro -v /var/lib/tracegate/prometheus:/prometheus prom/prometheus:v3.15.1 --config.file=/etc/prometheus/prometheus.yml --storage.tsdb.path=/prometheus --web.listen-address=127.0.0.1:9090
+ExecStart=/usr/bin/docker run --rm --name tracegate-prometheus --network host --read-only --cap-drop ALL --security-opt no-new-privileges:true -v /etc/tracegate/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro -v /var/lib/tracegate/prometheus:/prometheus ${TRACEGATE_IMAGE} --config.file=/etc/prometheus/prometheus.yml --storage.tsdb.path=/prometheus --web.listen-address=127.0.0.1:9090
 ExecStop=/usr/bin/docker stop tracegate-prometheus
 
 [Install]

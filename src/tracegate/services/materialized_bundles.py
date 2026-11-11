@@ -13,7 +13,12 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
-from tracegate.constants import TRACEGATE_PUBLIC_UDP_PORT
+from tracegate.constants import (
+    TRACEGATE_FORBIDDEN_PUBLIC_UDP_PORT,
+    TRACEGATE_INTERCONNECT_UDP_PORT,
+    TRACEGATE_PUBLIC_UDP_PORT,
+)
+from tracegate.services.hysteria_hopping import HysteriaHopRangeError, validate_hop_ranges
 from tracegate.services.runtime_contract import normalize_runtime_profile_name
 from tracegate.services.xray_centric import render_xray_centric_xray_config
 
@@ -426,9 +431,7 @@ class MaterializedBundleRenderContext:
     entry_tls_server_name: str
     transit_tls_server_name: str
     grafana_tls_server_name: str
-    shadowtls_server_name_transit: str
     shadowtls_backhaul2_sni: str
-    shadowsocks2022_password_transit: str
     shadowsocks2022_backhaul_key: str
     reality_backhaul_port: int
     reality_backhaul_sni: str
@@ -454,6 +457,11 @@ class MaterializedBundleRenderContext:
     transit_finalmask: dict[str, Any] | None
     entry_ech_server_keys: str
     transit_ech_server_keys: str
+    # Endpoint Hysteria2 port hopping (None = disabled).
+    hysteria_salamander_udp_port: int = 8444
+    transit_hysteria_salamander_listen_host: str = ""
+    hysteria_gecko_hop_ports: tuple[int, int] | None = None
+    hysteria_salamander_hop_ports: tuple[int, int] | None = None
 
     @classmethod
     def from_environ(cls, environ: dict[str, str] | None = None) -> "MaterializedBundleRenderContext":
@@ -605,15 +613,9 @@ class MaterializedBundleRenderContext:
                 label="GRAFANA_PUBLIC_BASE_URL",
             ),
         )
-        shadowtls_server_name_transit = _first(env, "SHADOWTLS_SERVER_NAME_TRANSIT", "SHADOWTLS_SERVER_NAME")
         # Second ShadowTLS front for the pool's leg 2. When unset, leg 2 is omitted
         # and the pool runs with the single ShadowTLS leg + the REALITY-RAW leg.
         shadowtls_backhaul2_sni = _first(env, "SHADOWTLS_BACKHAUL2_SNI")
-        shadowsocks2022_password_transit = _first(
-            env,
-            "SHADOWSOCKS2022_PASSWORD_TRANSIT",
-            "SHADOWSOCKS2022_PASSWORD",
-        )
         # Independent Entry->Endpoint SS2022+ShadowTLS backhaul key (aes-256).
         # When unset the SS2022 backhaul legs are omitted and the pool degrades to
         # the REALITY-RAW transport only, so staging never breaks the live link.
@@ -721,6 +723,31 @@ class MaterializedBundleRenderContext:
             label="transit ECH server keys",
         )
 
+        hysteria_salamander_udp_port = _int_env(
+            env, "HYSTERIA_SALAMANDER_UDP_PORT", default=8444, min_value=1, max_value=65535
+        )
+        transit_hysteria_salamander_listen_host = _first(
+            env,
+            "HYSTERIA_SALAMANDER_LISTEN_HOST_TRANSIT",
+            default=transit_hysteria_listen_host,
+        )
+        try:
+            hop_ranges = validate_hop_ranges(
+                {
+                    "HYSTERIA_GECKO_HOP_PORTS": _first(env, "HYSTERIA_GECKO_HOP_PORTS"),
+                    "HYSTERIA_SALAMANDER_HOP_PORTS": _first(env, "HYSTERIA_SALAMANDER_HOP_PORTS"),
+                },
+                reserved_udp_ports=(
+                    TRACEGATE_PUBLIC_UDP_PORT,
+                    TRACEGATE_INTERCONNECT_UDP_PORT,
+                    TRACEGATE_FORBIDDEN_PUBLIC_UDP_PORT,
+                    hysteria_udp_port,
+                    hysteria_salamander_udp_port,
+                ),
+            )
+        except HysteriaHopRangeError as exc:
+            raise MaterializedBundleRenderError(str(exc)) from exc
+
         return cls(
             source_root=source_root,
             materialized_root=materialized_root,
@@ -760,9 +787,7 @@ class MaterializedBundleRenderContext:
             entry_tls_server_name=entry_tls_server_name,
             transit_tls_server_name=transit_tls_server_name,
             grafana_tls_server_name=grafana_tls_server_name,
-            shadowtls_server_name_transit=shadowtls_server_name_transit,
             shadowtls_backhaul2_sni=shadowtls_backhaul2_sni,
-            shadowsocks2022_password_transit=shadowsocks2022_password_transit,
             shadowsocks2022_backhaul_key=shadowsocks2022_backhaul_key,
             reality_backhaul_port=reality_backhaul_port,
             reality_backhaul_sni=reality_backhaul_sni,
@@ -784,6 +809,10 @@ class MaterializedBundleRenderContext:
             transit_finalmask=transit_finalmask,
             entry_ech_server_keys=entry_ech_server_keys,
             transit_ech_server_keys=transit_ech_server_keys,
+            hysteria_salamander_udp_port=hysteria_salamander_udp_port,
+            transit_hysteria_salamander_listen_host=transit_hysteria_salamander_listen_host,
+            hysteria_gecko_hop_ports=hop_ranges["HYSTERIA_GECKO_HOP_PORTS"],
+            hysteria_salamander_hop_ports=hop_ranges["HYSTERIA_SALAMANDER_HOP_PORTS"],
         )
 
 
@@ -1064,6 +1093,102 @@ def _materialize_interserver_firewalls(ctx: MaterializedBundleRenderContext) -> 
         source_host=ctx.entry_hysteria_listen_host,
         ports=(9443, 9444, 9445, 9446),
     )
+
+
+_HYSTERIA_HOP_MARKER = "tracegate-managed-hysteria-hop"
+_NFT_UDP_ACCEPT_RE = re.compile(r"(?m)^\s*udp dport (\{[^}]*\}|\S+) accept\s*$")
+
+
+def _nft_port_set_contains(expr: str, port: int) -> bool:
+    for token in expr.strip().strip("{}").split(","):
+        token = token.strip()
+        if not token:
+            continue
+        lower, _sep, upper = token.partition("-")
+        try:
+            lo = int(lower)
+            hi = int(upper) if upper else lo
+        except ValueError:
+            continue
+        if lo <= int(port) <= hi:
+            return True
+    return False
+
+
+def _hysteria_hop_rules(*, listen_host: str, hop_range: tuple[int, int], listener_port: int) -> list[str]:
+    lower, upper = int(hop_range[0]), int(hop_range[1])
+    host = str(listen_host or "").strip().strip("[]")
+    try:
+        address = ip_address(host) if host else None
+    except ValueError:
+        address = None
+    if address is None:
+        # Wildcard listener: redirect both families to the local listener port.
+        return [
+            f"    meta nfproto ipv4 udp dport {lower}-{upper} redirect to :{listener_port}",
+            f"    meta nfproto ipv6 udp dport {lower}-{upper} redirect to :{listener_port}",
+        ]
+    # Address-bound listener: `redirect` would rewrite to the interface's
+    # primary address, so DNAT to the listener address of the same family.
+    if address.version == 4:
+        return [f"    ip daddr {address} udp dport {lower}-{upper} dnat ip to {address}:{listener_port}"]
+    return [f"    ip6 daddr {address} udp dport {lower}-{upper} dnat ip6 to [{address}]:{listener_port}"]
+
+
+def _materialize_hysteria_hop_firewall(ctx: MaterializedBundleRenderContext) -> None:
+    """Append the Endpoint Hysteria port-hopping redirect table.
+
+    Rendered after private overlays so the declared hop ranges always reach
+    the applied ruleset. Nothing is rendered when no range is configured.
+    """
+
+    listeners = [
+        (ctx.hysteria_gecko_hop_ports, ctx.transit_hysteria_listen_host, ctx.hysteria_udp_port),
+        (
+            ctx.hysteria_salamander_hop_ports,
+            ctx.transit_hysteria_salamander_listen_host,
+            ctx.hysteria_salamander_udp_port,
+        ),
+    ]
+    active = [row for row in listeners if row[0] is not None]
+    if not active:
+        return
+    path = ctx.materialized_root / "base-transit" / "nftables.conf"
+    text = path.read_text(encoding="utf-8")
+    if _HYSTERIA_HOP_MARKER in text:
+        raise MaterializedBundleRenderError(f"{path} already carries {_HYSTERIA_HOP_MARKER}")
+    accepted = [match.group(1) for match in _NFT_UDP_ACCEPT_RE.finditer(text)]
+    for _hop_range, _listen_host, listener_port in active:
+        if not any(_nft_port_set_contains(expr, listener_port) for expr in accepted):
+            raise MaterializedBundleRenderError(
+                f"{path} input chain must accept udp/{listener_port} before port hopping can redirect to it"
+            )
+    rules: list[str] = []
+    for hop_range, listen_host, listener_port in active:
+        rules.extend(
+            _hysteria_hop_rules(listen_host=listen_host, hop_range=hop_range, listener_port=listener_port)
+        )
+    block = "\n".join(
+        (
+            f"# BEGIN {_HYSTERIA_HOP_MARKER}",
+            "# Hysteria2 UDP port hopping (Endpoint Direct only). Tracegate renders this",
+            "# redirect; the Hysteria containers get no extra privileges and never create",
+            "# firewall rules. The rewrite happens in nat prerouting, before the filter",
+            "# input chain, so the input chain sees the listener port (already accepted",
+            "# above) and the hop range itself needs no input accept rule.",
+            "table inet tracegate_hysteria_hop {",
+            "  chain prerouting {",
+            "    type nat hook prerouting priority dstnat; policy accept;",
+            *rules,
+            "  }",
+            "}",
+            f"# END {_HYSTERIA_HOP_MARKER}",
+            "",
+        )
+    )
+    if not text.endswith("\n"):
+        text += "\n"
+    path.write_text(text + "\n" + block, encoding="utf-8")
 
 
 def _materialize_transit_secret_surface(ctx: MaterializedBundleRenderContext) -> None:
@@ -1528,21 +1653,6 @@ def render_materialized_bundles(ctx: MaterializedBundleRenderContext) -> None:
 
     transit_ss2022_path = ctx.materialized_root / "base-transit" / "xray-ss2022.json"
     transit_ss2022 = json.loads(transit_ss2022_path.read_text(encoding="utf-8"))
-    if not ctx.shadowsocks2022_password_transit:
-        raise MaterializedBundleRenderError(
-            "SHADOWSOCKS2022_PASSWORD_TRANSIT or SHADOWSOCKS2022_PASSWORD is required for ss2022-in"
-        )
-    ss2022_inbound = next(
-        (
-            inbound
-            for inbound in transit_ss2022.get("inbounds", [])
-            if isinstance(inbound, dict) and str(inbound.get("tag") or "") == "ss2022-in"
-        ),
-        None,
-    )
-    if ss2022_inbound is None:
-        raise MaterializedBundleRenderError("base-transit/xray-ss2022.json is missing ss2022-in")
-    ss2022_inbound.setdefault("settings", {})["password"] = ctx.shadowsocks2022_password_transit
     _materialize_ss2022_backhaul_inbound(transit_ss2022, key=ctx.shadowsocks2022_backhaul_key)
     _write_json(transit_ss2022_path, transit_ss2022)
 
@@ -1562,16 +1672,6 @@ def render_materialized_bundles(ctx: MaterializedBundleRenderContext) -> None:
         "REPLACE_TLS_SERVER_NAME",
         transit_web_tls_server_names,
     )
-    shadowtls_acl = ""
-    shadowtls_route = ""
-    shadowtls_backend = ""
-    if ctx.shadowtls_server_name_transit:
-        shadowtls_acl = f"  acl shadowtls_sni req.ssl_sni -i {ctx.shadowtls_server_name_transit}"
-        shadowtls_route = "  use_backend be_transit_shadowtls if shadowtls_sni"
-        shadowtls_backend = (
-            "\nbackend be_transit_shadowtls\n"
-            "  server transit_shadowtls 127.0.0.1:14443 check\n"
-        )
     mtproto_acl = ""
     mtproto_route = ""
     mtproto_backend = ""
@@ -1580,13 +1680,13 @@ def render_materialized_bundles(ctx: MaterializedBundleRenderContext) -> None:
         and ctx.mtproto_domain
         and ctx.mtproto_direct_backup_host
     ):
-        # Optional direct backup: the Endpoint public :443 demux forwards the
-        # same FakeTLS SNI to Endpoint-local Telemt. The primary path remains
-        # Entry -> source-gated :9445; this loopback hop is only for clients
-        # explicitly using the backup Endpoint address.
+        # Legacy direct backup: the Endpoint public :443 demux forwards the
+        # same FakeTLS SNI to Endpoint-local Telemt so links users saved
+        # earlier keep working. New deliveries use only Entry -> :9445. The
+        # route is limited to TCP/443: Telegram is never served on TCP/8443.
         mtproto_sni = str(ctx.mtproto_tls_domain or ctx.mtproto_domain).strip()
         mtproto_acl = f"  acl mtproto_tls_sni req.ssl_sni -i {mtproto_sni}"
-        mtproto_route = "  use_backend be_transit_mtproto if mtproto_tls_sni"
+        mtproto_route = "  use_backend be_transit_mtproto if mtproto_tls_sni { dst_port 443 }"
         mtproto_backend = (
             "\nbackend be_transit_mtproto\n"
             f"  server transit_mtproto 127.0.0.1:{ctx.mtproto_link_port} check send-proxy-v2\n"
@@ -1594,9 +1694,6 @@ def render_materialized_bundles(ctx: MaterializedBundleRenderContext) -> None:
     transit_haproxy = transit_haproxy.replace("REPLACE_MTPROTO_ACL", mtproto_acl)
     transit_haproxy = transit_haproxy.replace("REPLACE_MTPROTO_ROUTE", mtproto_route)
     transit_haproxy = transit_haproxy.replace("REPLACE_MTPROTO_BACKEND", mtproto_backend)
-    transit_haproxy = transit_haproxy.replace("REPLACE_SHADOWTLS_ACL", shadowtls_acl)
-    transit_haproxy = transit_haproxy.replace("REPLACE_SHADOWTLS_ROUTE", shadowtls_route)
-    transit_haproxy = transit_haproxy.replace("REPLACE_SHADOWTLS_BACKEND", shadowtls_backend)
     transit_haproxy = transit_haproxy.replace("REPLACE_REALITY_ACLS", transit_reality_acls)
     transit_haproxy = transit_haproxy.replace("REPLACE_REALITY_ROUTES", transit_reality_routes)
     transit_haproxy = transit_haproxy.replace("REPLACE_REALITY_BACKENDS", transit_reality_backends)
@@ -1615,5 +1712,6 @@ def render_materialized_bundles(ctx: MaterializedBundleRenderContext) -> None:
     _write_hysteria_server_configs(ctx)
     _apply_private_overlays(ctx)
     _materialize_interserver_firewalls(ctx)
+    _materialize_hysteria_hop_firewall(ctx)
     _materialize_transit_secret_surface(ctx)
     _write_materialized_manifest(ctx)

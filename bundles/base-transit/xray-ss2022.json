@@ -38,25 +38,6 @@
       }
     },
     {
-      "tag": "ss2022-in",
-      "listen": "127.0.0.1",
-      "port": 18443,
-      "protocol": "shadowsocks",
-      "settings": {
-        "network": "tcp",
-        "method": "2022-blake3-aes-128-gcm",
-        "password": "REPLACE_SHADOWSOCKS2022_SERVER_KEY",
-        "clients": []
-      },
-      "sniffing": {
-        "enabled": true,
-        "destOverride": [
-          "http",
-          "tls"
-        ]
-      }
-    },
-    {
       "tag": "ss2022-backhaul-in",
       "listen": "127.0.0.1",
       "port": 18444,
@@ -108,7 +89,6 @@
       {
         "type": "field",
         "inboundTag": [
-          "ss2022-in",
           "ss2022-backhaul-in"
         ],
         "protocol": [
@@ -119,7 +99,6 @@
       {
         "type": "field",
         "inboundTag": [
-          "ss2022-in",
           "ss2022-backhaul-in"
         ],
         "outboundTag": "direct"

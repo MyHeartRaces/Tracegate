@@ -101,7 +101,7 @@ def _runtime_contract(
     default_hysteria_tags = [] if runtime_profile == "tracegate-3" else ["hy2-in"]
     public_udp_owner = "xray" if runtime_profile == "xray-centric" else "hysteria"
     udp443_owner = "naiveproxy" if runtime_profile == "tracegate-3" else public_udp_owner
-    return {
+    contract = {
         "role": role,
         "runtimeProfile": runtime_profile,
         "localSocksAuth": local_socks_auth or "disabled",
@@ -240,6 +240,27 @@ def _runtime_contract(
             },
         },
     }
+    if role.strip().upper() == "TRANSIT":
+        _declare_transit_tcp8443_listener(contract)
+    return contract
+
+
+def _declare_transit_tcp8443_listener(contract: dict) -> dict:
+    # Endpoint (TRANSIT) serves TCP/8443 with the same SNI dispatch as TCP/443;
+    # only UDP/8443 stays forbidden there.
+    contract["contract"]["expectedPorts"] = [
+        {"protocol": "tcp", "port": 443, "name": "listen tcp/443"},
+        {"protocol": "tcp", "port": TRACEGATE_FORBIDDEN_PUBLIC_TCP_PORT, "name": "listen tcp/8443"},
+    ]
+    contract["contract"]["forbiddenPorts"] = [
+        {"protocol": "udp", "port": TRACEGATE_FORBIDDEN_PUBLIC_UDP_PORT, "name": "blocked udp/8443"},
+    ]
+    contract["fronting"]["forbiddenTcp8443"] = False
+    contract["fronting"]["forbiddenPublicPorts"] = []
+    contract["hysteria"]["hygiene"]["forbiddenPublicPorts"] = [
+        {"protocol": "udp", "port": TRACEGATE_FORBIDDEN_PUBLIC_UDP_PORT, "action": "drop"},
+    ]
+    return contract
 
 
 def _write_zapret_profile(tmp_path: Path, file_name: str, **overrides: str) -> Path:
@@ -857,18 +878,12 @@ def _write_private_profile_state(
     wireguard_profiles: list[dict] | None = None,
     overrides: dict | None = None,
 ) -> Path:
+    # The current agent writes no client profile entries: both families that used
+    # this handoff were retired in Tracegate 4. Passing entries reproduces a file
+    # written by a pre-upgrade agent.
     role_upper = role.strip().upper()
-    if shadowtls_profiles is None:
-        shadowtls_profiles = (
-            [_private_shadowtls_profile(role=role_upper, mode="chain")]
-            if role_upper == "ENTRY"
-            else [
-                _private_shadowtls_profile(role=role_upper, mode="direct"),
-                _private_shadowtls_profile(role=role_upper, mode="chain"),
-            ]
-        )
-    if wireguard_profiles is None:
-        wireguard_profiles = [] if role_upper == "ENTRY" else [_private_wireguard_profile()]
+    shadowtls_profiles = list(shadowtls_profiles or [])
+    wireguard_profiles = list(wireguard_profiles or [])
 
     payload = {
         "schema": "tracegate.private-profiles.v1",
@@ -878,14 +893,13 @@ def _write_private_profile_state(
         "runtimeContractPath": runtime_contract_path,
         "transportProfiles": contract["transportProfiles"],
         "secretMaterial": True,
-        "counts": {
-            "total": len(shadowtls_profiles) + len(wireguard_profiles),
-            "shadowsocks2022ShadowTLS": len(shadowtls_profiles),
-            "wireguardWSTunnel": len(wireguard_profiles),
-        },
-        "shadowsocks2022ShadowTLS": shadowtls_profiles,
-        "wireguardWSTunnel": wireguard_profiles,
+        "counts": {"total": len(shadowtls_profiles) + len(wireguard_profiles)},
     }
+    if shadowtls_profiles or wireguard_profiles:
+        payload["counts"]["shadowsocks2022ShadowTLS"] = len(shadowtls_profiles)
+        payload["counts"]["wireguardWSTunnel"] = len(wireguard_profiles)
+        payload["shadowsocks2022ShadowTLS"] = shadowtls_profiles
+        payload["wireguardWSTunnel"] = wireguard_profiles
     if overrides:
         payload.update(overrides)
     path = tmp_path / file_name
@@ -909,8 +923,6 @@ def _write_private_profile_env(
         "TRACEGATE_PROFILE_STATE_JSON": str(state_path),
         "TRACEGATE_PROFILE_SECRET_MATERIAL": "true",
         "TRACEGATE_PROFILE_COUNT": counts["total"],
-        "TRACEGATE_SHADOWSOCKS2022_SHADOWTLS_COUNT": counts["shadowsocks2022ShadowTLS"],
-        "TRACEGATE_WIREGUARD_WSTUNNEL_COUNT": counts["wireguardWSTunnel"],
     }
     if overrides:
         payload.update(overrides)
@@ -1086,14 +1098,15 @@ def _link_crypto_udp_hardening() -> dict:
     }
 
 
-def _link_crypto_udp_dpi_resistance() -> dict:
+def _link_crypto_udp_dpi_resistance(role: str = "ENTRY") -> dict:
     return {
         "enabled": True,
         "mode": "gecko-plus-scoped-paired-obfs",
         "portSplit": {
             "publicUdpPort": TRACEGATE_INTERCONNECT_UDP_PORT,
             "forbidUdp443": True,
-            "forbidTcp8443": True,
+            # Endpoint TCP/8443 is a declared public listener.
+            "forbidTcp8443": role.strip().upper() != "TRANSIT",
         },
         "requiredLayers": [
             "hysteria2-quic",
@@ -1199,7 +1212,7 @@ def _link_crypto_udp_row(
             },
         },
         "hardening": _link_crypto_udp_hardening(),
-        "dpiResistance": _link_crypto_udp_dpi_resistance(),
+        "dpiResistance": _link_crypto_udp_dpi_resistance(role_upper),
         "selectedProfiles": selected_profiles,
         "rotation": {
             "strategy": "generation-drain",
@@ -1264,8 +1277,12 @@ def _link_crypto_outer_carrier_contract(*, enabled: bool = True) -> dict:
     }
 
 
-def _entry_transit_link_crypto_contract(*, role: str, forbid_tcp8443: bool = True) -> dict:
+def _entry_transit_link_crypto_contract(*, role: str, forbid_tcp8443: bool | None = None) -> dict:
     role_upper = role.strip().upper()
+    if forbid_tcp8443 is None:
+        # Endpoint TCP/8443 is a declared public listener; Entry keeps it forbidden.
+        forbid_tcp8443 = role_upper != "TRANSIT"
+
     tcp_port = 10881 if role_upper == "ENTRY" else 10882
     udp_port = 14481 if role_upper == "ENTRY" else 14482
     udp_dpi = _link_crypto_udp_dpi_resistance()
@@ -1374,7 +1391,7 @@ def _router_link_crypto_contract(*, role: str) -> dict:
                 "noNfqueue": True,
             },
             "hardening": _link_crypto_udp_hardening(),
-            "dpiResistance": _link_crypto_udp_dpi_resistance(),
+            "dpiResistance": _link_crypto_udp_dpi_resistance(role_upper),
             "classes": [udp_class],
             "counts": udp_counts,
             "localPorts": {udp_class: udp_port},
@@ -2424,6 +2441,32 @@ def test_validate_private_profile_state_accepts_consistent_handoff(tmp_path: Pat
     assert findings == []
 
 
+def test_validate_private_profile_state_tolerates_file_from_pre_upgrade_agent(tmp_path: Path) -> None:
+    contract = _runtime_contract(role="TRANSIT")
+    contract_path = tmp_path / "transit.json"
+    contract_path.write_text(json.dumps(contract) + "\n", encoding="utf-8")
+    state_path = _write_private_profile_state(
+        tmp_path,
+        "private/profiles/transit/desired-state.json",
+        contract=contract,
+        role="TRANSIT",
+        runtime_contract_path=str(contract_path),
+        shadowtls_profiles=[_private_shadowtls_profile(role="TRANSIT", mode="direct")],
+        wireguard_profiles=[_private_wireguard_profile()],
+    )
+
+    findings = validate_private_profile_state(
+        state=load_private_profile_state(state_path),
+        contract=contract,
+        expected_role="TRANSIT",
+        contract_path=str(contract_path),
+    )
+
+    assert [(finding.severity, finding.code) for finding in findings] == [
+        ("warning", "transit-private-profile-retired-entries")
+    ]
+
+
 def test_validate_private_profile_state_rejects_transport_policy_drift(tmp_path: Path) -> None:
     contract = _runtime_contract(role="TRANSIT", runtime_profile="tracegate-2.1")
     contract_path = tmp_path / "transit.json"
@@ -2454,138 +2497,6 @@ def test_validate_private_profile_state_rejects_transport_policy_drift(tmp_path:
     assert by_code["transit-private-profile-transport-local-socks"].severity == "error"
     assert by_code["transit-private-profile-transport-local-socks-auth"].severity == "error"
     assert by_code["transit-private-profile-transport-local-socks-anonymous"].severity == "error"
-
-
-def test_validate_private_profile_state_warns_on_common_local_socks_port(tmp_path: Path) -> None:
-    contract = _runtime_contract(role="TRANSIT")
-    contract_path = tmp_path / "transit.json"
-    contract_path.write_text(json.dumps(contract) + "\n", encoding="utf-8")
-    shadowtls = _private_shadowtls_profile(
-        role="TRANSIT",
-        mode="direct",
-        overrides={"localSocks": _private_local_socks(username="tg_v3", password="local-pass") | {"listen": "127.0.0.1:1080"}},
-    )
-    state_path = _write_private_profile_state(
-        tmp_path,
-        "private/profiles/transit/desired-state.json",
-        contract=contract,
-        role="TRANSIT",
-        runtime_contract_path=str(contract_path),
-        shadowtls_profiles=[shadowtls],
-        wireguard_profiles=[],
-    )
-
-    findings = validate_private_profile_state(
-        state=load_private_profile_state(state_path),
-        contract=contract,
-        expected_role="TRANSIT",
-        contract_path=str(contract_path),
-    )
-
-    by_code = {finding.code: finding for finding in findings}
-    assert by_code["transit-private-profile-shadowtls-v3-local-socks-common-port"].severity == "warning"
-
-
-def test_validate_private_profile_state_rejects_wstunnel_url_drift(tmp_path: Path) -> None:
-    contract = _runtime_contract(role="TRANSIT")
-    contract_path = tmp_path / "transit.json"
-    contract_path.write_text(json.dumps(contract) + "\n", encoding="utf-8")
-    wireguard = _private_wireguard_profile(
-        overrides={
-            "wstunnel": {
-                "mode": "wireguard-over-websocket",
-                "url": "wss://transit.tracegate.test:4443/other-path",
-                "path": "/cdn-cgi/tracegate",
-                "tlsServerName": "transit.tracegate.test",
-                "localUdpListen": "127.0.0.1:51820",
-            }
-        }
-    )
-    state_path = _write_private_profile_state(
-        tmp_path,
-        "private/profiles/transit/desired-state.json",
-        contract=contract,
-        role="TRANSIT",
-        runtime_contract_path=str(contract_path),
-        shadowtls_profiles=[],
-        wireguard_profiles=[wireguard],
-    )
-
-    findings = validate_private_profile_state(
-        state=load_private_profile_state(state_path),
-        contract=contract,
-        expected_role="TRANSIT",
-        contract_path=str(contract_path),
-    )
-
-    by_code = {finding.code: finding for finding in findings}
-    assert by_code["transit-private-profile-wireguard-v0-wstunnel-url"].severity == "error"
-    assert by_code["transit-private-profile-wireguard-v0-wstunnel-path-match"].severity == "error"
-
-
-def test_validate_private_profile_state_rejects_wireguard_stability_drift(tmp_path: Path) -> None:
-    contract = _runtime_contract(role="TRANSIT")
-    contract_path = tmp_path / "transit.json"
-    contract_path.write_text(json.dumps(contract) + "\n", encoding="utf-8")
-    wireguard = _private_wireguard_profile(
-        overrides={
-            "wstunnel": {
-                "mode": "wireguard-over-websocket",
-                "url": "wss://transit.tracegate.test:443/cdn-cgi/tracegate",
-                "path": "/cdn-cgi/tracegate",
-                "tlsServerName": "transit.tracegate.test",
-                "localUdpListen": "0.0.0.0:51820",
-            },
-            "wireguard": {
-                "clientPublicKey": "client-public",
-                "clientPrivateKey": "client-private",
-                "serverPublicKey": "server-public",
-                "presharedKey": "wg-psk",
-                "address": "10.7.0.10/32",
-                "allowedIps": ["0.0.0.0/0", "::/0"],
-                "clientRouteAllowedIps": ["0.0.0.0/0", "::/0"],
-                "dns": "1.1.1.1",
-                "mtu": 9000,
-                "persistentKeepalive": 300,
-            },
-            "sync": {
-                "strategy": "restart",
-                "interface": "",
-                "applyMode": "restart",
-                "removeStalePeers": False,
-                "restartWireGuard": True,
-                "restartWSTunnel": True,
-            },
-        }
-    )
-    state_path = _write_private_profile_state(
-        tmp_path,
-        "private/profiles/transit/desired-state.json",
-        contract=contract,
-        role="TRANSIT",
-        runtime_contract_path=str(contract_path),
-        shadowtls_profiles=[],
-        wireguard_profiles=[wireguard],
-    )
-
-    findings = validate_private_profile_state(
-        state=load_private_profile_state(state_path),
-        contract=contract,
-        expected_role="TRANSIT",
-        contract_path=str(contract_path),
-    )
-
-    by_code = {finding.code: finding for finding in findings}
-    assert by_code["transit-private-profile-wireguard-v0-wstunnel-local-udp-loopback"].severity == "error"
-    assert by_code["transit-private-profile-wireguard-v0-wireguard-allowed-ips-host-route"].severity == "error"
-    assert by_code["transit-private-profile-wireguard-v0-wireguard-mtu"].severity == "error"
-    assert by_code["transit-private-profile-wireguard-v0-wireguard-persistent-keepalive"].severity == "error"
-    assert by_code["transit-private-profile-wireguard-v0-sync-strategy"].severity == "error"
-    assert by_code["transit-private-profile-wireguard-v0-sync-apply-mode"].severity == "error"
-    assert by_code["transit-private-profile-wireguard-v0-sync-interface"].severity == "error"
-    assert by_code["transit-private-profile-wireguard-v0-sync-remove-stale"].severity == "error"
-    assert by_code["transit-private-profile-wireguard-v0-sync-restart-wireguard"].severity == "error"
-    assert by_code["transit-private-profile-wireguard-v0-sync-restart-wstunnel"].severity == "error"
 
 
 def test_validate_private_profile_state_detects_security_drift(tmp_path: Path) -> None:
@@ -2678,33 +2589,9 @@ def test_validate_private_profile_state_detects_security_drift(tmp_path: Path) -
     assert by_code["entry-private-profile-role"].severity == "error"
     assert by_code["entry-private-profile-secret-material"].severity == "error"
     assert by_code["entry-private-profile-count-total"].severity == "error"
-    assert by_code["entry-private-profile-count-shadowtls"].severity == "error"
-    assert by_code["entry-private-profile-count-wireguard"].severity == "error"
-    assert by_code["entry-private-profile-shadowtls-v3-entry-mode"].severity == "error"
-    assert by_code["entry-private-profile-shadowtls-v3-profile"].severity == "error"
-    assert by_code["entry-private-profile-shadowtls-v3-port"].severity == "error"
-    assert by_code["entry-private-profile-shadowtls-v3-ss-password"].severity == "error"
-    assert by_code["entry-private-profile-shadowtls-v3-shadowtls-version"].severity == "error"
-    assert by_code["entry-private-profile-shadowtls-v3-shadowtls-password"].severity == "error"
-    assert by_code["entry-private-profile-shadowtls-v3-shadowtls-credential-scope"].severity == "error"
-    assert by_code["entry-private-profile-shadowtls-v3-shadowtls-profile-ref-kind"].severity == "error"
-    assert by_code["entry-private-profile-shadowtls-v3-shadowtls-profile-ref-path"].severity == "error"
-    assert by_code["entry-private-profile-shadowtls-v3-shadowtls-profile-ref-secret"].severity == "error"
-    assert by_code["entry-private-profile-shadowtls-v3-shadowtls-manage-users"].severity == "error"
-    assert by_code["entry-private-profile-shadowtls-v3-shadowtls-restart-on-user-change"].severity == "error"
-    assert by_code["entry-private-profile-shadowtls-v3-local-socks-listen-loopback"].severity == "error"
-    assert by_code["entry-private-profile-shadowtls-v3-local-socks-auth"].severity == "error"
-    assert by_code["entry-private-profile-shadowtls-v3-local-socks-auth-mode"].severity == "error"
-    assert by_code["entry-private-profile-shadowtls-v3-host-wide-interception"].severity == "error"
-    assert by_code["entry-private-profile-shadowtls-v3-packet-shaping"].severity == "error"
-    assert by_code["entry-private-profile-wireguard-entry"].severity == "error"
-    assert by_code["entry-private-profile-wireguard-v0-wstunnel-url"].severity == "error"
-    assert by_code["entry-private-profile-wireguard-v0-wstunnel-path"].severity == "error"
-    assert by_code["entry-private-profile-wireguard-v0-wireguard-clientPublicKey"].severity == "error"
-    assert by_code["entry-private-profile-wireguard-v0-local-socks-listen-loopback"].severity == "error"
-    assert by_code["entry-private-profile-wireguard-v0-local-socks-auth"].severity == "error"
-    assert by_code["entry-private-profile-wireguard-v0-local-socks-auth-mode"].severity == "error"
-    assert by_code["entry-private-profile-wireguard-v0-host-wide-interception"].severity == "error"
+    # Per-family validators for the retired client families are gone; their entries
+    # only produce the retired-entries warning.
+    assert by_code["entry-private-profile-retired-entries"].severity == "warning"
 
 
 def test_validate_private_profile_env_accepts_consistent_handoff(tmp_path: Path) -> None:
@@ -2758,8 +2645,6 @@ def test_validate_private_profile_env_detects_divergence(tmp_path: Path) -> None
             "TRACEGATE_PROFILE_STATE_JSON": str(tmp_path / "other-state.json"),
             "TRACEGATE_PROFILE_SECRET_MATERIAL": "false",
             "TRACEGATE_PROFILE_COUNT": 1,
-            "TRACEGATE_SHADOWSOCKS2022_SHADOWTLS_COUNT": 1,
-            "TRACEGATE_WIREGUARD_WSTUNNEL_COUNT": 1,
         },
     )
 
@@ -2775,8 +2660,6 @@ def test_validate_private_profile_env_detects_divergence(tmp_path: Path) -> None
     assert by_code["transit-private-profile-env-state-json"].severity == "warning"
     assert by_code["transit-private-profile-env-runtime-profile"].severity == "error"
     assert by_code["transit-private-profile-env-count-total"].severity == "error"
-    assert by_code["transit-private-profile-env-count-shadowtls"].severity == "error"
-    assert by_code["transit-private-profile-env-count-sum"].severity == "error"
 
 
 def test_validate_link_crypto_state_accepts_consistent_handoff(tmp_path: Path) -> None:
@@ -5961,3 +5844,49 @@ def test_link_crypto_generation_matches_validation_for_shadowsocks2022() -> None
     assert not any(code.endswith("-carrier") for code in errors)
     assert not any("zapret2" in code for code in errors)
     assert not any("dpi-resistance" in code for code in errors)
+
+
+def test_validate_runtime_contract_single_requires_transit_tcp8443_listener() -> None:
+    transit = _runtime_contract(role="TRANSIT", runtime_profile="tracegate-3")
+    assert validate_runtime_contract_single(transit, expected_role="TRANSIT") == []
+
+    legacy = _runtime_contract(role="TRANSIT", runtime_profile="tracegate-3")
+    legacy["contract"]["expectedPorts"] = [{"protocol": "tcp", "port": 443, "name": "listen tcp/443"}]
+    legacy["contract"]["forbiddenPorts"] = [
+        {"protocol": "tcp", "port": 8443, "name": "blocked tcp/8443"},
+        {"protocol": "udp", "port": 8443, "name": "blocked udp/8443"},
+    ]
+    legacy["fronting"]["forbiddenTcp8443"] = True
+    legacy["fronting"]["forbiddenPublicPorts"] = [{"protocol": "tcp", "port": 8443, "action": "drop"}]
+    legacy["hysteria"]["hygiene"]["forbiddenPublicPorts"].append({"protocol": "tcp", "port": 8443, "action": "drop"})
+
+    codes = {finding.code for finding in validate_runtime_contract_single(legacy, expected_role="TRANSIT")}
+
+    assert "transit-expected-tcp-8443" in codes
+    assert "transit-forbidden-tcp-8443-mtproto" in codes
+    assert "transit-fronting-forbidden-tcp-8443-mtproto" in codes
+    assert "transit-fronting-forbidden-tcp-8443-flag" in codes
+    assert "transit-hysteria-hygiene-open-tcp-8443" in codes
+
+
+def test_validate_runtime_contract_single_rejects_udp8443_listener() -> None:
+    transit = _runtime_contract(role="TRANSIT", runtime_profile="tracegate-3")
+    transit["contract"]["expectedPorts"].append({"protocol": "udp", "port": 8443, "name": "listen udp/8443"})
+
+    codes = {finding.code for finding in validate_runtime_contract_single(transit, expected_role="TRANSIT")}
+
+    assert "transit-expected-udp-8443" in codes
+
+
+def test_validate_runtime_contract_single_keeps_entry_tcp8443_blocked_by_default() -> None:
+    entry = _runtime_contract(role="ENTRY", runtime_profile="tracegate-3")
+    assert validate_runtime_contract_single(entry, expected_role="ENTRY") == []
+    entry["contract"]["forbiddenPorts"] = []
+    entry["fronting"]["forbiddenTcp8443"] = False
+    entry["fronting"]["forbiddenPublicPorts"] = []
+
+    codes = {finding.code for finding in validate_runtime_contract_single(entry, expected_role="ENTRY")}
+
+    assert "entry-forbidden-tcp-8443" in codes
+    assert "entry-fronting-forbidden-tcp-8443" in codes
+    assert "entry-fronting-forbidden-tcp-8443-flag" in codes
