@@ -29,7 +29,9 @@ pytestmark = pytest.mark.skipif(
     reason="requires an isolated PostgreSQL test cluster",
 )
 ROOT = Path(__file__).resolve().parents[2]
-HEAD = "7b31d4e9a205"
+HEAD = "c3a5e9d1f204"
+# Head of the previous production release (Tracegate 3.1.36).
+PREVIOUS_RELEASE_HEAD = "7b31d4e9a205"
 
 
 @pytest.fixture
@@ -109,7 +111,9 @@ def _seed_issued_connections(engine, *, legacy_variant: bool) -> list[dict]:
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("starting_revision", [None, "10691de66f04", "e1c7a4b9d2f0", HEAD])
+@pytest.mark.parametrize(
+    "starting_revision", [None, "10691de66f04", "e1c7a4b9d2f0", PREVIOUS_RELEASE_HEAD, HEAD]
+)
 async def test_old_databases_keep_issued_credentials_and_remain_writable(
     database_url, monkeypatch, starting_revision: str | None,
 ) -> None:
@@ -157,3 +161,52 @@ async def test_old_databases_keep_issued_credentials_and_remain_writable(
             assert await session.scalar(select(User.telegram_first_name).where(User.telegram_id == 9001)) == "still-writable"
     finally:
         await async_engine.dispose()
+
+
+def test_upgrade_revokes_only_retired_client_families(database_url, monkeypatch) -> None:
+    raw_url = database_url.render_as_string(hide_password=False)
+    monkeypatch.setenv("DATABASE_URL", raw_url)
+    command.upgrade(_config(database_url), PREVIOUS_RELEASE_HEAD)
+    engine = create_engine(database_url)
+    try:
+        kept = _seed_issued_connections(engine, legacy_variant=False)
+        retired: list[tuple] = []
+        with engine.begin() as connection:
+            device_id = connection.execute(text("SELECT id FROM device LIMIT 1")).scalar_one()
+            for protocol, variant in (("WIREGUARD_WSTUNNEL", "V7"), ("SHADOWSOCKS2022_SHADOWTLS", "V5")):
+                connection_id, revision_id = uuid4(), uuid4()
+                connection.execute(text(
+                    "INSERT INTO connection (id, user_id, device_id, protocol, mode, variant, "
+                    "profile_name, custom_overrides_json, status, created_at) "
+                    "VALUES (:id, 9001, :device, :protocol, 'DIRECT', :variant, "
+                    "'retired-profile', '{}', 'ACTIVE', now())"
+                ), {"id": connection_id, "device": device_id, "protocol": protocol, "variant": variant})
+                connection.execute(text(
+                    "INSERT INTO connection_revision (id, connection_id, slot, status, "
+                    "effective_config_json, created_at) "
+                    "VALUES (:id, :connection, 0, 'ACTIVE', CAST('{}' AS json), now())"
+                ), {"id": revision_id, "connection": connection_id})
+                retired.append((connection_id, revision_id))
+
+        settings = Settings(_env_file=None, database_url=raw_url, superadmin_telegram_ids=[9001])
+        monkeypatch.setattr(migration, "get_settings", lambda: settings)
+        migration.migrate_db()
+
+        with engine.connect() as connection:
+            assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == HEAD
+            for connection_id, revision_id in retired:
+                assert connection.execute(
+                    text("SELECT status FROM connection WHERE id = :id"), {"id": connection_id}
+                ).scalar_one() == "REVOKED"
+                assert connection.execute(
+                    text("SELECT status FROM connection_revision WHERE id = :id"), {"id": revision_id}
+                ).scalar_one() == "REVOKED"
+            for row in kept:
+                assert connection.execute(
+                    text("SELECT status FROM connection WHERE id = :id"), {"id": row["connection_id"]}
+                ).scalar_one() == "ACTIVE"
+                assert connection.execute(
+                    text("SELECT status FROM connection_revision WHERE id = :id"), {"id": row["revision_id"]}
+                ).scalar_one() == "ACTIVE"
+    finally:
+        engine.dispose()
