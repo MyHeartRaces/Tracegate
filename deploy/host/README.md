@@ -55,8 +55,9 @@ the digest of the container you choose. Choosing one means the sibling units
 of that component move to that same digest at their next restart. Pulling is
 explicit and operator-driven:
 
-1. `tracegate-artifacts stage <component> [--tag TAG]` fetches a candidate
-   (the only command that contacts a registry) and records it.
+1. `tracegate-artifacts stage <component> [--tag TAG] [--digest sha256:...]`
+   fetches a candidate (the only command that pulls; with `--digest` it pulls
+   exactly that digest and verifies it) and records it.
 2. Probe the staged engine through the real client path.
 3. `tracegate-artifacts promote <component> <reference>` makes it active and
    prints the units to restart; restart them one at a time, probing after
@@ -64,6 +65,16 @@ explicit and operator-driven:
 4. `tracegate-artifacts rollback <component>` restores `last-good`;
    `tracegate-artifacts status` and `verify` report drift between running
    containers and the recorded digests.
+
+Routine upstream engine updates run through `tracegate-engine-update`
+(`tracegate-engine-update.service` and its daily timer): it discovers new
+digests without pulling, lets them soak, stages them by digest through the
+same store, checks them against the live config and activates one only where
+policy is `auto` and a complete authenticated probe set passes after each
+unit restart, rolling back otherwise; everything else waits for
+`tracegate-engine-update approve`. `updates.json` and `updates.hold` live in
+the artifact store directory. See "Engine updates" in
+`docs/operator-workflow.md`.
 
 A `tracegate-host-deploy rollback` re-installs the previous release's unit
 files; the artifact store is left in place and local images are never removed

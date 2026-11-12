@@ -1,0 +1,97 @@
+#!/usr/bin/env bash
+# Load the Hysteria port-hopping redirect table on Endpoint and keep it across
+# reboots. Touches only `table inet tracegate_hysteria_hop`; every other
+# firewall rule is left as it is.
+#
+# Ranges come from the runtime environment (HYSTERIA_GECKO_HOP_PORTS,
+# HYSTERIA_SALAMANDER_HOP_PORTS, "LO-HI"; empty or absent = no hopping for
+# that listener). Listener addresses come from the rendered Hysteria configs.
+set -euo pipefail
+
+ENV_FILE="${1:-${TRACEGATE_RUNTIME_ENV:-/etc/tracegate/tracegate.env}}"
+RUNTIME_DIR="${TRACEGATE_HYSTERIA_RUNTIME_DIR:-/var/lib/tracegate/agent-transit/runtime/hysteria}"
+TABLE_FILE="${TRACEGATE_HYSTERIA_HOP_FILE:-/etc/tracegate/hysteria-hop.nft}"
+NFT_CONF="${TRACEGATE_NFTABLES_CONF:-/etc/nftables.conf}"
+NFT="${TRACEGATE_NFT:-nft}"
+
+die() { echo "tracegate-hysteria-hop-apply: $*" >&2; exit 1; }
+[ -f "${ENV_FILE}" ] || die "missing runtime environment: ${ENV_FILE}"
+
+env_value() {
+  { grep -E "^[[:space:]]*(export[[:space:]]+)?$1=" "${ENV_FILE}" || true; } | tail -1 | cut -d= -f2- | tr -d "\"'[:space:]"
+}
+
+listen_of() {
+  local file="${RUNTIME_DIR}/$1"
+  [ -f "${file}" ] || return 0
+  { grep -E '^listen:' "${file}" || true; } | head -1 | awk '{print $2}' | tr -d "\"'"
+}
+
+valid_range() {
+  [[ "$1" =~ ^([0-9]{4,5})-([0-9]{4,5})$ ]] && [ "${BASH_REMATCH[1]}" -lt "${BASH_REMATCH[2]}" ] \
+    && [ "${BASH_REMATCH[2]}" -le 65535 ]
+}
+
+rules_for() {
+  local range="$1" listen="$2" addr port
+  [ -n "${range}" ] || return 0
+  valid_range "${range}" || die "invalid hop range: ${range}"
+  [ -n "${listen}" ] || die "hop range ${range} is set but the listener config is missing"
+  addr="${listen%:*}"; port="${listen##*:}"
+  [[ "${port}" =~ ^[0-9]+$ ]] || die "cannot read listener port from: ${listen}"
+  case "${addr}" in
+    ""|"0.0.0.0"|"[::]"|"::")
+      printf '    meta nfproto ipv4 udp dport %s redirect to :%s\n' "${range}" "${port}"
+      printf '    meta nfproto ipv6 udp dport %s redirect to :%s\n' "${range}" "${port}"
+      ;;
+    \[*\])
+      addr="${addr#[}"; addr="${addr%]}"
+      printf '    ip6 daddr %s udp dport %s dnat ip6 to [%s]:%s\n' "${addr}" "${range}" "${addr}" "${port}"
+      ;;
+    *)
+      printf '    ip daddr %s udp dport %s dnat ip to %s:%s\n' "${addr}" "${range}" "${addr}" "${port}"
+      ;;
+  esac
+}
+
+gecko="$(env_value HYSTERIA_GECKO_HOP_PORTS)"
+salamander="$(env_value HYSTERIA_SALAMANDER_HOP_PORTS)"
+gecko_listen="$(listen_of server.yaml)"
+salamander_listen="$(listen_of salamander-server.yaml)"
+gecko_rules="$(rules_for "${gecko}" "${gecko_listen}")"
+salamander_rules="$(rules_for "${salamander}" "${salamander_listen}")"
+
+tmp="$(mktemp "${TABLE_FILE}.XXXXXX")"
+trap 'rm -f "${tmp}"' EXIT
+{
+  echo "table inet tracegate_hysteria_hop {"
+  echo "  chain prerouting {"
+  echo "    type nat hook prerouting priority dstnat; policy accept;"
+  [ -z "${gecko_rules}" ] || printf '%s\n' "${gecko_rules}"
+  [ -z "${salamander_rules}" ] || printf '%s\n' "${salamander_rules}"
+  echo "  }"
+  echo "}"
+} >"${tmp}"
+chmod 0600 "${tmp}"
+
+# Replace the table atomically: check first, then delete and load.
+"${NFT}" -c -f "${tmp}"
+if "${NFT}" list table inet tracegate_hysteria_hop >/dev/null 2>&1; then
+  "${NFT}" delete table inet tracegate_hysteria_hop
+fi
+"${NFT}" -f "${tmp}"
+mv -f "${tmp}" "${TABLE_FILE}"
+trap - EXIT
+echo "loaded tracegate_hysteria_hop (gecko=${gecko:-off} salamander=${salamander:-off})"
+
+# Persist across reboots through the host's nftables.conf, if it has one.
+if [ -f "${NFT_CONF}" ] && ! grep -qF "${TABLE_FILE}" "${NFT_CONF}"; then
+  cp -a "${NFT_CONF}" "${NFT_CONF}.pre-hysteria-hop"
+  printf '\ninclude "%s"\n' "${TABLE_FILE}" >>"${NFT_CONF}"
+  if "${NFT}" -c -f "${NFT_CONF}"; then
+    echo "persisted through ${NFT_CONF}"
+  else
+    mv -f "${NFT_CONF}.pre-hysteria-hop" "${NFT_CONF}"
+    die "${NFT_CONF} failed the check with the include; left unchanged"
+  fi
+fi

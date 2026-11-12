@@ -544,7 +544,7 @@ def test_render_materialized_bundles_uses_configured_mtproto_link_upstream(tmp_p
     assert "be_transit_mtproto" not in transit_haproxy
 
 
-def test_render_materialized_bundles_exposes_optional_endpoint_direct_mtproto_backup(tmp_path: Path) -> None:
+def test_render_materialized_bundles_never_routes_telegram_on_endpoint(tmp_path: Path) -> None:
     env = _base_env(tmp_path)
     env["MTPROTO_ROUTE_MODE"] = "entry-endpoint-tunnel"
     env["MTPROTO_DIRECT_BACKUP_HOST"] = "198.51.100.109"
@@ -557,9 +557,8 @@ def test_render_materialized_bundles_exposes_optional_endpoint_direct_mtproto_ba
     transit_haproxy = (ctx.materialized_root / "base-transit" / "haproxy.cfg").read_text(encoding="utf-8")
 
     assert "server mtproto transit.tracegate.test:9555 check-send-proxy send-proxy-v2" in entry_haproxy
-    assert "acl mtproto_tls_sni req.ssl_sni -i proxied.tracegate.test" in transit_haproxy
-    assert "use_backend be_transit_mtproto if mtproto_tls_sni { dst_port 443 }" in transit_haproxy
-    assert "server transit_mtproto 127.0.0.1:9555 check send-proxy-v2" in transit_haproxy
+    # The legacy backup host no longer makes Endpoint route Telegram.
+    assert "mtproto" not in transit_haproxy
 
 
 def test_render_materialized_bundles_injects_hysteria_finalmask_and_ech(tmp_path: Path) -> None:

@@ -36,6 +36,8 @@ def _release(root: Path, version: str) -> Path:
         venv / "bin" / "tracegate-artifacts",
         "#!/bin/sh\n"
         'printf "%s\\n" "$*" >> "${TRACEGATE_ARTIFACTS_LOG}"\n'
+        '[ -z "${TRACEGATE_ARTIFACTS_LOG:-}" ] || '
+        'printf "%s %s\\n" "$1" "${TRACEGATE_ARTIFACTS_REGISTRY:-unset}" >> "${TRACEGATE_ARTIFACTS_LOG}.registry"\n'
         "exit 0\n",
     )
     return release
@@ -95,6 +97,12 @@ def test_native_deploy_and_rollback_switch_real_release_targets(tmp_path: Path) 
     verify_at = artifact_calls.index("verify --units")
     assert capture_at < verify_at
     assert (tmp_path / "sbin" / "tracegate-artifact-verify").is_file()
+    # The CLI always reads the registry shipped with the release being deployed,
+    # even when the current release predates the artifact store.
+    registry_calls = (tmp_path / "artifacts.log.registry").read_text(encoding="utf-8").splitlines()
+    expected_registry = str(new / "runtime/deploy/host/artifacts.json")
+    assert {line.split(" ", 1)[0] for line in registry_calls} >= {"capture", "verify"}
+    assert all(line.split(" ", 1)[1] == expected_registry for line in registry_calls)
 
     subprocess.run([str(script), "rollback"], env=env, check=True)
     assert (install_root / "current").resolve() == old / "runtime"
@@ -305,3 +313,29 @@ def test_endpoint_deploy_keeps_operator_hop_settings(tmp_path: Path) -> None:
     subprocess.run([str(script), "deploy", "3.1.5"], env=env, check=True)
 
     assert runtime_env.read_text(encoding="utf-8") == before
+
+
+def _status_units(tmp_path: Path, *, ntp_synchronized: str) -> tuple[str, str]:
+    script, env, _ = _endpoint_deploy_env(tmp_path, "DATABASE_URL=postgresql+asyncpg://localhost/tracegate\n")
+    deploy_env = Path(env["TRACEGATE_DEPLOY_ENV"])
+    deploy_env.write_text(deploy_env.read_text() + "TRACEGATE_ENABLE_RTC_CLOCK_SYNC=true\n")
+    log = tmp_path / "systemctl.log"
+    _executable(Path(env["TRACEGATE_SYSTEMCTL"]), f'#!/bin/sh\necho "$*" >> "{log}"\nexit 0\n')
+    timedatectl = tmp_path / "bin/timedatectl"
+    _executable(timedatectl, f"#!/bin/sh\necho {ntp_synchronized}\n")
+    env["TRACEGATE_TIMEDATECTL"] = str(timedatectl)
+    result = subprocess.run([str(script), "status"], env=env, check=True, capture_output=True, text=True)
+    return log.read_text(), result.stderr
+
+
+def test_rtc_clock_timer_is_left_off_when_network_time_is_synchronized(tmp_path: Path) -> None:
+    units, stderr = _status_units(tmp_path, ntp_synchronized="yes")
+    assert "tracegate-agent.service" in units
+    assert "tracegate-clock-sync-from-rtc.timer" not in units
+    assert "network time is synchronized; leaving the RTC clock timer off" in stderr
+
+
+def test_rtc_clock_timer_is_managed_without_network_time(tmp_path: Path) -> None:
+    units, stderr = _status_units(tmp_path, ntp_synchronized="no")
+    assert "tracegate-clock-sync-from-rtc.timer" in units
+    assert "leaving the RTC clock timer off" not in stderr

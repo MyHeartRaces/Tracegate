@@ -1,5 +1,38 @@
 # Changelog
 
+## v4.1.0 - 2026-11-12
+
+- Engine update supervisor (`tracegate-engine-update`, daily
+  `tracegate-engine-update.timer` in the night window). It discovers new
+  upstream images anonymously from the official registries without pulling,
+  requires a digest to stay the newest for a soak period (default three days)
+  before it is eligible, stages it by digest, runs the engine's own
+  configuration check against the live configuration, and activates it only
+  where an authenticated probe set exists and passes: one unit at a time, with
+  probes after each restart and automatic rollback to last-good on any
+  failure. Policies per role in `deploy/host/artifacts.json`: Endpoint Xray,
+  Hysteria (with the backhaul token), ShadowTLS, Prometheus and Grafana
+  activate automatically; Telemt and Entry Xray and Hysteria are staged,
+  checked and queued for operator approval. Semver tracks never cross a major
+  version. Operator commands: `status`, `approve [--no-soak]`, `reject`,
+  `hold on|off`. State and evidence in `/var/lib/tracegate/artifacts/updates.json`;
+  the agent exports update gauges and Grafana alerts labelled `notify=owner`
+  reach the bot.
+- A static check that fails for the running version too is treated as
+  inconclusive and queued, never as a rejection of the candidate.
+- The Reality probe uses the configured public key and never passes the
+  private key to a command line.
+- `tracegate-host-deploy` gives the artifact CLI the registry of the release
+  being deployed, so the first upgrade from a release without an artifact
+  store no longer fails at capture.
+- The Endpoint deploy loads the Hysteria port-hopping table on the live host
+  through the new `tracegate-hysteria-hop-apply` helper (only that table;
+  checked; persisted through the host `nftables.conf`).
+- Endpoint never renders a Telegram (MTProto) route on its public listeners;
+  `MTPROTO_DIRECT_BACKUP_HOST` no longer affects Endpoint routing.
+- The deploy leaves the RTC clock timer off when network time is already
+  synchronized, even if `TRACEGATE_ENABLE_RTC_CLOCK_SYNC=true`.
+
 ## v4.0.0 - 2026-11-12
 
 - Engine units never pull at start: every engine unit starts the image

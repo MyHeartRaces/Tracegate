@@ -1,0 +1,12 @@
+[Unit]
+Description=Tracegate daily engine update supervisor run
+
+[Timer]
+# 00:41 UTC is the quiet night window for the user base; engine restarts land there.
+OnCalendar=*-*-* 00:41:00 UTC
+RandomizedDelaySec=90min
+AccuracySec=1m
+Persistent=true
+
+[Install]
+WantedBy=timers.target

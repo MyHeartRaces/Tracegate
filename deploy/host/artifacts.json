@@ -12,7 +12,14 @@
       "container_prefixes": [
         "tracegate-xray-",
         "tracegate-backhaul-fragment-"
-      ]
+      ],
+      "update": {
+        "track": "channel"
+      },
+      "policy": {
+        "endpoint": "auto",
+        "entry": "notify"
+      }
     },
     "telemt": {
       "image": "ghcr.io/telemt/telemt",
@@ -22,7 +29,14 @@
       ],
       "container_prefixes": [
         "tracegate-mtproto-"
-      ]
+      ],
+      "update": {
+        "track": "channel"
+      },
+      "policy": {
+        "endpoint": "notify",
+        "entry": "notify"
+      }
     },
     "shadowtls": {
       "image": "ghcr.io/ihciah/shadow-tls",
@@ -35,7 +49,14 @@
       ],
       "container_prefixes": [
         "tracegate-shadowtls"
-      ]
+      ],
+      "update": {
+        "track": "channel"
+      },
+      "policy": {
+        "endpoint": "auto",
+        "entry": "auto"
+      }
     },
     "hysteria": {
       "image": "docker.io/tobyxdd/hysteria",
@@ -46,7 +67,15 @@
       ],
       "container_prefixes": [
         "tracegate-hysteria-"
-      ]
+      ],
+      "update": {
+        "track": "semver",
+        "allow": "v2.*"
+      },
+      "policy": {
+        "endpoint": "auto",
+        "entry": "notify"
+      }
     },
     "prometheus": {
       "image": "prom/prometheus",
@@ -56,7 +85,15 @@
       ],
       "container_prefixes": [
         "tracegate-prometheus"
-      ]
+      ],
+      "update": {
+        "track": "semver",
+        "allow": "v3.*"
+      },
+      "policy": {
+        "endpoint": "auto",
+        "entry": "notify"
+      }
     },
     "grafana": {
       "image": "grafana/grafana",
@@ -66,7 +103,15 @@
       ],
       "container_prefixes": [
         "tracegate-grafana"
-      ]
+      ],
+      "update": {
+        "track": "semver",
+        "allow": "13.*"
+      },
+      "policy": {
+        "endpoint": "auto",
+        "entry": "notify"
+      }
     }
   }
 }

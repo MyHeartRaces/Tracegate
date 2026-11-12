@@ -63,6 +63,12 @@ def check_host_runtime(root: Path) -> None:
     _require(host_install, "90-tracegate-quic.conf", label="host installer")
     _require(host_install, '"${SYSCTL}" -p', label="host installer")
     _require(host_install, "tracegate-network-qdisc", label="host installer")
+    _require(host_install, "tracegate-hysteria-hop-apply", label="host installer")
+    hop_apply = _read(root / "deploy/host/tracegate-hysteria-hop-apply")
+    _require(hop_apply, "table inet tracegate_hysteria_hop", label="hysteria hop helper")
+    _require(hop_apply, '-c -f "${tmp}"', label="hysteria hop helper")
+    host_deploy_script = _read(root / "deploy/host/tracegate-host-deploy")
+    _require(host_deploy_script, "apply_hysteria_hop_table", label="host deploy")
 
     qdisc_script = _read(root / "deploy/host/tracegate-network-qdisc")
     _require(qdisc_script, 'qdisc replace dev "${interface}" root fq', label="host qdisc helper")

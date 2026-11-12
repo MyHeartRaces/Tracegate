@@ -2,7 +2,8 @@
 
 Tracegate engine units never pull at start. Each component records its
 active image by immutable digest in a local store; ``stage`` is the only
-operation that contacts a registry, and it is an explicit operator action.
+operation that pulls, run by the operator or by the engine update supervisor
+(which pulls by digest after its soak period).
 
 This module is standard-library only: it must import without the project's
 third-party dependencies and must never call docker except through the
@@ -67,6 +68,21 @@ def _default_runner(argv: list[str]) -> subprocess.CompletedProcess[str]:
     return subprocess.run(argv, capture_output=True, text=True)
 
 
+UPDATE_TRACKS = ("channel", "semver")
+UPDATE_POLICIES = ("auto", "notify")
+HOST_ROLES = ("endpoint", "entry")
+# A semver allow pattern pins one major version: "v2.*", "3.*".
+_ALLOW_RE = re.compile(r"^(v?)(0|[1-9][0-9]*)\.\*$")
+
+
+@dataclass(frozen=True)
+class UpdateSpec:
+    """How the engine update supervisor follows a component upstream."""
+
+    track: str
+    allow: str | None = None
+
+
 @dataclass(frozen=True)
 class Component:
     name: str
@@ -74,6 +90,15 @@ class Component:
     channel: str
     units: tuple[str, ...]
     container_prefixes: tuple[str, ...]
+    update: UpdateSpec | None = None
+    # (role, policy) pairs; a role without an entry is "notify".
+    policy: tuple[tuple[str, str], ...] = ()
+
+    def policy_for(self, role: str) -> str:
+        for policy_role, value in self.policy:
+            if policy_role == role:
+                return value
+        return "notify"
 
 
 @dataclass(frozen=True)
@@ -105,6 +130,32 @@ def _validate_repo(value: Any, *, label: str) -> str:
     return value
 
 
+def _validate_update(name: str, value: Any) -> UpdateSpec:
+    _require(isinstance(value, dict), f"component {name} update must be an object")
+    track = value.get("track")
+    _require(track in UPDATE_TRACKS, f"component {name} update.track must be one of {', '.join(UPDATE_TRACKS)}")
+    if track == "channel":
+        _require(set(value) == {"track"}, f"component {name} update with track channel takes no other keys")
+        return UpdateSpec(track="channel")
+    _require(set(value) == {"track", "allow"}, f"component {name} update with track semver needs exactly track and allow")
+    allow = value["allow"]
+    _require(
+        isinstance(allow, str) and _ALLOW_RE.match(allow) is not None,
+        f"component {name} update.allow must pin one major version like v2.* or 13.*: {allow!r}",
+    )
+    return UpdateSpec(track="semver", allow=allow)
+
+
+def _validate_policy(name: str, value: Any) -> tuple[tuple[str, str], ...]:
+    _require(isinstance(value, dict), f"component {name} policy must be an object")
+    pairs: list[tuple[str, str]] = []
+    for role, policy in value.items():
+        _require(role in HOST_ROLES, f"component {name} policy has an unknown role: {role!r}")
+        _require(policy in UPDATE_POLICIES, f"component {name} policy for {role} must be auto or notify")
+        pairs.append((role, policy))
+    return tuple(pairs)
+
+
 def load_registry(path: Path) -> Registry:
     try:
         raw = Path(path).read_text(encoding="utf-8")
@@ -124,9 +175,11 @@ def load_registry(path: Path) -> Registry:
     for name, spec in raw_components.items():
         _require(isinstance(name, str) and _NAME_RE.match(name) is not None, f"invalid component name: {name!r}")
         _require(isinstance(spec, dict), f"component {name} must be an object")
+        required_keys = {"image", "channel", "units", "container_prefixes"}
         _require(
-            set(spec) == {"image", "channel", "units", "container_prefixes"},
-            f"component {name} must contain exactly image, channel, units and container_prefixes",
+            required_keys <= set(spec) <= required_keys | {"update", "policy"},
+            f"component {name} must contain exactly image, channel, units and container_prefixes "
+            "(plus optional update and policy)",
         )
         image = _validate_repo(spec["image"], label=f"component {name} image")
         _require(isinstance(spec["channel"], str) and spec["channel"], f"component {name} channel must be a non-empty string")
@@ -147,6 +200,8 @@ def load_registry(path: Path) -> Registry:
             channel=spec["channel"],
             units=tuple(units),
             container_prefixes=tuple(prefixes),
+            update=_validate_update(name, spec["update"]) if "update" in spec else None,
+            policy=_validate_policy(name, spec["policy"]) if "policy" in spec else (),
         )
     return Registry(schema_version=1, components=components)
 
@@ -294,6 +349,22 @@ class ArtifactStore:
             handle.write(json.dumps(entry, sort_keys=True) + "\n")
         os.chmod(self.root / "journal.jsonl", 0o644)
 
+    def record(
+        self,
+        action: str,
+        component: str,
+        *,
+        reference: str | None = None,
+        previous: str | None = None,
+        detail: str | None = None,
+    ) -> None:
+        """Append an entry to the artifact journal (used by the update supervisor).
+
+        ``component`` "*" records a store-wide action such as an update hold.
+        """
+        name = component if component == "*" else self._component(component).name
+        self._journal(action, name, reference=reference, previous=previous, detail=detail)
+
     def _read_env(self, section: str, component: str) -> str | None:
         path = self._env_path(section, component)
         try:
@@ -341,6 +412,25 @@ class ArtifactStore:
             f"local image {image} has no repo digest for {repo}; "
             "the registry did not return a digest (image built locally?)"
         )
+
+    def _has_repo_digest(self, image: str, repo: str, digest: str) -> bool:
+        output = self._docker(
+            ["image", "inspect", "--format", "{{json .RepoDigests}}", image],
+            what=f"image inspect {image}",
+        ).strip()
+        try:
+            repo_digests = json.loads(output)
+        except json.JSONDecodeError as exc:
+            raise ArtifactError(f"could not parse RepoDigests for {image}: {output!r}") from exc
+        if not isinstance(repo_digests, list):
+            raise ArtifactError(f"unexpected RepoDigests for {image}: {output!r}")
+        expected = normalize_repo(repo)
+        for entry in repo_digests:
+            if isinstance(entry, str) and "@" in entry:
+                entry_repo, entry_digest = entry.rsplit("@", 1)
+                if normalize_repo(entry_repo) == expected and entry_digest == digest:
+                    return True
+        return False
 
     def _running_containers(self, component: Component) -> list[RunningContainer]:
         output = self._docker(
@@ -420,16 +510,35 @@ class ArtifactStore:
         self._journal("capture", component.name, reference=reference, detail=detail)
         return CaptureResult(component=component.name, reference=reference, noop=False)
 
-    def stage(self, component_name: str, *, tag: str | None = None) -> str:
-        """Fetch a candidate image. The only operation that pulls."""
+    def stage(self, component_name: str, *, tag: str | None = None, digest: str | None = None) -> str:
+        """Fetch a candidate image. The only operation that pulls.
+
+        With ``digest`` the image is pulled by that immutable digest (``tag``
+        is then only recorded as a label) and the pulled image must report the
+        same repo digest; otherwise the tag (default: the channel) is pulled.
+        """
         component = self._component(component_name)
-        tag = tag or component.channel
-        if not tag or any(char in tag for char in "@:"):
-            raise ArtifactError(f"invalid tag for {component.name}: {tag!r}")
-        tagged = f"{component.image}:{tag}"
-        self._docker(["pull", tagged], what=f"pull {tagged}")
-        digest = self._repo_digest(tagged, component.image).split("@", 1)[1]
-        reference = f"{component.image}@{digest}"
+        if digest is not None:
+            if not digest.startswith("sha256:") or _DIGEST_RE.match(digest[len("sha256:"):]) is None:
+                raise ArtifactError(f"invalid digest for {component.name}: {digest!r}")
+            if tag is not None and (not tag or any(char in tag for char in "@:")):
+                raise ArtifactError(f"invalid tag for {component.name}: {tag!r}")
+            reference = f"{component.image}@{digest}"
+            self._docker(["pull", reference], what=f"pull {reference}")
+            if not self._has_repo_digest(reference, component.image, digest):
+                raise ArtifactError(
+                    f"pulled image does not report the expected digest {digest} for {component.image}"
+                )
+            detail = f"digest {digest}" + (f" tag {tag}" if tag else "")
+        else:
+            tag = tag or component.channel
+            if not tag or any(char in tag for char in "@:"):
+                raise ArtifactError(f"invalid tag for {component.name}: {tag!r}")
+            tagged = f"{component.image}:{tag}"
+            self._docker(["pull", tagged], what=f"pull {tagged}")
+            pulled = self._repo_digest(tagged, component.image).split("@", 1)[1]
+            reference = f"{component.image}@{pulled}"
+            detail = f"tag {tag}"
 
         path = self._candidates_path(component.name)
         try:
@@ -440,8 +549,11 @@ class ArtifactStore:
             raise ArtifactError(f"candidate store is corrupt: {path}")
         candidates.append({"reference": reference, "tag": tag, "staged_at": _utc_now()})
         self._atomic_write(path, json.dumps(candidates, indent=2) + "\n")
-        self._journal("stage", component.name, reference=reference, detail=f"tag {tag}")
+        self._journal("stage", component.name, reference=reference, detail=detail)
         return reference
+
+    def image_present(self, reference: str) -> bool:
+        return self._image_present(reference)
 
     def promote(self, component_name: str, reference: str) -> PromoteResult:
         """Make a digest reference active. Returns the component's unit names."""
@@ -487,6 +599,24 @@ class ArtifactStore:
             self._atomic_write(self._env_path("last-good", component.name), format_env(active))
         self._journal("rollback", component.name, reference=last_good, previous=active)
         return last_good, active if active is not None else last_good
+
+    def restore_last_good(self, component_name: str, reference: str | None) -> None:
+        """Rewrite last-good after an automatic rollback.
+
+        ``rollback`` swaps active and last-good, which would leave a rejected
+        candidate recorded as last-good. The update supervisor restores the
+        last-good it saw before promoting (or removes it when there was none).
+        """
+        component = self._component(component_name)
+        path = self._env_path("last-good", component.name)
+        current = self._read_env("last-good", component.name)
+        if reference is None:
+            if path.exists():
+                path.unlink()
+        else:
+            parse_reference(reference, expected_repo=component.image)
+            self._atomic_write(path, format_env(reference))
+        self._journal("restore-last-good", component.name, reference=reference, previous=current)
 
     def _verify_component(self, component: Component) -> list[Problem]:
         problems: list[Problem] = []

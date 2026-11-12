@@ -73,7 +73,9 @@ def test_issued_links_contain_only_entry_443(tmp_path: Path) -> None:
     assert (profile["server"], profile["port"]) == ("proxied.tracegate.test", 443)
     assert "port=443" in profile["tgUri"]
     assert "backup.tracegate.test" not in json.dumps(profile)
-    assert "8443" not in json.dumps(profile)
+    ports = {profile.get("port")} | {row.get("port") for row in profile.get("links", [])}
+    assert 8443 not in ports
+    assert "port=8443" not in json.dumps(profile)
 
 
 def test_tunnel_without_backup_host_is_unchanged(tmp_path: Path) -> None:

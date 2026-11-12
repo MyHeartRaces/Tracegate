@@ -1630,6 +1630,96 @@ def _ops_alert_rules(
             for_duration="5m",
             no_data_state="OK",
         ),
+        *_engine_update_alert_rules(
+            ds_uid, folder_uid=folder_uid, group=group, base_labels=base_labels
+        ),
+    ]
+
+
+def _engine_update_alert_rules(
+    ds_uid: str,
+    *,
+    folder_uid: str,
+    group: str,
+    base_labels: dict[str, str],
+) -> list[dict[str, Any]]:
+    """Engine update supervisor notifications (warning; owner-notified via the bot webhook).
+
+    The gauges come from each host's agent /metrics (read from updates.json),
+    so Entry needs no extra credentials. The `notify=owner` label makes the
+    API webhook forward these failed-state warnings to Telegram.
+    """
+    labels = {**base_labels, "severity": "warning", "notify": "owner"}
+    return [
+        _slo_alert_rule(
+            uid="tg-ops-engine-update-pending",
+            title="OPS: engine update awaits approval",
+            folder_uid=folder_uid,
+            group=group,
+            ds_uid=ds_uid,
+            expr="max by (component, role) (tracegate_engine_update_pending)",
+            evaluator="gt",
+            threshold=0.0,
+            annotations={
+                "summary": "An engine update is staged and checked but needs operator approval",
+                "description": (
+                    "Policy, an incomplete probe set, a hold or a failed baseline kept the "
+                    "supervisor from activating it; see tracegate-engine-update status"
+                ),
+            },
+            labels={**labels, "slo_type": "engine_update_pending"},
+            for_duration="5m",
+            no_data_state="OK",
+        ),
+        _slo_alert_rule(
+            uid="tg-ops-engine-update-rejected",
+            title="OPS: engine update rejected",
+            folder_uid=folder_uid,
+            group=group,
+            ds_uid=ds_uid,
+            expr=(
+                "time() - max by (component, role) "
+                "(tracegate_engine_update_last_rejected_timestamp_seconds)"
+            ),
+            evaluator="lt",
+            threshold=86400.0,
+            annotations={
+                "summary": "An engine update candidate was rejected in the last 24 hours",
+                "description": (
+                    "A static check or a post-switch probe failed; a post-switch failure was "
+                    "rolled back to the last-good digest. Evidence: tracegate-engine-update status"
+                ),
+            },
+            labels={**labels, "slo_type": "engine_update_rejected"},
+            for_duration="1m",
+            no_data_state="OK",
+        ),
+        _slo_alert_rule(
+            uid="tg-ops-engine-update-stale",
+            title="OPS: engine update supervisor not succeeding",
+            folder_uid=folder_uid,
+            group=group,
+            ds_uid=ds_uid,
+            expr=(
+                # A host that ran but never succeeded counts from the epoch.
+                'label_replace(time() - max by (role) '
+                '(tracegate_engine_update_last_success_timestamp_seconds '
+                'or (tracegate_engine_update_last_run_timestamp_seconds * 0)), '
+                '"component", "engine-update", "", "")'
+            ),
+            evaluator="gt",
+            threshold=3 * 86400.0,
+            annotations={
+                "summary": "The engine update supervisor has not finished a clean run for 3 days",
+                "description": (
+                    "Discovery, staging or checks keep failing, or a rollback happened; "
+                    "see journalctl -u tracegate-engine-update and tracegate-engine-update status"
+                ),
+            },
+            labels={**labels, "slo_type": "engine_update_stale"},
+            for_duration="30m",
+            no_data_state="OK",
+        ),
     ]
 
 
@@ -1778,7 +1868,8 @@ async def _upsert_notification_policies_for_slo(
     # Grafana's built-in default receiver is email. Production does not
     # configure SMTP, so unmatched warnings must not fall through to it.
     # The Tracegate API webhook accepts non-critical alerts as a no-op and
-    # forwards only critical alerts to Telegram admins.
+    # forwards only critical alerts (and failed alerts labelled notify=owner,
+    # such as engine update notices) to Telegram admins.
     root["receiver"] = receiver_name
     root["routes"] = new_routes
 

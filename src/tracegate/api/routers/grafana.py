@@ -591,6 +591,28 @@ def _grafana_alert_webhook_has_critical(payload: dict[str, Any]) -> bool:
     return str(common_labels.get("severity") or "").strip().lower() == "critical"
 
 
+def _grafana_alert_webhook_notifies_owner(payload: dict[str, Any]) -> bool:
+    """Failed-state alerts labelled ``notify=owner`` reach Telegram at any severity.
+
+    Used by the engine update notifications (warning severity). No-data and
+    query-error states of those rules stay silent like every other warning.
+    """
+    alerts = payload.get("alerts")
+    for alert in alerts if isinstance(alerts, list) else []:
+        if not isinstance(alert, dict):
+            continue
+        labels = alert.get("labels") if isinstance(alert.get("labels"), dict) else {}
+        if _grafana_alert_state(labels) in {"no_data", "error"}:
+            continue
+        if str(labels.get("notify") or "").strip().lower() == "owner":
+            return True
+    return False
+
+
+def _grafana_alert_webhook_should_forward(payload: dict[str, Any]) -> bool:
+    return _grafana_alert_webhook_has_critical(payload) or _grafana_alert_webhook_notifies_owner(payload)
+
+
 def _grafana_alert_node_alias(node: str) -> str:
     normalized = (node or "").strip().lower()
     aliases = {
@@ -907,7 +929,7 @@ async def grafana_alerting_webhook(
     payload = raw if isinstance(raw, dict) else {"payload": raw}
 
     text, alert_count, status_raw = _format_grafana_alert_webhook_message(payload)
-    if not _grafana_alert_webhook_has_critical(payload):
+    if not _grafana_alert_webhook_should_forward(payload):
         logger.info(
             "grafana_alert_webhook_non_critical_ignored alerts=%s status=%s",
             alert_count,

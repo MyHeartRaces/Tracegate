@@ -29,6 +29,10 @@ change an engine version, and an unreachable registry never blocks a start.
 New engine versions are staged explicitly with `tracegate-artifacts stage`,
 probed, promoted and restarted one unit at a time; `tracegate-artifacts
 status` reports drift between running containers and the recorded digests.
+`tracegate-engine-update.timer` runs `tracegate-engine-update run` daily
+(oneshot service): it follows the same promote, restart-one-unit, probe and
+rollback path and activates only where policy and a complete authenticated
+probe set allow it (see "Engine updates" in `docs/operator-workflow.md`).
 Environment-specific values stay outside the release. The `tracegate-shadowtls-backhaul-env`,
 `tracegate-shadowtls-backhaul2-env`, `tracegate-shadowtls-entry-env` and
 `tracegate-shadowtls-entry2-env` helpers derive the root-only ShadowTLS service

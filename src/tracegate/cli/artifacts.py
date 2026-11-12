@@ -2,7 +2,8 @@
 
 Engine units never pull at start: they run the image recorded by immutable
 digest in the local store. This CLI records, promotes, rolls back and checks
-those digests. ``stage`` is the only subcommand that contacts a registry.
+those digests. ``stage`` is the only subcommand that pulls (the engine update
+supervisor only reads upstream manifests and stages through this store).
 
 Exit codes: 0 success, 1 problems found or operation refused, 2 usage error.
 """
@@ -137,10 +138,15 @@ def _cmd_stage(args: argparse.Namespace) -> int:
     component = store.registry.components.get(args.component)
     if component is None:
         raise UsageError(f"unknown component: {args.component}")
-    reference = store.stage(args.component, tag=args.tag)
+    digest = getattr(args, "digest", None)
+    reference = store.stage(args.component, tag=args.tag, digest=digest)
     _emit(
         args,
-        {"component": args.component, "reference": reference, "tag": args.tag or component.channel},
+        {
+            "component": args.component,
+            "reference": reference,
+            "tag": args.tag if digest else (args.tag or component.channel),
+        },
         f"{args.component}: staged {reference}\n"
         f"next: probe it, then tracegate-artifacts promote {args.component} {reference}",
     )
@@ -290,6 +296,10 @@ def build_parser() -> argparse.ArgumentParser:
     stage = subparsers.add_parser("stage", parents=[common], help="pull a candidate image (the only pull)")
     stage.add_argument("component", help="component name")
     stage.add_argument("--tag", help="upstream tag to pull (default: the registry channel)")
+    stage.add_argument(
+        "--digest",
+        help="pull exactly this sha256:<digest> and verify it (with --tag, the tag is only recorded)",
+    )
 
     promote = subparsers.add_parser("promote", parents=[common], help="make a digest reference active")
     promote.add_argument("component", help="component name")

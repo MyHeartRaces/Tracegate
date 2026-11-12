@@ -224,6 +224,9 @@ class Settings(BaseSettings):
     agent_peer_probe_role: str = ""
     # Optional HAProxy runtime socket. The agent only reads `show stat`.
     agent_haproxy_stats_socket: str = ""
+    # Engine update supervisor state (artifact store root). The agent only
+    # reads updates.json/updates.hold here to export update gauges.
+    agent_engine_updates_dir: str = "/var/lib/tracegate/artifacts"
     agent_stats_secret: str = ""
     agent_dry_run: bool = True
     # Native systemd is the only supported production runtime.

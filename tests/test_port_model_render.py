@@ -75,7 +75,7 @@ def test_transit_haproxy_binds_443_and_8443_with_identical_dispatch(tmp_path: Pa
     assert binds == ["bind :443", "bind :8443"]
     # Both binds share one frontend, so every ACL/route applies to both ports.
     stripped = [line.strip() for line in block]
-    assert "use_backend be_transit_mtproto if mtproto_tls_sni { dst_port 443 }" in stripped
+    assert not any("mtproto" in line for line in stripped)
     assert "use_backend be_transit_ws_tls if ws_tls_sni" in stripped
     assert stripped[-1] == "default_backend be_transit_reality"
     assert rendered["transit_haproxy"].count("frontend ") == 2
@@ -108,12 +108,12 @@ def test_entry_never_renders_tcp_8443_even_with_legacy_alt_port_env(tmp_path: Pa
     assert ":8443" not in stale["entry_haproxy"]
 
 
-def test_transit_serves_mtproto_only_on_443(tmp_path: Path) -> None:
-    # Telegram is delivered only through Entry. Endpoint keeps routing the
-    # FakeTLS SNI on TCP/443 for links saved earlier, never on TCP/8443.
-    block = _frontend(_render(tmp_path)["transit_haproxy"], "fe_tracegate_transit_tls")
-    routes = [line.strip() for line in block if "be_transit_mtproto" in line]
-    assert routes == ["use_backend be_transit_mtproto if mtproto_tls_sni { dst_port 443 }"]
+def test_transit_never_routes_telegram(tmp_path: Path) -> None:
+    # Telegram is served only through Entry on TCP/443. Endpoint renders no
+    # MTProto ACL, route or backend on any public port, even with the legacy
+    # direct backup host set.
+    transit = _render(tmp_path)["transit_haproxy"]
+    assert "mtproto" not in transit
 
 
 def test_hysteria_hop_table_is_not_rendered_without_ranges(tmp_path: Path) -> None:

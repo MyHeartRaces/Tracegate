@@ -1672,25 +1672,12 @@ def render_materialized_bundles(ctx: MaterializedBundleRenderContext) -> None:
         "REPLACE_TLS_SERVER_NAME",
         transit_web_tls_server_names,
     )
+    # Telegram Proxy is served only through Entry on TCP/443 (Entry -> link ->
+    # Endpoint-local Telemt). Endpoint never routes the FakeTLS name on its
+    # public listeners, whatever MTPROTO_DIRECT_BACKUP_HOST says.
     mtproto_acl = ""
     mtproto_route = ""
     mtproto_backend = ""
-    if (
-        ctx.mtproto_route_mode == "entry-endpoint-tunnel"
-        and ctx.mtproto_domain
-        and ctx.mtproto_direct_backup_host
-    ):
-        # Legacy direct backup: the Endpoint public :443 demux forwards the
-        # same FakeTLS SNI to Endpoint-local Telemt so links users saved
-        # earlier keep working. New deliveries use only Entry -> :9445. The
-        # route is limited to TCP/443: Telegram is never served on TCP/8443.
-        mtproto_sni = str(ctx.mtproto_tls_domain or ctx.mtproto_domain).strip()
-        mtproto_acl = f"  acl mtproto_tls_sni req.ssl_sni -i {mtproto_sni}"
-        mtproto_route = "  use_backend be_transit_mtproto if mtproto_tls_sni { dst_port 443 }"
-        mtproto_backend = (
-            "\nbackend be_transit_mtproto\n"
-            f"  server transit_mtproto 127.0.0.1:{ctx.mtproto_link_port} check send-proxy-v2\n"
-        )
     transit_haproxy = transit_haproxy.replace("REPLACE_MTPROTO_ACL", mtproto_acl)
     transit_haproxy = transit_haproxy.replace("REPLACE_MTPROTO_ROUTE", mtproto_route)
     transit_haproxy = transit_haproxy.replace("REPLACE_MTPROTO_BACKEND", mtproto_backend)

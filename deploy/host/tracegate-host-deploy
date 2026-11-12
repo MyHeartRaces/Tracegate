@@ -12,6 +12,7 @@ LETSENCRYPT_DEPLOY_HOOK_DIR="${TRACEGATE_LETSENCRYPT_DEPLOY_HOOK_DIR:-/etc/letse
 SYSTEMCTL="${TRACEGATE_SYSTEMCTL:-systemctl}"
 CURL="${TRACEGATE_CURL:-curl}"
 SYSCTL="${TRACEGATE_SYSCTL:-sysctl}"
+TIMEDATECTL="${TRACEGATE_TIMEDATECTL:-timedatectl}"
 PYTHON="${TRACEGATE_PYTHON:-python3}"
 HEALTH_ATTEMPTS="${TRACEGATE_HEALTH_ATTEMPTS:-60}"
 HEALTH_DELAY_SECONDS="${TRACEGATE_HEALTH_DELAY_SECONDS:-2}"
@@ -46,6 +47,7 @@ load_deploy_env() {
         tracegate-dispatcher.service
         tracegate-bot.service
         tracegate-db-backup.timer
+        tracegate-engine-update.timer
       )
       HEALTH_URLS=(
         "${TRACEGATE_API_HEALTH_URL:-http://127.0.0.1:18080/ready}"
@@ -66,6 +68,7 @@ load_deploy_env() {
         tracegate-backhaul-fragment@2.service
         tracegate-shadowtls-entry.service
         tracegate-shadowtls-entry2.service
+        tracegate-engine-update.timer
       )
       HEALTH_URLS=("${TRACEGATE_AGENT_HEALTH_URL:-http://127.0.0.1:8070/v1/health}")
       ;;
@@ -73,8 +76,15 @@ load_deploy_env() {
   esac
   case "${TRACEGATE_ENABLE_RTC_CLOCK_SYNC:-false}" in
     true|TRUE|1|yes|YES)
-      RTC_CLOCK_SYNC_ENABLED=1
-      ROLE_UNITS+=(tracegate-clock-sync-from-rtc.timer)
+      # A host whose network time sync is already synchronized (for example
+      # chrony against Endpoint) must not also be reset from its RTC.
+      if [ "$("${TIMEDATECTL}" show -p NTPSynchronized --value 2>/dev/null || true)" = yes ]; then
+        RTC_CLOCK_SYNC_ENABLED=0
+        echo "TRACEGATE_ENABLE_RTC_CLOCK_SYNC is set but network time is synchronized; leaving the RTC clock timer off" >&2
+      else
+        RTC_CLOCK_SYNC_ENABLED=1
+        ROLE_UNITS+=(tracegate-clock-sync-from-rtc.timer)
+      fi
       ;;
     false|FALSE|0|no|NO|"") RTC_CLOCK_SYNC_ENABLED=0 ;;
     *) die "TRACEGATE_ENABLE_RTC_CLOCK_SYNC must be true or false" ;;
@@ -141,6 +151,8 @@ sync_release_files() {
     install -m 0755 "${runtime}/deploy/host/tracegate-db-backup" "${LOCAL_SBIN_DIR}/tracegate-db-backup"
   [ ! -f "${runtime}/deploy/host/tracegate-network-qdisc" ] || \
     install -m 0755 "${runtime}/deploy/host/tracegate-network-qdisc" "${LOCAL_SBIN_DIR}/tracegate-network-qdisc"
+  [ ! -f "${runtime}/deploy/host/tracegate-hysteria-hop-apply" ] || \
+    install -m 0755 "${runtime}/deploy/host/tracegate-hysteria-hop-apply" "${LOCAL_SBIN_DIR}/tracegate-hysteria-hop-apply"
   [ ! -f "${runtime}/deploy/host/tracegate-certbot-deploy-hook" ] || \
     install -m 0755 "${runtime}/deploy/host/tracegate-certbot-deploy-hook" \
       "${LETSENCRYPT_DEPLOY_HOOK_DIR}/reload-tracegate-tls.sh"
@@ -219,13 +231,21 @@ artifacts_cli_path() {
   printf '%s' "${TRACEGATE_ARTIFACTS_CLI:-$(release_path "${version}")/venv/bin/tracegate-artifacts}"
 }
 
+# The artifact CLI must read the registry of the release being deployed: on
+# the first upgrade the current release may predate the artifact store and
+# ship no registry at all.
+artifacts_registry() {
+  printf '%s' "${TRACEGATE_ARTIFACTS_REGISTRY:-$(release_path "$1")/runtime/deploy/host/artifacts.json}"
+}
+
 artifacts_status() {
   local version="$1" cli
   # Read-only preflight reporting: never writes and never blocks the deploy.
   [ -d "${TRACEGATE_ARTIFACTS_DIR:-/var/lib/tracegate/artifacts}" ] || return 0
   cli="$(artifacts_cli_path "${version}")"
   [ -x "${cli}" ] || return 0
-  "${cli}" status --units "${ROLE_UNITS[@]}" || true
+  TRACEGATE_ARTIFACTS_REGISTRY="$(artifacts_registry "${version}")" \
+    "${cli}" status --units "${ROLE_UNITS[@]}" || true
 }
 
 preflight() {
@@ -261,6 +281,18 @@ ensure_hysteria_hop_ranges() {
   done
 }
 
+# Load the port-hopping redirect table that matches the ranges in the runtime
+# environment. A failure is reported loudly but does not roll back a release
+# that is already healthy: hopping clients still reach the listener port.
+apply_hysteria_hop_table() {
+  local helper="${TRACEGATE_HYSTERIA_HOP_APPLY:-${LOCAL_SBIN_DIR}/tracegate-hysteria-hop-apply}"
+  if [ ! -x "${helper}" ]; then
+    echo "WARNING: ${helper} is missing; Hysteria port hopping is not loaded" >&2
+    return 0
+  fi
+  "${helper}" "${RUNTIME_ENV}" || echo "WARNING: Hysteria port-hopping table failed to load; run ${helper} by hand" >&2
+}
+
 deploy() {
   local version="$1" release artifacts_cli
   preflight "${version}"
@@ -270,8 +302,10 @@ deploy() {
   # Record the digests of the engines that are still running and refuse the
   # deploy unless the store can satisfy every engine unit of this role. This
   # runs before any state changes: capture needs the old containers up.
-  "${artifacts_cli}" capture --units "${ROLE_UNITS[@]}"
-  "${artifacts_cli}" verify --units "${ROLE_UNITS[@]}"
+  TRACEGATE_ARTIFACTS_REGISTRY="$(artifacts_registry "${version}")" \
+    "${artifacts_cli}" capture --units "${ROLE_UNITS[@]}"
+  TRACEGATE_ARTIFACTS_REGISTRY="$(artifacts_registry "${version}")" \
+    "${artifacts_cli}" verify --units "${ROLE_UNITS[@]}"
   if [ "${TRACEGATE_HOST_ROLE}" = endpoint ]; then
     [ -n "${TRACEGATE_BACKUP_COMMAND:-}" ] || die "TRACEGATE_BACKUP_COMMAND is required on Endpoint"
     bash -lc "${TRACEGATE_BACKUP_COMMAND}"
@@ -299,6 +333,9 @@ deploy() {
   printf '%s\n' "${version}" >"${STATE_DIR}/active-version"
   chmod 0600 "${STATE_DIR}/active-version"
   echo "native host release ${version} is healthy"
+  if [ "${TRACEGATE_HOST_ROLE}" = endpoint ]; then
+    apply_hysteria_hop_table
+  fi
 }
 
 rollback() {

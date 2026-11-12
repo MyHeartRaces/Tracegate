@@ -1,0 +1,35 @@
+[Unit]
+Description=Tracegate engine update supervisor (discover, soak, stage, check, probe-gated activation)
+After=network-online.target docker.service
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=oneshot
+# Host role and runtime env paths; the CLI reads the role's runtime env file
+# (TRACEGATE_RUNTIME_ENV or TRACEGATE_ENTRY_RUNTIME_ENV) for probe settings.
+EnvironmentFile=/etc/tracegate/deploy.env
+WorkingDirectory=/opt/tracegate/current
+ExecStart=/opt/tracegate/venv/bin/tracegate-engine-update run
+User=root
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+TimeoutStartSec=2h
+UMask=0077
+NoNewPrivileges=yes
+ProtectSystem=full
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+RestrictNamespaces=yes
+LockPersonality=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+SystemCallArchitectures=native

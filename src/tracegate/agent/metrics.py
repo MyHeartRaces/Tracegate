@@ -12,6 +12,7 @@ import httpx
 from prometheus_client import REGISTRY
 from prometheus_client.core import GaugeMetricFamily
 
+from tracegate.services.engine_updates import metrics_snapshot as engine_update_metrics_snapshot
 from tracegate.services.hysteria_markers import normalize_hysteria_connection_marker
 from tracegate.services.runtime_contract import resolve_runtime_contract
 from tracegate.settings import Settings, effective_private_runtime_root
@@ -349,6 +350,72 @@ def _obfuscation_runtime_state(settings: Settings) -> dict[str, object] | None:
     return _load_json_mapping(path)
 
 
+def _engine_update_metrics(settings: Settings):  # noqa: ANN202
+    """Gauges from the engine update supervisor state (updates.json / updates.hold).
+
+    Read-only and secret-free: counts and timestamps only, so the Entry host
+    can raise alerts through the existing Prometheus -> Grafana -> bot path.
+    """
+    root = Path(str(getattr(settings, "agent_engine_updates_dir", "") or "/var/lib/tracegate/artifacts"))
+    snapshot = engine_update_metrics_snapshot(root)
+    role = snapshot["role"] or str(settings.agent_role or "").strip().lower()
+    present = GaugeMetricFamily(
+        "tracegate_engine_update_state_present",
+        "Whether the engine update supervisor state file exists and parses",
+        labels=["role"],
+    )
+    present.add_metric([role], 1 if snapshot["present"] else 0)
+    yield present
+    hold = GaugeMetricFamily(
+        "tracegate_engine_update_hold",
+        "Whether automatic engine activation is on hold (1=hold)",
+        labels=["role"],
+    )
+    hold.add_metric([role], 1 if snapshot["hold"] else 0)
+    yield hold
+    if not snapshot["present"]:
+        return
+    last_run = GaugeMetricFamily(
+        "tracegate_engine_update_last_run_timestamp_seconds",
+        "Unix time of the latest engine update supervisor run",
+        labels=["role"],
+    )
+    last_success = GaugeMetricFamily(
+        "tracegate_engine_update_last_success_timestamp_seconds",
+        "Unix time of the latest engine update run that finished without errors",
+        labels=["role"],
+    )
+    if snapshot["last_run"] is not None:
+        last_run.add_metric([role], snapshot["last_run"])
+    if snapshot["last_success"] is not None:
+        last_success.add_metric([role], snapshot["last_success"])
+    yield last_run
+    yield last_success
+    pending = GaugeMetricFamily(
+        "tracegate_engine_update_pending",
+        "Engine update candidates waiting for operator approval",
+        labels=["component", "role"],
+    )
+    rejected = GaugeMetricFamily(
+        "tracegate_engine_update_rejected",
+        "Engine update candidates rejected (never retried)",
+        labels=["component", "role"],
+    )
+    last_rejected = GaugeMetricFamily(
+        "tracegate_engine_update_last_rejected_timestamp_seconds",
+        "Unix time of the latest rejected engine update candidate",
+        labels=["component", "role"],
+    )
+    for component, row in snapshot["components"].items():
+        pending.add_metric([component, role], row["pending"])
+        rejected.add_metric([component, role], row["rejected"])
+        if row["last_rejected"] is not None:
+            last_rejected.add_metric([component, role], row["last_rejected"])
+    yield pending
+    yield rejected
+    yield last_rejected
+
+
 class AgentMetricsCollector:
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
@@ -375,6 +442,8 @@ class AgentMetricsCollector:
             else 0,
         )
         yield artifacts
+
+        yield from _engine_update_metrics(self.settings)
 
         runtime_contract = _runtime_contract_payload(self.root)
         xray_block = _mapping_value(runtime_contract, "xray")

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "tracegate"
-version = "4.0.0"
+version = "4.1.0"
 description = "Tracegate 3 control-plane, node-agent and Telegram bot"
 requires-python = ">=3.11,<3.15"
 authors = [{name = "Tracegate"}]
@@ -62,6 +62,7 @@ tracegate-link-crypto-runner = "tracegate.cli.link_crypto_runner:main"
 tracegate-paired-udp-obfs-runner = "tracegate.cli.paired_udp_obfs_runner:main"
 tracegate-udp-tcp-tunnel = "tracegate.cli.udp_tcp_tunnel:main"
 tracegate-artifacts = "tracegate.cli.artifacts:main"
+tracegate-engine-update = "tracegate.cli.engine_update:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}

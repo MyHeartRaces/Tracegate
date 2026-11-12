@@ -39,14 +39,16 @@ retired split-HTTP transport is forbidden by the host runtime check.
 - The WebSocket and gRPC backups stay on TCP/443.
 - Telegram Proxy: delivered only through Entry on TCP/443; Entry never listens
   on TCP/8443 (except the legacy fallback mode with `MTPROTO_PUBLIC_PORT=8443`).
-  No direct Endpoint backup route is delivered. With
-  `MTPROTO_DIRECT_BACKUP_HOST` set, Endpoint keeps routing the FakeTLS SNI on
-  TCP/443 only, so backup links saved earlier keep working. Secrets never
-  change.
+  No direct Endpoint backup route is delivered, and Endpoint renders no
+  MTProto route on any public port (`MTPROTO_DIRECT_BACKUP_HOST` no longer
+  affects Endpoint routing). Telegram reaches Endpoint-local Telemt only over
+  the Entry link. Secrets never change.
 - Hysteria2 port hopping (Direct only): a `LO-HI` range per obfs listener is
   redirected to that listener by a Tracegate-rendered `tracegate_hysteria_hop`
   nat table on Endpoint. The Endpoint host deploy generates private random
-  ranges when none are configured. New and re-issued revisions carry the range;
+  ranges when none are configured and loads the table with
+  `tracegate-hysteria-hop-apply`, which touches only that table and persists
+  it through the host's `nftables.conf`. New and re-issued revisions carry the range;
   re-issue keeps the obfuscation chosen at creation.
 
 None of these transports is described as resistant to every inspection
