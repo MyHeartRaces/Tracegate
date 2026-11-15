@@ -1,5 +1,12 @@
 # Changelog
 
+## v4.1.4 - 2026-11-16
+
+- Agent: the firewall bundle check and apply call `nft` with an argument
+  vector instead of a shell command line, so no value derived from a request
+  reaches a shell (CodeQL py/command-line-injection). Shell execution remains
+  only for operator-configured reload commands from the agent settings.
+
 ## v4.1.3 - 2026-11-16
 
 Security hardening from the first CodeQL scan. No migration.

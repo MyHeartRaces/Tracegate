@@ -110,3 +110,25 @@ def test_github_mirror_sanitizer_drops_script_variants(script: str) -> None:
         repo_url="https://github.com/example/repo",
     )
     assert "alert(1)" not in html
+
+
+def test_run_args_never_goes_through_a_shell() -> None:
+    from tracegate.agent.system import run_args
+
+    ok, out = run_args(["echo", "$(id); `id` | id"], False)
+    assert ok
+    assert out == "$(id); `id` | id"
+
+
+def test_firewall_bundle_passes_the_config_path_as_one_argument(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[list[str]] = []
+    monkeypatch.setattr(handlers, "run_args", lambda args, dry_run: calls.append(list(args)) or (True, ""))
+    monkeypatch.setattr(handlers, "run_command", lambda cmd, dry_run: (True, ""))
+
+    handlers.handle_apply_bundle(
+        Settings(agent_data_root=str(tmp_path / "agent"), agent_dry_run=False),
+        {"bundle_name": "base-entry", "files": {"nftables.conf": "flush ruleset\n"}},
+    )
+
+    conf = str(tmp_path / "agent" / "bundles" / "base-entry" / "nftables.conf")
+    assert calls == [["nft", "-c", "-f", conf], ["nft", "-f", conf]]

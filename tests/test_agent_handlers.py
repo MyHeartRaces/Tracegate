@@ -258,6 +258,7 @@ def test_handle_apply_bundle_applies_firewall_when_nftables_conf_present(
         return True, "ok"
 
     monkeypatch.setattr(handlers, "run_command", _run)
+    monkeypatch.setattr(handlers, "run_args", lambda args, dry_run: _run(shlex.join(args), dry_run))
     settings = Settings(agent_data_root=str(tmp_path), agent_dry_run=False)
 
     handlers.handle_apply_bundle(
@@ -287,6 +288,7 @@ def test_handle_apply_bundle_reloads_obfuscation_after_firewall_apply(
         return True, "ok"
 
     monkeypatch.setattr(handlers, "run_command", _run)
+    monkeypatch.setattr(handlers, "run_args", lambda args, dry_run: _run(shlex.join(args), dry_run))
     settings = Settings(
         agent_data_root=str(tmp_path),
         agent_dry_run=False,
@@ -343,6 +345,7 @@ def test_handle_apply_bundle_raises_on_firewall_validation_error(
         return True, "ok"
 
     monkeypatch.setattr(handlers, "run_command", _run)
+    monkeypatch.setattr(handlers, "run_args", lambda args, dry_run: _run(shlex.join(args), dry_run))
     settings = Settings(agent_data_root=str(tmp_path), agent_dry_run=False)
 
     with pytest.raises(handlers.HandlerError, match="firewall validation failed"):

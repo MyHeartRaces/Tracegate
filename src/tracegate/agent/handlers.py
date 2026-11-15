@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import re
-import shlex
 import shutil
 import threading
 from datetime import datetime, timezone
@@ -14,7 +13,7 @@ from tracegate.services.bundle_files import BundleFilePayload
 from tracegate.services.runtime_contract import resolve_runtime_contract
 from tracegate.settings import Settings
 
-from .system import apply_files, run_command
+from .system import apply_files, run_args, run_command
 from .transit_assignment import assign_sticky_transit_if_needed
 from .reconcile import (
     ReconcileAllResult,
@@ -212,13 +211,13 @@ def _apply_firewall_bundle(settings: Settings, *, bundle_root: Path) -> bool:
     if not nft_conf.exists():
         return False
 
-    conf_arg = shlex.quote(str(nft_conf))
+    conf_path = str(nft_conf)
     with _FIREWALL_LOCK:
-        ok, out = run_command(f"nft -c -f {conf_arg}", settings.agent_dry_run)
+        ok, out = run_args(["nft", "-c", "-f", conf_path], settings.agent_dry_run)
         if not ok:
             raise HandlerError(f"firewall validation failed: {out}")
 
-        ok, out = run_command(f"nft -f {conf_arg}", settings.agent_dry_run)
+        ok, out = run_args(["nft", "-f", conf_path], settings.agent_dry_run)
         if not ok:
             raise HandlerError(f"firewall apply failed: {out}")
     return True

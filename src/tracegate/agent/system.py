@@ -41,7 +41,27 @@ def apply_files(root: Path, files: dict[str, Any]) -> None:
         atomic_write(root, relative, content)
 
 
+def run_args(args: list[str], dry_run: bool, *, timeout_seconds: int = 30) -> tuple[bool, str]:
+    """Run a program with an argument vector, never through a shell.
+
+    Use this whenever any argument is derived from a request (paths, names):
+    the values reach the program as single arguments and cannot change the
+    command line.
+    """
+    if dry_run:
+        return True, f"dry-run: {' '.join(args)}"
+    try:
+        proc = subprocess.run(args, shell=False, capture_output=True, text=True, timeout=timeout_seconds)
+    except subprocess.TimeoutExpired:
+        return False, f"timeout after {timeout_seconds}s"
+    except OSError as exc:
+        return False, str(exc)
+    output = (proc.stdout + "\n" + proc.stderr).strip()
+    return proc.returncode == 0, output
+
+
 def run_command(cmd: str, dry_run: bool, *, timeout_seconds: int = 30) -> tuple[bool, str]:
+    """Run an operator-configured shell command (agent settings only, never request data)."""
     if dry_run:
         return True, f"dry-run: {cmd}"
     if "\n" in cmd or "\r" in cmd:
