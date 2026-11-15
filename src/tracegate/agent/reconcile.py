@@ -940,7 +940,7 @@ def _build_runtime_contract_payload(settings: Settings) -> dict[str, object]:
             },
             "chainClient": {
                 "enabled": bool(settings.hysteria_chain_client_rate_limit_enabled),
-                "maxMbit": int(settings.hysteria_chain_client_max_mbit or 10),
+                "maxMbit": int(settings.hysteria_chain_client_max_mbit or 15),
                 "requireDeclaredHysteriaTx": bool(settings.hysteria_chain_client_require_declared_tx),
                 "scope": "entry-chain-clients",
             },
@@ -1871,6 +1871,10 @@ def reconcile_xray_ss2022(settings: Settings) -> bool:
     return True
 
 
+# VLESS WS-TLS / gRPC-TLS client families retired in Tracegate 4.1.1.
+_RETIRED_XRAY_CLIENT_PROTOCOLS = frozenset({ConnectionProtocol.VLESS_WS_TLS.value, ConnectionProtocol.VLESS_GRPC_TLS.value})
+
+
 def reconcile_xray(settings: Settings) -> ReconcileXrayResult:
     # Optional fast-path: if API mode is enabled, we still write the runtime config
     # for persistence across Xray restarts, but we apply user changes live via gRPC.
@@ -1941,6 +1945,11 @@ def reconcile_xray(settings: Settings) -> ReconcileXrayResult:
         if not _artifact_applies_to_xray_public_runtime(settings, row):
             continue
         proto = (row.get("protocol") or "").strip().lower()
+        if proto in _RETIRED_XRAY_CLIENT_PROTOCOLS:
+            # Retired in 4.1.1. Artifacts left in the local index by an older
+            # control plane are never turned into Xray clients again, so the
+            # WS/gRPC inbounds keep only their base (operator-defined) clients.
+            continue
         if proto not in {"vless_reality", "vless_ws_tls", "vless_grpc_tls"}:
             continue
         cfg = row.get("config") or {}

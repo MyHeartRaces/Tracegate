@@ -2499,6 +2499,153 @@ def test_validate_private_profile_state_rejects_transport_policy_drift(tmp_path:
     assert by_code["transit-private-profile-transport-local-socks-anonymous"].severity == "error"
 
 
+# Client profile names that a pre-4.1.1 agent wrote into the transport profile
+# block (VLESS WS-TLS / gRPC-TLS, retired in 4.1.1).
+_PRE_4_1_1_TRACEGATE3_CLIENT_NAMES = [
+    "v1-direct-reality-vless",
+    "v2-direct-quic-hysteria",
+    "v1-chain-reality-vless",
+    "v5-entry-ws",
+    "v0-grpc-vless",
+    "v0-ws-vless",
+    "MTProto-FakeTLS-Direct",
+]
+
+
+def test_tracegate3_contract_no_longer_lists_retired_vless_ws_grpc_profiles() -> None:
+    from tracegate.services.runtime_contract import RETIRED_TRACEGATE3_CLIENT_PROFILES
+
+    assert set(RETIRED_TRACEGATE3_CLIENT_PROFILES) == {"v5-entry-ws", "v0-grpc-vless", "v0-ws-vless"}
+    assert not set(RETIRED_TRACEGATE3_CLIENT_PROFILES) & set(TRACEGATE22_CLIENT_PROFILES)
+    assert [name for name in _PRE_4_1_1_TRACEGATE3_CLIENT_NAMES if name not in RETIRED_TRACEGATE3_CLIENT_PROFILES] == list(
+        TRACEGATE22_CLIENT_PROFILES
+    )
+
+
+def test_validate_private_profile_state_tolerates_retired_vless_ws_grpc_client_names(tmp_path: Path) -> None:
+    contract = _runtime_contract(role="TRANSIT", runtime_profile="tracegate-3")
+    contract_path = tmp_path / "transit.json"
+    contract_path.write_text(json.dumps(contract) + "\n", encoding="utf-8")
+    state_path = _write_private_profile_state(
+        tmp_path,
+        "private/profiles/transit/desired-state.json",
+        contract=contract,
+        role="TRANSIT",
+        runtime_contract_path=str(contract_path),
+        overrides={
+            "transportProfiles": {
+                **contract["transportProfiles"],
+                "clientNames": list(_PRE_4_1_1_TRACEGATE3_CLIENT_NAMES),
+            }
+        },
+    )
+
+    findings = validate_private_profile_state(
+        state=load_private_profile_state(state_path),
+        contract=contract,
+        expected_role="TRANSIT",
+        contract_path=str(contract_path),
+    )
+
+    assert [(finding.severity, finding.code) for finding in findings] == [
+        ("warning", "transit-private-profile-transport-retired-client-names")
+    ]
+
+
+def test_validate_private_profile_state_still_rejects_other_client_name_drift(tmp_path: Path) -> None:
+    contract = _runtime_contract(role="TRANSIT", runtime_profile="tracegate-3")
+    contract_path = tmp_path / "transit.json"
+    contract_path.write_text(json.dumps(contract) + "\n", encoding="utf-8")
+    drifted = [name for name in _PRE_4_1_1_TRACEGATE3_CLIENT_NAMES if name != "v2-direct-quic-hysteria"]
+    state_path = _write_private_profile_state(
+        tmp_path,
+        "private/profiles/transit/desired-state.json",
+        contract=contract,
+        role="TRANSIT",
+        runtime_contract_path=str(contract_path),
+        overrides={"transportProfiles": {**contract["transportProfiles"], "clientNames": drifted}},
+    )
+
+    findings = validate_private_profile_state(
+        state=load_private_profile_state(state_path),
+        contract=contract,
+        expected_role="TRANSIT",
+        contract_path=str(contract_path),
+    )
+
+    by_code = {finding.code: finding for finding in findings}
+    assert by_code["transit-private-profile-transport-client-names"].severity == "error"
+    assert "transit-private-profile-transport-retired-client-names" not in by_code
+
+
+def test_validate_link_crypto_state_tolerates_retired_vless_ws_grpc_client_names(tmp_path: Path) -> None:
+    contract = _runtime_contract(role="ENTRY", runtime_profile="tracegate-3")
+    contract["linkCrypto"] = {
+        "enabled": True,
+        "carrier": "shadowsocks2022",
+        "manager": "link-crypto",
+        "profileSource": "private-file-reference",
+        "secretMaterial": False,
+        "xrayBackhaul": False,
+        "generation": 1,
+        "remotePort": 443,
+        "outerCarrier": _link_crypto_outer_carrier_contract(),
+        "dpiResistance": _link_crypto_tcp_dpi_resistance(),
+        "classes": ["entry-transit"],
+        "counts": {"total": 1, "entryTransit": 1, "routerEntry": 0, "routerTransit": 0},
+        "localPorts": {"entry-transit": 10881},
+        "selectedProfiles": {"entry-transit": ["V1", "V3"]},
+        "zapret2": _link_crypto_zapret2_policy(),
+    }
+    contract_path = tmp_path / "entry.json"
+    contract_path.write_text(json.dumps(contract) + "\n", encoding="utf-8")
+    state_path = _write_link_crypto_state(
+        tmp_path,
+        "private/link-crypto/entry/desired-state.json",
+        contract=contract,
+        role="ENTRY",
+        runtime_contract_path=str(contract_path),
+        overrides={
+            "transportProfiles": {
+                **contract["transportProfiles"],
+                "clientNames": list(_PRE_4_1_1_TRACEGATE3_CLIENT_NAMES),
+            }
+        },
+    )
+
+    findings = validate_link_crypto_state(
+        state=load_link_crypto_state(state_path),
+        contract=contract,
+        expected_role="ENTRY",
+        contract_path=str(contract_path),
+    )
+
+    assert [(finding.severity, finding.code) for finding in findings] == [
+        ("warning", "entry-link-crypto-transport-retired-client-names")
+    ]
+
+
+def test_validate_zapret_transit_profile_still_accepts_retired_vless_ws_grpc_surfaces(tmp_path: Path) -> None:
+    # Live hand-managed zapret profiles may keep listing the retired surfaces.
+    transit_profile = load_zapret_profile(
+        _write_zapret_profile(
+            tmp_path,
+            "transit-lite.env",
+            TRACEGATE_ZAPRET_TARGET_SURFACES="vless_reality,vless_ws_tls,vless_grpc_tls,hysteria2",
+        )
+    )
+
+    findings = validate_zapret_profile_collection(
+        entry_profile=load_zapret_profile(_write_zapret_profile(tmp_path, "entry-lite.env")),
+        transit_profile=transit_profile,
+        interconnect_profile=load_zapret_profile(_write_zapret_profile(tmp_path, "entry-transit-stealth.env")),
+        mtproto_profile=load_zapret_profile(_write_zapret_profile(tmp_path, "mtproto-extra.env")),
+        transit_contract=_runtime_contract(role="TRANSIT", runtime_profile="tracegate-3"),
+    )
+
+    assert [finding for finding in findings if finding.severity == "error"] == []
+
+
 def test_validate_private_profile_state_detects_security_drift(tmp_path: Path) -> None:
     contract = _runtime_contract(role="ENTRY")
     contract_path = tmp_path / "entry.json"

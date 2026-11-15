@@ -122,7 +122,6 @@ class Settings(BaseSettings):
         "VLESS Reality - основной прямой профиль.\n"
         "Hysteria2 - быстрый UDP-профиль; зависит от качества UDP у оператора.\n"
         "Entry Chain (Mobile) - универсальный мобильный профиль через Entry.\n"
-        "Backup - VLESS gRPC и VLESS WebSocket.\n"
         "Telegram Proxy - отдельный MTProto-доступ для Telegram, не замена VPN-профилю.\n\n"
         "Клиенты:\n"
         "Рекомендуемые клиенты: Karing, INCY, Shadowrocket.\n"
@@ -254,7 +253,7 @@ class Settings(BaseSettings):
     agent_entry_traffic_shaping_cleanup_on_exit: bool = False
     agent_entry_traffic_shaping_fail_closed: bool = True
     hysteria_chain_client_rate_limit_enabled: bool = True
-    hysteria_chain_client_max_mbit: int = 10
+    hysteria_chain_client_max_mbit: int = 15
     hysteria_chain_client_require_declared_tx: bool = True
     hysteria_ignore_client_bandwidth: bool = True
     hysteria_entry_chain_ignore_client_bandwidth: bool = False

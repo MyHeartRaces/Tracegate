@@ -103,31 +103,6 @@
       }
     },
     {
-      "tag": "vless-grpc-in",
-      "listen": "127.0.0.1",
-      "port": 10001,
-      "protocol": "vless",
-      "settings": {
-        "clients": [],
-        "decryption": "none"
-      },
-      "streamSettings": {
-        "network": "grpc",
-        "security": "none",
-        "grpcSettings": {
-          "serviceName": "tracegate.v1.Edge"
-        }
-      },
-      "sniffing": {
-        "enabled": true,
-        "destOverride": [
-          "http",
-          "tls",
-          "quic"
-        ]
-      }
-    },
-    {
       "tag": "hy2-in",
       "listen": "0.0.0.0",
       "port": 443,
@@ -204,7 +179,6 @@
         "inboundTag": [
           "vless-reality-in",
           "vless-ws-in",
-          "vless-grpc-in",
           "hy2-in"
         ],
         "protocol": [
@@ -216,8 +190,7 @@
         "type": "field",
         "inboundTag": [
           "vless-reality-in",
-          "vless-ws-in",
-          "vless-grpc-in"
+          "vless-ws-in"
         ],
         "outboundTag": "direct"
       },

@@ -148,7 +148,8 @@ def test_reconcile_xray_centric_updates_vless_and_hysteria_inbounds(tmp_path: Pa
                     {
                         "tag": "vless-ws-in",
                         "protocol": "vless",
-                        "settings": {"clients": []},
+                        # Operator-defined base client (e.g. the MTProto egress carrier).
+                        "settings": {"clients": [{"id": "base-ws", "email": "mtproto-entry-egress"}]},
                         "streamSettings": {"security": "tls", "network": "ws"},
                     },
                     {
@@ -239,8 +240,9 @@ def test_reconcile_xray_centric_updates_vless_and_hysteria_inbounds(tmp_path: Pa
     rendered_xray = json.loads((tmp_path / "runtime/xray/config.json").read_text(encoding="utf-8"))
     assert rendered_xray["inbounds"][0]["settings"]["clients"][0]["id"] == "c1"
     assert "old-mtproto-a.tracegate-sni.ru" in rendered_xray["inbounds"][0]["streamSettings"]["realitySettings"]["serverNames"]
-    assert rendered_xray["inbounds"][1]["settings"]["clients"][0]["id"] == "c3"
-    assert rendered_xray["inbounds"][2]["settings"]["clients"][0]["id"] == "c4"
+    # Retired VLESS WS/gRPC artifacts (c3, c4) are ignored; base clients stay.
+    assert rendered_xray["inbounds"][1]["settings"]["clients"] == [{"id": "base-ws", "email": "mtproto-entry-egress"}]
+    assert rendered_xray["inbounds"][2]["settings"]["clients"] == []
     assert rendered_xray["inbounds"][3]["settings"]["clients"] == [{"auth": "u1:d1", "email": "V? - u1 - c2"}]
     assert not (tmp_path / "runtime/hysteria/config.yaml").exists()
 
@@ -350,8 +352,8 @@ def test_reconcile_keeps_encrypted_vless_clients_on_separate_inbounds(tmp_path: 
     assert inbounds["vless-reality-enc-in"]["settings"]["decryption"] == "mlkem768x25519plus.native.600s.SERVER"
     assert inbounds["vless-reality-enc-in"]["streamSettings"]["realitySettings"]["serverNames"] == ["passport.old-forbidden.tracegate-sni.ru"]
     assert inbounds["vless-ws-in"]["settings"]["clients"] == []
-    assert [row["id"] for row in inbounds["vless-ws-enc-in"]["settings"]["clients"]] == ["ws-new"]
-    assert inbounds["vless-ws-enc-in"]["settings"]["decryption"] == "mlkem768x25519plus.native.600s.SERVER"
+    # The retired VLESS WS family is never turned into Xray clients again.
+    assert inbounds["vless-ws-enc-in"]["settings"]["clients"] == []
 
 
 def test_reconcile_entry_updates_xray_only_in_xray_centric_runtime(tmp_path: Path) -> None:

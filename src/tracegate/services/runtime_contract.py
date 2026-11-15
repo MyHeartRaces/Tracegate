@@ -89,10 +89,15 @@ TRACEGATE3_CLIENT_PROFILES = (
     "v1-direct-reality-vless",
     "v2-direct-quic-hysteria",
     "v1-chain-reality-vless",
+    MTPROTO_FAKE_TLS_PROFILE_NAME,
+)
+# Client profile names of the VLESS WS-TLS / gRPC-TLS families retired in
+# Tracegate 4.1.1. State files written by an older agent may still list them;
+# preflight tolerates (warns about) them instead of failing.
+RETIRED_TRACEGATE3_CLIENT_PROFILES = (
     "v5-entry-ws",
     "v0-grpc-vless",
     "v0-ws-vless",
-    MTPROTO_FAKE_TLS_PROFILE_NAME,
 )
 # Compatibility import for older agents and private overlays during migration.
 TRACEGATE22_CLIENT_PROFILES = TRACEGATE3_CLIENT_PROFILES

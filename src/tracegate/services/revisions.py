@@ -13,7 +13,12 @@ from tracegate.enums import ConnectionMode, ConnectionProtocol, NodeRole, Outbox
 from tracegate.models import Connection, ConnectionRevision, NodeEndpoint, User
 from tracegate.services.aliases import connection_alias, user_display
 from tracegate.services.config_builder import EndpointSet, build_effective_config
-from tracegate.services.connection_profiles import MAX_ACTIVE_REVISIONS_PER_CONNECTION, RESERVE_REVISION_SLOT
+from tracegate.services.connection_profiles import (
+    MAX_ACTIVE_REVISIONS_PER_CONNECTION,
+    RESERVE_REVISION_SLOT,
+    RETIRED_CLIENT_PROTOCOL_MESSAGE,
+    is_retired_client_protocol,
+)
 from tracegate.services.grace import ensure_can_issue_new_config
 from tracegate.services.outbox import create_outbox_event
 from tracegate.services.overrides import validate_overrides
@@ -526,6 +531,13 @@ def _ensure_connection_active(connection: Connection) -> None:
         raise RevisionError("Connection is revoked")
 
 
+def _ensure_protocol_not_retired(connection: Connection) -> None:
+    # Retired families (VLESS WS-TLS / gRPC-TLS) keep loading for display and
+    # revocation, but no revision may be issued, re-issued or re-activated.
+    if is_retired_client_protocol(getattr(connection, "protocol", None)):
+        raise RevisionError(RETIRED_CLIENT_PROTOCOL_MESSAGE)
+
+
 async def _load_user(session: AsyncSession, user_id: int) -> User:
     user = await session.get(User, user_id)
     if user is None:
@@ -676,8 +688,6 @@ async def _resolve_endpoints(
         reality_short_id_transit=settings.reality_short_id_transit,
         reality_public_key_entry=settings.reality_public_key_entry,
         reality_short_id_entry=settings.reality_short_id_entry,
-        vless_ws_path=settings.vless_ws_path,
-        vless_ws_tls_port=settings.vless_ws_tls_port,
         vless_encryption_enabled=settings.vless_encryption_enabled,
         vless_encryption=settings.vless_encryption,
         vless_encryption_reality_sni=settings.vless_encryption_reality_sni,
@@ -694,6 +704,7 @@ async def _resolve_endpoints(
         hysteria_hop_max_interval_s=settings.hysteria_hop_max_interval_s,
         hysteria_tls_verify=settings.hysteria_tls_verify,
         hysteria_default_obfs=settings.hysteria_default_obfs,
+        hysteria_chain_client_max_mbit=settings.hysteria_chain_client_max_mbit,
     )
 
 
@@ -821,6 +832,7 @@ async def create_revision(
     force: bool,
 ) -> ConnectionRevision:
     connection = await _load_connection(session, connection_id)
+    _ensure_protocol_not_retired(connection)
     _ensure_connection_active(connection)
     user = await _load_user(session, connection.user_id)
 
@@ -939,6 +951,7 @@ async def activate_revision(session: AsyncSession, revision_id: UUID) -> Connect
         raise RevisionError("Revision not found")
 
     connection = await _load_connection(session, revision.connection_id)
+    _ensure_protocol_not_retired(connection)
     _ensure_connection_active(connection)
     await _ensure_ingress_pair_available(session, revision)
     others = [r for r in connection.revisions if r.id != revision.id and r.status == RecordStatus.ACTIVE]

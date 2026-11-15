@@ -16,6 +16,7 @@ from tracegate.schemas import OutboxDeliveryRead, OutboxEventRead, ReapplyBaseRe
 from tracegate.security import require_api_scope
 from tracegate.services.aliases import connection_alias, user_display
 from tracegate.services.bundle_files import BundleFilePayload, load_bundle_file
+from tracegate.services.connection_profiles import is_retired_client_protocol
 from tracegate.services.outbox import create_outbox_event
 from tracegate.services.role_targeting import target_roles_for_connection
 from tracegate.settings import get_settings
@@ -115,6 +116,9 @@ async def reissue_current_revisions(payload: ReissueRequest, session: AsyncSessi
     created: list[OutboxEvent] = []
 
     for conn in connections:
+        if is_retired_client_protocol(conn.protocol):
+            # Retired families are never pushed to nodes again.
+            continue
         user = await session.get(User, conn.user_id)
         device = await session.get(Device, conn.device_id)
         user_label = (

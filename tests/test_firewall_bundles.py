@@ -90,11 +90,21 @@ def test_entry_and_transit_bundles_define_proxy_fronting_stack() -> None:
 
     for nginx_conf in (entry_nginx, transit_nginx):
         assert "listen 127.0.0.1:10443 ssl http2;" in nginx_conf
-        assert "proxy_pass http://127.0.0.1:10000;" in nginx_conf
-        assert "proxy_connect_timeout 5s;" in nginx_conf
-        assert "proxy_read_timeout 5m;" in nginx_conf
-        assert "proxy_send_timeout 5m;" in nginx_conf
         assert "/etc/tracegate/tls/ws.crt" in nginx_conf
+        assert "root /var/www/decoy;" in nginx_conf
+        assert "try_files $uri $uri/ /index.html;" in nginx_conf
+        # The client VLESS gRPC-TLS surface was retired in 4.1.1.
+        assert "grpc_pass" not in nginx_conf
+        assert "location /tracegate.v1.Edge/" not in nginx_conf
+
+    # Entry no longer proxies client VLESS WS; Endpoint keeps /ws only as the
+    # MTProto entry-local-endpoint-egress carrier.
+    assert "location /ws" not in entry_nginx
+    assert "127.0.0.1:10000" not in entry_nginx
+    assert "proxy_pass http://127.0.0.1:10000;" in transit_nginx
+    assert "proxy_connect_timeout 5s;" in transit_nginx
+    assert "proxy_read_timeout 5m;" in transit_nginx
+    assert "proxy_send_timeout 5m;" in transit_nginx
 
     assert "listen 80;" in transit_nginx
     assert "location ^~ /grafana/" in transit_nginx

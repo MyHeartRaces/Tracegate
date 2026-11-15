@@ -16,7 +16,9 @@ from tracegate.constants import (
 from tracegate.enums import ConnectionMode, ConnectionProtocol, ConnectionVariant
 from tracegate.models import Connection, Device, User
 from tracegate.services.connection_profiles import (
+    RETIRED_CLIENT_PROTOCOL_MESSAGE,
     connection_profile_label,
+    is_retired_client_protocol,
     tcp_chain_selected_profiles,
     udp_chain_selected_profiles,
 )
@@ -27,7 +29,7 @@ from tracegate.services.sni_catalog import SniCatalogEntry
 _LOCAL_SOCKS_PORT_BASE = 20000
 _LOCAL_SOCKS_PORT_SPAN = 40000
 _LOCAL_SOCKS_CREDENTIAL_RE = re.compile(r"^[A-Za-z0-9._~!$&'()*+,;=:@%-]{1,128}$")
-_CHAIN_CLIENT_RATE_LIMIT_MBIT = 10
+_CHAIN_CLIENT_RATE_LIMIT_MBIT = 15
 _DIRECT_HYSTERIA_DEFAULT_MBIT = 100
 
 
@@ -58,10 +60,6 @@ class EndpointSet:
     reality_short_id_transit: str = ""
     reality_public_key_entry: str = ""
     reality_short_id_entry: str = ""
-    vless_ws_path: str = "/ws"
-    vless_ws_tls_port: int = 443
-    vless_grpc_service_name: str = "tracegate.v1.Edge"
-    vless_grpc_tls_port: int = 443
     vless_encryption_enabled: bool = False
     vless_encryption: str = ""
     vless_encryption_reality_sni: str = ""
@@ -84,6 +82,9 @@ class EndpointSet:
     hysteria_tls_verify: bool = True
     # Default obfs for Direct Hysteria issuance; Chain always stays Gecko.
     hysteria_default_obfs: str = "gecko"
+    # Per-client cap for Chain Hysteria (declared bandwidth and Entry server
+    # bandwidth); must match HYSTERIA_CHAIN_CLIENT_MAX_MBIT on Entry.
+    hysteria_chain_client_max_mbit: int = _CHAIN_CLIENT_RATE_LIMIT_MBIT
 
 
 def _build_local_socks_auth(
@@ -341,7 +342,7 @@ def _entry_transit_private_relay(
         "paired_obfs_supported": is_udp,
         "client_rate_limit": {
             "enabled": True,
-            "max_mbit": _CHAIN_CLIENT_RATE_LIMIT_MBIT,
+            "max_mbit": endpoints.hysteria_chain_client_max_mbit,
             "scope": "per-chain-client",
             "entry_total_max_mbit": 65,
             "hysteria_server_bandwidth": is_udp,
@@ -366,28 +367,6 @@ def _entry_transit_private_relay(
             "mtu": {"mode": "clamp", "max_packet_size": 1252},
         }
     return relay
-
-
-def _entry_endpoint_backhaul_pool(*, endpoints: EndpointSet) -> dict[str, Any]:
-    return {
-        "type": "entry_endpoint_backhaul_pool",
-        "entry": endpoints.entry_host,
-        "endpoint": endpoints.transit_host,
-        "primary": {
-            "carrier": "shadowsocks2022-shadowtls-v3",
-            "selection": "single-authenticated-tcp-link",
-            "health": "authenticated-payload-probe",
-        },
-        "secondary": {
-            "carrier": "vless-reality-raw",
-            "role": "fail-closed-fallback",
-            "udp_capable": False,
-        },
-        "transport_independence": "tcp-shadowtls-primary+tcp-reality-secondary",
-        "endpoint_egress_only": True,
-        "fail_closed": True,
-    }
-
 
 
 def build_effective_config(
@@ -489,158 +468,10 @@ def build_effective_config(
 
         raise ValueError("Inconsistent VLESS/REALITY mode and variant")
 
-    if connection.protocol in {ConnectionProtocol.VLESS_WS_TLS, ConnectionProtocol.VLESS_GRPC_TLS}:
-        is_grpc = connection.protocol == ConnectionProtocol.VLESS_GRPC_TLS
-        is_universal_entry = (
-            is_grpc and connection.variant == ConnectionVariant.V5 and connection.mode == ConnectionMode.CHAIN
-        )
-        is_direct_entry_ws = (
-            not is_grpc and connection.variant == ConnectionVariant.V5 and connection.mode == ConnectionMode.CHAIN
-        )
-        is_backup_tls = connection.variant == ConnectionVariant.V0 and connection.mode == ConnectionMode.DIRECT
-        if not is_universal_entry and not is_direct_entry_ws and (
-            connection.variant != ConnectionVariant.V0 or connection.mode != ConnectionMode.DIRECT
-        ):
-            raise ValueError("VLESS TLS compatibility profiles support only V0 direct or V5 Entry Chain")
-
-        # Direct TLS compatibility surfaces terminate on Endpoint shards.
-        # Universal Entry terminates on Entry and forbids overrides that could
-        # reveal the origin.
-        tls_server_name = str(overrides.get("tls_server_name") or "").strip()
-        if not tls_server_name and selected_sni is not None:
-            tls_server_name = selected_sni.fqdn
-
-        # Direct compatibility profiles use Transit. Universal Entry deliberately
-        # uses the proxied Entry hostname so the origin is never published.
-        if is_universal_entry:
-            default_host = str(endpoints.entry_proxy_host or "").strip()
-            if not default_host:
-                raise ValueError("V5 Universal Entry requires the Entry proxy hostname")
-            for field_name in ("server", "connect_host", "tls_server_name", "grpc_authority"):
-                override_value = str(overrides.get(field_name) or "").strip()
-                if override_value and override_value != default_host:
-                    raise ValueError(f"V5 Universal Entry forbids {field_name} override outside the Entry proxy hostname")
-        elif is_direct_entry_ws:
-            default_host = str(endpoints.entry_host or "").strip()
-            if not default_host:
-                raise ValueError("V5 Entry WebSocket Chain requires the direct Entry hostname")
-            expected_tls_host = str(endpoints.entry_server_name or default_host).strip()
-            for field_name in ("server", "connect_host"):
-                override_value = str(overrides.get(field_name) or "").strip()
-                if override_value and override_value != default_host:
-                    raise ValueError(f"V5 Entry WebSocket Chain forbids {field_name} outside the direct Entry hostname")
-            for field_name in ("tls_server_name", "ws_host"):
-                override_value = str(overrides.get(field_name) or "").strip()
-                if override_value and override_value != expected_tls_host:
-                    raise ValueError(f"V5 Entry WebSocket Chain forbids {field_name} outside the Entry TLS hostname")
-            tls_server_name = expected_tls_host
-        elif is_backup_tls and (endpoints.transit_proxy_host or is_grpc):
-            default_host = str(endpoints.transit_proxy_host or endpoints.transit_server_name or "").strip()
-            if not default_host:
-                raise ValueError("VLESS TLS Backup requires the Endpoint TLS hostname")
-        else:
-            default_host = str(endpoints.transit_server_name or endpoints.transit_host).strip()
-        public_host = str(overrides.get("server") or default_host).strip()
-        connect_host = str(overrides.get("connect_host") or "").strip()
-        proxied_backup_tls = is_backup_tls and bool(str(endpoints.transit_proxy_host or "").strip())
-        proxied_backup_grpc = is_grpc and proxied_backup_tls
-        direct_shard_fallback = not is_universal_entry and not is_direct_entry_ws and not proxied_backup_tls
-        if not is_universal_entry and direct_shard_fallback and not connect_host and endpoints.transit_host != public_host:
-            connect_host = endpoints.transit_host
-        tls_termination_host = public_host
-        if not tls_server_name:
-            tls_server_name = tls_termination_host
-
-        ws_path = str(overrides.get("ws_path") or endpoints.vless_ws_path or "/ws").strip() or "/ws"
-        ws_host = str(overrides.get("ws_host") or tls_server_name or "").strip()
-        default_alpn = ["h2"] if is_grpc else ["http/1.1"]
-        alpn_raw = overrides.get("alpn", default_alpn)
-        tls_alpn = (
-            [str(alpn_raw).strip()]
-            if isinstance(alpn_raw, str)
-            else [str(item).strip() for item in alpn_raw if str(item).strip()]
-        )
-        if not tls_alpn:
-            tls_alpn = default_alpn
-        grpc_service_name = (
-            str(overrides.get("grpc_service_name") or endpoints.vless_grpc_service_name or "tracegate.v1.Edge").strip()
-            or "tracegate.v1.Edge"
-        )
-        grpc_authority = str(overrides.get("grpc_authority") or tls_server_name or "").strip()
-        tls_insecure_default = False
-
-        common = {
-            "protocol": "vless",
-            "transport": "grpc_tls" if is_grpc else "ws_tls",
-            "connect_host": connect_host,
-            "port": int((endpoints.vless_grpc_tls_port if is_grpc else endpoints.vless_ws_tls_port) or 443),
-            "uuid": str(connection.id),
-            "device_id": str(device.id),
-            "sni": tls_server_name,
-            "tls": {
-                "server_name": tls_server_name,
-                "insecure": bool(overrides.get("tls_insecure", tls_insecure_default)),
-                "alpn": tls_alpn,
-            },
-            "ws": {
-                "path": ws_path,
-                "host": ws_host,
-            },
-            "grpc": {
-                "service_name": grpc_service_name,
-                "authority": grpc_authority,
-            },
-            "local_socks": _local_socks_payload(
-                listen=_local_socks_listen(overrides=overrides, user=user, device=device, connection=connection),
-                user=user,
-                device=device,
-                connection=connection,
-                overrides=overrides,
-            ),
-            "client_options": {
-                "connect_timeout_ms": overrides.get("connect_timeout_ms", 8000),
-                "dial_timeout_ms": overrides.get("dial_timeout_ms", 8000),
-                "tcp_fast_open": bool(overrides.get("tcp_fast_open", True)),
-            },
-        }
-        return {
-            **common,
-            "profile": connection_profile_label(connection.protocol, connection.mode, connection.variant),
-            "server": public_host,
-            "chain": (
-                _entry_endpoint_backhaul_pool(endpoints=endpoints)
-                if is_universal_entry or is_direct_entry_ws
-                else None
-            ),
-            "design_constraints": {
-                "fixed_port_tcp": int((endpoints.vless_grpc_tls_port if is_grpc else endpoints.vless_ws_tls_port) or 443),
-                "preferred_compat_transport": "grpc" if is_grpc else "ws",
-                "http_version": "h2" if is_grpc else "http/1.1",
-                "cloudflare_proxied_ingress_required": is_universal_entry or proxied_backup_tls,
-                "direct_entry_ingress_required": is_direct_entry_ws,
-                "origin_site_tls_certificate_required": not is_universal_entry,
-                **(
-                    {
-                        "cloudflare_grpc_enabled_required": True,
-                    }
-                    if proxied_backup_grpc
-                    else {}
-                ),
-                **(
-                    {
-                        "http2_single_tls_multiplexing": True,
-                        "entry_role_required": True,
-                        "transit_role_required": True,
-                        "private_interconnect": "shadowsocks2022-shadowtls-v3+vless-reality-raw",
-                        "primary_backhaul": "shadowsocks2022-shadowtls-v3",
-                        "secondary_backhaul": "vless-reality-raw",
-                        "endpoint_egress_required": True,
-                    }
-                    if is_universal_entry or is_direct_entry_ws
-                    else {}
-                ),
-            },
-        }
+    if is_retired_client_protocol(connection.protocol):
+        # VLESS WS-TLS / gRPC-TLS were retired in 4.1.1; existing rows were
+        # revoked by migration d4b6f0e2a315 and nothing new is built for them.
+        raise ValueError(RETIRED_CLIENT_PROTOCOL_MESSAGE)
 
     if connection.protocol == ConnectionProtocol.HYSTERIA2:
         if (connection.mode, connection.variant) not in {
@@ -702,8 +533,9 @@ def build_effective_config(
             min_value=1,
             max_value=65535,
         )
-        bandwidth_default = _CHAIN_CLIENT_RATE_LIMIT_MBIT if is_chain else _DIRECT_HYSTERIA_DEFAULT_MBIT
-        bandwidth_max = _CHAIN_CLIENT_RATE_LIMIT_MBIT if is_chain else 1000
+        chain_max_mbit = max(1, int(endpoints.hysteria_chain_client_max_mbit or _CHAIN_CLIENT_RATE_LIMIT_MBIT))
+        bandwidth_default = chain_max_mbit if is_chain else _DIRECT_HYSTERIA_DEFAULT_MBIT
+        bandwidth_max = chain_max_mbit if is_chain else 1000
         up_mbps = _normalize_int_range(
             overrides.get("up_mbps", bandwidth_default),
             field_name="up_mbps",
@@ -776,7 +608,7 @@ def build_effective_config(
             "down_mbps": down_mbps,
             "rate_limit": {
                 "enabled": is_chain,
-                "max_mbit": _CHAIN_CLIENT_RATE_LIMIT_MBIT if is_chain else None,
+                "max_mbit": chain_max_mbit if is_chain else None,
                 "scope": "entry-chain-client" if is_chain else "direct-client-default",
                 "server_cap_required": is_chain,
             },
@@ -808,7 +640,7 @@ def build_effective_config(
                 "private_interconnect": "hysteria2-gecko-udp-link" if is_chain else None,
                 "backhaul_outside_xray": is_chain,
                 "udp_over_private_relay": is_chain,
-                "chain_client_rate_limit_mbit": _CHAIN_CLIENT_RATE_LIMIT_MBIT if is_chain else None,
+                "chain_client_rate_limit_mbit": chain_max_mbit if is_chain else None,
             },
             "chain": _entry_transit_private_relay(endpoints=endpoints, inner_transport="hysteria2-quic")
             if is_chain

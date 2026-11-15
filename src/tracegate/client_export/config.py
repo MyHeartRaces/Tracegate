@@ -11,6 +11,7 @@ from urllib.parse import quote, urlencode, urlparse
 import yaml
 
 from tracegate.constants import TRACEGATE_PUBLIC_UDP_PORT
+from tracegate.services.connection_profiles import RETIRED_CLIENT_PROTOCOL_MESSAGE
 from tracegate.services.mtproto import (
     MTPROTO_FAKE_TLS_PROFILE_NAME,
     MTProtoConfigError,
@@ -25,6 +26,10 @@ _HYSTERIA_DIRECT_DEFAULT_MBIT = 100
 
 class ClientConfigExportError(ValueError):
     pass
+
+
+# VLESS transports of the client families retired in Tracegate 4.1.1.
+_RETIRED_VLESS_TRANSPORTS = frozenset({"ws_tls", "ws+tls", "ws-tls", "grpc_tls", "grpc+tls", "grpc-tls"})
 
 
 @dataclass(frozen=True)
@@ -58,17 +63,6 @@ def _vless_encryption(effective: dict[str, Any]) -> str:
     return "none"
 
 
-def _normalize_alpn(value: object, *, default: tuple[str, ...]) -> list[str]:
-    if isinstance(value, str):
-        items = [value]
-    elif isinstance(value, (list, tuple)):
-        items = [str(item) for item in value]
-    else:
-        items = list(default)
-    normalized = [item.strip() for item in items if item.strip()]
-    return normalized or list(default)
-
-
 def _safe_filename_fragment(value: str) -> str:
     normalized = "".join(
         ch.lower() if ch.isalnum() else "-" for ch in str(value or "").strip()
@@ -84,8 +78,6 @@ def _artifact_filename_fragment(profile_name: str) -> str:
         "Tracegate-Hysteria(Salamander)": "direct-hysteria",
         "Tracegate-Hysteria(Gecko)": "direct-hysteria",
         "Tracegate-Chain": "chain",
-        "Tracegate-Backup(gRPC)": "backup-vless-grpc",
-        "Tracegate-Backup(WebSocket)": "backup-vless-websocket",
     }.get(profile_name, _safe_filename_fragment(profile_name))
 
 
@@ -110,10 +102,6 @@ def client_profile_name(effective: dict[str, Any]) -> str:
         )
         label = "Gecko" if obfs_type == "gecko" else "Salamander"
         return f"Tracegate-Hysteria({label})"
-    if protocol == "vless" and transport in {"ws_tls", "ws+tls", "ws-tls"}:
-        return "Tracegate-Backup(WebSocket)"
-    if protocol == "vless" and transport in {"grpc_tls", "grpc+tls", "grpc-tls"}:
-        return "Tracegate-Backup(gRPC)"
     return str(effective.get("profile") or "Tracegate").strip() or "Tracegate"
 
 
@@ -184,10 +172,6 @@ def _singbox_direct_route_rules_for_outbounds(
     if cidrs:
         rules.append({"ip_cidr": sorted(cidrs), "outbound": "direct"})
     return rules
-
-
-def _client_connect_server(effective: dict[str, Any]) -> str:
-    return str(effective.get("connect_host") or effective.get("server") or "").strip()
 
 
 def _default_local_socks_port(effective: dict[str, Any]) -> int:
@@ -566,6 +550,7 @@ def export_client_config(effective: dict[str, Any]) -> ExportResult:
     Build a client-importable payload from Tracegate effective_config_json.
 
     - VLESS+REALITY: returns a `vless://...` URI
+    - VLESS WS-TLS / gRPC-TLS: retired, always raises ClientConfigExportError
     - Hysteria2: returns a `hysteria2://...` URI (with insecure=1 by default)
     - MTProto: returns a Telegram proxy deep link
     """
@@ -591,10 +576,10 @@ def export_client_config(effective: dict[str, Any]) -> ExportResult:
             "raw-tcp-reality",
         }:
             return _export_vless_reality(effective)
-        if transport in {"ws_tls", "ws+tls", "ws-tls"}:
-            return _export_vless_ws_tls(effective)
-        if transport in {"grpc_tls", "grpc+tls", "grpc-tls"}:
-            return _export_vless_grpc_tls(effective)
+        if transport in _RETIRED_VLESS_TRANSPORTS:
+            # Stored revisions of the retired WS/gRPC families stay in the
+            # database but are never turned into client configs again.
+            raise ClientConfigExportError(RETIRED_CLIENT_PROTOCOL_MESSAGE)
         raise ClientConfigExportError(
             f"Unsupported VLESS transport for export: {transport!r}"
         )
@@ -681,160 +666,6 @@ def _export_vless_reality(effective: dict[str, Any]) -> ExportResult:
     )
 
 
-def _export_vless_ws_tls(effective: dict[str, Any]) -> ExportResult:
-    logical_server = str(effective.get("server") or "").strip()
-    server = _client_connect_server(effective)
-    port = int(effective.get("port") or 443)
-    uuid = effective.get("uuid")
-    sni = (effective.get("sni") or "").strip()
-    ws = effective.get("ws") or {}
-    ws_path = (ws.get("path") or "/ws").strip()
-    ws_host = (ws.get("host") or "").strip()
-    tls = effective.get("tls") or {}
-    insecure = bool(tls.get("insecure", False))
-    alpn = _normalize_alpn(tls.get("alpn"), default=("http/1.1",))
-    encryption = _vless_encryption(effective)
-
-    if not server or not uuid:
-        raise ClientConfigExportError("Missing fields for VLESS+WS+TLS export")
-    if not sni:
-        # Some clients allow empty SNI (use server host), but make it explicit to avoid interop issues.
-        sni = logical_server or str(server)
-    if not ws_host:
-        ws_host = sni
-
-    params = {
-        "encryption": encryption,
-        "security": "tls",
-        "type": "ws",
-        "sni": sni,
-        "host": ws_host,
-        "path": ws_path,
-    }
-    if insecure:
-        params["allowInsecure"] = "1"
-
-    name = client_profile_name(effective)
-    uri = f"vless://{uuid}@{server}:{port}?{_encode_query(params, safe='/,')}#{_q(str(name))}"
-    tls_settings: dict[str, Any] = {
-        "serverName": sni,
-        "fingerprint": "chrome",
-        "alpn": alpn,
-    }
-
-    attachment_content, attachment_filename = _build_xray_client_attachment(
-        effective,
-        {
-            "protocol": "vless",
-            "tag": "proxy",
-            "settings": {
-                "vnext": [
-                    {
-                        "address": server,
-                        "port": port,
-                        "users": [{"id": uuid, "encryption": encryption}],
-                    }
-                ]
-            },
-            "streamSettings": {
-                "network": "ws",
-                "security": "tls",
-                "tlsSettings": tls_settings,
-                "wsSettings": {
-                    "path": ws_path,
-                    "headers": {"Host": ws_host},
-                },
-            },
-        },
-    )
-    return ExportResult(
-        kind="uri",
-        title="VLESS WS+TLS link",
-        content=uri,
-        extra_messages=(_local_socks_extra_message(effective),),
-        attachment_content=attachment_content,
-        attachment_filename=attachment_filename,
-        attachment_mime="application/json",
-    )
-
-
-def _export_vless_grpc_tls(effective: dict[str, Any]) -> ExportResult:
-    logical_server = str(effective.get("server") or "").strip()
-    server = _client_connect_server(effective)
-    port = int(effective.get("port") or 443)
-    uuid = effective.get("uuid")
-    sni = str(effective.get("sni") or logical_server or server or "").strip()
-    grpc = effective.get("grpc") or {}
-    service_name = (
-        str(grpc.get("service_name") or "tracegate.v1.Edge").strip()
-        or "tracegate.v1.Edge"
-    )
-    authority = str(grpc.get("authority") or sni or server or "").strip()
-    tls = effective.get("tls") or {}
-    insecure = bool(tls.get("insecure", False))
-    alpn = _normalize_alpn(tls.get("alpn"), default=("h2",))
-    encryption = _vless_encryption(effective)
-
-    if not server or not uuid:
-        raise ClientConfigExportError("Missing fields for VLESS+gRPC+TLS export")
-    if not sni:
-        sni = str(server)
-
-    params = {
-        "encryption": encryption,
-        "security": "tls",
-        "type": "grpc",
-        "sni": sni,
-        "serviceName": service_name,
-        "mode": "gun",
-    }
-    if insecure:
-        params["allowInsecure"] = "1"
-
-    name = client_profile_name(effective)
-    uri = f"vless://{uuid}@{server}:{port}?{_encode_query(params, safe='/,')}#{_q(str(name))}"
-    tls_settings: dict[str, Any] = {
-        "serverName": sni,
-        "fingerprint": "chrome",
-        "alpn": alpn,
-    }
-
-    grpc_settings: dict[str, Any] = {"serviceName": service_name}
-    if authority:
-        grpc_settings["authority"] = authority
-    attachment_content, attachment_filename = _build_xray_client_attachment(
-        effective,
-        {
-            "protocol": "vless",
-            "tag": "proxy",
-            "settings": {
-                "vnext": [
-                    {
-                        "address": server,
-                        "port": port,
-                        "users": [{"id": uuid, "encryption": encryption}],
-                    }
-                ]
-            },
-            "streamSettings": {
-                "network": "grpc",
-                "security": "tls",
-                "tlsSettings": tls_settings,
-                "grpcSettings": grpc_settings,
-            },
-        },
-    )
-    return ExportResult(
-        kind="uri",
-        title="VLESS gRPC+TLS link",
-        content=uri,
-        extra_messages=(_local_socks_extra_message(effective),),
-        attachment_content=attachment_content,
-        attachment_filename=attachment_filename,
-        attachment_mime="application/json",
-    )
-
-
 def _export_hysteria2(effective: dict[str, Any]) -> ExportResult:
     server = effective.get("server")
     port = int(effective.get("port") or TRACEGATE_PUBLIC_UDP_PORT)
@@ -894,11 +725,16 @@ def _export_hysteria2(effective: dict[str, Any]) -> ExportResult:
         share_auth = token
         authority = _q(token)
 
-    uri_ports = str(port)
     if port_hopping is not None:
-        # Official multi-port URI syntax; the hop interval is client-side only.
-        uri_ports = f"{port},{port_hopping['lower']}-{port_hopping['upper']}"
-    uri = f"hysteria2://{authority}@{server}:{uri_ports}/?{_encode_query(params)}#{_q(str(name))}"
+        # The host part always carries the single listener port: the
+        # multi-port authority form ("host:443,20000-30000/") breaks the import
+        # in several mainstream clients. The range goes into the `mport` query
+        # parameter (with `mportHopInt` in seconds), which clients that
+        # support hopping read and the others ignore while still connecting
+        # to the listener port.
+        params["mport"] = f"{port_hopping['lower']}-{port_hopping['upper']}"
+        params["mportHopInt"] = str(port_hopping["min_interval_s"])
+    uri = f"hysteria2://{authority}@{server}:{port}/?{_encode_query(params)}#{_q(str(name))}"
     singbox_tls: dict[str, Any] = {
         "enabled": True,
         "server_name": sni or str(server),

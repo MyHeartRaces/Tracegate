@@ -27,23 +27,22 @@ def test_tracegate3_connection_variants_are_validated() -> None:
         ConnectionVariant.V1,
     )
     validate_variant(
-        ConnectionProtocol.VLESS_GRPC_TLS,
+        ConnectionProtocol.HYSTERIA2,
         ConnectionMode.DIRECT,
-        ConnectionVariant.V0,
+        ConnectionVariant.V2,
     )
     validate_variant(
         ConnectionProtocol.VLESS_REALITY,
         ConnectionMode.CHAIN,
         ConnectionVariant.V1,
     )
-    validate_variant(
-        ConnectionProtocol.VLESS_WS_TLS,
-        ConnectionMode.CHAIN,
-        ConnectionVariant.V5,
-    )
     for retired in (
         (ConnectionProtocol.SHADOWSOCKS2022_SHADOWTLS, ConnectionMode.DIRECT, ConnectionVariant.V3),
         (ConnectionProtocol.WIREGUARD_WSTUNNEL, ConnectionMode.DIRECT, ConnectionVariant.V0),
+        (ConnectionProtocol.VLESS_GRPC_TLS, ConnectionMode.DIRECT, ConnectionVariant.V0),
+        (ConnectionProtocol.VLESS_WS_TLS, ConnectionMode.DIRECT, ConnectionVariant.V0),
+        (ConnectionProtocol.VLESS_WS_TLS, ConnectionMode.CHAIN, ConnectionVariant.V5),
+        (ConnectionProtocol.VLESS_GRPC_TLS, ConnectionMode.CHAIN, ConnectionVariant.V5),
     ):
         with pytest.raises(ConnectionValidationError):
             validate_variant(*retired)
@@ -52,9 +51,28 @@ def test_tracegate3_connection_variants_are_validated() -> None:
 @pytest.mark.parametrize(
     ("protocol", "mode", "variant"),
     [
+        (ConnectionProtocol.VLESS_GRPC_TLS, ConnectionMode.DIRECT, ConnectionVariant.V0),
+        (ConnectionProtocol.VLESS_WS_TLS, ConnectionMode.DIRECT, ConnectionVariant.V0),
+        (ConnectionProtocol.VLESS_WS_TLS, ConnectionMode.CHAIN, ConnectionVariant.V5),
+        (ConnectionProtocol.VLESS_GRPC_TLS, ConnectionMode.CHAIN, ConnectionVariant.V5),
+    ],
+)
+def test_retired_vless_ws_grpc_variants_are_rejected_as_retired(protocol, mode, variant) -> None:
+    # Rejected even when a deployment still lists the old profile names.
+    with pytest.raises(ConnectionValidationError, match="retired in Tracegate 4.1.1"):
+        validate_variant(
+            protocol,
+            mode,
+            variant,
+            enabled_client_profiles=["backup-ws", "backup-grpc", "entry-ws-legacy", "v0-ws-vless", "v5-entry-ws"],
+        )
+
+
+@pytest.mark.parametrize(
+    ("protocol", "mode", "variant"),
+    [
         (ConnectionProtocol.VLESS_REALITY, ConnectionMode.DIRECT, ConnectionVariant.V0),
         (ConnectionProtocol.HYSTERIA2, ConnectionMode.CHAIN, ConnectionVariant.V2),
-        (ConnectionProtocol.VLESS_GRPC_TLS, ConnectionMode.CHAIN, ConnectionVariant.V5),
         (ConnectionProtocol.SHADOWSOCKS2022_SHADOWTLS, ConnectionMode.CHAIN, ConnectionVariant.V3),
     ],
 )
@@ -103,16 +121,16 @@ def test_connection_profile_sort_key_groups_created_connections_by_product_order
 
     ordered = sorted(shuffled, key=lambda item: connection_profile_sort_key(*item))
 
-    assert ordered[:6] == [
+    assert ordered[:3] == [
         (ConnectionProtocol.VLESS_REALITY, ConnectionMode.DIRECT, ConnectionVariant.V1),
         (ConnectionProtocol.HYSTERIA2, ConnectionMode.DIRECT, ConnectionVariant.V2),
         (ConnectionProtocol.VLESS_REALITY, ConnectionMode.CHAIN, ConnectionVariant.V1),
+    ]
+    # Retired families are no longer issuable; existing rows still sort, after every current profile.
+    assert set(ordered[3:]) == {
         (ConnectionProtocol.VLESS_WS_TLS, ConnectionMode.CHAIN, ConnectionVariant.V5),
         (ConnectionProtocol.VLESS_GRPC_TLS, ConnectionMode.DIRECT, ConnectionVariant.V0),
         (ConnectionProtocol.VLESS_WS_TLS, ConnectionMode.DIRECT, ConnectionVariant.V0),
-    ]
-    # Retired families are no longer issuable; existing rows still sort, after every current profile.
-    assert set(ordered[6:]) == {
         (ConnectionProtocol.SHADOWSOCKS2022_SHADOWTLS, ConnectionMode.DIRECT, ConnectionVariant.V3),
         (ConnectionProtocol.WIREGUARD_WSTUNNEL, ConnectionMode.DIRECT, ConnectionVariant.V0),
     }

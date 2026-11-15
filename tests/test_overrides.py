@@ -39,8 +39,6 @@ def test_local_socks_port_override_must_be_valid_user_port() -> None:
     "protocol",
     [
         ConnectionProtocol.VLESS_REALITY,
-        ConnectionProtocol.VLESS_WS_TLS,
-        ConnectionProtocol.VLESS_GRPC_TLS,
         ConnectionProtocol.HYSTERIA2,
     ],
 )
@@ -62,36 +60,18 @@ def test_local_socks_credential_overrides_are_allowed_only_as_required_pair(prot
         validate_overrides(protocol, {"local_socks_username": "incy user", "local_socks_password": "incy-pass"})
 
 
-def test_vless_grpc_overrides_whitelist() -> None:
-    result = validate_overrides(
-        ConnectionProtocol.VLESS_GRPC_TLS,
-        {
-            "connect_host": "edge-connect.tracegate.test",
-            "grpc_service_name": "tracegate.v1.Edge",
-            "tls_server_name": "edge.example.com",
-        },
-    )
-
-    assert result["grpc_service_name"] == "tracegate.v1.Edge"
-    assert result["connect_host"] == "edge-connect.tracegate.test"
-
-
-def test_vless_ws_connect_host_override_is_allowed() -> None:
-    result = validate_overrides(
-        ConnectionProtocol.VLESS_WS_TLS,
-        {
-            "connect_host": "edge-connect.tracegate.test",
-            "ws_host": "endpoint.tracegate.test",
-            "tls_server_name": "endpoint.tracegate.test",
-        },
-    )
-
-    assert result["connect_host"] == "edge-connect.tracegate.test"
-
-
-def test_vless_connect_host_override_must_not_include_port() -> None:
-    with pytest.raises(OverrideValidationError, match="must not include a port"):
-        validate_overrides(ConnectionProtocol.VLESS_WS_TLS, {"connect_host": "edge-connect.tracegate.test:443"})
+@pytest.mark.parametrize("protocol", [ConnectionProtocol.VLESS_WS_TLS, ConnectionProtocol.VLESS_GRPC_TLS])
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {},
+        {"local_socks_username": "incy-user", "local_socks_password": "incy-pass_01"},
+        {"connect_host": "edge-connect.tracegate.test", "tls_server_name": "edge.example.com"},
+    ],
+)
+def test_retired_vless_ws_grpc_overrides_are_rejected(protocol: ConnectionProtocol, overrides: dict) -> None:
+    with pytest.raises(OverrideValidationError, match="retired in Tracegate 4.1.1"):
+        validate_overrides(protocol, overrides)
 
 
 def test_hysteria_security_override_rejected() -> None:

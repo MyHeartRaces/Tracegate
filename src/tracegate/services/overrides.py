@@ -5,6 +5,7 @@ from ipaddress import ip_address
 from typing import Any
 
 from tracegate.enums import ConnectionProtocol
+from tracegate.services.connection_profiles import RETIRED_CLIENT_PROTOCOL_MESSAGE, is_retired_client_protocol
 
 
 class OverrideValidationError(ValueError):
@@ -96,20 +97,6 @@ def _validate_loopback_endpoint_override(overrides: dict[str, Any], key: str) ->
         _parse_loopback_endpoint(overrides[key], field_name=key)
 
 
-def _validate_host_override(overrides: dict[str, Any], key: str) -> None:
-    if key not in overrides or overrides.get(key) is None:
-        return
-    value = str(overrides.get(key) or "").strip()
-    if not value:
-        raise OverrideValidationError(f"{key} must not be empty")
-    if "://" in value or "/" in value or any(ch.isspace() for ch in value):
-        raise OverrideValidationError(f"{key} must be a hostname or IP address")
-    if value.startswith("[") and value.endswith("]"):
-        return
-    if ":" in value:
-        raise OverrideValidationError(f"{key} must not include a port")
-
-
 def _validate_hysteria_client_mode(overrides: dict[str, Any]) -> None:
     if "client_mode" not in overrides or overrides.get("client_mode") is None:
         return
@@ -141,46 +128,8 @@ def validate_overrides(protocol: ConnectionProtocol, overrides: dict[str, Any]) 
             if not isinstance(overrides.get("vless_encryption"), bool):
                 raise OverrideValidationError("vless_encryption must be true or false")
 
-    elif protocol == ConnectionProtocol.VLESS_WS_TLS:
-        allowed = {
-            "connect_timeout_ms",
-            "dial_timeout_ms",
-            "local_socks_port",
-            "local_socks_username",
-            "local_socks_password",
-            "tcp_fast_open",
-            "connect_host",
-            # WS+TLS specifics
-            "ws_path",
-            "ws_host",
-            "tls_server_name",
-            "tls_insecure",
-        }
-        forbidden = {"port", "server_port"}
-        _ensure_keys(overrides, allowed, forbidden)
-        _validate_host_override(overrides, "connect_host")
-        _validate_local_socks_port(overrides)
-        _validate_local_socks_credentials(overrides)
-
-    elif protocol == ConnectionProtocol.VLESS_GRPC_TLS:
-        allowed = {
-            "connect_timeout_ms",
-            "dial_timeout_ms",
-            "local_socks_port",
-            "local_socks_username",
-            "local_socks_password",
-            "tcp_fast_open",
-            "connect_host",
-            "grpc_service_name",
-            "grpc_authority",
-            "tls_server_name",
-            "tls_insecure",
-        }
-        forbidden = {"port", "server_port", "grpc_port"}
-        _ensure_keys(overrides, allowed, forbidden)
-        _validate_host_override(overrides, "connect_host")
-        _validate_local_socks_port(overrides)
-        _validate_local_socks_credentials(overrides)
+    elif is_retired_client_protocol(protocol):
+        raise OverrideValidationError(RETIRED_CLIENT_PROTOCOL_MESSAGE)
 
     elif protocol == ConnectionProtocol.HYSTERIA2:
         allowed = {

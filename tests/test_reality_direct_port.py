@@ -170,29 +170,3 @@ async def test_chain_reality_revision_stays_on_443_with_direct_port_8443(monkeyp
     revision = await _issue(monkeypatch, connection, user)
 
     assert revision.effective_config_json["port"] == 443
-
-
-def test_ws_and_grpc_backups_stay_on_443_with_direct_port_8443() -> None:
-    user = _user()
-    device = Device(id=uuid4(), user_id=user.telegram_id, name="phone", status=RecordStatus.ACTIVE)
-    for protocol in (ConnectionProtocol.VLESS_WS_TLS, ConnectionProtocol.VLESS_GRPC_TLS):
-        connection = Connection(
-            id=uuid4(),
-            user_id=user.telegram_id,
-            device_id=device.id,
-            protocol=protocol,
-            mode=ConnectionMode.DIRECT,
-            variant=ConnectionVariant.V0,
-            profile_name="v0-backup",
-            custom_overrides_json={},
-            status=RecordStatus.ACTIVE,
-        )
-        cfg = build_effective_config(
-            user=user,
-            device=device,
-            connection=connection,
-            selected_sni=None,
-            endpoints=_endpoints(transit_server_name="transit.tracegate.test", reality_direct_port=8443),
-        )
-        assert cfg["port"] == 443
-        assert cfg["design_constraints"]["fixed_port_tcp"] == 443

@@ -95,10 +95,10 @@ async def test_create_connection_accepts_required_local_socks_credential_pair() 
         ConnectionCreate(
             user_id=user.telegram_id,
             device_id=device.id,
-            protocol=ConnectionProtocol.VLESS_GRPC_TLS,
+            protocol=ConnectionProtocol.VLESS_REALITY,
             mode=ConnectionMode.DIRECT,
-            variant=ConnectionVariant.V0,
-            profile_name="v0-grpc-vless",
+            variant=ConnectionVariant.V1,
+            profile_name="v1-direct-reality-vless",
             custom_overrides_json={
                 "local_socks_username": "incy-user",
                 "local_socks_password": "incy-pass_01",

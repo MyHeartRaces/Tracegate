@@ -43,8 +43,8 @@
 - Run the migration one-shot before switching application services.
 - Require `/ready` (including a database query), agent health and sustained
   payload probes before completing the rollout.
-- Verify Telegram Proxy issue/revoke, Reality, both Hysteria variants, Chain,
-  both Backup variants and SS2022/ShadowTLS.
+- Verify Telegram Proxy issue/revoke, Reality, both Hysteria variants, Chain
+  and the SS2022/ShadowTLS backhaul.
 - Verify Grafana traffic panels in MB and the new Telemt/SS collectors.
 
 ## Engine update

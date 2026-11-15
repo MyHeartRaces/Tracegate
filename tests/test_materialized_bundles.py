@@ -95,7 +95,7 @@ def test_context_uses_shared_defaults_and_fallback_values(tmp_path: Path) -> Non
     assert ctx.entry_hysteria_tls_cert_file == "/etc/tls/entry.crt"
     assert ctx.transit_hysteria_tls_key_file == "/etc/tls/transit.key"
     assert ctx.hysteria_chain_client_rate_limit_enabled is True
-    assert ctx.hysteria_chain_client_max_mbit == 10
+    assert ctx.hysteria_chain_client_max_mbit == 15
     assert ctx.hysteria_chain_client_require_declared_tx is True
     assert ctx.reality_public_key_transit == "shared-public-key"
     assert ctx.reality_short_id_entry == "shared-short-id"
@@ -230,7 +230,6 @@ def test_render_materialized_bundles_rewrites_runtime_files(tmp_path: Path) -> N
     to_transit = next(outbound for outbound in entry_xray["outbounds"] if outbound["tag"] == "to-transit")
     transit_reality_inbound = next(inbound for inbound in transit_xray["inbounds"] if inbound["tag"] == "vless-reality-in")
     transit_ws_inbound = next(inbound for inbound in transit_xray["inbounds"] if inbound["tag"] == "vless-ws-in")
-    transit_grpc_inbound = next(inbound for inbound in transit_xray["inbounds"] if inbound["tag"] == "vless-grpc-in")
 
     assert entry_inbound["streamSettings"]["realitySettings"]["dest"] == "origin-entry.example:443"
     assert entry_inbound["streamSettings"]["realitySettings"]["serverNames"] == ["origin-entry.example"]
@@ -261,7 +260,8 @@ def test_render_materialized_bundles_rewrites_runtime_files(tmp_path: Path) -> N
     assert transit_xray["policy"]["levels"]["0"]["downlinkOnly"] == 5
     assert transit_ws_inbound["streamSettings"]["wsSettings"]["path"] == "/stealth/ws"
     assert transit_ws_inbound["streamSettings"]["wsSettings"]["heartbeatPeriod"] == 15
-    assert transit_grpc_inbound["streamSettings"]["grpcSettings"]["serviceName"] == "tracegate.v1.Edge"
+    # The client VLESS gRPC-TLS inbound was retired in 4.1.1 on Endpoint.
+    assert "vless-grpc-in" not in {inbound["tag"] for inbound in transit_xray["inbounds"]}
     # The client SS2022 inbound is retired; the isolated process keeps only bridge inbounds.
     assert "ss2022-in" not in {inbound["tag"] for inbound in transit_ss2022_xray["inbounds"]}
     assert 18443 not in {inbound.get("port") for inbound in transit_ss2022_xray["inbounds"]}
@@ -278,7 +278,7 @@ def test_render_materialized_bundles_rewrites_runtime_files(tmp_path: Path) -> N
     assert "password: \"entry-gecko-secret\"" in entry_hysteria
     assert "secret: \"entry-stats-secret\"" in entry_hysteria
     assert "dir: \"/srv/decoy\"" in entry_hysteria
-    assert "bandwidth:\n  up: 10 mbps\n  down: 10 mbps" in entry_hysteria
+    assert "bandwidth:\n  up: 15 mbps\n  down: 15 mbps" in entry_hysteria
     assert "ignoreClientBandwidth: false" in entry_hysteria
     assert "password: \"transit-gecko-secret\"" in transit_hysteria
     assert "secret: \"transit-stats-secret\"" in transit_hysteria
@@ -301,7 +301,7 @@ def test_render_materialized_bundles_rewrites_runtime_files(tmp_path: Path) -> N
         if isinstance(rule, dict)
     )
     assert any(
-        rule.get("inboundTag") == ["vless-reality-in", "vless-ws-in", "vless-grpc-in"]
+        rule.get("inboundTag") == ["vless-reality-in", "vless-ws-in"]
         and rule.get("protocol") == ["bittorrent"]
         and rule.get("outboundTag") == "block"
         for rule in transit_xray["routing"]["rules"]
@@ -345,10 +345,13 @@ def test_render_materialized_bundles_rewrites_runtime_files(tmp_path: Path) -> N
     assert "return 302 /vault/mtproto/;" in transit_nginx
     assert "root /srv/decoy;" in entry_nginx
     assert "root /srv/decoy;" in transit_nginx
-    assert "grpc_pass grpc://127.0.0.1:10001;" in entry_nginx
-    assert "grpc_pass grpc://127.0.0.1:10001;" in transit_nginx
-    assert "client_max_body_size 0;" in entry_nginx
-    assert "client_max_body_size 0;" in transit_nginx
+    # Client VLESS WS/gRPC-TLS were retired in 4.1.1: no gRPC proxying and no
+    # Entry WS proxying; Endpoint keeps /ws only for the MTProto egress carrier.
+    assert "grpc_pass" not in entry_nginx
+    assert "grpc_pass" not in transit_nginx
+    assert "location /ws" not in entry_nginx
+    assert "location /stealth/ws" not in entry_nginx
+    assert "location ^~ /grafana/" in transit_nginx
 
     manifest = json.loads((ctx.materialized_root / ".tracegate-deploy-manifest.json").read_text(encoding="utf-8"))
     assert manifest["version"] == 1

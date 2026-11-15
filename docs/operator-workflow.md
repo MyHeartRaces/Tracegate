@@ -69,6 +69,25 @@ never part of editing the environment.
   New and re-issued Direct revisions carry the range; existing revisions do
   not. Check on the host that nothing else listens on UDP inside the ranges.
 
+## Retired client families
+
+VLESS WebSocket-TLS and VLESS gRPC-TLS (the former "Backup" profiles and the
+legacy WebSocket/gRPC Chain variants) were retired in 4.1.1:
+
+- the deploy migration revokes every remaining connection and revision of
+  both protocols; the rows still load and display, and nothing of them can be
+  issued, re-issued, activated or exported again;
+- the agent no longer adds client users of these protocols to any Xray
+  inbound, even when its local artifact index still holds them;
+- the public templates no longer proxy WebSocket or gRPC client traffic. The
+  Endpoint `/ws` path and its Xray inbound remain only as the carrier of the
+  `entry-local-endpoint-egress` Telegram Proxy mode; the Entry Xray template
+  keeps its now unreachable, client-less WebSocket and gRPC inbounds;
+- hand-managed host configuration and private profiles that still list the
+  retired surfaces or profile names keep passing preflight, with a warning
+  where the names appear in a desired-state file. A private bot guide file
+  that still mentions the Backup profiles has to be edited by hand.
+
 ## Reading alerts: failed, no data, query error
 
 Every Grafana alert rule reports one of three distinct states:

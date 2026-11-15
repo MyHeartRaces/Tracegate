@@ -13,10 +13,24 @@ _PROFILE_LIST_ORDER = {
     "reality": 10,
     "hysteria": 20,
     "entry": 30,
-    "entry-ws-legacy": 31,
-    "backup-grpc": 110,
-    "backup-ws": 120,
 }
+
+# Client families retired in Tracegate 4.1.1: VLESS over WebSocket-TLS and
+# VLESS over gRPC-TLS (the Direct "Backup" profiles and the legacy V5 Chain
+# variants). The enum members stay so existing rows still load, display and
+# can be revoked; nothing can be issued, re-issued, activated or exported.
+RETIRED_CLIENT_PROTOCOLS = frozenset({ConnectionProtocol.VLESS_WS_TLS, ConnectionProtocol.VLESS_GRPC_TLS})
+RETIRED_CLIENT_PROTOCOL_MESSAGE = (
+    "VLESS WebSocket-TLS and VLESS gRPC-TLS connections were retired in Tracegate 4.1.1 "
+    "and can no longer be issued, re-issued or exported; use Reality or Hysteria instead"
+)
+
+
+def is_retired_client_protocol(protocol: ConnectionProtocol | str | None) -> bool:
+    try:
+        return ConnectionProtocol(protocol) in RETIRED_CLIENT_PROTOCOLS
+    except ValueError:
+        return False
 
 
 def connection_profile_label(
@@ -78,11 +92,6 @@ def supported_profile_specs() -> dict[str, tuple[ConnectionProtocol, ConnectionM
         "reality": (ConnectionProtocol.VLESS_REALITY, ConnectionMode.DIRECT, ConnectionVariant.V1),
         "hysteria": (ConnectionProtocol.HYSTERIA2, ConnectionMode.DIRECT, ConnectionVariant.V2),
         "entry": (ConnectionProtocol.VLESS_REALITY, ConnectionMode.CHAIN, ConnectionVariant.V1),
-        # Existing WS Chain connections remain valid and can be reissued, but
-        # the bot no longer offers this compatibility profile for new connections.
-        "entry-ws-legacy": (ConnectionProtocol.VLESS_WS_TLS, ConnectionMode.CHAIN, ConnectionVariant.V5),
-        "backup-grpc": (ConnectionProtocol.VLESS_GRPC_TLS, ConnectionMode.DIRECT, ConnectionVariant.V0),
-        "backup-ws": (ConnectionProtocol.VLESS_WS_TLS, ConnectionMode.DIRECT, ConnectionVariant.V0),
     }
 
 
@@ -129,9 +138,6 @@ def enabled_profile_keys(enabled_profile_names: Iterable[str] | None) -> set[str
             "reality": {"v1direct", "v1-direct-reality-vless"},
             "hysteria": {"v2direct", "v2-direct-quic-hysteria"},
             "entry": {"universal", "v1chain", "v1-chain-reality-vless"},
-            "entry-ws-legacy": {"v5-universal-entry", "v5-entry-ws"},
-            "backup-grpc": {"v0grpc", "v0-grpc-vless"},
-            "backup-ws": {"v0ws", "v0-ws-vless"},
         }
         names.update(aliases.get(key, set()))
         if names & normalized:

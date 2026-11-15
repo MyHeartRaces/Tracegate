@@ -55,7 +55,7 @@ def _normalize_route_host(value: object) -> str:
 def _singbox_direct_route_rules_for_outbounds(outbounds: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Route proxy bearer addresses outside the proxy to avoid TUN/FakeIP loops.
 
-    Only the actual dial targets are collected. TLS SNI / WS Host / gRPC authority
+    Only the actual dial targets are collected. TLS SNI and similar names
     can be borrowed camouflage names and must not become general DIRECT bypasses.
     """
 
@@ -153,53 +153,6 @@ def _singbox_outbounds_from_attachment(exported: ExportResult, *, tag_prefix: st
     return _retag_singbox_outbounds(outbounds, tag_prefix=tag_prefix)
 
 
-def _singbox_vless_outbound(effective: dict[str, Any], *, tag: str) -> dict[str, Any] | None:
-    vless_encryption = effective.get("vless_encryption")
-    if isinstance(vless_encryption, dict) and bool(vless_encryption.get("enabled", False)):
-        return None
-    transport = str(effective.get("transport") or "").strip().lower()
-    if transport not in {"ws_tls", "ws+tls", "ws-tls", "grpc_tls", "grpc+tls", "grpc-tls"}:
-        return None
-    server = str(effective.get("connect_host") or effective.get("server") or "").strip()
-    uuid = str(effective.get("uuid") or "").strip()
-    if not server or not uuid:
-        return None
-    logical_server = str(effective.get("server") or server).strip()
-    sni = str(effective.get("sni") or logical_server or server).strip()
-    tls = effective.get("tls") if isinstance(effective.get("tls"), dict) else {}
-    outbound: dict[str, Any] = {
-        "type": "vless",
-        "tag": tag,
-        "server": server,
-        "server_port": int(effective.get("port") or 443),
-        "uuid": uuid,
-        "tls": {
-            "enabled": True,
-            "server_name": sni,
-        },
-    }
-    if bool(tls.get("insecure", False)):
-        outbound["tls"]["insecure"] = True
-    if transport.startswith("ws") or transport in {"ws+tls", "ws-tls"}:
-        ws = effective.get("ws") if isinstance(effective.get("ws"), dict) else {}
-        headers: dict[str, str] = {}
-        host = str(ws.get("host") or sni or "").strip()
-        if host:
-            headers["Host"] = host
-        outbound["transport"] = {
-            "type": "ws",
-            "path": str(ws.get("path") or "/ws").strip() or "/ws",
-            "headers": headers,
-        }
-    else:
-        grpc = effective.get("grpc") if isinstance(effective.get("grpc"), dict) else {}
-        outbound["transport"] = {
-            "type": "grpc",
-            "service_name": str(grpc.get("service_name") or "tracegate.v1.Edge").strip() or "tracegate.v1.Edge",
-        }
-    return outbound
-
-
 def _singbox_outbounds_for_profile(
     effective: dict[str, Any],
     exported: ExportResult,
@@ -212,15 +165,11 @@ def _singbox_outbounds_for_profile(
         return from_attachment, primary, warnings
 
     proto = str(effective.get("protocol") or "").strip().lower()
-    tag = f"{tag_prefix}-proxy"
     if proto == "vless":
         vless_encryption = effective.get("vless_encryption")
         if isinstance(vless_encryption, dict) and bool(vless_encryption.get("enabled", False)):
             warnings.append("removed_profile_not_exported")
             return [], None, warnings
-        outbound = _singbox_vless_outbound(effective, tag=tag)
-        if outbound:
-            return [outbound], tag, warnings
         warnings.append("vless_transport_not_representable_as_official_singbox_outbound")
     elif proto == "hysteria2":
         warnings.append("hysteria_gecko_requires_official_hysteria_client")

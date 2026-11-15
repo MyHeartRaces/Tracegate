@@ -29,13 +29,13 @@ def test_client_config_bundle_collects_universal_links_artifacts_and_singbox() -
                 1,
                 {
                     "protocol": "vless",
-                    "transport": "ws_tls",
+                    "transport": "reality_raw",
                     "server": "edge.example.com",
                     "port": 443,
                     "uuid": "11111111-2222-3333-4444-555555555555",
                     "sni": "front.example.com",
-                    "ws": {"path": "/ws", "host": "front.example.com"},
-                    "profile": "VLESS-WS",
+                    "reality": {"public_key": "PUBLIC-KEY", "short_id": "abcd"},
+                    "profile": "VLESS-Reality",
                 },
             ),
             _item(
@@ -49,6 +49,17 @@ def test_client_config_bundle_collects_universal_links_artifacts_and_singbox() -
                     "profile": "Hysteria2",
                 },
             ),
+            _item(
+                3,
+                {
+                    "protocol": "hysteria2",
+                    "server": "hy-salamander.example.com",
+                    "port": 4443,
+                    "auth": {"type": "userpass", "username": "u", "password": "p"},
+                    "obfs": {"type": "salamander", "password": "obfs-secret"},
+                    "profile": "Hysteria2",
+                },
+            ),
         ],
         subject_type="device",
         subject_id="dev-1",
@@ -59,8 +70,8 @@ def test_client_config_bundle_collects_universal_links_artifacts_and_singbox() -
     assert bundle["generatedAt"] == "2026-05-19T12:00:00Z"
     assert bundle["subject"] == {"type": "device", "id": "dev-1"}
     assert bundle["counts"] == {
-        "profiles": 2,
-        "links": 2,
+        "profiles": 3,
+        "links": 3,
         "singboxOutbounds": 1,
         "errors": 0,
     }
@@ -78,16 +89,18 @@ def test_client_config_bundle_collects_universal_links_artifacts_and_singbox() -
     assert selector["tag"] == "proxy"
     assert selector["default"] in selector["outbounds"]
     assert all("protocol" not in outbound for outbound in bundle["singbox"]["outbounds"])
-    assert any(outbound["type"] == "vless" and outbound["transport"]["type"] == "ws" for outbound in bundle["singbox"]["outbounds"])
+    assert any(outbound["type"] == "hysteria2" for outbound in bundle["singbox"]["outbounds"])
     assert not any(outbound["type"] == "wireguard" for outbound in bundle["singbox"]["outbounds"])
+    assert not any(outbound["type"] == "vless" for outbound in bundle["singbox"]["outbounds"])
     assert bundle["singbox"]["route"] == {
         "auto_detect_interface": True,
         "final": "proxy",
-        "rules": [{"domain": ["edge.example.com"], "outbound": "direct"}],
+        "rules": [{"domain": ["hy-salamander.example.com"], "outbound": "direct"}],
     }
 
     profiles = {profile["profile"]: profile for profile in bundle["profiles"]}
-    assert profiles["Tracegate-Backup(WebSocket)"]["singbox"]["supported"] is True
+    assert profiles["Tracegate-Reality"]["singbox"]["supported"] is False
+    assert profiles["Tracegate-Hysteria(Salamander)"]["singbox"]["supported"] is True
     assert profiles["Tracegate-Hysteria(Gecko)"]["singbox"]["supported"] is False
     assert profiles["Tracegate-Hysteria(Gecko)"]["artifacts"][0]["filename"].endswith(".hysteria.yaml")
     assert profiles["Tracegate-Hysteria(Gecko)"]["warnings"] == [
@@ -145,7 +158,7 @@ def test_client_config_bundle_reports_retired_families_as_errors_without_crashin
     assert bundle["subscription"]["links"] == []
 
 
-def test_client_config_bundle_routes_connect_host_direct_without_fake_sni_bypass() -> None:
+def test_client_config_bundle_reports_retired_vless_ws_grpc_revisions_as_errors() -> None:
     bundle = build_client_config_bundle(
         [
             _item(
@@ -159,17 +172,34 @@ def test_client_config_bundle_routes_connect_host_direct_without_fake_sni_bypass
                     "uuid": "11111111-2222-3333-4444-555555555555",
                     "sni": "borrowed-sni.example.net",
                     "ws": {"path": "/ws", "host": "borrowed-sni.example.net"},
-                    "profile": "VLESS-WS",
+                    "profile": "v0-ws-vless",
                 },
-            )
+            ),
+            _item(
+                2,
+                {
+                    "protocol": "vless",
+                    "transport": "grpc_tls",
+                    "server": "edge.example.com",
+                    "port": 443,
+                    "uuid": "11111111-2222-3333-4444-666666666666",
+                    "sni": "edge.example.com",
+                    "grpc": {"service_name": "tracegate.v1.Edge"},
+                    "profile": "v0-grpc-vless",
+                },
+            ),
         ],
         subject_type="device",
         subject_id="dev-1",
         generated_at=datetime(2026, 5, 19, 12, 0, tzinfo=timezone.utc),
     )
 
-    assert bundle["singbox"]["outbounds"][1]["server"] == "edge-connect.example.com"
-    assert bundle["singbox"]["route"]["rules"] == [{"domain": ["edge-connect.example.com"], "outbound": "direct"}]
+    assert bundle["counts"]["profiles"] == 0
+    assert bundle["counts"]["links"] == 0
+    assert bundle["counts"]["singboxOutbounds"] == 0
+    assert bundle["counts"]["errors"] == 2
+    assert all("retired" in error["error"] for error in bundle["errors"])
+    assert bundle["subscription"]["links"] == []
 
 
 def test_client_config_bundle_rejects_removed_vless_encryption() -> None:
@@ -179,13 +209,13 @@ def test_client_config_bundle_rejects_removed_vless_encryption() -> None:
                 1,
                 {
                     "protocol": "vless",
-                    "transport": "ws_tls",
+                    "transport": "reality_raw",
                     "server": "edge.example.com",
                     "port": 443,
                     "uuid": "11111111-2222-3333-4444-555555555555",
                     "sni": "front.example.com",
-                    "ws": {"path": "/ws-enc", "host": "front.example.com"},
-                    "profile": "VLESS-WS-Encrypted",
+                    "reality": {"public_key": "PUBLIC-KEY", "short_id": "abcd"},
+                    "profile": "VLESS-Reality-Encrypted",
                     "vless_encryption": {
                         "enabled": True,
                         "encryption": "mlkem768x25519plus.native.0rtt.CLIENT",

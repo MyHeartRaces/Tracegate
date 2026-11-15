@@ -1,5 +1,10 @@
 # Endpoint Cloudflare fallback
 
+> Retired in 4.1.1. The `backup-grpc` profile this lane relied on was removed
+> together with the other VLESS gRPC-TLS and WebSocket-TLS profiles, and the
+> public templates no longer proxy gRPC to Xray. The text below is kept as
+> history only; do not enable the lane.
+
 Tracegate can reuse the normal Cloudflare-proxied Endpoint hostname as a
 backup gRPC/TLS/HTTP/2 lane. This lane is intended for Tracegate-Router or a
 system TUN client when the provider blocks the direct Entry or native

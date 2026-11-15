@@ -208,13 +208,26 @@ def _effective(obfs_type: str, *, hopping: bool) -> dict:
     return effective
 
 
-def test_hysteria_uri_uses_official_multiport_syntax_only_with_hopping() -> None:
+def test_hysteria_uri_keeps_a_single_port_and_puts_the_range_in_mport() -> None:
+    # The multi-port authority ("host:443,20000-29999/") broke the import in
+    # several clients; the host part always carries only the listener port.
+    from urllib.parse import parse_qs, urlsplit
+
     plain = export_client_config(_effective("gecko", hopping=False))
     hopping = export_client_config(_effective("gecko", hopping=True))
 
     assert plain.content.startswith("hysteria2://u%3Ap@t.example.com:443/?")
-    assert hopping.content.startswith("hysteria2://u%3Ap@t.example.com:443,20000-29999/?")
-    assert "hop" not in hopping.content.lower().split("#")[0].split("?")[1]
+    assert hopping.content.startswith("hysteria2://u%3Ap@t.example.com:443/?")
+    assert "," not in urlsplit(hopping.content).netloc
+
+    plain_query = parse_qs(urlsplit(plain.content).query)
+    hopping_query = parse_qs(urlsplit(hopping.content).query)
+    assert "mport" not in plain_query and "mportHopInt" not in plain_query
+    assert hopping_query["mport"] == ["20000-29999"]
+    assert hopping_query["mportHopInt"] == ["20"]
+    # Everything else is identical, so clients that ignore mport still connect.
+    for key in ("obfs", "obfs-password", "sni"):
+        assert hopping_query.get(key) == plain_query.get(key)
 
 
 def test_hysteria_gecko_yaml_uses_multiport_server_and_hop_interval_window() -> None:

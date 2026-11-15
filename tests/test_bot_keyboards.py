@@ -202,15 +202,43 @@ def test_mtproto_delivery_keyboard_exposes_repeat_rotate_and_revoke_actions() ->
     assert _has_text(texts, "Подключения")
 
 
+def _callback_data(keyboard) -> list[str]:
+    return [str(button.callback_data) for row in keyboard.inline_keyboard for button in row]
+
+
 def test_connection_create_profiles_keyboard_uses_new_profile_names() -> None:
-    kb = connection_create_profiles_keyboard(category="backup", device_id="dev-42")
-    texts = _button_texts(kb)
-    assert "VLESS+gRPC" in texts
-    assert "VLESS+WebSocket" in texts
+    direct = _button_texts(connection_create_profiles_keyboard(category="direct", device_id="dev-42"))
+    assert "Reality" in direct
+    assert "Hysteria" in direct
 
     experimental = _button_texts(connection_create_profiles_keyboard(category="experimental", device_id="dev-42"))
     assert "Shadowsocks-2022+ShadowTLS1.3" not in experimental
     assert "Wireguard-over-WebSocket (WGWS)" not in experimental
+
+
+def test_retired_vless_ws_grpc_backup_profiles_are_not_offered_anywhere() -> None:
+    # VLESS WS-TLS / gRPC-TLS ("Backup") were retired in 4.1.1.
+    keyboards = [
+        connection_create_categories_keyboard_for(device_id="dev-42", enabled_specs=None),
+        connection_create_categories_keyboard_for(
+            device_id="dev-42", enabled_specs={"reality", "hysteria", "entry", "backup-ws", "backup-grpc"}
+        ),
+        *(
+            connection_create_profiles_keyboard(category=category, device_id="dev-42", enabled_specs=enabled)
+            for category in ("direct", "backup")
+            for enabled in (None, {"reality", "hysteria", "backup-ws", "backup-grpc", "entry-ws-legacy"})
+        ),
+    ]
+    for keyboard in keyboards:
+        texts = " ".join(_button_texts(keyboard)).lower()
+        callbacks = " ".join(_callback_data(keyboard)).lower()
+        for needle in ("backup", "grpc", "websocket", "vless+ws"):
+            assert needle not in texts
+        for needle in ("backup", "grpc", "conncat:backup", "entry-ws"):
+            assert needle not in callbacks
+    # A stale "Backup" category renders only the back button.
+    stale = connection_create_profiles_keyboard(category="backup", device_id="dev-42")
+    assert _callback_data(stale) == ["conn_create:dev-42"]
 
 
 def test_hysteria_obfs_keyboard_recommends_salamander_and_offers_gecko() -> None:
@@ -222,20 +250,19 @@ def test_hysteria_obfs_keyboard_recommends_salamander_and_offers_gecko() -> None
 
 
 def test_connection_create_keyboards_hide_disabled_profiles() -> None:
-    enabled = {"reality", "hysteria", "backup-ws", "backup-grpc"}
+    enabled = {"reality"}
     categories = _button_texts(connection_create_categories_keyboard_for(device_id="dev-42", enabled_specs=enabled))
     assert "Direct" in categories
+    assert "Chain" not in categories
     assert "Experimental" not in categories
-    assert "Backup" in categories
+    assert "Backup" not in categories
     assert "Entry Chain (Mobile)" not in categories
 
-    backup = _button_texts(
-        connection_create_profiles_keyboard(category="backup", device_id="dev-42", enabled_specs=enabled)
+    direct = _button_texts(
+        connection_create_profiles_keyboard(category="direct", device_id="dev-42", enabled_specs=enabled)
     )
-    assert "VLESS+WebSocket" in backup
-    assert "VLESS+gRPC" in backup
-    assert "Shadowsocks-2022+ShadowTLS1.3" not in backup
-    assert "Wireguard-over-WebSocket (WGWS)" not in backup
+    assert "Reality" in direct
+    assert "Hysteria" not in direct
 
 
 def test_connection_create_keyboards_can_expose_only_universal_entry() -> None:

@@ -1,5 +1,45 @@
 # Changelog
 
+## v4.1.1 - 2026-11-15
+
+- Hysteria2 share links keep a single listener port in the host part; the
+  port-hopping range moved to the `mport` query parameter with `mportHopInt`
+  (seconds). The multi-port host form (`host:port,LO-HI/`) failed to import
+  in several mainstream clients. Clients that do not read `mport` connect to
+  the listener port; sing-box and official Hysteria attachments keep their
+  native hopping fields. Re-issue a hopping profile to get the new link.
+- Chain Hysteria per-client cap is configurable end to end
+  (`HYSTERIA_CHAIN_CLIENT_MAX_MBIT`, default raised from 10 to 15): issued
+  Chain configs declare it, the Entry server bandwidth and the Entry login
+  check use it, and the renderer no longer clamps it to 10.
+
+- Removed the VLESS WebSocket-TLS and VLESS gRPC-TLS client families (the
+  Direct "Backup" profiles and the legacy WebSocket/gRPC Chain variants).
+  Migration `d4b6f0e2a315` revokes every remaining connection and revision of
+  `VLESS_WS_TLS` and `VLESS_GRPC_TLS`; the enum values stay, so the rows still
+  load, display and can be revoked. API, bot and services refuse to create,
+  re-issue or activate them with a "retired" error, re-issue dispatch skips
+  them, and client export of a stored revision fails with the same error.
+- The bot no longer offers a Backup category or WebSocket/gRPC profiles, and
+  the default guide text no longer lists them. Buttons in old chat messages
+  answer with the retirement message.
+- The agent no longer turns WebSocket/gRPC client artifacts into Xray users,
+  so revoked rows stop authenticating on every node after the agent upgrade;
+  operator-defined base clients of those inbounds are kept.
+- Templates: Entry nginx no longer proxies `/ws` or the gRPC service to Xray;
+  Endpoint nginx no longer proxies the gRPC service and the Endpoint
+  `vless-grpc-in` inbound is gone. The Endpoint `/ws` path and `vless-ws-in`
+  inbound stay as the carrier of the `entry-local-endpoint-egress` Telegram
+  Proxy mode, and the Entry Xray inbounds stay unchanged (unreachable without
+  the nginx paths) to keep the bridge render byte-identical. Own-domain TLS
+  termination, the cover site, Grafana routing, HAProxy SNI routing to the web
+  layer, the Entry-to-Endpoint bridge, Reality and Hysteria2 are unchanged.
+- The `tracegate-3` runtime contract no longer lists `v5-entry-ws`,
+  `v0-grpc-vless` and `v0-ws-vless`. Private profile and link-crypto
+  desired-state files that still list them produce a warning instead of a
+  `clientNames` divergence error until the next agent reconcile rewrites them;
+  zapret profiles may keep listing the retired surfaces.
+
 ## v4.1.0 - 2026-11-12
 
 - Engine update supervisor (`tracegate-engine-update`, daily

@@ -15,7 +15,7 @@ from tracegate.constants import (
     TRACEGATE_PUBLIC_UDP_PORT,
 )
 from tracegate.services.mtproto import MTPROTO_DIRECT_PROFILE_NAME, MTPROTO_FAKE_TLS_PROFILE_NAME
-from tracegate.services.runtime_contract import TRACEGATE21_CLIENT_PROFILES
+from tracegate.services.runtime_contract import RETIRED_TRACEGATE3_CLIENT_PROFILES, TRACEGATE21_CLIENT_PROFILES
 
 
 class RuntimePreflightError(RuntimeError):
@@ -3455,6 +3455,40 @@ def _validate_private_profile_counts(
     return findings
 
 
+_RETIRED_CLIENT_PROFILE_NAMES = frozenset(RETIRED_TRACEGATE3_CLIENT_PROFILES)
+
+
+def _compare_transport_client_names(
+    *,
+    state_client_names: list[str],
+    contract_client_names: list[str],
+    prefix: str,
+) -> list[RuntimePreflightFinding]:
+    # Hand-managed or older-agent state files may still list the retired VLESS
+    # WS-TLS / gRPC-TLS client profiles. Those names are ignored for the
+    # comparison and reported as a warning; any other divergence stays an error.
+    if state_client_names == contract_client_names:
+        return []
+    state_current = [name for name in state_client_names if name not in _RETIRED_CLIENT_PROFILE_NAMES]
+    contract_current = [name for name in contract_client_names if name not in _RETIRED_CLIENT_PROFILE_NAMES]
+    if state_current != contract_current:
+        return [
+            _finding(
+                "error",
+                f"{prefix}-transport-client-names",
+                f"{prefix.replace('-', ' ')} clientNames diverge from runtime-contract",
+            )
+        ]
+    return [
+        _finding(
+            "warning",
+            f"{prefix}-transport-retired-client-names",
+            f"{prefix.replace('-', ' ')} clientNames still list retired VLESS WS/gRPC TLS profiles; "
+            "they are ignored and cleared at the next agent reconcile",
+        )
+    ]
+
+
 def _validate_private_profile_transport_profiles(
     *,
     state: PrivateProfileState,
@@ -3476,16 +3510,13 @@ def _validate_private_profile_transport_profiles(
         )
         return findings
 
-    state_client_names = _string_list(state.transport_profiles.get("clientNames"))
-    contract_client_names = _string_list(contract_transport.get("clientNames"))
-    if state_client_names != contract_client_names:
-        findings.append(
-            _finding(
-                "error",
-                f"{prefix}-transport-client-names",
-                f"{prefix.replace('-', ' ')} clientNames diverge from runtime-contract",
-            )
+    findings.extend(
+        _compare_transport_client_names(
+            state_client_names=_string_list(state.transport_profiles.get("clientNames")),
+            contract_client_names=_string_list(contract_transport.get("clientNames")),
+            prefix=prefix,
         )
+    )
 
     state_local_socks = _row_dict(state.transport_profiles, "localSocks")
     contract_local_socks = _row_dict(contract_transport, "localSocks")
@@ -3646,16 +3677,13 @@ def _validate_link_crypto_transport_profiles(
         )
         return findings
 
-    state_client_names = _string_list(state.transport_profiles.get("clientNames"))
-    contract_client_names = _string_list(contract_transport.get("clientNames"))
-    if state_client_names != contract_client_names:
-        findings.append(
-            _finding(
-                "error",
-                f"{prefix}-transport-client-names",
-                f"{prefix.replace('-', ' ')} clientNames diverge from runtime-contract",
-            )
+    findings.extend(
+        _compare_transport_client_names(
+            state_client_names=_string_list(state.transport_profiles.get("clientNames")),
+            contract_client_names=_string_list(contract_transport.get("clientNames")),
+            prefix=prefix,
         )
+    )
 
     state_local_socks = _row_dict(state.transport_profiles, "localSocks")
     contract_local_socks = _row_dict(contract_transport, "localSocks")

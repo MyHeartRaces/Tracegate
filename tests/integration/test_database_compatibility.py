@@ -29,9 +29,11 @@ pytestmark = pytest.mark.skipif(
     reason="requires an isolated PostgreSQL test cluster",
 )
 ROOT = Path(__file__).resolve().parents[2]
-HEAD = "c3a5e9d1f204"
+HEAD = "d4b6f0e2a315"
 # Head of the previous production release (Tracegate 3.1.36).
 PREVIOUS_RELEASE_HEAD = "7b31d4e9a205"
+# Head that production runs now (Tracegate 4.0.0 / 4.1.0).
+TRACEGATE4_RELEASE_HEAD = "c3a5e9d1f204"
 
 
 @pytest.fixture
@@ -112,7 +114,8 @@ def _seed_issued_connections(engine, *, legacy_variant: bool) -> list[dict]:
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "starting_revision", [None, "10691de66f04", "e1c7a4b9d2f0", PREVIOUS_RELEASE_HEAD, HEAD]
+    "starting_revision",
+    [None, "10691de66f04", "e1c7a4b9d2f0", PREVIOUS_RELEASE_HEAD, TRACEGATE4_RELEASE_HEAD, HEAD],
 )
 async def test_old_databases_keep_issued_credentials_and_remain_writable(
     database_url, monkeypatch, starting_revision: str | None,
@@ -163,24 +166,44 @@ async def test_old_databases_keep_issued_credentials_and_remain_writable(
         await async_engine.dispose()
 
 
-def test_upgrade_revokes_only_retired_client_families(database_url, monkeypatch) -> None:
+# Retired client families seeded as (protocol, mode, variant) per starting head.
+_RETIRED_IN_4_0_0 = (("WIREGUARD_WSTUNNEL", "DIRECT", "V7"), ("SHADOWSOCKS2022_SHADOWTLS", "DIRECT", "V5"))
+_RETIRED_IN_4_1_1 = (
+    ("VLESS_WS_TLS", "DIRECT", "V0"),
+    ("VLESS_GRPC_TLS", "DIRECT", "V0"),
+    ("VLESS_WS_TLS", "CHAIN", "V5"),
+    ("VLESS_GRPC_TLS", "CHAIN", "V5"),
+)
+
+
+@pytest.mark.parametrize(
+    ("starting_revision", "retired_families"),
+    [
+        (PREVIOUS_RELEASE_HEAD, _RETIRED_IN_4_0_0 + _RETIRED_IN_4_1_1),
+        (TRACEGATE4_RELEASE_HEAD, _RETIRED_IN_4_1_1),
+    ],
+)
+def test_upgrade_revokes_only_retired_client_families(
+    database_url, monkeypatch, starting_revision: str, retired_families: tuple,
+) -> None:
     raw_url = database_url.render_as_string(hide_password=False)
     monkeypatch.setenv("DATABASE_URL", raw_url)
-    command.upgrade(_config(database_url), PREVIOUS_RELEASE_HEAD)
+    command.upgrade(_config(database_url), starting_revision)
     engine = create_engine(database_url)
     try:
         kept = _seed_issued_connections(engine, legacy_variant=False)
         retired: list[tuple] = []
         with engine.begin() as connection:
             device_id = connection.execute(text("SELECT id FROM device LIMIT 1")).scalar_one()
-            for protocol, variant in (("WIREGUARD_WSTUNNEL", "V7"), ("SHADOWSOCKS2022_SHADOWTLS", "V5")):
+            for protocol, mode, variant in retired_families:
                 connection_id, revision_id = uuid4(), uuid4()
                 connection.execute(text(
                     "INSERT INTO connection (id, user_id, device_id, protocol, mode, variant, "
                     "profile_name, custom_overrides_json, status, created_at) "
-                    "VALUES (:id, 9001, :device, :protocol, 'DIRECT', :variant, "
+                    "VALUES (:id, 9001, :device, :protocol, :mode, :variant, "
                     "'retired-profile', '{}', 'ACTIVE', now())"
-                ), {"id": connection_id, "device": device_id, "protocol": protocol, "variant": variant})
+                ), {"id": connection_id, "device": device_id, "protocol": protocol, "mode": mode,
+                    "variant": variant})
                 connection.execute(text(
                     "INSERT INTO connection_revision (id, connection_id, slot, status, "
                     "effective_config_json, created_at) "
@@ -194,6 +217,7 @@ def test_upgrade_revokes_only_retired_client_families(database_url, monkeypatch)
 
         with engine.connect() as connection:
             assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == HEAD
+            assert len(retired) == len(retired_families)
             for connection_id, revision_id in retired:
                 assert connection.execute(
                     text("SELECT status FROM connection WHERE id = :id"), {"id": connection_id}

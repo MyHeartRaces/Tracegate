@@ -254,7 +254,7 @@ def _hysteria_chain_rate_limit_rejection(payload: HysteriaAuthRequest) -> str:
     if not bool(settings.hysteria_chain_client_rate_limit_enabled):
         return ""
 
-    max_mbit = max(1, int(settings.hysteria_chain_client_max_mbit or 10))
+    max_mbit = max(1, int(settings.hysteria_chain_client_max_mbit or 15))
     max_tx_bytes_per_second = max_mbit * 1000 * 1000 // 8
     tx = int(payload.tx or 0)
     if tx <= 0:

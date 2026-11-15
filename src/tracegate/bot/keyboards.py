@@ -224,11 +224,6 @@ def connection_create_categories_keyboard_for(
                 if enabled is None or "entry" in enabled
                 else []
             ),
-            *(
-                [[InlineKeyboardButton(text="Backup", callback_data=f"conncat:backup:{device_id}")]]
-                if enabled is None or enabled & {"backup-grpc", "backup-ws"}
-                else []
-            ),
             [InlineKeyboardButton(text="↩️ Назад", callback_data=f"device:{device_id}")],
         ]
     )
@@ -248,9 +243,6 @@ def connection_create_profiles_keyboard(
     if category == "direct":
         add_row(rows, "reality", "Reality")
         add_row(rows, "hysteria", "Hysteria")
-    elif category == "backup":
-        add_row(rows, "backup-grpc", "VLESS+gRPC")
-        add_row(rows, "backup-ws", "VLESS+WebSocket")
     rows.append([InlineKeyboardButton(text="↩️ Назад", callback_data=f"conn_create:{device_id}")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 

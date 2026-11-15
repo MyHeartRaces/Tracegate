@@ -568,9 +568,9 @@ class MaterializedBundleRenderContext:
         hysteria_chain_client_max_mbit = _int_env(
             env,
             "HYSTERIA_CHAIN_CLIENT_MAX_MBIT",
-            default=10,
+            default=15,
             min_value=1,
-            max_value=10,
+            max_value=1000,
         )
         hysteria_chain_client_require_declared_tx = _bool_env(
             env,
@@ -1272,7 +1272,7 @@ def _render_hysteria_server_yaml(
     stats_secret: str,
     decoy_dir: str,
     chain_client_rate_limit_enabled: bool = False,
-    chain_client_max_mbit: int = 10,
+    chain_client_max_mbit: int = 15,
 ) -> str:
     listen_address = f"{listen_host}:{listen_port}" if listen_host else f":{listen_port}"
     lines = [

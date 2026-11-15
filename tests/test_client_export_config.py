@@ -285,146 +285,50 @@ def test_export_mtproto_tls_link() -> None:
     )
 
 
-def test_export_vless_ws_tls_uri() -> None:
-    effective = {
-        "protocol": "vless",
-        "transport": "ws_tls",
-        "server": "t.example.com",
-        "port": 443,
-        "uuid": "11111111-2222-3333-4444-555555555555",
-        "sni": "t.example.com",
-        "ws": {"path": "/ws", "host": "t.example.com"},
-        "tls": {"server_name": "t.example.com", "insecure": True},
-        "profile": "V1-VLESS-WS-TLS-Direct",
-    }
-    out = export_client_config(effective)
-    assert out.kind == "uri"
-    assert out.content.startswith(
-        "vless://11111111-2222-3333-4444-555555555555@t.example.com:443?"
-    )
-    assert "security=tls" in out.content
-    assert "type=ws" in out.content
-    assert "alpn=" not in out.content
-    assert "fp=" not in out.content
-    assert "path=/ws" in out.content
-    assert "host=t.example.com" in out.content
-    assert "allowInsecure=1" in out.content
-    assert "#Tracegate-Backup%28WebSocket%29" in out.content
-    assert out.attachment_filename == "backup-vless-websocket.xray.json"
-    attachment = json.loads((out.attachment_content or b"").decode("utf-8"))
-    assert attachment["inbounds"][0]["settings"]["auth"] == "password"
-    assert attachment["inbounds"][0]["settings"]["accounts"][0]["user"].startswith(
-        "tg_"
-    )
-    assert attachment["outbounds"][0]["streamSettings"]["wsSettings"]["path"] == "/ws"
-    assert attachment["outbounds"][0]["streamSettings"]["tlsSettings"]["alpn"] == [
-        "http/1.1"
-    ]
-    assert (
-        "allowInsecure"
-        not in attachment["outbounds"][0]["streamSettings"]["tlsSettings"]
-    )
+_STORED_WS_REVISION = {
+    "protocol": "vless",
+    "transport": "ws_tls",
+    "server": "t.example.com",
+    "connect_host": "edge-connect.example.com",
+    "port": 443,
+    "uuid": "11111111-2222-3333-4444-555555555555",
+    "sni": "t.example.com",
+    "ws": {"path": "/ws", "host": "t.example.com"},
+    "tls": {"server_name": "t.example.com", "insecure": False},
+    "profile": "v0-ws-vless",
+}
+_STORED_GRPC_REVISION = {
+    "protocol": "vless",
+    "transport": "grpc_tls",
+    "server": "t.example.com",
+    "port": 443,
+    "uuid": "11111111-2222-3333-4444-555555555555",
+    "sni": "t.example.com",
+    "grpc": {"service_name": "tracegate.v1.Edge", "authority": "t.example.com"},
+    "tls": {"server_name": "t.example.com", "insecure": False},
+    "profile": "v0-grpc-vless",
+}
+_STORED_ENTRY_WS_CHAIN_REVISION = {**_STORED_WS_REVISION, "profile": "v5-entry-ws", "chain": {"type": "pool"}}
+_STORED_UNIVERSAL_ENTRY_REVISION = {**_STORED_GRPC_REVISION, "profile": "v5-universal-entry", "chain": {"type": "pool"}}
 
 
-def test_export_vless_ws_tls_can_use_alternate_connect_host_with_domain_sni() -> None:
-    effective = {
-        "protocol": "vless",
-        "transport": "ws_tls",
-        "server": "endpoint.tracegate.test",
-        "connect_host": "edge-connect.tracegate.test",
-        "port": 443,
-        "uuid": "11111111-2222-3333-4444-555555555555",
-        "sni": "endpoint.tracegate.test",
-        "ws": {"path": "/ws", "host": "endpoint.tracegate.test"},
-        "profile": "V0-WS-VLESS",
-    }
-
-    out = export_client_config(effective)
-    attachment = json.loads((out.attachment_content or b"").decode("utf-8"))
-
-    assert out.content.startswith(
-        "vless://11111111-2222-3333-4444-555555555555@edge-connect.tracegate.test:443?"
-    )
-    assert "sni=endpoint.tracegate.test" in out.content
-    assert "host=endpoint.tracegate.test" in out.content
-    assert (
-        attachment["outbounds"][0]["settings"]["vnext"][0]["address"]
-        == "edge-connect.tracegate.test"
-    )
-    assert (
-        attachment["outbounds"][0]["streamSettings"]["tlsSettings"]["serverName"]
-        == "endpoint.tracegate.test"
-    )
-
-
-def test_export_vless_grpc_tls_uri() -> None:
-    effective = {
-        "protocol": "vless",
-        "transport": "grpc_tls",
-        "server": "t.example.com",
-        "port": 443,
-        "uuid": "11111111-2222-3333-4444-555555555555",
-        "sni": "t.example.com",
-        "grpc": {"service_name": "tracegate.v1.Edge", "authority": "t.example.com"},
-        "tls": {"server_name": "t.example.com", "insecure": False},
-        "profile": "V1-VLESS-gRPC-TLS-Direct",
-    }
-    out = export_client_config(effective)
-    assert out.kind == "uri"
-    assert out.content.startswith(
-        "vless://11111111-2222-3333-4444-555555555555@t.example.com:443?"
-    )
-    assert "security=tls" in out.content
-    assert "type=grpc" in out.content
-    assert "alpn=" not in out.content
-    assert "fp=" not in out.content
-    assert "serviceName=tracegate.v1.Edge" in out.content
-    assert "mode=gun" in out.content
-    assert "authority=" not in out.content
-    assert "#Tracegate-Backup%28gRPC%29" in out.content
-    assert out.attachment_filename == "backup-vless-grpc.xray.json"
-    attachment = json.loads((out.attachment_content or b"").decode("utf-8"))
-    assert attachment["inbounds"][0]["settings"]["auth"] == "password"
-    assert attachment["outbounds"][0]["streamSettings"]["network"] == "grpc"
-    assert attachment["outbounds"][0]["streamSettings"]["tlsSettings"]["alpn"] == ["h2"]
-    assert (
-        attachment["outbounds"][0]["streamSettings"]["grpcSettings"]["serviceName"]
-        == "tracegate.v1.Edge"
-    )
-
-
-def test_export_vless_grpc_tls_can_use_alternate_connect_host_with_domain_sni() -> None:
-    effective = {
-        "protocol": "vless",
-        "transport": "grpc_tls",
-        "server": "endpoint.tracegate.test",
-        "connect_host": "edge-connect.tracegate.test",
-        "port": 443,
-        "uuid": "11111111-2222-3333-4444-555555555555",
-        "sni": "endpoint.tracegate.test",
-        "grpc": {
-            "service_name": "tracegate.v1.Edge",
-            "authority": "endpoint.tracegate.test",
-        },
-        "profile": "V0-gRPC-VLESS",
-    }
-
-    out = export_client_config(effective)
-    attachment = json.loads((out.attachment_content or b"").decode("utf-8"))
-
-    assert out.content.startswith(
-        "vless://11111111-2222-3333-4444-555555555555@edge-connect.tracegate.test:443?"
-    )
-    assert "sni=endpoint.tracegate.test" in out.content
-    assert "serviceName=tracegate.v1.Edge" in out.content
-    assert (
-        attachment["outbounds"][0]["settings"]["vnext"][0]["address"]
-        == "edge-connect.tracegate.test"
-    )
-    assert (
-        attachment["outbounds"][0]["streamSettings"]["tlsSettings"]["serverName"]
-        == "endpoint.tracegate.test"
-    )
+@pytest.mark.parametrize(
+    "effective",
+    [
+        _STORED_WS_REVISION,
+        _STORED_GRPC_REVISION,
+        _STORED_ENTRY_WS_CHAIN_REVISION,
+        _STORED_UNIVERSAL_ENTRY_REVISION,
+        {**_STORED_WS_REVISION, "transport": "ws+tls"},
+        {**_STORED_GRPC_REVISION, "transport": "grpc-tls"},
+        # Older payloads without an explicit transport are detected by their blocks.
+        {key: value for key, value in _STORED_WS_REVISION.items() if key != "transport"},
+        {key: value for key, value in _STORED_GRPC_REVISION.items() if key != "transport"},
+    ],
+)
+def test_export_of_stored_vless_ws_grpc_revisions_fails_as_retired(effective: dict) -> None:
+    with pytest.raises(ClientConfigExportError, match="retired in Tracegate 4.1.1"):
+        export_client_config(effective)
 
 
 def test_export_uses_explicit_local_socks_credentials() -> None:
@@ -532,24 +436,12 @@ def test_export_rejects_client_side_xray_handler_service() -> None:
             "profile": "V1-VLESS-Reality-Direct",
         },
         {
-            "protocol": "vless",
-            "transport": "grpc_tls",
+            "protocol": "hysteria2",
             "server": "t.example.com",
-            "port": 443,
-            "uuid": "11111111-2222-3333-4444-555555555555",
-            "sni": "t.example.com",
-            "grpc": {"service_name": "tracegate.v1.Edge"},
-            "profile": "V1-VLESS-gRPC-TLS-Direct",
-        },
-        {
-            "protocol": "vless",
-            "transport": "ws_tls",
-            "server": "t.example.com",
-            "port": 443,
-            "uuid": "11111111-2222-3333-4444-555555555555",
-            "sni": "t.example.com",
-            "ws": {"path": "/ws"},
-            "profile": "V1-VLESS-WS-TLS-Direct",
+            "port": 4443,
+            "auth": {"type": "userpass", "username": "u", "password": "p"},
+            "obfs": {"type": "salamander", "password": "obfs-secret"},
+            "profile": "V3-Hysteria2-QUIC-Direct",
         },
         {
             "protocol": "hysteria2",

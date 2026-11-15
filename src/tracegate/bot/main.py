@@ -77,6 +77,7 @@ from tracegate.services.bot_blocks import (
 from tracegate.services.connection_profiles import (
     MAX_CONNECTIONS_PER_DEVICE,
     MAX_DEVICES_PER_USER,
+    RETIRED_CLIENT_PROTOCOL_MESSAGE,
     connection_profile_display_label,
     enabled_profile_keys,
     supported_profile_specs,
@@ -1623,7 +1624,6 @@ async def connection_create_category(callback: CallbackQuery) -> None:
         return
     category_specs_by_name = {
         "direct": {"reality", "hysteria"},
-        "backup": {"backup-grpc", "backup-ws"},
     }
     if category not in category_specs_by_name:
         await callback.answer(_msg_warn("Неизвестный тип подключения."), show_alert=True)
@@ -1636,7 +1636,7 @@ async def connection_create_category(callback: CallbackQuery) -> None:
     await _safe_edit_text(callback.message,
         f"🔌 {category.capitalize()}\n\n"
         f"Устройство: {device.get('name')}\n"
-        "Выберите резервный профиль:",
+        "Выберите профиль:",
         reply_markup=connection_create_profiles_keyboard(
             category=category,
             device_id=device_id,
@@ -2305,15 +2305,26 @@ async def delete_device(callback: CallbackQuery) -> None:
     await callback.answer()
 
 
+# Profile keys and aliases of the VLESS WS-TLS / gRPC-TLS families retired in
+# 4.1.1. Buttons in old chat messages may still carry them.
+_RETIRED_PROFILE_SPECS = frozenset(
+    {"backup-ws", "backup-grpc", "entry-ws-legacy", "v0ws", "v0grpc", "v0-ws-vless", "v0-grpc-vless", "v5-entry-ws", "v5-universal-entry"}
+)
+
+
+def _reject_retired_profile_spec(normalized: str) -> None:
+    if normalized in _RETIRED_PROFILE_SPECS:
+        raise ValueError(RETIRED_CLIENT_PROTOCOL_MESSAGE)
+
+
 def _profile(spec: str) -> tuple[ConnectionProtocol, ConnectionMode, ConnectionVariant]:
     normalized = str(spec or "").strip().lower()
+    _reject_retired_profile_spec(normalized)
     aliases = {
         "universal": "entry",
         "v1": "reality",
         "v1direct": "reality",
         "v2direct": "hysteria",
-        "v0ws": "backup-ws",
-        "v0grpc": "backup-grpc",
     }
     profiles = supported_profile_specs()
     key = aliases.get(normalized, normalized)
@@ -2324,13 +2335,12 @@ def _profile(spec: str) -> tuple[ConnectionProtocol, ConnectionMode, ConnectionV
 
 def _profile_key(spec: str) -> str:
     normalized = str(spec or "").strip().lower()
+    _reject_retired_profile_spec(normalized)
     aliases = {
         "universal": "entry",
         "v1": "reality",
         "v1direct": "reality",
         "v2direct": "hysteria",
-        "v0ws": "backup-ws",
-        "v0grpc": "backup-grpc",
     }
     key = aliases.get(normalized, normalized)
     if key not in supported_profile_specs():
