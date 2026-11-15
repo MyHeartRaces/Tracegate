@@ -26,11 +26,46 @@ RETIRED_CLIENT_PROTOCOL_MESSAGE = (
 )
 
 
+# Chain Hysteria (HYSTERIA2 in Chain mode, terminated on Entry) was retired in
+# Tracegate 4.1.2; Chain is issued only as VLESS Reality. Direct Hysteria is
+# unaffected. As with the retired protocols, existing rows still load, display
+# and can be revoked, but nothing can be issued, re-issued, activated, pushed
+# or exported.
+RETIRED_CLIENT_PROFILES = frozenset({(ConnectionProtocol.HYSTERIA2, ConnectionMode.CHAIN)})
+RETIRED_HYSTERIA_CHAIN_MESSAGE = (
+    "Chain Hysteria connections were retired in Tracegate 4.1.2 "
+    "and can no longer be issued, re-issued or exported; use Chain (VLESS Reality) or Direct Hysteria instead"
+)
+
+
 def is_retired_client_protocol(protocol: ConnectionProtocol | str | None) -> bool:
     try:
         return ConnectionProtocol(protocol) in RETIRED_CLIENT_PROTOCOLS
     except ValueError:
         return False
+
+
+def is_retired_client_profile(
+    protocol: ConnectionProtocol | str | None,
+    mode: ConnectionMode | str | None,
+) -> bool:
+    """Whether a (protocol, mode) pair belongs to a retired client family."""
+
+    if is_retired_client_protocol(protocol):
+        return True
+    try:
+        return (ConnectionProtocol(protocol), ConnectionMode(mode)) in RETIRED_CLIENT_PROFILES
+    except ValueError:
+        return False
+
+
+def retired_client_profile_message(
+    protocol: ConnectionProtocol | str | None,
+    mode: ConnectionMode | str | None,
+) -> str:
+    if is_retired_client_protocol(protocol):
+        return RETIRED_CLIENT_PROTOCOL_MESSAGE
+    return RETIRED_HYSTERIA_CHAIN_MESSAGE
 
 
 def connection_profile_label(

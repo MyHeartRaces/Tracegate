@@ -93,14 +93,17 @@ def _runtime_contract(
         }
     local_socks = transport_profiles.get("localSocks") if isinstance(transport_profiles, dict) else {}
     local_socks_auth = str(local_socks.get("auth") or "").strip().lower() if isinstance(local_socks, dict) else ""
+    # Entry Hysteria was retired in 4.1.2: an Entry contract declares no
+    # Hysteria component, masquerade dir, inbound tag or public UDP owner.
+    is_entry = role.strip().upper() == "ENTRY"
     default_managed_components = ["xray", "haproxy", "nginx"]
-    if runtime_profile == "tracegate-3":
+    if runtime_profile == "tracegate-3" and not is_entry:
         default_managed_components.append("hysteria")
-    default_split_hysteria_dirs = ["/srv/decoy"] if runtime_profile == "tracegate-3" else []
-    default_xray_hysteria_dirs = [] if runtime_profile == "tracegate-3" else ["/srv/decoy"]
-    default_hysteria_tags = [] if runtime_profile == "tracegate-3" else ["hy2-in"]
-    public_udp_owner = "xray" if runtime_profile == "xray-centric" else "hysteria"
-    udp443_owner = "naiveproxy" if runtime_profile == "tracegate-3" else public_udp_owner
+    default_split_hysteria_dirs = ["/srv/decoy"] if runtime_profile == "tracegate-3" and not is_entry else []
+    default_xray_hysteria_dirs = [] if runtime_profile == "tracegate-3" or is_entry else ["/srv/decoy"]
+    default_hysteria_tags = [] if runtime_profile == "tracegate-3" or is_entry else ["hy2-in"]
+    public_udp_owner = "" if is_entry else ("xray" if runtime_profile == "xray-centric" else "hysteria")
+    udp443_owner = "naiveproxy" if runtime_profile == "tracegate-3" and not is_entry else public_udp_owner
     contract = {
         "role": role,
         "runtimeProfile": runtime_profile,
@@ -179,7 +182,7 @@ def _runtime_contract(
         },
         "hysteria": {
             "configPath": f"/var/lib/tracegate/agent-{role_suffix}/runtime/hysteria/server.yaml",
-            "configPresent": runtime_profile == "tracegate-3",
+            "configPresent": runtime_profile == "tracegate-3" and not is_entry,
             "listen": f":{TRACEGATE_PUBLIC_UDP_PORT}",
             "listenPort": TRACEGATE_PUBLIC_UDP_PORT,
             "auth": {
@@ -2057,40 +2060,64 @@ def test_validate_runtime_contract_pair_rejects_forbidden_udp443_flag() -> None:
 def test_validate_runtime_contract_pair_rejects_tracegate22_unsafe_hysteria_config() -> None:
     entry = _runtime_contract(role="ENTRY", runtime_profile="tracegate-3")
     transit = _runtime_contract(role="TRANSIT", runtime_profile="tracegate-3")
-    entry["fronting"]["publicUdpOwner"] = "xray"
-    entry["fronting"]["udp443Owner"] = "xray"
-    entry["decoy"]["xrayHysteriaMasqueradeDirs"] = ["/srv/legacy-hy2"]
-    entry["hysteria"]["listenPort"] = TRACEGATE_INTERCONNECT_UDP_PORT
-    entry["hysteria"]["auth"]["httpUrl"] = "http://198.51.100.10/v1/hysteria/auth"
-    entry["hysteria"]["obfs"] = {
+    transit["fronting"]["publicUdpOwner"] = "xray"
+    transit["fronting"]["udp443Owner"] = "xray"
+    transit["decoy"]["xrayHysteriaMasqueradeDirs"] = ["/srv/legacy-hy2"]
+    transit["hysteria"]["listenPort"] = TRACEGATE_INTERCONNECT_UDP_PORT
+    transit["hysteria"]["auth"]["httpUrl"] = "http://198.51.100.10/v1/hysteria/auth"
+    transit["hysteria"]["obfs"] = {
         "type": "none",
         "geckoPasswordConfigured": False,
         "minPacketSize": 0,
         "maxPacketSize": 0,
     }
-    entry["hysteria"]["trafficStats"] = {"listen": "0.0.0.0:9999", "secretConfigured": False}
-    entry["hysteria"]["udp"]["enabled"] = False
-    entry["hysteria"]["tls"]["sniGuard"] = "disabled"
-    entry["hysteria"]["quic"]["disablePathMTUDiscovery"] = True
-    entry["hysteria"]["sniff"]["enabled"] = False
-    entry["hysteria"]["hygiene"]["enabled"] = False
+    transit["hysteria"]["trafficStats"] = {"listen": "0.0.0.0:9999", "secretConfigured": False}
+    transit["hysteria"]["udp"]["enabled"] = False
+    transit["hysteria"]["tls"]["sniGuard"] = "disabled"
+    transit["hysteria"]["quic"]["disablePathMTUDiscovery"] = True
+    transit["hysteria"]["sniff"]["enabled"] = False
+    transit["hysteria"]["hygiene"]["enabled"] = False
 
     findings = validate_runtime_contract_pair(entry, transit)
 
     by_code = {finding.code: finding for finding in findings}
-    assert by_code["entry-tracegate22-udp-owner"].severity == "error"
-    assert by_code["entry-tracegate22-xray-hysteria-dirs"].severity == "error"
-    assert by_code["entry-hysteria-listen-port"].severity == "error"
-    assert by_code["entry-hysteria-auth-loopback"].severity == "error"
-    assert by_code["entry-hysteria-obfs"].severity == "error"
-    assert by_code["entry-hysteria-gecko-password"].severity == "error"
-    assert by_code["entry-hysteria-stats-listen-loopback"].severity == "error"
-    assert by_code["entry-hysteria-stats-secret"].severity == "error"
-    assert by_code["entry-hysteria-udp-disabled"].severity == "error"
-    assert by_code["entry-hysteria-sni-guard"].severity == "error"
-    assert by_code["entry-hysteria-quic-pmtu"].severity == "error"
-    assert by_code["entry-hysteria-sniff"].severity == "error"
-    assert by_code["entry-hysteria-hygiene-enabled"].severity == "error"
+    assert by_code["transit-tracegate22-udp-owner"].severity == "error"
+    assert by_code["transit-tracegate22-xray-hysteria-dirs"].severity == "error"
+    assert by_code["transit-hysteria-listen-port"].severity == "error"
+    assert by_code["transit-hysteria-auth-loopback"].severity == "error"
+    assert by_code["transit-hysteria-obfs"].severity == "error"
+    assert by_code["transit-hysteria-gecko-password"].severity == "error"
+    assert by_code["transit-hysteria-stats-listen-loopback"].severity == "error"
+    assert by_code["transit-hysteria-stats-secret"].severity == "error"
+    assert by_code["transit-hysteria-udp-disabled"].severity == "error"
+    assert by_code["transit-hysteria-sni-guard"].severity == "error"
+    assert by_code["transit-hysteria-quic-pmtu"].severity == "error"
+    assert by_code["transit-hysteria-sniff"].severity == "error"
+    assert by_code["transit-hysteria-hygiene-enabled"].severity == "error"
+
+
+def test_validate_runtime_contract_tolerates_legacy_entry_hysteria_with_a_warning() -> None:
+    # An Entry contract written by a pre-4.1.2 agent still declares Hysteria.
+    # Entry Hysteria was retired: it is reported, never validated or required.
+    legacy_entry = _runtime_contract(role="ENTRY", runtime_profile="tracegate-3")
+    legacy_entry["contract"]["managedComponents"].append("hysteria")
+    legacy_entry["hysteria"]["listenPort"] = TRACEGATE_INTERCONNECT_UDP_PORT
+    legacy_entry["hysteria"]["obfs"] = {"type": "none"}
+    transit = _runtime_contract(role="TRANSIT", runtime_profile="tracegate-3")
+
+    for findings in (
+        validate_runtime_contract_pair(legacy_entry, transit),
+        validate_runtime_contract_single(legacy_entry, expected_role="ENTRY"),
+    ):
+        assert [(finding.severity, finding.code) for finding in findings] == [("warning", "entry-hysteria-retired")]
+
+
+def test_validate_runtime_contract_accepts_entry_without_hysteria() -> None:
+    entry = _runtime_contract(role="ENTRY", runtime_profile="tracegate-3")
+    assert "hysteria" not in entry["contract"]["managedComponents"]
+
+    assert validate_runtime_contract_single(entry, expected_role="ENTRY") == []
+    assert validate_runtime_contract_pair(entry, _runtime_contract(role="TRANSIT", runtime_profile="tracegate-3")) == []
 
 
 def test_validate_runtime_contract_single_rejects_tracegate22_missing_hysteria_config() -> None:
@@ -2137,7 +2164,10 @@ def test_validate_runtime_contract_pair_detects_errors_and_warnings() -> None:
     assert by_code["transit-role"].severity == "error"
     assert by_code["transit-split-hysteria-stale"].severity == "warning"
     assert by_code["entry-decoy-diverge"].severity == "error"
-    assert by_code["entry-hy2-inbound-missing"].severity == "error"
+    # Entry Hysteria was retired in 4.1.2: a missing Hysteria inbound is only an
+    # error on the Endpoint side.
+    assert "entry-hy2-inbound-missing" not in by_code
+    assert by_code["transit-hy2-inbound-missing"].severity == "error"
     assert by_code["entry-fronting-touch-udp-443"].severity == "error"
     assert by_code["finalmask-asymmetry"].severity == "warning"
     assert by_code["ech-asymmetry"].severity == "warning"
@@ -5781,8 +5811,8 @@ def test_validate_runtime_contracts_cli_exits_nonzero_on_error(
 ) -> None:
     entry_path = tmp_path / "entry.json"
     transit_path = tmp_path / "transit.json"
-    entry_path.write_text(json.dumps(_runtime_contract(role="ENTRY", hysteria_tags=[])) + "\n", encoding="utf-8")
-    transit_path.write_text(json.dumps(_runtime_contract(role="TRANSIT")) + "\n", encoding="utf-8")
+    entry_path.write_text(json.dumps(_runtime_contract(role="ENTRY")) + "\n", encoding="utf-8")
+    transit_path.write_text(json.dumps(_runtime_contract(role="TRANSIT", hysteria_tags=[])) + "\n", encoding="utf-8")
 
     monkeypatch.setattr(
         "sys.argv",
@@ -5799,7 +5829,7 @@ def test_validate_runtime_contracts_cli_exits_nonzero_on_error(
         validate_runtime_contracts.main()
 
     out = capsys.readouterr().out
-    assert "ERROR [entry-hy2-inbound-missing]" in out
+    assert "ERROR [transit-hy2-inbound-missing]" in out
 
 
 def test_validate_runtime_contracts_cli_reports_zapret_profile_errors(

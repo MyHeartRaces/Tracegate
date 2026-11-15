@@ -9,7 +9,6 @@ from typing import Any
 
 from tracegate.constants import (
     TRACEGATE_ALT_PUBLIC_TCP_PORT,
-    TRACEGATE_FORBIDDEN_PUBLIC_TCP_PORT,
     TRACEGATE_FORBIDDEN_PUBLIC_UDP_PORT,
     TRACEGATE_PUBLIC_UDP_PORT,
 )
@@ -17,6 +16,7 @@ from tracegate.enums import ConnectionMode, ConnectionProtocol, ConnectionVarian
 from tracegate.models import Connection, Device, User
 from tracegate.services.connection_profiles import (
     RETIRED_CLIENT_PROTOCOL_MESSAGE,
+    RETIRED_HYSTERIA_CHAIN_MESSAGE,
     connection_profile_label,
     is_retired_client_protocol,
     tcp_chain_selected_profiles,
@@ -80,10 +80,11 @@ class EndpointSet:
     # True: verify the Hysteria certificate against the SNI unless the server
     # name is an IP literal or tls_insecure is explicitly overridden.
     hysteria_tls_verify: bool = True
-    # Default obfs for Direct Hysteria issuance; Chain always stays Gecko.
+    # Default obfs for Direct Hysteria issuance.
     hysteria_default_obfs: str = "gecko"
-    # Per-client cap for Chain Hysteria (declared bandwidth and Entry server
-    # bandwidth); must match HYSTERIA_CHAIN_CLIENT_MAX_MBIT on Entry.
+    # Per-client figure recorded in the Chain relay metadata (client_rate_limit).
+    # Chain Hysteria, which enforced it, was retired in 4.1.2; Chain Reality is
+    # bounded only by the Entry host-wide cap.
     hysteria_chain_client_max_mbit: int = _CHAIN_CLIENT_RATE_LIMIT_MBIT
 
 
@@ -239,13 +240,9 @@ def _local_socks_payload(
     }
 
 
-def _hysteria_gecko_password(*, endpoints: EndpointSet, is_chain: bool) -> str:
-    password = (
-        endpoints.hysteria_salamander_password_entry
-        if is_chain
-        else endpoints.hysteria_salamander_password_transit
-    )
-    password = str(password or "").strip()
+def _hysteria_gecko_password(*, endpoints: EndpointSet) -> str:
+    # Only Endpoint (Direct) Hysteria is issued; Entry Hysteria was retired in 4.1.2.
+    password = str(endpoints.hysteria_salamander_password_transit or "").strip()
     return password or "REPLACE_HYSTERIA2_GECKO_PASSWORD"
 
 
@@ -258,15 +255,12 @@ def _hysteria_masquerade_payload() -> dict[str, Any]:
     }
 
 
-def _hysteria_hygiene_payload(*, is_chain: bool, public_udp_port: int, obfs_type: str = "gecko") -> dict[str, Any]:
+def _hysteria_hygiene_payload(*, public_udp_port: int, obfs_type: str = "gecko") -> dict[str, Any]:
     # Direct Hysteria terminates on Endpoint, where TCP/8443 is a declared
-    # public listener (same SNI demux as TCP/443); only UDP/8443 stays dropped
-    # there. Chain terminates on Entry, which keeps both dropped.
+    # public listener (same SNI demux as TCP/443); only UDP/8443 stays dropped.
     forbidden_public_ports: list[dict[str, Any]] = [
         {"protocol": "udp", "port": TRACEGATE_FORBIDDEN_PUBLIC_UDP_PORT, "action": "drop"},
     ]
-    if is_chain:
-        forbidden_public_ports.append({"protocol": "tcp", "port": TRACEGATE_FORBIDDEN_PUBLIC_TCP_PORT, "action": "drop"})
     return {
         "required": True,
         "required_layers": [
@@ -306,14 +300,14 @@ def _hysteria_hygiene_payload(*, is_chain: bool, public_udp_port: int, obfs_type
                 "mode": "clamp",
                 "max_packet_size": 1252,
             },
-            "source_validation": "profile-bound-remote" if is_chain else "auth-bound-client",
+            "source_validation": "auth-bound-client",
         },
         "client": {
             "local_socks_auth": "required",
             "anonymous_local_proxy": "forbidden",
         },
         "forbidden_public_ports": forbidden_public_ports,
-        "entry_transit_relay": bool(is_chain),
+        "entry_transit_relay": False,
     }
 
 
@@ -474,30 +468,22 @@ def build_effective_config(
         raise ValueError(RETIRED_CLIENT_PROTOCOL_MESSAGE)
 
     if connection.protocol == ConnectionProtocol.HYSTERIA2:
-        if (connection.mode, connection.variant) not in {
-            (ConnectionMode.DIRECT, ConnectionVariant.V2),
-            (ConnectionMode.CHAIN, ConnectionVariant.V2),
-        }:
-            raise ValueError("Hysteria2 supports V2 direct or V2 chain")
+        if connection.mode == ConnectionMode.CHAIN:
+            # Chain Hysteria (Hysteria on Entry) was retired in 4.1.2; existing
+            # rows were revoked by migration and nothing new is built for them.
+            raise ValueError(RETIRED_HYSTERIA_CHAIN_MESSAGE)
+        if (connection.mode, connection.variant) != (ConnectionMode.DIRECT, ConnectionVariant.V2):
+            raise ValueError("Hysteria2 supports only V2 direct")
 
         mode = str(overrides.get("client_mode") or "socks").strip().lower()
         if mode != "socks":
             raise ValueError("Hysteria client_mode must stay socks because local SOCKS5 auth is required")
 
-        is_chain = connection.mode == ConnectionMode.CHAIN
-        entry_host = endpoints.entry_host if is_chain else endpoints.transit_host
-        server_name = (
-            endpoints.hysteria_server_name_entry or endpoints.entry_server_name or endpoints.entry_host
-            if is_chain
-            else endpoints.hysteria_server_name_transit or endpoints.transit_server_name or endpoints.transit_host
-        )
+        server_host = endpoints.transit_host
+        server_name = endpoints.hysteria_server_name_transit or endpoints.transit_server_name or endpoints.transit_host
         profile_name = connection_profile_label(connection.protocol, connection.mode, connection.variant)
-        ech_config_list = (
-            endpoints.hysteria_ech_config_list_entry if is_chain else endpoints.hysteria_ech_config_list_transit
-        )
-        ech_force_query = (
-            endpoints.hysteria_ech_force_query_entry if is_chain else endpoints.hysteria_ech_force_query_transit
-        )
+        ech_config_list = endpoints.hysteria_ech_config_list_transit
+        ech_force_query = endpoints.hysteria_ech_force_query_transit
         auth_payload = build_hysteria_auth_payload(
             auth_mode=endpoints.hysteria_auth_mode,
             variant=connection.variant.value,
@@ -510,7 +496,7 @@ def build_effective_config(
             # IP-literal server names or an explicit operator override.
             tls_insecure = bool(overrides.get("tls_insecure", False)) or _is_ip_literal(server_name)
         else:
-            tls_insecure = bool(overrides.get("tls_insecure", entry_host != server_name)) or _is_ip_literal(server_name)
+            tls_insecure = bool(overrides.get("tls_insecure", server_host != server_name)) or _is_ip_literal(server_name)
         tls_payload: dict[str, Any] = {
             "server_name": server_name,
             "insecure": tls_insecure,
@@ -520,22 +506,19 @@ def build_effective_config(
             tls_payload["ech_config_list"] = ech_config_list
         if ech_force_query:
             tls_payload["ech_force_query"] = ech_force_query
-        default_obfs = "gecko" if is_chain else (str(endpoints.hysteria_default_obfs or "gecko").strip().lower() or "gecko")
+        default_obfs = str(endpoints.hysteria_default_obfs or "gecko").strip().lower() or "gecko"
         obfs_type = str(overrides.get("hysteria_obfs") or default_obfs).strip().lower()
         if obfs_type not in {"gecko", "salamander"}:
             raise ValueError("Hysteria obfs must be gecko or salamander")
-        if is_chain and obfs_type != "gecko":
-            raise ValueError("Hysteria Chain must stay on Gecko")
-        obfs_password = _hysteria_gecko_password(endpoints=endpoints, is_chain=is_chain)
+        obfs_password = _hysteria_gecko_password(endpoints=endpoints)
         hysteria_port = _normalize_int_range(
             endpoints.hysteria_salamander_udp_port if obfs_type == "salamander" else endpoints.hysteria_udp_port,
             field_name="hysteria_udp_port",
             min_value=1,
             max_value=65535,
         )
-        chain_max_mbit = max(1, int(endpoints.hysteria_chain_client_max_mbit or _CHAIN_CLIENT_RATE_LIMIT_MBIT))
-        bandwidth_default = chain_max_mbit if is_chain else _DIRECT_HYSTERIA_DEFAULT_MBIT
-        bandwidth_max = chain_max_mbit if is_chain else 1000
+        bandwidth_default = _DIRECT_HYSTERIA_DEFAULT_MBIT
+        bandwidth_max = 1000
         up_mbps = _normalize_int_range(
             overrides.get("up_mbps", bandwidth_default),
             field_name="up_mbps",
@@ -550,21 +533,20 @@ def build_effective_config(
         )
 
         port_hopping: dict[str, Any] | None = None
-        if not is_chain:
-            hop_range = parse_hop_range(
-                endpoints.hysteria_salamander_hop_ports if obfs_type == "salamander" else endpoints.hysteria_gecko_hop_ports,
-                label=f"hysteria_{obfs_type}_hop_ports",
+        hop_range = parse_hop_range(
+            endpoints.hysteria_salamander_hop_ports if obfs_type == "salamander" else endpoints.hysteria_gecko_hop_ports,
+            label=f"hysteria_{obfs_type}_hop_ports",
+        )
+        if hop_range is not None:
+            min_interval, max_interval = validate_hop_intervals(
+                endpoints.hysteria_hop_min_interval_s,
+                endpoints.hysteria_hop_max_interval_s,
             )
-            if hop_range is not None:
-                min_interval, max_interval = validate_hop_intervals(
-                    endpoints.hysteria_hop_min_interval_s,
-                    endpoints.hysteria_hop_max_interval_s,
-                )
-                port_hopping = {
-                    "ports": format_hop_range(hop_range),
-                    "min_interval_s": min_interval,
-                    "max_interval_s": max_interval,
-                }
+            port_hopping = {
+                "ports": format_hop_range(hop_range),
+                "min_interval_s": min_interval,
+                "max_interval_s": max_interval,
+            }
 
         obfs_payload: dict[str, Any] = {
             "type": obfs_type,
@@ -577,7 +559,7 @@ def build_effective_config(
         effective: dict[str, Any] = {
             "protocol": "hysteria2",
             "profile": profile_name,
-            "server": entry_host,
+            "server": server_host,
             "port": hysteria_port,
             "sni": server_name,
             "transport": "udp-quic",
@@ -599,7 +581,6 @@ def build_effective_config(
             ),
             "masquerade": _hysteria_masquerade_payload(),
             "hygiene": _hysteria_hygiene_payload(
-                is_chain=is_chain,
                 public_udp_port=hysteria_port,
                 obfs_type=obfs_type,
             ),
@@ -607,10 +588,10 @@ def build_effective_config(
             "up_mbps": up_mbps,
             "down_mbps": down_mbps,
             "rate_limit": {
-                "enabled": is_chain,
-                "max_mbit": chain_max_mbit if is_chain else None,
-                "scope": "entry-chain-client" if is_chain else "direct-client-default",
-                "server_cap_required": is_chain,
+                "enabled": False,
+                "max_mbit": None,
+                "scope": "direct-client-default",
+                "server_cap_required": False,
             },
             "local_socks": {
                 **_local_socks_payload(
@@ -636,15 +617,13 @@ def build_effective_config(
                 "anonymous_rejected": True,
                 "traffic_stats": "loopback-secret",
                 "udp_hygiene": "anti-replay+anti-amplification+rate-limit+mtu-clamp+source-validation",
-                "entry_role_required": is_chain,
-                "private_interconnect": "hysteria2-gecko-udp-link" if is_chain else None,
-                "backhaul_outside_xray": is_chain,
-                "udp_over_private_relay": is_chain,
-                "chain_client_rate_limit_mbit": chain_max_mbit if is_chain else None,
+                "entry_role_required": False,
+                "private_interconnect": None,
+                "backhaul_outside_xray": False,
+                "udp_over_private_relay": False,
+                "chain_client_rate_limit_mbit": None,
             },
-            "chain": _entry_transit_private_relay(endpoints=endpoints, inner_transport="hysteria2-quic")
-            if is_chain
-            else None,
+            "chain": None,
         }
         if port_hopping is not None:
             effective["port_hopping"] = port_hopping

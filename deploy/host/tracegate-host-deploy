@@ -26,6 +26,7 @@ load_deploy_env() {
   # shellcheck disable=SC1090
   source "${DEPLOY_ENV}"
   set +a
+  RETIRED_ROLE_UNITS=()
   case "${TRACEGATE_HOST_ROLE:-}" in
     endpoint)
       RUNTIME_ENV="${TRACEGATE_RUNTIME_ENV:-${ETC_DIR}/tracegate.env}"
@@ -60,7 +61,6 @@ load_deploy_env() {
         tracegate-network-qdisc.service
         tracegate-entry-firewall.service
         tracegate-xray@entry.service
-        tracegate-hysteria@entry.service
         tracegate-nginx@entry.service
         tracegate-haproxy@entry.service
         tracegate-agent-entry.service
@@ -71,6 +71,10 @@ load_deploy_env() {
         tracegate-engine-update.timer
       )
       HEALTH_URLS=("${TRACEGATE_AGENT_HEALTH_URL:-http://127.0.0.1:8070/v1/health}")
+      # Units this role ran in earlier releases and no longer runs. Entry
+      # Hysteria (Chain Hysteria on public UDP/443) was retired in 4.1.2; the
+      # tracegate-hysteria@.service template stays for Endpoint.
+      RETIRED_ROLE_UNITS=(tracegate-hysteria@entry.service)
       ;;
     *) die "TRACEGATE_HOST_ROLE must be endpoint or entry" ;;
   esac
@@ -89,6 +93,32 @@ load_deploy_env() {
     false|FALSE|0|no|NO|"") RTC_CLOCK_SYNC_ENABLED=0 ;;
     *) die "TRACEGATE_ENABLE_RTC_CLOCK_SYNC must be true or false" ;;
   esac
+}
+
+# Stop and disable the units this role no longer runs, tolerating units that
+# are absent or already stopped (mirrors how sync_release_files retires units,
+# but keeps the unit files: templates may still serve the other role).
+retire_role_units() {
+  local unit
+  [ "${#RETIRED_ROLE_UNITS[@]}" -gt 0 ] || return 0
+  for unit in "${RETIRED_ROLE_UNITS[@]}"; do
+    "${SYSTEMCTL}" disable --now "${unit}" >/dev/null 2>&1 || true
+  done
+}
+
+# A rollback target older than the retirement still runs those units (its
+# agent health requires them), so start them again when that release lists one
+# as a ROLE_UNITS entry (a line holding only the unit name) in its own deploy
+# script.
+restore_retired_role_units() {
+  local previous_runtime="$1" unit
+  [ "${#RETIRED_ROLE_UNITS[@]}" -gt 0 ] || return 0
+  for unit in "${RETIRED_ROLE_UNITS[@]}"; do
+    if awk -v unit="${unit}" 'NF == 1 && $1 == unit { found = 1 } END { exit !found }' \
+      "${previous_runtime}/deploy/host/tracegate-host-deploy" 2>/dev/null; then
+      "${SYSTEMCTL}" enable --now "${unit}" >/dev/null 2>&1 || true
+    fi
+  done
 }
 
 release_path() {
@@ -223,7 +253,8 @@ restore_previous() {
   atomic_link "${PREVIOUS_CURRENT}" "${INSTALL_ROOT}/current"
   atomic_link "${PREVIOUS_APP}" "${INSTALL_ROOT}/app"
   atomic_link "${PREVIOUS_VENV}" "${INSTALL_ROOT}/venv"
-  restart_role
+  restart_role || return 1
+  restore_retired_role_units "${previous_runtime}"
 }
 
 artifacts_cli_path() {
@@ -324,6 +355,7 @@ deploy() {
   capture_previous_state
   sync_release_files "${release}/runtime"
   switch_release "${release}"
+  retire_role_units
   if ! restart_role || ! wait_healthy; then
     echo "new native runtime failed; restoring previous release" >&2
     restore_previous

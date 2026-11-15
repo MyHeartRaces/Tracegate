@@ -82,11 +82,41 @@ legacy WebSocket/gRPC Chain variants) were retired in 4.1.1:
 - the public templates no longer proxy WebSocket or gRPC client traffic. The
   Endpoint `/ws` path and its Xray inbound remain only as the carrier of the
   `entry-local-endpoint-egress` Telegram Proxy mode; the Entry Xray template
-  keeps its now unreachable, client-less WebSocket and gRPC inbounds;
+  kept its unreachable, client-less WebSocket and gRPC inbounds until 4.1.2,
+  which removed them;
 - hand-managed host configuration and private profiles that still list the
   retired surfaces or profile names keep passing preflight, with a warning
   where the names appear in a desired-state file. A private bot guide file
   that still mentions the Backup profiles has to be edited by hand.
+
+Entry Hysteria (Chain Hysteria: Hysteria2 in Chain mode on the Entry UDP/443
+listener) was retired in 4.1.2. Chain is issued only as VLESS Reality:
+
+- the deploy migration revokes every remaining Hysteria2 Chain connection and
+  revision; Direct Hysteria is untouched. The API refuses new Chain Hysteria
+  connections, and nothing of them can be re-issued, activated, pushed or
+  exported again;
+- the Entry host deploy stops and disables `tracegate-hysteria@entry.service`
+  before it restarts the role (an absent unit is fine) and no longer lists it
+  among the Entry units; a rollback to an older release that still ran it
+  starts it again. The `tracegate-hysteria@.service` template stays for
+  Endpoint;
+- the Entry agent no longer renders, reloads or reports Hysteria: its health
+  expects only TCP/443, Xray and HAProxy, its runtime contract drops the
+  Hysteria component and the Chain Hysteria client cap, and it strips an
+  Xray-native Hysteria inbound from a hand-managed base config. The Entry
+  engine updater tracks no Hysteria engine;
+- the Entry firewall template no longer accepts public UDP/443; a
+  base-bundle reapply replays it on Entry. A hand-managed Entry firewall (for
+  example the origin ruleset loaded by `tracegate-entry-firewall.service`)
+  and a stale `hysteria/server.yaml` under the Entry agent base directory are
+  not changed by the deploy; close UDP/443 there and remove that file by hand
+  when convenient;
+- the Entry Xray template drops its retired client-less WebSocket and gRPC
+  inbounds. The Entry-to-Endpoint bridge, the Telegram Proxy route and the
+  host-wide Entry traffic cap are unchanged;
+- the `HYSTERIA_CHAIN_CLIENT_*` and `*_ENTRY` Hysteria settings are still
+  accepted in env files but no longer drive any runtime behaviour.
 
 ## Reading alerts: failed, no data, query error
 
@@ -164,15 +194,16 @@ Probe sets (every sample of a window of at least 10 seconds must pass):
 - ShadowTLS: every backhaul channel reports fresh success (Endpoint from
   Prometheus, Entry from its agent `/metrics`);
 - Prometheus: `/-/ready`; Grafana: `/api/health` with database `ok`;
-- Telemt, Entry Xray and Entry Hysteria have no authenticated probe yet and
-  are never activated automatically.
+- Telemt and Entry Xray have no authenticated probe yet and are never
+  activated automatically. Entry tracks no Hysteria engine: Entry Hysteria
+  was retired in 4.1.2.
 
 Default policies (`policy` in the registry):
 
 | Component | Endpoint | Entry |
 | --- | --- | --- |
 | xray | auto | notify |
-| hysteria | auto (needs the backhaul token) | notify |
+| hysteria | auto (needs the backhaul token) | - (retired on Entry in 4.1.2) |
 | shadowtls | auto | auto |
 | telemt | notify | notify |
 | prometheus | auto | - |

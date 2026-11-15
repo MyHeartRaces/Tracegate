@@ -42,7 +42,8 @@ _EVIDENCE_LIMIT = 60
 
 # Engine units per host role. Mirrors the engine part of ROLE_UNITS in
 # deploy/host/tracegate-host-deploy (a test keeps both in sync). Order is the
-# restart order used during activation.
+# restart order used during activation. Entry tracks no Hysteria engine: Entry
+# Hysteria was retired in Tracegate 4.1.2.
 ROLE_ENGINE_UNITS: dict[str, dict[str, tuple[str, ...]]] = {
     "endpoint": {
         "xray": ("tracegate-xray@transit.service", "tracegate-xray-ss2022.service"),
@@ -58,7 +59,6 @@ ROLE_ENGINE_UNITS: dict[str, dict[str, tuple[str, ...]]] = {
             "tracegate-backhaul-fragment@1.service",
             "tracegate-backhaul-fragment@2.service",
         ),
-        "hysteria": ("tracegate-hysteria@entry.service",),
         "shadowtls": ("tracegate-shadowtls-entry.service", "tracegate-shadowtls-entry2.service"),
     },
 }

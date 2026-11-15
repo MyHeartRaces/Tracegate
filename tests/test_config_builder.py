@@ -462,7 +462,7 @@ def test_hysteria_direct_can_select_salamander_on_independent_listener() -> None
     assert cfg["hygiene"]["required_layers"][1] == "salamander"
 
 
-def test_hysteria_uses_role_specific_salamander_passwords() -> None:
+def test_hysteria_direct_uses_endpoint_password_and_ignores_retired_entry_password() -> None:
     user = _user()
     device = _device(user.telegram_id)
     conn = Connection(
@@ -470,9 +470,9 @@ def test_hysteria_uses_role_specific_salamander_passwords() -> None:
         user_id=user.telegram_id,
         device_id=device.id,
         protocol=ConnectionProtocol.HYSTERIA2,
-        mode=ConnectionMode.CHAIN,
+        mode=ConnectionMode.DIRECT,
         variant=ConnectionVariant.V2,
-        profile_name="v2-chain-quic-hysteria",
+        profile_name="v2-direct-quic-hysteria",
         custom_overrides_json={},
         status=RecordStatus.ACTIVE,
     )
@@ -490,8 +490,40 @@ def test_hysteria_uses_role_specific_salamander_passwords() -> None:
         ),
     )
 
-    assert cfg["server"] == "entry.example.com"
-    assert cfg["obfs"]["password"] == "entry-obfs-secret"
+    assert cfg["server"] == "transit.example.com"
+    assert cfg["obfs"]["password"] == "transit-obfs-secret"
+    assert cfg["chain"] is None
+
+
+@pytest.mark.parametrize("variant", [ConnectionVariant.V2, ConnectionVariant.V4])
+def test_hysteria_chain_is_never_built_after_retirement(variant) -> None:
+    # Chain Hysteria (Hysteria on Entry) was retired in Tracegate 4.1.2.
+    user = _user()
+    device = _device(user.telegram_id)
+    conn = Connection(
+        id=uuid4(),
+        user_id=user.telegram_id,
+        device_id=device.id,
+        protocol=ConnectionProtocol.HYSTERIA2,
+        mode=ConnectionMode.CHAIN,
+        variant=variant,
+        profile_name="v2-chain-quic-hysteria",
+        custom_overrides_json={},
+        status=RecordStatus.ACTIVE,
+    )
+
+    with pytest.raises(ValueError, match="retired in Tracegate 4.1.2"):
+        build_effective_config(
+            user=user,
+            device=device,
+            connection=conn,
+            selected_sni=None,
+            endpoints=EndpointSet(
+                transit_host="transit.example.com",
+                entry_host="entry.example.com",
+                hysteria_salamander_password_entry="entry-obfs-secret",
+            ),
+        )
 
 
 def test_hysteria_ip_endpoint_defaults_to_insecure_tls() -> None:
@@ -571,120 +603,6 @@ def test_hysteria_rejects_non_socks_client_mode() -> None:
         )
 
 
-def test_hysteria_chain_rejects_bandwidth_override_above_entry_cap() -> None:
-    user = _user()
-    device = _device(user.telegram_id)
-    conn = Connection(
-        id=uuid4(),
-        user_id=user.telegram_id,
-        device_id=device.id,
-        protocol=ConnectionProtocol.HYSTERIA2,
-        mode=ConnectionMode.CHAIN,
-        variant=ConnectionVariant.V2,
-        profile_name="v2-chain-quic-hysteria",
-        custom_overrides_json={"up_mbps": 16},
-        status=RecordStatus.ACTIVE,
-    )
-
-    with pytest.raises(ValueError, match="up_mbps must be in 1..15"):
-        build_effective_config(
-            user=user,
-            device=device,
-            connection=conn,
-            selected_sni=None,
-            endpoints=EndpointSet(transit_host="transit.example.com", entry_host="entry.example.com"),
-        )
-
-
-def test_hysteria_chain_v4_enters_via_entry_and_marks_backhaul() -> None:
-    user = _user()
-    device = _device(user.telegram_id)
-    conn = Connection(
-        id=uuid4(),
-        user_id=user.telegram_id,
-        device_id=device.id,
-        protocol=ConnectionProtocol.HYSTERIA2,
-        mode=ConnectionMode.CHAIN,
-        variant=ConnectionVariant.V2,
-        profile_name="v2-chain-quic-hysteria",
-        custom_overrides_json={},
-        status=RecordStatus.ACTIVE,
-    )
-
-    cfg = build_effective_config(
-        user=user,
-        device=device,
-        connection=conn,
-        selected_sni=None,
-        endpoints=EndpointSet(transit_host="node.tracegate.test", entry_host="entry.node.tracegate.test"),
-    )
-
-    assert cfg["protocol"] == "hysteria2"
-    assert cfg["profile"] == "v2-chain-quic-hysteria"
-    assert cfg["server"] == "entry.node.tracegate.test"
-    assert cfg["sni"] == "entry.node.tracegate.test"
-    assert cfg["auth"]["type"] == "userpass"
-    assert cfg["auth"]["username"].startswith("v2_1_")
-    assert " " not in cfg["auth"]["username"]
-    assert cfg["auth"]["token"].startswith(cfg["auth"]["username"] + ":")
-    assert cfg["port"] == TRACEGATE_PUBLIC_UDP_PORT
-    assert cfg["obfs"]["type"] == "gecko"
-    assert cfg["obfs"]["required"] is True
-    assert cfg["chain"]["type"] == "entry_transit_private_relay"
-    assert cfg["chain"]["link_class"] == "entry-transit-udp"
-    assert cfg["chain"]["carrier"] == "hysteria2-gecko"
-    assert cfg["chain"]["preferred_outer"] == "udp-quic-gecko"
-    assert cfg["chain"]["outer_carrier"] == "udp-quic"
-    assert cfg["chain"]["optional_packet_shaping"] == "paired-udp-obfs"
-    assert cfg["chain"]["managed_by"] == "link-crypto"
-    assert cfg["chain"]["selected_profiles"] == ["V2"]
-    assert cfg["chain"]["inner_transport"] == "hysteria2-quic"
-    assert cfg["chain"]["xray_backhaul"] is False
-    assert cfg["chain"]["udp_capable"] is True
-    assert cfg["chain"]["gecko_required"] is True
-    assert cfg["chain"]["paired_obfs_supported"] is True
-    assert cfg["chain"]["client_rate_limit"] == {
-        "enabled": True,
-        "max_mbit": 15,
-        "scope": "per-chain-client",
-            "entry_total_max_mbit": 65,
-        "hysteria_server_bandwidth": True,
-        "hysteria_declared_tx_required": True,
-        "tcp_enforcement": "entry-host-total-tc-cap",
-    }
-    assert cfg["chain"]["dpi_resistance"] == {
-        "required": True,
-        "mode": "gecko-fragmented-quic",
-        "forbid_udp_443": False,
-        "forbid_tcp_8443": True,
-    }
-    assert cfg["chain"]["hygiene"] == {
-        "required": True,
-        "carrier": "hysteria2",
-        "obfs": "gecko",
-        "anti_replay": True,
-        "anti_amplification": True,
-        "source_validation": "profile-bound-remote",
-        "mtu": {"mode": "clamp", "max_packet_size": 1252},
-    }
-    assert cfg["chain"]["transit"] == "node.tracegate.test"
-    assert cfg["hygiene"]["entry_transit_relay"] is True
-    assert cfg["hygiene"]["udp"]["source_validation"] == "profile-bound-remote"
-    assert cfg["up_mbps"] == 15
-    assert cfg["down_mbps"] == 15
-    assert cfg["rate_limit"] == {
-        "enabled": True,
-        "max_mbit": 15,
-        "scope": "entry-chain-client",
-        "server_cap_required": True,
-    }
-    assert cfg["design_constraints"]["entry_role_required"] is True
-    assert cfg["design_constraints"]["private_interconnect"] == "hysteria2-gecko-udp-link"
-    assert cfg["design_constraints"]["backhaul_outside_xray"] is True
-    assert cfg["design_constraints"]["udp_over_private_relay"] is True
-    assert cfg["design_constraints"]["chain_client_rate_limit_mbit"] == 15
-
-
 def test_hysteria_can_emit_token_auth_payload_for_future_runtime() -> None:
     user = _user()
     device = _device(user.telegram_id)
@@ -752,43 +670,6 @@ def test_hysteria_direct_uses_transit_ech_hints() -> None:
         "alpn": ["h3"],
         "ech_config_list": "transit-ech-config",
         "ech_force_query": "full",
-    }
-
-
-def test_hysteria_chain_uses_entry_ech_hints() -> None:
-    user = _user()
-    device = _device(user.telegram_id)
-    conn = Connection(
-        id=uuid4(),
-        user_id=user.telegram_id,
-        device_id=device.id,
-        protocol=ConnectionProtocol.HYSTERIA2,
-        mode=ConnectionMode.CHAIN,
-        variant=ConnectionVariant.V2,
-        profile_name="v2-chain-quic-hysteria",
-        custom_overrides_json={},
-        status=RecordStatus.ACTIVE,
-    )
-
-    cfg = build_effective_config(
-        user=user,
-        device=device,
-        connection=conn,
-        selected_sni=None,
-        endpoints=EndpointSet(
-            transit_host="transit.example.com",
-            entry_host="entry.example.com",
-            hysteria_ech_config_list_entry="entry-ech-config",
-            hysteria_ech_force_query_entry="half",
-        ),
-    )
-
-    assert cfg["tls"] == {
-        "server_name": "entry.example.com",
-        "insecure": False,
-        "alpn": ["h3"],
-        "ech_config_list": "entry-ech-config",
-        "ech_force_query": "half",
     }
 
 

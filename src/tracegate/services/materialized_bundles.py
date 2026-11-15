@@ -402,21 +402,16 @@ class MaterializedBundleRenderContext:
     ws_path: str
     bootstrap_password: str
     hysteria_udp_port: int
-    entry_hysteria_salamander_password: str
     transit_hysteria_salamander_password: str
-    entry_hysteria_stats_secret: str
     transit_hysteria_stats_secret: str
-    entry_hysteria_auth_url: str
     transit_hysteria_auth_url: str
+    # Entry public bind address (HYSTERIA_LISTEN_HOST_ENTRY). Entry Hysteria was
+    # retired in Tracegate 4.1.2; the address still binds the Entry cover-site
+    # listener and gates the Endpoint link firewall.
     entry_hysteria_listen_host: str
     transit_hysteria_listen_host: str
-    entry_hysteria_tls_cert_file: str
-    entry_hysteria_tls_key_file: str
     transit_hysteria_tls_cert_file: str
     transit_hysteria_tls_key_file: str
-    hysteria_chain_client_rate_limit_enabled: bool
-    hysteria_chain_client_max_mbit: int
-    hysteria_chain_client_require_declared_tx: bool
     reality_public_key_entry: str
     reality_short_id_entry: str
     reality_public_key_transit: str
@@ -494,26 +489,16 @@ class MaterializedBundleRenderContext:
         except ValueError:
             agent_port = 8070
         default_hysteria_auth_url = f"http://127.0.0.1:{agent_port}/v1/hysteria/auth"
+        # Entry Hysteria was retired in Tracegate 4.1.2: the *_ENTRY Hysteria
+        # secrets are no longer read (existing env files that still set them keep
+        # loading) and only the Endpoint Hysteria server config is rendered.
         if runtime_profile == "tracegate-3":
-            entry_hysteria_salamander_password = _require_first(
-                env,
-                "HYSTERIA_GECKO_PASSWORD_ENTRY",
-                "HYSTERIA_GECKO_PASSWORD",
-                "HYSTERIA_SALAMANDER_PASSWORD_ENTRY",
-                "HYSTERIA_SALAMANDER_PASSWORD",
-            )
             transit_hysteria_salamander_password = _require_first(
                 env,
                 "HYSTERIA_GECKO_PASSWORD_TRANSIT",
                 "HYSTERIA_GECKO_PASSWORD",
                 "HYSTERIA_SALAMANDER_PASSWORD_TRANSIT",
                 "HYSTERIA_SALAMANDER_PASSWORD",
-            )
-            entry_hysteria_stats_secret = _require_first(
-                env,
-                "HYSTERIA_STATS_SECRET_ENTRY",
-                "AGENT_STATS_SECRET_ENTRY",
-                "AGENT_STATS_SECRET",
             )
             transit_hysteria_stats_secret = _require_first(
                 env,
@@ -522,13 +507,6 @@ class MaterializedBundleRenderContext:
                 "AGENT_STATS_SECRET",
             )
         else:
-            entry_hysteria_salamander_password = _first(
-                env,
-                "HYSTERIA_GECKO_PASSWORD_ENTRY",
-                "HYSTERIA_GECKO_PASSWORD",
-                "HYSTERIA_SALAMANDER_PASSWORD_ENTRY",
-                "HYSTERIA_SALAMANDER_PASSWORD",
-            )
             transit_hysteria_salamander_password = _first(
                 env,
                 "HYSTERIA_GECKO_PASSWORD_TRANSIT",
@@ -536,47 +514,18 @@ class MaterializedBundleRenderContext:
                 "HYSTERIA_SALAMANDER_PASSWORD_TRANSIT",
                 "HYSTERIA_SALAMANDER_PASSWORD",
             )
-            entry_hysteria_stats_secret = _first(
-                env,
-                "HYSTERIA_STATS_SECRET_ENTRY",
-                "AGENT_STATS_SECRET_ENTRY",
-                "AGENT_STATS_SECRET",
-            )
             transit_hysteria_stats_secret = _first(
                 env,
                 "HYSTERIA_STATS_SECRET_TRANSIT",
                 "AGENT_STATS_SECRET_TRANSIT",
                 "AGENT_STATS_SECRET",
             )
-        entry_hysteria_auth_url = _first(
-            env,
-            "HYSTERIA_AUTH_URL_ENTRY",
-            "HYSTERIA_AUTH_URL",
-            default=default_hysteria_auth_url,
-        ) or default_hysteria_auth_url
         transit_hysteria_auth_url = _first(
             env,
             "HYSTERIA_AUTH_URL_TRANSIT",
             "HYSTERIA_AUTH_URL",
             default=default_hysteria_auth_url,
         ) or default_hysteria_auth_url
-        hysteria_chain_client_rate_limit_enabled = _bool_env(
-            env,
-            "HYSTERIA_CHAIN_CLIENT_RATE_LIMIT_ENABLED",
-            default=True,
-        )
-        hysteria_chain_client_max_mbit = _int_env(
-            env,
-            "HYSTERIA_CHAIN_CLIENT_MAX_MBIT",
-            default=15,
-            min_value=1,
-            max_value=1000,
-        )
-        hysteria_chain_client_require_declared_tx = _bool_env(
-            env,
-            "HYSTERIA_CHAIN_CLIENT_REQUIRE_DECLARED_TX",
-            default=True,
-        )
 
         reality_public_key_entry = _first(env, "REALITY_PUBLIC_KEY_ENTRY", "REALITY_PUBLIC_KEY")
         reality_short_id_entry = _require_first(env, "REALITY_SHORT_ID_ENTRY", "REALITY_SHORT_ID")
@@ -682,18 +631,6 @@ class MaterializedBundleRenderContext:
         tls_key_file = _first(env, "XRAY_CENTRIC_TLS_KEY_FILE", default="/etc/tracegate/tls/ws.key") or "/etc/tracegate/tls/ws.key"
         entry_hysteria_listen_host = _first(env, "HYSTERIA_LISTEN_HOST_ENTRY", "HYSTERIA_LISTEN_HOST")
         transit_hysteria_listen_host = _first(env, "HYSTERIA_LISTEN_HOST_TRANSIT", "HYSTERIA_LISTEN_HOST")
-        entry_hysteria_tls_cert_file = _first(
-            env,
-            "HYSTERIA_TLS_CERT_FILE_ENTRY",
-            "HYSTERIA_TLS_CERT_FILE",
-            default=tls_cert_file,
-        ) or tls_cert_file
-        entry_hysteria_tls_key_file = _first(
-            env,
-            "HYSTERIA_TLS_KEY_FILE_ENTRY",
-            "HYSTERIA_TLS_KEY_FILE",
-            default=tls_key_file,
-        ) or tls_key_file
         transit_hysteria_tls_cert_file = _first(
             env,
             "HYSTERIA_TLS_CERT_FILE_TRANSIT",
@@ -758,21 +695,13 @@ class MaterializedBundleRenderContext:
             ws_path=ws_path,
             bootstrap_password=bootstrap_password,
             hysteria_udp_port=hysteria_udp_port,
-            entry_hysteria_salamander_password=entry_hysteria_salamander_password,
             transit_hysteria_salamander_password=transit_hysteria_salamander_password,
-            entry_hysteria_stats_secret=entry_hysteria_stats_secret,
             transit_hysteria_stats_secret=transit_hysteria_stats_secret,
-            entry_hysteria_auth_url=entry_hysteria_auth_url,
             transit_hysteria_auth_url=transit_hysteria_auth_url,
             entry_hysteria_listen_host=entry_hysteria_listen_host,
             transit_hysteria_listen_host=transit_hysteria_listen_host,
-            entry_hysteria_tls_cert_file=entry_hysteria_tls_cert_file,
-            entry_hysteria_tls_key_file=entry_hysteria_tls_key_file,
             transit_hysteria_tls_cert_file=transit_hysteria_tls_cert_file,
             transit_hysteria_tls_key_file=transit_hysteria_tls_key_file,
-            hysteria_chain_client_rate_limit_enabled=hysteria_chain_client_rate_limit_enabled,
-            hysteria_chain_client_max_mbit=hysteria_chain_client_max_mbit,
-            hysteria_chain_client_require_declared_tx=hysteria_chain_client_require_declared_tx,
             reality_public_key_entry=reality_public_key_entry,
             reality_short_id_entry=reality_short_id_entry,
             reality_public_key_transit=reality_public_key_transit,
@@ -851,7 +780,8 @@ def _role_public_units(role_lower: str) -> list[str]:
 
 
 def _role_public_units_for_profile(role_lower: str, runtime_profile: str) -> list[str]:
-    if runtime_profile == "tracegate-3":
+    # Entry runs no Hysteria unit since Tracegate 4.1.2 (Entry Hysteria retired).
+    if runtime_profile == "tracegate-3" and role_lower != "entry":
         return _role_public_units(role_lower)
     return [
         f"tracegate-xray@{role_lower}",
@@ -909,8 +839,8 @@ def _materialized_manifest_payload(ctx: "MaterializedBundleRenderContext") -> di
                 "privateCompanions": _role_private_companions(ctx, role_lower),
                 "features": {
                     "runtimeProfile": ctx.runtime_profile,
-                    "standaloneHysteriaEnabled": ctx.runtime_profile == "tracegate-3",
-                    "hysteriaGeckoEnabled": ctx.runtime_profile == "tracegate-3",
+                    "standaloneHysteriaEnabled": ctx.runtime_profile == "tracegate-3" and role_upper != "ENTRY",
+                    "hysteriaGeckoEnabled": ctx.runtime_profile == "tracegate-3" and role_upper != "ENTRY",
                     "finalMaskEnabled": finalmask_enabled,
                     "echEnabled": ech_enabled,
                     "mtprotoFrontingEnabled": bool(str(ctx.mtproto_domain or "").strip())
@@ -1013,9 +943,13 @@ def _apply_private_overlays(ctx: MaterializedBundleRenderContext) -> None:
             continue
         bundle_dir = ctx.materialized_root / bundle_name
         _apply_json_overlay(bundle_dir / "xray.json", overlay_dir)
+        if role == "entry":
+            # A private Entry Xray overlay written before 4.1.2 may still carry the
+            # retired Entry Hysteria inbound; Entry never serves it again.
+            _strip_entry_xray_hysteria_file(bundle_dir / "xray.json")
         for file_name in ("haproxy.cfg", "nginx.conf", "nftables.conf"):
             _apply_text_overlay(bundle_dir / file_name, overlay_dir)
-        if ctx.runtime_profile == "tracegate-3":
+        if ctx.runtime_profile == "tracegate-3" and role != "entry":
             _apply_text_overlay(bundle_dir / "hysteria" / "server.yaml", overlay_dir / "hysteria")
         decoy_overlay_dir = overlay_dir / "decoy"
         if decoy_overlay_dir.exists():
@@ -1253,6 +1187,16 @@ def _strip_xray_hysteria_runtime(payload: dict[str, Any]) -> None:
     routing["rules"] = retained_rules
 
 
+def _strip_entry_xray_hysteria_file(path: Path) -> None:
+    if not path.exists():
+        return
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    before = json.dumps(payload, sort_keys=True)
+    _strip_xray_hysteria_runtime(payload)
+    if json.dumps(payload, sort_keys=True) != before:
+        _write_json(path, payload)
+
+
 def _yaml_scalar(value: object) -> str:
     if isinstance(value, bool):
         return "true" if value else "false"
@@ -1271,8 +1215,6 @@ def _render_hysteria_server_yaml(
     salamander_password: str,
     stats_secret: str,
     decoy_dir: str,
-    chain_client_rate_limit_enabled: bool = False,
-    chain_client_max_mbit: int = 15,
 ) -> str:
     listen_address = f"{listen_host}:{listen_port}" if listen_host else f":{listen_port}"
     lines = [
@@ -1297,89 +1239,48 @@ def _render_hysteria_server_yaml(
         "  disablePathMTUDiscovery: false",
         "congestion:",
         "  type: bbr",
+        "ignoreClientBandwidth: true",
+        "disableUDP: false",
+        "udpIdleTimeout: 5m",
+        "sniff:",
+        "  enable: true",
+        "  timeout: 2s",
+        "trafficStats:",
+        "  listen: 127.0.0.1:9999",
+        f"  secret: {_yaml_scalar(stats_secret)}",
+        "masquerade:",
+        "  type: file",
+        "  file:",
+        f"    dir: {_yaml_scalar(decoy_dir)}",
+        "",
     ]
-    if chain_client_rate_limit_enabled:
-        lines.extend(
-            [
-                "bandwidth:",
-                f"  up: {chain_client_max_mbit} mbps",
-                f"  down: {chain_client_max_mbit} mbps",
-                "ignoreClientBandwidth: false",
-            ]
-        )
-    else:
-        lines.append("ignoreClientBandwidth: true")
-    lines.extend(
-        [
-            "disableUDP: false",
-            "udpIdleTimeout: 5m",
-            "sniff:",
-            "  enable: true",
-            "  timeout: 2s",
-            "trafficStats:",
-            "  listen: 127.0.0.1:9999",
-            f"  secret: {_yaml_scalar(stats_secret)}",
-            "masquerade:",
-            "  type: file",
-            "  file:",
-            f"    dir: {_yaml_scalar(decoy_dir)}",
-            "",
-        ]
-    )
     return "\n".join(lines)
 
 
 def _write_hysteria_server_configs(ctx: MaterializedBundleRenderContext) -> None:
+    """Render the Endpoint Hysteria server config (tracegate-3 only).
+
+    Entry Hysteria was retired in Tracegate 4.1.2, so base-entry gets no
+    ``hysteria/server.yaml`` any more.
+    """
+
     if ctx.runtime_profile != "tracegate-3":
         return
-    for (
-        bundle_name,
-        auth_url,
-        salamander_password,
-        stats_secret,
-        chain_client_rate_limit_enabled,
-        listen_host,
-        tls_cert_file,
-        tls_key_file,
-    ) in (
-        (
-            "base-entry",
-            ctx.entry_hysteria_auth_url,
-            ctx.entry_hysteria_salamander_password,
-            ctx.entry_hysteria_stats_secret,
-            ctx.hysteria_chain_client_rate_limit_enabled,
-            ctx.entry_hysteria_listen_host,
-            ctx.entry_hysteria_tls_cert_file,
-            ctx.entry_hysteria_tls_key_file,
+    target = ctx.materialized_root / "base-transit" / "hysteria" / "server.yaml"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(
+        _render_hysteria_server_yaml(
+            listen_host=ctx.transit_hysteria_listen_host,
+            listen_port=ctx.hysteria_udp_port,
+            tls_cert_file=ctx.transit_hysteria_tls_cert_file,
+            tls_key_file=ctx.transit_hysteria_tls_key_file,
+            auth_url=ctx.transit_hysteria_auth_url,
+            salamander_password=ctx.transit_hysteria_salamander_password,
+            stats_secret=ctx.transit_hysteria_stats_secret,
+            decoy_dir=ctx.decoy_dir,
         ),
-        (
-            "base-transit",
-            ctx.transit_hysteria_auth_url,
-            ctx.transit_hysteria_salamander_password,
-            ctx.transit_hysteria_stats_secret,
-            False,
-            ctx.transit_hysteria_listen_host,
-            ctx.transit_hysteria_tls_cert_file,
-            ctx.transit_hysteria_tls_key_file,
-        ),
-    ):
-        target = ctx.materialized_root / bundle_name / "hysteria" / "server.yaml"
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(
-            _render_hysteria_server_yaml(
-                listen_host=listen_host,
-                listen_port=ctx.hysteria_udp_port,
-                tls_cert_file=tls_cert_file,
-                tls_key_file=tls_key_file,
-                auth_url=auth_url,
-                salamander_password=salamander_password,
-                stats_secret=stats_secret,
-                decoy_dir=ctx.decoy_dir,
-                chain_client_rate_limit_enabled=chain_client_rate_limit_enabled,
-                chain_client_max_mbit=ctx.hysteria_chain_client_max_mbit,
-            ),
-            encoding="utf-8",
-        )
+        encoding="utf-8",
+    )
 
 
 def _materialize_ss2022_backhaul_inbound(payload: dict[str, Any], *, key: str) -> None:
@@ -1447,9 +1348,6 @@ def render_materialized_bundles(ctx: MaterializedBundleRenderContext) -> None:
             reality["serverNames"] = [ctx.reality_server_name_entry]
             reality["privateKey"] = ctx.reality_private_key_entry
             reality["shortIds"] = [ctx.reality_short_id_entry]
-        if tag == "vless-ws-in":
-            ws_settings = inbound.setdefault("streamSettings", {}).setdefault("wsSettings", {})
-            ws_settings["path"] = ctx.ws_path
     for outbound in entry_xray.get("outbounds", []):
         tag = str(outbound.get("tag") or "")
         if tag == "to-transit":
@@ -1554,8 +1452,9 @@ def render_materialized_bundles(ctx: MaterializedBundleRenderContext) -> None:
         source_tag="entry-in",
         groups=ctx.reality_multi_inbound_groups,
     )
-    if ctx.runtime_profile == "tracegate-3":
-        _strip_xray_hysteria_runtime(entry_xray)
+    # Entry Hysteria was retired in Tracegate 4.1.2: Entry Xray never carries a
+    # Hysteria inbound, whatever the runtime profile.
+    _strip_xray_hysteria_runtime(entry_xray)
     _write_json(entry_xray_path, entry_xray)
 
     entry_haproxy_path = ctx.materialized_root / "base-entry" / "haproxy.cfg"

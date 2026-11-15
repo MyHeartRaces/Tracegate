@@ -6,10 +6,19 @@ SS2022+ShadowTLS backhaul pool, Telemt link, REALITY backhaul leg, bridge
 units and env helpers). The extracted JSON is compared against a golden file
 generated from the pre-change code; it must keep passing unchanged while the
 client-facing WGWS and SS2022-ShadowTLS families are removed.
+
+Tracegate 4.1.2 removed the retired client-less Entry ``vless-ws-in`` and
+``vless-grpc-in`` inbounds (VLESS WS/gRPC were retired in 4.1.1) from the Entry
+Xray template. The golden was edited only by deleting those two inbounds and
+their routing ``inboundTag`` references; ``test_golden_differs_from_previous_only_by_retired_entry_inbounds``
+proves it by re-inserting exactly those elements and matching the SHA-256 of
+the previous golden file byte for byte.
 """
 
 from __future__ import annotations
 
+import copy
+import hashlib
 import json
 from pathlib import Path
 
@@ -173,3 +182,76 @@ def test_bridge_render_invariance(tmp_path: Path) -> None:
     assert GOLDEN_PATH.exists(), f"golden file is missing: {GOLDEN_PATH}"
     golden = json.loads(GOLDEN_PATH.read_text(encoding="utf-8"))
     assert extracted == golden
+
+
+# SHA-256 of tests/fixtures/bridge_render_golden.json before Tracegate 4.1.2.
+_PREVIOUS_GOLDEN_SHA256 = "93fcafe3a557fa2613166da6abee66ae2ed8bdab3957c50317a097b9eae02da3"
+_RETIRED_ENTRY_INBOUND_TAGS = ("vless-ws-in", "vless-grpc-in")
+# The two retired Entry inbounds exactly as the previous golden rendered them.
+_RETIRED_ENTRY_INBOUNDS = (
+    {
+        "listen": "127.0.0.1",
+        "port": 10000,
+        "protocol": "vless",
+        "settings": {"clients": [], "decryption": "none"},
+        "sniffing": {"destOverride": ["http", "tls", "quic"], "enabled": True},
+        "streamSettings": {
+            "network": "ws",
+            "security": "none",
+            "wsSettings": {"heartbeatPeriod": 15, "path": "/stealth/ws"},
+        },
+        "tag": "vless-ws-in",
+    },
+    {
+        "listen": "127.0.0.1",
+        "port": 10001,
+        "protocol": "vless",
+        "settings": {"clients": [], "decryption": "none"},
+        "sniffing": {"destOverride": ["http", "tls", "quic"], "enabled": True},
+        "streamSettings": {
+            "grpcSettings": {"serviceName": "tracegate.v1.Edge"},
+            "network": "grpc",
+            "security": "none",
+        },
+        "tag": "vless-grpc-in",
+    },
+)
+
+
+def _restore_retired_entry_inbounds(golden: dict) -> dict:
+    """Undo the 4.1.2 golden edit: re-add both inbounds and their routing tags."""
+
+    restored = copy.deepcopy(golden)
+    entry_xray = restored["entry_xray"]
+    inbounds = entry_xray["inbounds"]
+    position = [inbound["tag"] for inbound in inbounds].index("entry-in") + 1
+    inbounds[position:position] = copy.deepcopy(list(_RETIRED_ENTRY_INBOUNDS))
+    for rule in entry_xray["routing"]["rules"]:
+        tags = rule.get("inboundTag")
+        if tags == ["entry-in"]:
+            rule["inboundTag"] = ["entry-in", *_RETIRED_ENTRY_INBOUND_TAGS]
+    return restored
+
+
+def test_golden_differs_from_previous_only_by_retired_entry_inbounds() -> None:
+    golden = json.loads(GOLDEN_PATH.read_text(encoding="utf-8"))
+    entry_xray = golden["entry_xray"]
+
+    # The retired inbounds and every reference to them are gone.
+    assert not {inbound["tag"] for inbound in entry_xray["inbounds"]} & set(_RETIRED_ENTRY_INBOUND_TAGS)
+    for rule in entry_xray["routing"]["rules"]:
+        assert not set(rule.get("inboundTag") or []) & set(_RETIRED_ENTRY_INBOUND_TAGS)
+
+    # Re-inserting exactly those elements reproduces the previous golden file
+    # byte for byte, so every bridge artifact is provably unchanged.
+    restored = _restore_retired_entry_inbounds(golden)
+    previous_text = json.dumps(restored, indent=2, sort_keys=True) + "\n"
+    assert hashlib.sha256(previous_text.encode("utf-8")).hexdigest() == _PREVIOUS_GOLDEN_SHA256
+
+    # Only entry_xray inbounds and routing rules changed.
+    for key, value in golden.items():
+        if key != "entry_xray":
+            assert restored[key] == value
+    for key, value in entry_xray.items():
+        if key not in {"inbounds", "routing"}:
+            assert restored["entry_xray"][key] == value

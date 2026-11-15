@@ -148,7 +148,9 @@ def test_export_hysteria2_salamander_uri_and_singbox_attachment() -> None:
     }
 
 
-def test_export_hysteria2_chain_caps_stale_bandwidth_to_chain_limit() -> None:
+def test_export_hysteria2_chain_is_refused_as_retired() -> None:
+    # Chain Hysteria was retired in 4.1.2: a stored Chain revision is never
+    # turned into a client config again.
     effective = {
         "protocol": "hysteria2",
         "server": "entry.example.com",
@@ -163,10 +165,8 @@ def test_export_hysteria2_chain_caps_stale_bandwidth_to_chain_limit() -> None:
         "chain": {"type": "entry-transit"},
     }
 
-    out = export_client_config(effective)
-    attachment = yaml.safe_load((out.attachment_content or b"").decode("utf-8"))
-
-    assert attachment["bandwidth"] == {"up": "10 mbps", "down": "10 mbps"}
+    with pytest.raises(ClientConfigExportError, match="retired in Tracegate 4.1.2"):
+        export_client_config(effective)
 
 
 def test_export_hysteria2_direct_keeps_explicit_bandwidth_override() -> None:

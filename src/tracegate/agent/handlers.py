@@ -116,7 +116,7 @@ def _run_reload_commands(settings: Settings, commands: list[str]) -> None:
 
 
 def _proxy_reload_commands(settings: Settings) -> list[str]:
-    contract = resolve_runtime_contract(settings.agent_runtime_profile)
+    contract = resolve_runtime_contract(settings.agent_runtime_profile, settings.agent_role)
     commands: list[str] = []
     if contract.manages_component("xray"):
         commands.append(settings.agent_reload_xray_cmd)
@@ -140,7 +140,7 @@ def _reload_commands_for_changed(
     *,
     force_xray_reload: bool = False,
 ) -> list[str]:
-    contract = resolve_runtime_contract(settings.agent_runtime_profile)
+    contract = resolve_runtime_contract(settings.agent_runtime_profile, settings.agent_role)
     cmds: list[str] = []
     if contract.manages_component("xray") and "xray" in changed and (force_xray_reload or not settings.agent_xray_api_enabled):
         cmds.append(settings.agent_reload_xray_cmd)
@@ -224,7 +224,7 @@ def _sync_base_configs_from_bundle(
     if not str(bundle_name).startswith("base-"):
         return set()
 
-    contract = resolve_runtime_contract(settings.agent_runtime_profile)
+    contract = resolve_runtime_contract(settings.agent_runtime_profile, settings.agent_role)
     mapping = {
         "xray.json": ("base/xray/config.json", "xray"),
         "xray-ss2022.json": ("base/xray-ss2022/config.json", "xray-ss2022"),

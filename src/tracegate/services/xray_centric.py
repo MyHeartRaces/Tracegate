@@ -200,6 +200,27 @@ def build_xray_hysteria_inbound(
     }
 
 
+def _drop_inbound_tag_references(rendered: dict[str, Any], tags: set[str]) -> None:
+    routing = rendered.get("routing")
+    rules = routing.get("rules") if isinstance(routing, dict) else None
+    if not isinstance(rules, list):
+        return
+    retained: list[Any] = []
+    for rule in rules:
+        inbound_tags = rule.get("inboundTag") if isinstance(rule, dict) else None
+        if not isinstance(inbound_tags, list):
+            retained.append(rule)
+            continue
+        remaining = [tag for tag in inbound_tags if str(tag or "").strip() not in tags]
+        if not remaining:
+            continue
+        if len(remaining) != len(inbound_tags):
+            rule = dict(rule)
+            rule["inboundTag"] = remaining
+        retained.append(rule)
+    routing["rules"] = retained
+
+
 def render_xray_centric_xray_config(
     base_config: dict[str, Any],
     *,
@@ -222,13 +243,21 @@ def render_xray_centric_xray_config(
         rendered["inbounds"] = inbounds
 
     filtered_inbounds: list[dict[str, Any]] = []
+    removed_hysteria_tags: set[str] = set()
     for inbound in inbounds:
         if not isinstance(inbound, dict):
             filtered_inbounds.append(inbound)
             continue
         if inbound.get("protocol") == "hysteria":
+            removed_hysteria_tags.add(str(inbound.get("tag") or "").strip())
             continue
         filtered_inbounds.append(inbound)
+    if role_upper == "ENTRY":
+        # Entry Hysteria was retired in Tracegate 4.1.2: Entry Xray never gets a
+        # Hysteria inbound, and routing references to one are dropped.
+        rendered["inbounds"] = filtered_inbounds
+        _drop_inbound_tag_references(rendered, removed_hysteria_tags | {"hy2-in"})
+        return rendered
     filtered_inbounds.append(
         build_xray_hysteria_inbound(
             bootstrap_auth=bootstrap_auth,

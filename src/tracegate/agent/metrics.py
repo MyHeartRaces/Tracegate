@@ -420,7 +420,7 @@ class AgentMetricsCollector:
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
         self.root = Path(settings.agent_data_root)
-        self.runtime_contract = resolve_runtime_contract(settings.agent_runtime_profile)
+        self.runtime_contract = resolve_runtime_contract(settings.agent_runtime_profile, settings.agent_role)
 
     def collect(self):  # noqa: ANN201
         role_label = str(self.settings.agent_role)

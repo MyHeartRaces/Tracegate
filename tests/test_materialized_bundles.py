@@ -84,19 +84,24 @@ def test_context_uses_shared_defaults_and_fallback_values(tmp_path: Path) -> Non
     assert ctx.ws_path == "/ws"
     assert ctx.runtime_profile == "tracegate-3"
     assert ctx.hysteria_udp_port == 443
-    assert ctx.entry_hysteria_salamander_password == "entry-gecko-secret"
     assert ctx.transit_hysteria_salamander_password == "transit-gecko-secret"
-    assert ctx.entry_hysteria_stats_secret == "entry-stats-secret"
     assert ctx.transit_hysteria_stats_secret == "transit-stats-secret"
-    assert ctx.entry_hysteria_auth_url == "http://127.0.0.1:8070/v1/hysteria/auth"
     assert ctx.transit_hysteria_auth_url == "http://127.0.0.1:8070/v1/hysteria/auth"
+    # Entry Hysteria was retired in 4.1.2: only the Entry bind address is kept.
     assert ctx.entry_hysteria_listen_host == "192.0.2.10"
     assert ctx.transit_hysteria_listen_host == "192.0.2.20"
-    assert ctx.entry_hysteria_tls_cert_file == "/etc/tls/entry.crt"
     assert ctx.transit_hysteria_tls_key_file == "/etc/tls/transit.key"
-    assert ctx.hysteria_chain_client_rate_limit_enabled is True
-    assert ctx.hysteria_chain_client_max_mbit == 15
-    assert ctx.hysteria_chain_client_require_declared_tx is True
+    for retired in (
+        "entry_hysteria_salamander_password",
+        "entry_hysteria_stats_secret",
+        "entry_hysteria_auth_url",
+        "entry_hysteria_tls_cert_file",
+        "entry_hysteria_tls_key_file",
+        "hysteria_chain_client_rate_limit_enabled",
+        "hysteria_chain_client_max_mbit",
+        "hysteria_chain_client_require_declared_tx",
+    ):
+        assert not hasattr(ctx, retired)
     assert ctx.reality_public_key_transit == "shared-public-key"
     assert ctx.reality_short_id_entry == "shared-short-id"
     assert ctx.reality_short_id_transit == "shared-short-id"
@@ -219,14 +224,11 @@ def test_render_materialized_bundles_rewrites_runtime_files(tmp_path: Path) -> N
     transit_nginx = (ctx.materialized_root / "base-transit" / "nginx.conf").read_text(encoding="utf-8")
     entry_nftables = (ctx.materialized_root / "base-entry" / "nftables.conf").read_text(encoding="utf-8")
     transit_nftables = (ctx.materialized_root / "base-transit" / "nftables.conf").read_text(encoding="utf-8")
-    entry_hysteria = (ctx.materialized_root / "base-entry" / "hysteria" / "server.yaml").read_text(encoding="utf-8")
     transit_hysteria = (ctx.materialized_root / "base-transit" / "hysteria" / "server.yaml").read_text(
         encoding="utf-8"
     )
 
     entry_inbound = next(inbound for inbound in entry_xray["inbounds"] if inbound["tag"] == "entry-in")
-    entry_ws_inbound = next(inbound for inbound in entry_xray["inbounds"] if inbound["tag"] == "vless-ws-in")
-    entry_grpc_inbound = next(inbound for inbound in entry_xray["inbounds"] if inbound["tag"] == "vless-grpc-in")
     to_transit = next(outbound for outbound in entry_xray["outbounds"] if outbound["tag"] == "to-transit")
     transit_reality_inbound = next(inbound for inbound in transit_xray["inbounds"] if inbound["tag"] == "vless-reality-in")
     transit_ws_inbound = next(inbound for inbound in transit_xray["inbounds"] if inbound["tag"] == "vless-ws-in")
@@ -240,9 +242,8 @@ def test_render_materialized_bundles_rewrites_runtime_files(tmp_path: Path) -> N
     assert entry_xray["policy"]["levels"]["0"]["connIdle"] == 300
     assert entry_xray["policy"]["levels"]["0"]["uplinkOnly"] == 2
     assert entry_xray["policy"]["levels"]["0"]["downlinkOnly"] == 5
-    assert entry_ws_inbound["streamSettings"]["wsSettings"]["path"] == "/stealth/ws"
-    assert entry_ws_inbound["streamSettings"]["wsSettings"]["heartbeatPeriod"] == 15
-    assert entry_grpc_inbound["streamSettings"]["grpcSettings"]["serviceName"] == "tracegate.v1.Edge"
+    # The retired client-less Entry WS/gRPC inbounds are gone from the template (4.1.2).
+    assert {inbound["tag"] for inbound in entry_xray["inbounds"]} == {"api", "backhaul-probe-reality-in", "entry-in"}
     assert to_transit["settings"]["vnext"][0]["address"] == "transit.tracegate.test"
     assert to_transit["streamSettings"]["realitySettings"]["serverName"] == "origin-transit.example"
     assert to_transit["streamSettings"]["realitySettings"]["publicKey"] == "transit-public-key"
@@ -268,18 +269,13 @@ def test_render_materialized_bundles_rewrites_runtime_files(tmp_path: Path) -> N
 
     assert "hy2-in" not in {inbound["tag"] for inbound in entry_xray["inbounds"]}
     assert "hy2-in" not in {inbound["tag"] for inbound in transit_xray["inbounds"]}
-    assert "listen: \"192.0.2.10:443\"" in entry_hysteria
-    assert "cert: \"/etc/tls/entry.crt\"" in entry_hysteria
-    assert "key: \"/etc/tls/entry.key\"" in entry_hysteria
-    assert "type: gecko" in entry_hysteria
-    assert "minPacketSize: 512" in entry_hysteria
-    assert "maxPacketSize: 1200" in entry_hysteria
-    assert "url: \"http://127.0.0.1:8070/v1/hysteria/auth\"" in entry_hysteria
-    assert "password: \"entry-gecko-secret\"" in entry_hysteria
-    assert "secret: \"entry-stats-secret\"" in entry_hysteria
-    assert "dir: \"/srv/decoy\"" in entry_hysteria
-    assert "bandwidth:\n  up: 15 mbps\n  down: 15 mbps" in entry_hysteria
-    assert "ignoreClientBandwidth: false" in entry_hysteria
+    # Entry Hysteria was retired in 4.1.2: no Entry Hysteria server config.
+    assert not (ctx.materialized_root / "base-entry" / "hysteria").exists()
+    assert "type: gecko" in transit_hysteria
+    assert "minPacketSize: 512" in transit_hysteria
+    assert "maxPacketSize: 1200" in transit_hysteria
+    assert "url: \"http://127.0.0.1:8070/v1/hysteria/auth\"" in transit_hysteria
+    assert "dir: \"/srv/decoy\"" in transit_hysteria
     assert "password: \"transit-gecko-secret\"" in transit_hysteria
     assert "secret: \"transit-stats-secret\"" in transit_hysteria
     assert "listen: \"192.0.2.20:443\"" in transit_hysteria
@@ -294,7 +290,7 @@ def test_render_materialized_bundles_rewrites_runtime_files(tmp_path: Path) -> N
         if isinstance(rule, dict)
     )
     assert any(
-        rule.get("inboundTag") == ["entry-in", "vless-ws-in", "vless-grpc-in"]
+        rule.get("inboundTag") == ["entry-in"]
         and rule.get("protocol") == ["bittorrent"]
         and rule.get("outboundTag") == "block"
         for rule in entry_xray["routing"]["rules"]
@@ -321,7 +317,7 @@ def test_render_materialized_bundles_rewrites_runtime_files(tmp_path: Path) -> N
     assert "REPLACE_TLS_SERVER_NAME" not in transit_haproxy
     assert "REPLACE_TLS_SERVER_NAME" not in entry_nginx
     assert "REPLACE_ENTRY_BIND_HOST" not in entry_nginx
-    assert "listen 192.0.2.10:10444 ssl http2;" in entry_nginx
+    assert "listen 192.0.2.10:10444 ssl;" in entry_nginx
     assert "ip saddr 192.0.2.20 tcp dport 10444 accept" in entry_nftables
     assert "tcp dport 10444 drop" in entry_nftables
     assert "ip saddr 192.0.2.10 tcp dport { 9443, 9444, 9445, 9446 } accept" in transit_nftables
@@ -362,13 +358,21 @@ def test_render_materialized_bundles_rewrites_runtime_files(tmp_path: Path) -> N
     assert set(bundles) == {"ENTRY", "TRANSIT"}
     assert bundles["ENTRY"]["publicUnits"] == [
         "tracegate-xray@entry",
-        "tracegate-hysteria@entry",
         "tracegate-haproxy@entry",
         "tracegate-nginx@entry",
     ]
     assert bundles["ENTRY"]["privateCompanions"] == ["tracegate-obfuscation@entry"]
-    assert bundles["ENTRY"]["features"]["standaloneHysteriaEnabled"] is True
-    assert bundles["ENTRY"]["features"]["hysteriaGeckoEnabled"] is True
+    assert bundles["ENTRY"]["features"]["standaloneHysteriaEnabled"] is False
+    assert bundles["ENTRY"]["features"]["hysteriaGeckoEnabled"] is False
+    assert bundles["TRANSIT"]["publicUnits"] == [
+        "tracegate-xray@transit",
+        "tracegate-hysteria@transit",
+        "tracegate-haproxy@transit",
+        "tracegate-nginx@transit",
+    ]
+    assert bundles["TRANSIT"]["features"]["standaloneHysteriaEnabled"] is True
+    assert bundles["TRANSIT"]["features"]["hysteriaGeckoEnabled"] is True
+    assert not any(row["path"].startswith("hysteria/") for row in bundles["ENTRY"]["files"])
     assert bundles["ENTRY"]["features"]["finalMaskEnabled"] is False
     assert bundles["ENTRY"]["features"]["echEnabled"] is False
     assert bundles["TRANSIT"]["features"]["mtprotoFrontingEnabled"] is True
@@ -582,17 +586,19 @@ def test_render_materialized_bundles_injects_hysteria_finalmask_and_ech(tmp_path
 
     entry_xray = json.loads((ctx.materialized_root / "base-entry" / "xray.json").read_text(encoding="utf-8"))
     transit_xray = json.loads((ctx.materialized_root / "base-transit" / "xray.json").read_text(encoding="utf-8"))
-    entry_hy2_inbound = next(inbound for inbound in entry_xray["inbounds"] if inbound["tag"] == "hy2-in")
     transit_hy2_inbound = next(inbound for inbound in transit_xray["inbounds"] if inbound["tag"] == "hy2-in")
     manifest = json.loads((ctx.materialized_root / ".tracegate-deploy-manifest.json").read_text(encoding="utf-8"))
     bundles = {row["role"]: row for row in manifest["bundles"]}
 
-    assert entry_hy2_inbound["streamSettings"]["finalmask"] == {"udp": [{"type": "sudoku", "settings": {"pad": 2}}]}
+    # Entry Hysteria was retired in 4.1.2: Entry Xray carries no Hysteria inbound
+    # in any runtime profile, so an Entry FinalMask has nothing to attach to.
+    assert "hy2-in" not in {inbound["tag"] for inbound in entry_xray["inbounds"]}
+    assert all(inbound.get("protocol") != "hysteria" for inbound in entry_xray["inbounds"])
     assert transit_hy2_inbound["streamSettings"]["finalmask"] == {
         "udp": [{"type": "fragment", "settings": {"packets": "2-4"}}]
     }
     assert transit_hy2_inbound["streamSettings"]["tlsSettings"]["echServerKeys"] == "transit-ech-server-key"
-    assert bundles["ENTRY"]["features"]["finalMaskEnabled"] is True
+    assert bundles["ENTRY"]["features"]["finalMaskEnabled"] is False
     assert bundles["ENTRY"]["features"]["echEnabled"] is False
     assert bundles["TRANSIT"]["features"]["finalMaskEnabled"] is True
     assert bundles["TRANSIT"]["features"]["echEnabled"] is True

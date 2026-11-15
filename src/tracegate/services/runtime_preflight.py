@@ -2107,6 +2107,26 @@ def _validate_xray_api_surface(contract: dict[str, Any], *, role_prefix: str) ->
     return findings
 
 
+def _entry_retired_hysteria_findings(contract: dict[str, Any], *, role_prefix: str) -> list[RuntimePreflightFinding]:
+    """Entry Hysteria was retired in Tracegate 4.1.2.
+
+    An Entry contract written by an older agent may still declare the Hysteria
+    component; that is reported as a warning (the runtime is being retired), never
+    validated or required.
+    """
+
+    if "hysteria" not in _managed_components(contract):
+        return []
+    return [
+        _finding(
+            "warning",
+            f"{role_prefix}-hysteria-retired",
+            f"{role_prefix} still declares Hysteria, which was retired on Entry in Tracegate 4.1.2; "
+            "redeploy the Entry agent so its runtime-contract drops it",
+        )
+    ]
+
+
 def _validate_hysteria_runtime(contract: dict[str, Any], *, role_prefix: str) -> list[RuntimePreflightFinding]:
     findings: list[RuntimePreflightFinding] = []
     hysteria = _hysteria_block(contract)
@@ -6510,7 +6530,8 @@ def validate_runtime_contract_single(
                 )
             )
         xray_tags = _string_list(_xray_block(contract).get("hysteriaInboundTags"))
-        if not xray_tags:
+        # Entry Hysteria was retired in 4.1.2; only Endpoint serves Hysteria.
+        if not xray_tags and role_upper != "ENTRY":
             findings.append(
                 _finding(
                     "error",
@@ -6520,15 +6541,18 @@ def validate_runtime_contract_single(
             )
 
     if profile == "tracegate-3":
-        findings.extend(_validate_hysteria_runtime(contract, role_prefix=role_prefix))
-        if "hysteria" not in components:
-            findings.append(
-                _finding(
-                    "error",
-                    f"{role_prefix}-tracegate22-hysteria-component",
-                    "tracegate-3 contracts must declare hysteria as the public UDP runtime component",
+        if role_upper == "ENTRY":
+            findings.extend(_entry_retired_hysteria_findings(contract, role_prefix=role_prefix))
+        else:
+            findings.extend(_validate_hysteria_runtime(contract, role_prefix=role_prefix))
+            if "hysteria" not in components:
+                findings.append(
+                    _finding(
+                        "error",
+                        f"{role_prefix}-tracegate22-hysteria-component",
+                        "tracegate-3 contracts must declare hysteria as the public UDP runtime component",
+                    )
                 )
-            )
         if not _xray_backhaul_allowed(contract):
             findings.append(
                 _finding(
@@ -6643,7 +6667,8 @@ def validate_runtime_contract_pair(
                     )
                 )
             xray_tags = _string_list(_xray_block(contract).get("hysteriaInboundTags"))
-            if not xray_tags:
+            # Entry Hysteria was retired in 4.1.2; only Endpoint serves Hysteria.
+            if not xray_tags and role_name != "entry":
                 findings.append(
                     _finding(
                         "error",
@@ -6653,16 +6678,19 @@ def validate_runtime_contract_pair(
                 )
     if profile == "tracegate-3":
         for role_name, contract in (("entry", entry_contract), ("transit", transit_contract)):
-            findings.extend(_validate_hysteria_runtime(contract, role_prefix=role_name))
             components = _managed_components(contract)
-            if "hysteria" not in components:
-                findings.append(
-                    _finding(
-                        "error",
-                        f"{role_name}-tracegate22-hysteria-component",
-                        f"{role_name} tracegate-3 contract must declare hysteria as the public UDP runtime component",
+            if role_name == "entry":
+                findings.extend(_entry_retired_hysteria_findings(contract, role_prefix=role_name))
+            else:
+                findings.extend(_validate_hysteria_runtime(contract, role_prefix=role_name))
+                if "hysteria" not in components:
+                    findings.append(
+                        _finding(
+                            "error",
+                            f"{role_name}-tracegate22-hysteria-component",
+                            f"{role_name} tracegate-3 contract must declare hysteria as the public UDP runtime component",
+                        )
                     )
-                )
             if not _xray_backhaul_allowed(contract):
                 findings.append(
                     _finding(

@@ -9,37 +9,33 @@ def _load_bundle_xray(bundle_name: str) -> dict:
     return json.loads(root.read_text(encoding="utf-8"))
 
 
-def test_render_xray_centric_entry_keeps_xray_native_hysteria_inbound() -> None:
+def test_render_xray_centric_entry_never_adds_hysteria_inbound() -> None:
+    # Entry Hysteria was retired in Tracegate 4.1.2.
+    base = _load_bundle_xray("base-entry")
+    base["inbounds"].append({"tag": "hy2-in", "protocol": "hysteria", "listen": "0.0.0.0", "port": 443})
+    base["routing"]["rules"].append({"type": "field", "inboundTag": ["hy2-in"], "balancerTag": "backhaul-balancer"})
+    base["routing"]["rules"].append(
+        {"type": "field", "inboundTag": ["entry-in", "hy2-in"], "protocol": ["bittorrent"], "outboundTag": "block"}
+    )
     rendered = render_xray_centric_xray_config(
-        _load_bundle_xray("base-entry"),
+        base,
         role="ENTRY",
         bootstrap_auth="entry-bootstrap",
     )
 
     tags = [str(row.get("tag") or "") for row in rendered["inbounds"] if isinstance(row, dict)]
-    assert "hy2-in" in tags
-
-    hy2_in = next(row for row in rendered["inbounds"] if isinstance(row, dict) and row.get("tag") == "hy2-in")
-    assert hy2_in["protocol"] == "hysteria"
-    assert hy2_in["listen"] == "0.0.0.0"
-    assert hy2_in["port"] == 443
-    assert hy2_in["settings"]["version"] == 2
-    assert hy2_in["settings"]["clients"] == []
-    assert hy2_in["streamSettings"]["security"] == "tls"
-    assert hy2_in["streamSettings"]["tlsSettings"]["certificates"] == [
-        {"certificateFile": "/etc/tracegate/tls/ws.crt", "keyFile": "/etc/tracegate/tls/ws.key"}
-    ]
-    assert hy2_in["streamSettings"]["tlsSettings"]["alpn"] == ["h3"]
-    assert hy2_in["streamSettings"]["hysteriaSettings"]["auth"] == "entry-bootstrap"
-    assert hy2_in["streamSettings"]["hysteriaSettings"]["masquerade"]["dir"] == "/var/www/decoy"
-
-    hy2_rule = next(
-        row
-        for row in rendered["routing"]["rules"]
-        if isinstance(row, dict) and row.get("inboundTag") == ["hy2-in"]
+    assert "hy2-in" not in tags
+    assert all(row.get("protocol") != "hysteria" for row in rendered["inbounds"] if isinstance(row, dict))
+    for rule in rendered["routing"]["rules"]:
+        assert "hy2-in" not in (rule.get("inboundTag") or [])
+    assert {"type": "field", "inboundTag": ["entry-in"], "protocol": ["bittorrent"], "outboundTag": "block"} in rendered[
+        "routing"
+    ]["rules"]
+    # Chain Reality keeps its backhaul balancer rule.
+    assert any(
+        rule.get("inboundTag") == ["entry-in"] and rule.get("balancerTag") == "backhaul-balancer"
+        for rule in rendered["routing"]["rules"]
     )
-    # Hysteria Chain traffic rides the same source-gated backhaul pool balancer.
-    assert hy2_rule["balancerTag"] == "backhaul-balancer"
 
 
 def test_render_xray_centric_transit_adds_direct_hysteria_rule() -> None:

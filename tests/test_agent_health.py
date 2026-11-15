@@ -243,7 +243,8 @@ async def test_gather_health_checks_entry_native_systemd_runtime(monkeypatch):
 
     names = [row["name"] for row in checks]
     assert "listen tcp/443" in names
-    assert f"listen udp/{TRACEGATE_PUBLIC_UDP_PORT}" in names
+    # Entry Hysteria was retired in 4.1.2: Entry expects no public UDP listener.
+    assert f"listen udp/{TRACEGATE_PUBLIC_UDP_PORT}" not in names
     assert "blocked tcp/8443" in names
     assert "process xray" in names
     assert "process haproxy" in names

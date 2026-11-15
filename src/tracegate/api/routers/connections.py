@@ -10,11 +10,11 @@ from tracegate.schemas import ConnectionCreate, ConnectionRead, ConnectionUpdate
 from tracegate.security import require_api_scope
 from tracegate.services.connection_profiles import (
     MAX_CONNECTIONS_PER_DEVICE,
-    RETIRED_CLIENT_PROTOCOL_MESSAGE,
     connection_profile_sort_key,
     is_enabled_profile,
-    is_retired_client_protocol,
+    is_retired_client_profile,
     is_supported_profile,
+    retired_client_profile_message,
 )
 from tracegate.services.aliases import connection_alias, user_display
 from tracegate.services.connections import ConnectionRevokeError, revoke_connection
@@ -160,8 +160,8 @@ def validate_variant(
     *,
     enabled_client_profiles: list[str] | None | object = _ENABLED_CLIENT_PROFILES_UNSET,
 ) -> None:
-    if is_retired_client_protocol(protocol):
-        raise ConnectionValidationError(RETIRED_CLIENT_PROTOCOL_MESSAGE)
+    if is_retired_client_profile(protocol, mode):
+        raise ConnectionValidationError(retired_client_profile_message(protocol, mode))
     if not is_supported_profile(protocol, mode, variant):
         raise ConnectionValidationError("Unsupported protocol/mode/variant combination")
 

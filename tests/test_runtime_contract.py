@@ -2,6 +2,7 @@ import pytest
 
 from tracegate.constants import TRACEGATE_FORBIDDEN_PUBLIC_UDP_PORT, TRACEGATE_PUBLIC_UDP_PORT
 from tracegate.services.runtime_contract import (
+    ENTRY_RETIRED_COMPONENTS,
     RuntimeContractError,
     TRACEGATE21_CLIENT_PROFILES,
     TRACEGATE22_CLIENT_PROFILES,
@@ -22,10 +23,8 @@ def test_resolve_current_runtime_contract_and_aliases() -> None:
     assert contract.hysteria_auth_mode == "token"
     assert contract.hysteria_metrics_source == "xray_stats"
     assert contract.xray_backhaul_allowed is True
-    assert contract.expected_ports("ENTRY") == (
-        ("tcp", 443, "listen tcp/443"),
-        ("udp", TRACEGATE_PUBLIC_UDP_PORT, f"listen udp/{TRACEGATE_PUBLIC_UDP_PORT}"),
-    )
+    # Entry Hysteria was retired in 4.1.2: Entry expects no public UDP listener.
+    assert contract.expected_ports("ENTRY") == (("tcp", 443, "listen tcp/443"),)
     assert contract.forbidden_ports("ENTRY") == (
         ("tcp", 8443, "blocked tcp/8443"),
         ("udp", TRACEGATE_FORBIDDEN_PUBLIC_UDP_PORT, f"blocked udp/{TRACEGATE_FORBIDDEN_PUBLIC_UDP_PORT}"),
@@ -57,12 +56,10 @@ def test_tracegate22_runtime_contract_is_default_profile() -> None:
     assert contract.client_profiles == TRACEGATE22_CLIENT_PROFILES
     assert contract.requires_transit_stats_secret("ENTRY") is False
     assert contract.requires_transit_stats_secret("TRANSIT") is True
-    assert any(row.name == "process hysteria" for row in contract.process_checks("ENTRY"))
+    assert not any(row.name == "process hysteria" for row in contract.process_checks("ENTRY"))
     assert any(row.name == "process hysteria" for row in contract.process_checks("TRANSIT"))
-    assert contract.expected_ports("ENTRY") == (
-        ("tcp", 443, "listen tcp/443"),
-        ("udp", TRACEGATE_PUBLIC_UDP_PORT, f"listen udp/{TRACEGATE_PUBLIC_UDP_PORT}"),
-    )
+    # Entry Hysteria was retired in 4.1.2: Entry expects no public UDP listener.
+    assert contract.expected_ports("ENTRY") == (("tcp", 443, "listen tcp/443"),)
     assert contract.forbidden_ports("ENTRY") == (
         ("tcp", 8443, "blocked tcp/8443"),
         ("udp", TRACEGATE_FORBIDDEN_PUBLIC_UDP_PORT, f"blocked udp/{TRACEGATE_FORBIDDEN_PUBLIC_UDP_PORT}"),
@@ -79,10 +76,8 @@ def test_xray_centric_runtime_contract_is_legacy_profile() -> None:
     assert contract.hysteria_auth_mode == "token"
     assert contract.hysteria_metrics_source == "xray_stats"
     assert contract.requires_transit_stats_secret("TRANSIT") is False
-    assert contract.expected_ports("ENTRY") == (
-        ("tcp", 443, "listen tcp/443"),
-        ("udp", TRACEGATE_PUBLIC_UDP_PORT, f"listen udp/{TRACEGATE_PUBLIC_UDP_PORT}"),
-    )
+    # Entry Hysteria was retired in 4.1.2: Entry expects no public UDP listener.
+    assert contract.expected_ports("ENTRY") == (("tcp", 443, "listen tcp/443"),)
     assert contract.forbidden_ports("ENTRY") == (
         ("tcp", 8443, "blocked tcp/8443"),
         ("udp", TRACEGATE_FORBIDDEN_PUBLIC_UDP_PORT, f"blocked udp/{TRACEGATE_FORBIDDEN_PUBLIC_UDP_PORT}"),
@@ -143,3 +138,24 @@ def test_tcp8443_public_listener_helper() -> None:
         tcp8443_is_public_listener(role="ENTRY", mtproto_public_port=8443, mtproto_route_mode="endpoint-direct")
         is False
     )
+
+
+@pytest.mark.parametrize("profile", ["tracegate-3", "xray-centric", "tracegate-2.1"])
+def test_entry_role_contract_drops_retired_hysteria_component(profile: str) -> None:
+    assert ENTRY_RETIRED_COMPONENTS == {"hysteria"}
+    entry = resolve_runtime_contract(profile, "ENTRY")
+    transit = resolve_runtime_contract(profile, "TRANSIT")
+    unscoped = resolve_runtime_contract(profile)
+
+    assert entry.manages_component("hysteria") is False
+    assert "hysteria" not in entry.runtime_dirs
+    assert entry.manages_component("xray") is True
+    assert entry.manages_component("haproxy") is True
+    assert entry.manages_component("nginx") is True
+    # Endpoint is untouched.
+    assert transit == unscoped
+    if profile == "tracegate-3":
+        assert transit.manages_component("hysteria") is True
+        assert "hysteria" in transit.runtime_dirs
+    assert entry.expected_ports("ENTRY") == (("tcp", 443, "listen tcp/443"),)
+    assert not any(row.name == "process hysteria" for row in entry.process_checks("ENTRY"))

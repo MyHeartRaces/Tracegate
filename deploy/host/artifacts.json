@@ -73,8 +73,7 @@
         "allow": "v2.*"
       },
       "policy": {
-        "endpoint": "auto",
-        "entry": "notify"
+        "endpoint": "auto"
       }
     },
     "prometheus": {

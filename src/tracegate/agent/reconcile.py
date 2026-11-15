@@ -823,7 +823,7 @@ def _csv_values(value: str) -> list[str]:
 
 def _build_runtime_contract_payload(settings: Settings) -> dict[str, object]:
     paths = AgentPaths.from_settings(settings)
-    contract = resolve_runtime_contract(settings.agent_runtime_profile)
+    contract = resolve_runtime_contract(settings.agent_runtime_profile, settings.agent_role)
 
     runtime_xray = _collect_xray_runtime_state(paths)
     runtime_hysteria_config_path = paths.runtime / "hysteria" / "server.yaml"
@@ -931,22 +931,15 @@ def _build_runtime_contract_payload(settings: Settings) -> dict[str, object]:
                 "strategy": "tc-htb-egress-plus-ingress-police",
                 "interface": str(settings.agent_entry_traffic_shaping_interface or "").strip() or "eth0",
                 "maxMbit": int(settings.agent_entry_traffic_shaping_max_mbit or 65),
-                "burstKbit": int(settings.agent_entry_traffic_shaping_burst_kbit or 2048),
+                "burstKbit": int(settings.agent_entry_traffic_shaping_burst_kbit or 8192),
                 "applyEgress": bool(settings.agent_entry_traffic_shaping_apply_egress),
                 "applyIngressPolicing": bool(settings.agent_entry_traffic_shaping_apply_ingress_policing),
                 "cleanupOnExit": bool(settings.agent_entry_traffic_shaping_cleanup_on_exit),
                 "failClosed": bool(settings.agent_entry_traffic_shaping_fail_closed),
                 "scope": "host-public-interface",
             },
-            "chainClient": {
-                "enabled": bool(settings.hysteria_chain_client_rate_limit_enabled),
-                "maxMbit": int(settings.hysteria_chain_client_max_mbit or 15),
-                "requireDeclaredHysteriaTx": bool(settings.hysteria_chain_client_require_declared_tx),
-                "scope": "entry-chain-clients",
-            },
             "hysteria": {
                 "ignoreClientBandwidth": bool(settings.hysteria_ignore_client_bandwidth),
-                "entryChainIgnoreClientBandwidth": bool(settings.hysteria_entry_chain_ignore_client_bandwidth),
             },
         },
         "nodeEncryption": {
@@ -1053,7 +1046,7 @@ def _write_runtime_contract_state(settings: Settings) -> tuple[bool, dict[str, o
 
 
 def _cleanup_unmanaged_runtime_state(settings: Settings) -> None:
-    contract = resolve_runtime_contract(settings.agent_runtime_profile)
+    contract = resolve_runtime_contract(settings.agent_runtime_profile, settings.agent_role)
     paths = AgentPaths.from_settings(settings)
 
     if not contract.manages_component("hysteria"):
@@ -1798,16 +1791,17 @@ def _artifact_applies_to_xray_public_runtime(settings: Settings, row: dict) -> b
     except Exception:
         return _artifact_applies_to_role(settings, row)
 
+    if protocol == ConnectionProtocol.HYSTERIA2 and (mode == ConnectionMode.CHAIN or variant == ConnectionVariant.V4):
+        # Chain Hysteria terminated on Entry and was retired in Tracegate 4.1.2.
+        # Leftover rows in the local artifact index never reach a public runtime.
+        return False
     if mode == ConnectionMode.CHAIN and protocol in {
         ConnectionProtocol.VLESS_REALITY,
         ConnectionProtocol.VLESS_WS_TLS,
         ConnectionProtocol.VLESS_GRPC_TLS,
-        ConnectionProtocol.HYSTERIA2,
     }:
         return role == NodeRole.ENTRY
     if protocol == ConnectionProtocol.VLESS_REALITY and variant == ConnectionVariant.V2:
-        return role == NodeRole.ENTRY
-    if protocol == ConnectionProtocol.HYSTERIA2 and variant == ConnectionVariant.V4:
         return role == NodeRole.ENTRY
     return _artifact_applies_to_role(settings, row)
 
@@ -1884,7 +1878,7 @@ def reconcile_xray(settings: Settings) -> ReconcileXrayResult:
 
         sync_inbound_users = _sync_inbound_users
 
-    contract = resolve_runtime_contract(settings.agent_runtime_profile)
+    contract = resolve_runtime_contract(settings.agent_runtime_profile, settings.agent_role)
     paths = AgentPaths.from_settings(settings)
     base_path = paths.base / "xray" / "config.json"
     runtime_path = paths.runtime / "xray" / "config.json"
@@ -1894,7 +1888,13 @@ def reconcile_xray(settings: Settings) -> ReconcileXrayResult:
 
     base = _load_json(base_path)
     _enforce_reality_raw_transport(base)
-    if str(settings.agent_role or "").strip().upper() == "ENTRY" and contract.xray_backhaul_allowed:
+    is_entry = str(settings.agent_role or "").strip().upper() == "ENTRY"
+    if is_entry:
+        # Entry Hysteria was retired in Tracegate 4.1.2: a hand-managed or older
+        # Entry base config may still carry an Xray-native Hysteria inbound, but
+        # Entry never serves it (and never gets Hysteria users) again.
+        _strip_xray_hysteria_inbounds(base)
+    if is_entry and contract.xray_backhaul_allowed:
         _strip_entry_direct_egress_bypasses(base)
     artifacts = load_all_user_artifacts(paths)
     groups = _load_reality_multi_inbound_groups(settings)
@@ -2509,7 +2509,7 @@ def _host_private_reload_marker_stale(settings: Settings, *, component: str) -> 
 
 
 def _reconcile_all_result(settings: Settings) -> ReconcileAllResult:
-    contract = resolve_runtime_contract(settings.agent_runtime_profile)
+    contract = resolve_runtime_contract(settings.agent_runtime_profile, settings.agent_role)
     paths = AgentPaths.from_settings(settings)
     changed: list[str] = []
     force_xray_reload = False

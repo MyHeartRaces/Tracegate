@@ -219,7 +219,7 @@ async def gather_health_checks(
 ) -> list[dict]:
     if str(runtime_mode or "").strip().lower() != "systemd":
         raise ValueError("agent health checks require the native systemd runtime")
-    contract = resolve_runtime_contract(runtime_profile)
+    contract = resolve_runtime_contract(runtime_profile, role)
     checks: list[dict] = []
     mtproto_uses_tcp8443 = mtproto_uses_tcp8443_fallback(
         role=role,

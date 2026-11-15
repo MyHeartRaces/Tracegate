@@ -16,8 +16,8 @@ from tracegate.services.config_builder import EndpointSet, build_effective_confi
 from tracegate.services.connection_profiles import (
     MAX_ACTIVE_REVISIONS_PER_CONNECTION,
     RESERVE_REVISION_SLOT,
-    RETIRED_CLIENT_PROTOCOL_MESSAGE,
-    is_retired_client_protocol,
+    is_retired_client_profile,
+    retired_client_profile_message,
 )
 from tracegate.services.grace import ensure_can_issue_new_config
 from tracegate.services.outbox import create_outbox_event
@@ -532,10 +532,13 @@ def _ensure_connection_active(connection: Connection) -> None:
 
 
 def _ensure_protocol_not_retired(connection: Connection) -> None:
-    # Retired families (VLESS WS-TLS / gRPC-TLS) keep loading for display and
-    # revocation, but no revision may be issued, re-issued or re-activated.
-    if is_retired_client_protocol(getattr(connection, "protocol", None)):
-        raise RevisionError(RETIRED_CLIENT_PROTOCOL_MESSAGE)
+    # Retired families (VLESS WS-TLS / gRPC-TLS since 4.1.1, Chain Hysteria
+    # since 4.1.2) keep loading for display and revocation, but no revision may
+    # be issued, re-issued or re-activated.
+    protocol = getattr(connection, "protocol", None)
+    mode = getattr(connection, "mode", None)
+    if is_retired_client_profile(protocol, mode):
+        raise RevisionError(retired_client_profile_message(protocol, mode))
 
 
 async def _load_user(session: AsyncSession, user_id: int) -> User:

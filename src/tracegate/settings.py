@@ -247,11 +247,15 @@ class Settings(BaseSettings):
     agent_entry_traffic_shaping_enabled: bool = True
     agent_entry_traffic_shaping_interface: str = "eth0"
     agent_entry_traffic_shaping_max_mbit: int = 65
-    agent_entry_traffic_shaping_burst_kbit: int = 2048
+    agent_entry_traffic_shaping_burst_kbit: int = 8192
     agent_entry_traffic_shaping_apply_egress: bool = True
     agent_entry_traffic_shaping_apply_ingress_policing: bool = True
     agent_entry_traffic_shaping_cleanup_on_exit: bool = False
     agent_entry_traffic_shaping_fail_closed: bool = True
+    # Chain (Entry) Hysteria was retired in Tracegate 4.1.2. These fields stay
+    # only so existing env files keep loading; they no longer drive any runtime
+    # behaviour. HYSTERIA_CHAIN_CLIENT_MAX_MBIT is still copied into the
+    # informational client_rate_limit of Chain Reality relay metadata.
     hysteria_chain_client_rate_limit_enabled: bool = True
     hysteria_chain_client_max_mbit: int = 15
     hysteria_chain_client_require_declared_tx: bool = True
@@ -719,7 +723,7 @@ def effective_mtproto_issued_state_file(settings: Settings) -> str:
 
 def ensure_agent_dirs(settings: Settings) -> None:
     root = Path(settings.agent_data_root)
-    contract = resolve_runtime_contract(settings.agent_runtime_profile)
+    contract = resolve_runtime_contract(settings.agent_runtime_profile, settings.agent_role)
     (root / "events").mkdir(parents=True, exist_ok=True)
     (root / "bundles").mkdir(parents=True, exist_ok=True)
     (root / "users").mkdir(parents=True, exist_ok=True)

@@ -29,11 +29,13 @@ pytestmark = pytest.mark.skipif(
     reason="requires an isolated PostgreSQL test cluster",
 )
 ROOT = Path(__file__).resolve().parents[2]
-HEAD = "d4b6f0e2a315"
+HEAD = "a8c3e5f17b42"
 # Head of the previous production release (Tracegate 3.1.36).
 PREVIOUS_RELEASE_HEAD = "7b31d4e9a205"
-# Head that production runs now (Tracegate 4.0.0 / 4.1.0).
+# Head of Tracegate 4.0.0 / 4.1.0.
 TRACEGATE4_RELEASE_HEAD = "c3a5e9d1f204"
+# Head of Tracegate 4.1.1.
+TRACEGATE411_RELEASE_HEAD = "d4b6f0e2a315"
 
 
 @pytest.fixture
@@ -115,7 +117,15 @@ def _seed_issued_connections(engine, *, legacy_variant: bool) -> list[dict]:
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "starting_revision",
-    [None, "10691de66f04", "e1c7a4b9d2f0", PREVIOUS_RELEASE_HEAD, TRACEGATE4_RELEASE_HEAD, HEAD],
+    [
+        None,
+        "10691de66f04",
+        "e1c7a4b9d2f0",
+        PREVIOUS_RELEASE_HEAD,
+        TRACEGATE4_RELEASE_HEAD,
+        TRACEGATE411_RELEASE_HEAD,
+        HEAD,
+    ],
 )
 async def test_old_databases_keep_issued_credentials_and_remain_writable(
     database_url, monkeypatch, starting_revision: str | None,
@@ -174,13 +184,16 @@ _RETIRED_IN_4_1_1 = (
     ("VLESS_WS_TLS", "CHAIN", "V5"),
     ("VLESS_GRPC_TLS", "CHAIN", "V5"),
 )
+# Chain Hysteria only; Direct Hysteria (seeded as a kept row) stays active.
+_RETIRED_IN_4_1_2 = (("HYSTERIA2", "CHAIN", "V2"),)
 
 
 @pytest.mark.parametrize(
     ("starting_revision", "retired_families"),
     [
-        (PREVIOUS_RELEASE_HEAD, _RETIRED_IN_4_0_0 + _RETIRED_IN_4_1_1),
-        (TRACEGATE4_RELEASE_HEAD, _RETIRED_IN_4_1_1),
+        (PREVIOUS_RELEASE_HEAD, _RETIRED_IN_4_0_0 + _RETIRED_IN_4_1_1 + _RETIRED_IN_4_1_2),
+        (TRACEGATE4_RELEASE_HEAD, _RETIRED_IN_4_1_1 + _RETIRED_IN_4_1_2),
+        (TRACEGATE411_RELEASE_HEAD, _RETIRED_IN_4_1_2),
     ],
 )
 def test_upgrade_revokes_only_retired_client_families(

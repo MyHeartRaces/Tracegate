@@ -11,7 +11,7 @@ from urllib.parse import quote, urlencode, urlparse
 import yaml
 
 from tracegate.constants import TRACEGATE_PUBLIC_UDP_PORT
-from tracegate.services.connection_profiles import RETIRED_CLIENT_PROTOCOL_MESSAGE
+from tracegate.services.connection_profiles import RETIRED_CLIENT_PROTOCOL_MESSAGE, RETIRED_HYSTERIA_CHAIN_MESSAGE
 from tracegate.services.mtproto import (
     MTPROTO_FAKE_TLS_PROFILE_NAME,
     MTProtoConfigError,
@@ -20,7 +20,6 @@ from tracegate.services.mtproto import (
 
 _LOCAL_SOCKS_PORT_BASE = 20000
 _LOCAL_SOCKS_PORT_SPAN = 40000
-_HYSTERIA_CHAIN_CLIENT_RATE_LIMIT_MBIT = 10
 _HYSTERIA_DIRECT_DEFAULT_MBIT = 100
 
 
@@ -507,41 +506,12 @@ def _is_hysteria_chain_profile(effective: dict[str, Any]) -> bool:
     return "chain" in profile
 
 
-def _hysteria_chain_limit_mbit(effective: dict[str, Any]) -> int:
-    rate_limit = effective.get("rate_limit")
-    if isinstance(rate_limit, dict):
-        try:
-            max_mbit = int(rate_limit.get("max_mbit") or 0)
-        except (TypeError, ValueError):
-            max_mbit = 0
-        if max_mbit > 0:
-            return max_mbit
-
-    constraints = effective.get("design_constraints")
-    if isinstance(constraints, dict):
-        try:
-            max_mbit = int(constraints.get("chain_client_rate_limit_mbit") or 0)
-        except (TypeError, ValueError):
-            max_mbit = 0
-        if max_mbit > 0:
-            return max_mbit
-
-    return _HYSTERIA_CHAIN_CLIENT_RATE_LIMIT_MBIT
-
-
 def _hysteria_export_mbps(effective: dict[str, Any], field: str) -> int:
-    is_chain = _is_hysteria_chain_profile(effective)
-    fallback = (
-        _hysteria_chain_limit_mbit(effective)
-        if is_chain
-        else _HYSTERIA_DIRECT_DEFAULT_MBIT
-    )
+    fallback = _HYSTERIA_DIRECT_DEFAULT_MBIT
     try:
         value = int(effective.get(field) or fallback)
     except (TypeError, ValueError):
         value = fallback
-    if is_chain:
-        return max(1, min(value, fallback))
     return max(1, value)
 
 
@@ -551,7 +521,8 @@ def export_client_config(effective: dict[str, Any]) -> ExportResult:
 
     - VLESS+REALITY: returns a `vless://...` URI
     - VLESS WS-TLS / gRPC-TLS: retired, always raises ClientConfigExportError
-    - Hysteria2: returns a `hysteria2://...` URI (with insecure=1 by default)
+    - Hysteria2 (Direct): returns a `hysteria2://...` URI (with insecure=1 by default)
+    - Hysteria2 Chain: retired, always raises ClientConfigExportError
     - MTProto: returns a Telegram proxy deep link
     """
 
@@ -667,6 +638,10 @@ def _export_vless_reality(effective: dict[str, Any]) -> ExportResult:
 
 
 def _export_hysteria2(effective: dict[str, Any]) -> ExportResult:
+    if _is_hysteria_chain_profile(effective):
+        # Chain Hysteria was retired in 4.1.2: stored revisions stay in the
+        # database but are never turned into client configs again.
+        raise ClientConfigExportError(RETIRED_HYSTERIA_CHAIN_MESSAGE)
     server = effective.get("server")
     port = int(effective.get("port") or TRACEGATE_PUBLIC_UDP_PORT)
     auth = effective.get("auth") or {}

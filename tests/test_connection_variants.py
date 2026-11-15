@@ -72,13 +72,18 @@ def test_retired_vless_ws_grpc_variants_are_rejected_as_retired(protocol, mode, 
     ("protocol", "mode", "variant"),
     [
         (ConnectionProtocol.VLESS_REALITY, ConnectionMode.DIRECT, ConnectionVariant.V0),
-        (ConnectionProtocol.HYSTERIA2, ConnectionMode.CHAIN, ConnectionVariant.V2),
         (ConnectionProtocol.SHADOWSOCKS2022_SHADOWTLS, ConnectionMode.CHAIN, ConnectionVariant.V3),
     ],
 )
 def test_removed_tracegate3_variants_are_rejected(protocol, mode, variant) -> None:
     with pytest.raises(ConnectionValidationError, match="Unsupported"):
         validate_variant(protocol, mode, variant)
+
+
+@pytest.mark.parametrize("variant", [ConnectionVariant.V2, ConnectionVariant.V4])
+def test_chain_hysteria_is_rejected_as_retired(variant) -> None:
+    with pytest.raises(ConnectionValidationError, match="retired in Tracegate 4.1.2"):
+        validate_variant(ConnectionProtocol.HYSTERIA2, ConnectionMode.CHAIN, variant)
 
 
 def test_wireguard_wstunnel_chain_is_rejected() -> None:

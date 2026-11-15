@@ -43,7 +43,7 @@ from .state import AgentStateStore
 from .system import gather_health_checks
 
 settings = get_settings()
-runtime_contract = resolve_runtime_contract(settings.agent_runtime_profile)
+runtime_contract = resolve_runtime_contract(settings.agent_runtime_profile, settings.agent_role)
 logger = logging.getLogger(__name__)
 configure_logging(settings.log_level)
 if not settings.agent_auth_token:
@@ -227,6 +227,11 @@ def _match_hysteria_auth(auth_value: str) -> str:
     requested = str(auth_value or "").strip()
     if not requested:
         return ""
+    if str(settings.agent_role or "").strip().upper() == "ENTRY":
+        # Entry Hysteria (Chain Hysteria) was retired in Tracegate 4.1.2: Entry
+        # runs no Hysteria listener and accepts no Hysteria client, even when its
+        # local artifact index still holds old Chain Hysteria rows.
+        return ""
 
     backhaul_token = str(settings.hysteria_endpoint_backhaul_auth_token or "").strip()
     if (
@@ -245,24 +250,6 @@ def _match_hysteria_auth(auth_value: str) -> str:
         candidates, client_id = _hysteria_auth_candidates(row)
         if requested in candidates:
             return client_id or requested
-    return ""
-
-
-def _hysteria_chain_rate_limit_rejection(payload: HysteriaAuthRequest) -> str:
-    if str(settings.agent_role or "").strip().upper() != "ENTRY":
-        return ""
-    if not bool(settings.hysteria_chain_client_rate_limit_enabled):
-        return ""
-
-    max_mbit = max(1, int(settings.hysteria_chain_client_max_mbit or 15))
-    max_tx_bytes_per_second = max_mbit * 1000 * 1000 // 8
-    tx = int(payload.tx or 0)
-    if tx <= 0:
-        if bool(settings.hysteria_chain_client_require_declared_tx):
-            return "missing declared Hysteria bandwidth"
-        return ""
-    if tx > max_tx_bytes_per_second:
-        return f"declared Hysteria tx {tx} B/s exceeds {max_mbit} Mbit/s"
     return ""
 
 
@@ -462,15 +449,6 @@ async def hysteria_http_auth(payload: HysteriaAuthRequest, request: Request) -> 
     if not client_id:
         logger.warning("hysteria_auth_rejected addr=%s", str(payload.addr or "").strip())
         return HysteriaAuthResponse(ok=False)
-    rate_limit_rejection = _hysteria_chain_rate_limit_rejection(payload)
-    if rate_limit_rejection:
-        logger.warning(
-            "hysteria_auth_rate_limited addr=%s reason=%s",
-            str(payload.addr or "").strip(),
-            rate_limit_rejection,
-        )
-        return HysteriaAuthResponse(ok=False)
-
     return HysteriaAuthResponse(ok=True, id=client_id)
 
 

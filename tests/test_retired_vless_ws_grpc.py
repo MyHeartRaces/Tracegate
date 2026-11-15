@@ -100,12 +100,15 @@ def test_migration_sql_revokes_exactly_the_retired_vless_protocols() -> None:
     assert "op." not in downgrade
 
 
-def test_migration_is_the_single_alembic_head() -> None:
+def test_migration_is_in_the_single_alembic_history() -> None:
     from alembic.config import Config
     from alembic.script import ScriptDirectory
 
     script = ScriptDirectory.from_config(Config(str(REPO_ROOT / "alembic.ini")))
-    assert script.get_heads() == ["d4b6f0e2a315"]
+    heads = script.get_heads()
+    assert len(heads) == 1
+    # Later migrations (4.1.2 Chain Hysteria revocation) build on top of it.
+    assert "d4b6f0e2a315" in {rev.revision for rev in script.walk_revisions(base="base", head=heads[0])}
     assert script.get_revision("d4b6f0e2a315").down_revision == "c3a5e9d1f204"
 
 
@@ -498,12 +501,12 @@ def test_rendered_templates_drop_client_ws_grpc_but_keep_cover_site_grafana_and_
 
     # Own-domain TLS termination and the cover/decoy site stay on both roles.
     for nginx_conf, server_name in ((entry_nginx, "tls-entry.example"), (transit_nginx, "tls-transit.example")):
-        assert "listen 127.0.0.1:10443 ssl http2;" in nginx_conf
+        assert "listen 127.0.0.1:10443 ssl;" in nginx_conf
         assert server_name in nginx_conf
         assert "root /srv/decoy;" in nginx_conf
         assert "try_files $uri $uri/ /index.html;" in nginx_conf
-    assert "listen 127.0.0.1:443 ssl http2;" in entry_nginx
-    assert "listen 192.0.2.10:10444 ssl http2;" in entry_nginx
+    assert "listen 127.0.0.1:443 ssl;" in entry_nginx
+    assert "listen 192.0.2.10:10444 ssl;" in entry_nginx
 
     # Grafana routing stays on Endpoint.
     assert "location ^~ /grafana/" in transit_nginx

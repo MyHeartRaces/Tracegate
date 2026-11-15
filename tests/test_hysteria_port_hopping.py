@@ -158,13 +158,13 @@ def test_direct_hysteria_records_hop_range_for_its_obfs_listener_only() -> None:
     assert "port_hopping" not in no_hop
 
 
-def test_chain_hysteria_never_records_port_hopping() -> None:
-    cfg = _build(ConnectionMode.CHAIN, hysteria_gecko_hop_ports="20000-29999")
-    assert "port_hopping" not in cfg
-    assert cfg["obfs"]["type"] == "gecko"
+def test_chain_hysteria_is_retired_and_never_built() -> None:
+    # Chain Hysteria was retired in 4.1.2; hopping only ever applied to Direct.
+    with pytest.raises(ValueError, match="retired in Tracegate 4.1.2"):
+        _build(ConnectionMode.CHAIN, hysteria_gecko_hop_ports="20000-29999")
 
 
-def test_default_obfs_setting_applies_to_direct_only_and_override_wins() -> None:
+def test_default_obfs_setting_applies_to_direct_and_override_wins() -> None:
     assert _build(ConnectionMode.DIRECT)["obfs"]["type"] == "gecko"
     salamander_default = _build(ConnectionMode.DIRECT, hysteria_default_obfs="salamander")
     assert salamander_default["obfs"]["type"] == "salamander"
@@ -173,7 +173,6 @@ def test_default_obfs_setting_applies_to_direct_only_and_override_wins() -> None
         ConnectionMode.DIRECT, overrides={"hysteria_obfs": "gecko"}, hysteria_default_obfs="salamander"
     )
     assert override["obfs"]["type"] == "gecko"
-    assert _build(ConnectionMode.CHAIN, hysteria_default_obfs="salamander")["obfs"]["type"] == "gecko"
 
 
 def test_tls_verify_new_vs_legacy_behaviour() -> None:

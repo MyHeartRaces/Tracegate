@@ -1,5 +1,31 @@
 # Changelog
 
+## v4.1.2 - 2026-11-15
+
+- Entry is shaped around the current Chain: the Entry Hysteria role (Chain
+  Hysteria on public UDP/443) is removed. Migration `a8c3e5f17b42` revokes
+  every remaining `HYSTERIA2`/`CHAIN` connection and revision; API, bot and
+  services refuse to create, re-issue or activate Chain Hysteria, and export
+  of a stored revision fails with a "retired" error. Direct Hysteria on
+  Endpoint is unchanged.
+- Entry no longer renders, runs or health-checks Hysteria: no
+  `tracegate-hysteria@entry` in the Entry role units (the deploy stops and
+  disables it, and a rollback to an older release starts it again), no Entry
+  Hysteria config, no Chain client cap logic, no Entry Hysteria engine in the
+  update supervisor. The Entry firewall template closes public UDP/443.
+- Entry Xray template drops the retired `vless-ws-in` and `vless-grpc-in`
+  inbounds. The Entry -> Endpoint bridge render is unchanged (golden test).
+- Entry host-wide traffic cap is applied: `tracegate-network-qdisc` puts an
+  HTB root (fq leaf) on the public interface for TX and an ingress policer for
+  RX at `AGENT_ENTRY_TRAFFIC_SHAPING_MAX_MBIT` (default 65), as the runtime
+  contract already declared. Endpoint keeps plain fq. The ingress policer
+  burst default is 8192 kbit (was 2048).
+- nginx templates enable HTTP/2 with `http2 on;` per server instead of the
+  deprecated `listen ... http2`.
+- `opentelemetry-api` 1.45.2 (GHSA-mf5v-w3w3-f6cg; FastAPI telemetry, not
+  reachable while tracing is off).
+- README rewritten for Tracegate 4.
+
 ## v4.1.1 - 2026-11-15
 
 - Hysteria2 share links keep a single listener port in the host part; the

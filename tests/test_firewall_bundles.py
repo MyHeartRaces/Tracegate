@@ -1,9 +1,14 @@
 from pathlib import Path
 
 
-def test_entry_opens_udp_4443_for_hysteria_chain_ingress() -> None:
+def test_entry_opens_only_the_udp_4443_interconnect() -> None:
     conf = Path("bundles/base-entry/nftables.conf").read_text(encoding="utf-8")
-    assert "udp dport { 443, 4443 } accept" in conf
+    # Entry Hysteria was retired in 4.1.2: public UDP/443 is no longer accepted
+    # on Entry (the default drop policy covers it); UDP/4443 stays the
+    # Entry<->Endpoint interconnect.
+    assert "udp dport 4443 accept" in conf
+    assert "udp dport { 443, 4443 } accept" not in conf
+    assert not [line for line in conf.splitlines() if "udp dport" in line and "443" in line.replace("4443", "").replace("8443", "")]
     assert "tcp dport 443 accept" in conf
     assert "tcp dport { 4443, 8443 } drop" in conf
     assert "tcp dport 8070 accept" in conf
@@ -56,7 +61,7 @@ def test_firewalls_explicitly_drop_crossed_hysteria_ports_before_accept_rules() 
         udp_accept = (
             "udp dport { 443, 4443, 8444 } accept"
             if "base-transit" in path
-            else "udp dport { 443, 4443 } accept"
+            else "udp dport 4443 accept"
         )
         assert conf.index("udp dport 8443 drop") < conf.index(udp_accept)
         assert conf.index(tcp_drop) < conf.index(tcp_accept)
@@ -89,7 +94,7 @@ def test_entry_and_transit_bundles_define_proxy_fronting_stack() -> None:
     assert "REPLACE_MTPROTO_BACKEND" in transit_haproxy
 
     for nginx_conf in (entry_nginx, transit_nginx):
-        assert "listen 127.0.0.1:10443 ssl http2;" in nginx_conf
+        assert "listen 127.0.0.1:10443 ssl;" in nginx_conf
         assert "/etc/tracegate/tls/ws.crt" in nginx_conf
         assert "root /var/www/decoy;" in nginx_conf
         assert "try_files $uri $uri/ /index.html;" in nginx_conf
@@ -114,4 +119,12 @@ def test_entry_and_transit_bundles_define_proxy_fronting_stack() -> None:
     assert "location ^~ /v1/decoy/" not in entry_nginx
     assert "location = /vault/mtproto" not in entry_nginx
     assert "proxy_pass https://tracegate.test/vault/mtproto/" not in entry_nginx
-    assert "listen 127.0.0.1:443 ssl http2;" in entry_nginx
+    assert "listen 127.0.0.1:443 ssl;" in entry_nginx
+
+
+def test_nginx_templates_enable_http2_per_server_not_on_listen() -> None:
+    root = Path(__file__).resolve().parents[1]
+    for name in ("base-entry", "base-transit"):
+        nginx_conf = (root / "bundles" / name / "nginx.conf").read_text(encoding="utf-8")
+        assert " ssl http2;" not in nginx_conf
+        assert "http2 on;" in nginx_conf

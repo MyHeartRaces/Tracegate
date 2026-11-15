@@ -59,17 +59,11 @@ def test_render_xray_centric_private_overlays_prefers_materialized_root(tmp_path
     manifest = json.loads((overlay_root / ".tracegate-overlay-manifest.json").read_text(encoding="utf-8"))
     overlays = {row["role"]: row for row in manifest["overlays"]}
 
+    # Entry Hysteria was retired in 4.1.2: the Entry overlay gets no Hysteria
+    # inbound, so an Entry FinalMask has nothing to attach to.
     entry_tags = [row.get("tag") for row in entry_overlay["inbounds"] if isinstance(row, dict)]
-    assert "hy2-in" in entry_tags
-
-    entry_hy2 = next(row for row in entry_overlay["inbounds"] if isinstance(row, dict) and row.get("tag") == "hy2-in")
-    assert entry_hy2["streamSettings"]["hysteriaSettings"]["auth"] == "bootstrap-secret"
-    assert entry_hy2["streamSettings"]["hysteriaSettings"]["masquerade"]["dir"] == "/srv/decoy"
-    assert entry_hy2["streamSettings"]["tlsSettings"]["certificates"] == [
-        {"certificateFile": "/etc/tracegate/tls/ws.crt", "keyFile": "/etc/tracegate/tls/ws.key"}
-    ]
-    assert entry_hy2["streamSettings"]["tlsSettings"]["alpn"] == ["h3"]
-    assert entry_hy2["streamSettings"]["finalmask"] == {"udp": [{"type": "fragment", "settings": {"packets": "1-2"}}]}
+    assert entry_tags == ["api"]
+    assert entry_overlay["routing"]["rules"] == materialized_entry["routing"]["rules"]
 
     transit_hy2 = next(
         row for row in transit_overlay["inbounds"] if isinstance(row, dict) and row.get("tag") == "hy2-in"
@@ -81,7 +75,7 @@ def test_render_xray_centric_private_overlays_prefers_materialized_root(tmp_path
     assert overlays["ENTRY"]["sourcePath"] == str(materialized_root / "base-entry" / "xray.json")
     assert overlays["TRANSIT"]["sourcePath"] == str(materialized_root / "base-transit" / "xray.json")
     assert overlays["ENTRY"]["targetUnit"] == "tracegate-xray@entry"
-    assert overlays["ENTRY"]["features"]["finalMaskEnabled"] is True
+    assert overlays["ENTRY"]["features"]["finalMaskEnabled"] is False
     assert overlays["TRANSIT"]["features"]["echEnabled"] is True
 
 

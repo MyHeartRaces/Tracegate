@@ -34,8 +34,9 @@
   and `tracegate-artifacts status` shows no drift for the role.
 - The configured off-host PostgreSQL backup command succeeds and a restore was
   tested recently.
-- Required firewall, TLS renewal, nginx/HAProxy, Xray, Hysteria, ShadowTLS
-  and Telemt services are healthy for the target role.
+- Required firewall, TLS renewal, nginx/HAProxy, Xray, Hysteria (Endpoint
+  only; Entry Hysteria was retired in 4.1.2), ShadowTLS and Telemt services
+  are healthy for the target role.
 
 ## Upgrade
 
@@ -43,8 +44,11 @@
 - Run the migration one-shot before switching application services.
 - Require `/ready` (including a database query), agent health and sustained
   payload probes before completing the rollout.
-- Verify Telegram Proxy issue/revoke, Reality, both Hysteria variants, Chain
-  and the SS2022/ShadowTLS backhaul.
+- Verify Telegram Proxy issue/revoke, Reality, both Direct Hysteria variants
+  (Gecko and Salamander), Chain (VLESS Reality; Chain Hysteria was retired in
+  4.1.2) and the SS2022/ShadowTLS backhaul.
+- On Entry, confirm `tracegate-hysteria@entry.service` is inactive and
+  disabled after the deploy.
 - Verify Grafana traffic panels in MB and the new Telemt/SS collectors.
 
 ## Engine update

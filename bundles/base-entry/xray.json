@@ -79,99 +79,6 @@
           "quic"
         ]
       }
-    },
-    {
-      "tag": "vless-ws-in",
-      "listen": "127.0.0.1",
-      "port": 10000,
-      "protocol": "vless",
-      "settings": {
-        "clients": [],
-        "decryption": "none"
-      },
-      "streamSettings": {
-        "network": "ws",
-        "security": "none",
-        "wsSettings": {
-          "path": "/ws",
-          "heartbeatPeriod": 15
-        }
-      },
-      "sniffing": {
-        "enabled": true,
-        "destOverride": [
-          "http",
-          "tls",
-          "quic"
-        ]
-      }
-    },
-    {
-      "tag": "vless-grpc-in",
-      "listen": "127.0.0.1",
-      "port": 10001,
-      "protocol": "vless",
-      "settings": {
-        "clients": [],
-        "decryption": "none"
-      },
-      "streamSettings": {
-        "network": "grpc",
-        "security": "none",
-        "grpcSettings": {
-          "serviceName": "tracegate.v1.Edge"
-        }
-      },
-      "sniffing": {
-        "enabled": true,
-        "destOverride": [
-          "http",
-          "tls",
-          "quic"
-        ]
-      }
-    },
-    {
-      "tag": "hy2-in",
-      "listen": "0.0.0.0",
-      "port": 443,
-      "protocol": "hysteria",
-      "settings": {
-        "version": 2,
-        "clients": []
-      },
-      "streamSettings": {
-        "network": "hysteria",
-        "security": "tls",
-        "tlsSettings": {
-          "alpn": [
-            "h3"
-          ],
-          "certificates": [
-            {
-              "certificateFile": "/etc/tracegate/tls/ws.crt",
-              "keyFile": "/etc/tracegate/tls/ws.key"
-            }
-          ]
-        },
-        "hysteriaSettings": {
-          "version": 2,
-          "auth": "bootstrap-password",
-          "udpIdleTimeout": 60,
-          "masquerade": {
-            "type": "file",
-            "dir": "/var/www/decoy"
-          }
-        }
-      },
-      "sniffing": {
-        "enabled": true,
-        "destOverride": [
-          "http",
-          "tls",
-          "quic"
-        ]
-      }
     }
   ],
   "outbounds": [
@@ -305,10 +212,7 @@
       {
         "type": "field",
         "inboundTag": [
-          "entry-in",
-          "vless-ws-in",
-          "vless-grpc-in",
-          "hy2-in"
+          "entry-in"
         ],
         "protocol": [
           "bittorrent"
@@ -325,16 +229,7 @@
       {
         "type": "field",
         "inboundTag": [
-          "hy2-in"
-        ],
-        "balancerTag": "backhaul-balancer"
-      },
-      {
-        "type": "field",
-        "inboundTag": [
-          "entry-in",
-          "vless-ws-in",
-          "vless-grpc-in"
+          "entry-in"
         ],
         "balancerTag": "backhaul-balancer"
       }

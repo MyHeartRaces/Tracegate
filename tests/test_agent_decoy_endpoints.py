@@ -189,15 +189,16 @@ def test_hysteria_http_auth_accepts_role_scoped_userpass(monkeypatch, tmp_path) 
     assert rejected.json() == {"ok": False, "id": None}
 
 
-def test_entry_hysteria_http_auth_rejects_chain_bandwidth_above_cap(monkeypatch, tmp_path) -> None:
+def test_entry_hysteria_http_auth_rejects_every_client_after_retirement(monkeypatch, tmp_path) -> None:
+    # Entry Hysteria (Chain Hysteria) was retired in 4.1.2. Even when the Entry
+    # artifact index still holds an old Chain Hysteria row, Entry accepts no
+    # Hysteria client, whatever bandwidth it declares.
     settings = Settings(
         agent_auth_token="test-agent-token",
         agent_data_root=str(tmp_path / "agent"),
         agent_role="ENTRY",
         agent_dry_run=True,
         agent_stats_secret="test-stats-secret",
-        hysteria_chain_client_max_mbit=10,
-        hysteria_chain_client_require_declared_tx=True,
     )
     artifact_path = Path(settings.agent_data_root) / "users" / "42" / "connection-conn-v2.json"
     artifact_path.parent.mkdir(parents=True, exist_ok=True)
@@ -207,6 +208,7 @@ def test_entry_hysteria_http_auth_rejects_chain_bandwidth_above_cap(monkeypatch,
                 "connection_id": "conn-v2",
                 "user_id": "42",
                 "protocol": "hysteria2",
+                "mode": "chain",
                 "variant": "V2",
                 "config": {
                     "auth": {
@@ -227,25 +229,17 @@ def test_entry_hysteria_http_auth_rejects_chain_bandwidth_above_cap(monkeypatch,
     monkeypatch.setattr(agent_main, "_is_loopback_host", lambda _host: True)
 
     with TestClient(agent_main.app) as client:
-        accepted = client.post(
-            "/v1/hysteria/auth",
-            json={"addr": "198.51.100.10:40000", "auth": "hy_user:hy_pass", "tx": 1_250_000},
-        )
-        rejected_high = client.post(
-            "/v1/hysteria/auth",
-            json={"addr": "198.51.100.10:40000", "auth": "hy_user:hy_pass", "tx": 1_250_001},
-        )
-        rejected_missing = client.post(
-            "/v1/hysteria/auth",
-            json={"addr": "198.51.100.10:40000", "auth": "hy_user:hy_pass", "tx": 0},
-        )
+        responses = [
+            client.post(
+                "/v1/hysteria/auth",
+                json={"addr": "198.51.100.10:40000", "auth": auth, "tx": tx},
+            )
+            for auth, tx in (("hy_user:hy_pass", 1_250_000), ("hy_pass", 0), ("hy_user:hy_pass", 0))
+        ]
 
-    assert accepted.status_code == 200
-    assert accepted.json() == {"ok": True, "id": "hy_user"}
-    assert rejected_high.status_code == 200
-    assert rejected_high.json() == {"ok": False, "id": None}
-    assert rejected_missing.status_code == 200
-    assert rejected_missing.json() == {"ok": False, "id": None}
+    for response in responses:
+        assert response.status_code == 200
+        assert response.json() == {"ok": False, "id": None}
 
 
 def test_endpoint_hysteria_http_auth_accepts_private_backhaul_token_only_on_endpoint(monkeypatch, tmp_path) -> None:

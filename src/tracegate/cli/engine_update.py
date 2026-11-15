@@ -92,7 +92,8 @@ def probe_config_from_settings(role: str, settings) -> ProbeConfig:  # noqa: ANN
     grafana_url = os.environ.get("TRACEGATE_GRAFANA_URL") or str(settings.grafana_internal_url or "")
     if grafana_url.rstrip("/") == _COMPOSE_GRAFANA_URL:
         grafana_url = _DEFAULT_GRAFANA_URL
-    server_name = settings.hysteria_server_name_transit if role == "endpoint" else settings.hysteria_server_name_entry
+    # Only Endpoint runs Hysteria (Entry Hysteria was retired in 4.1.2).
+    server_name = settings.hysteria_server_name_transit if role == "endpoint" else ""
     return ProbeConfig(
         role=role,
         agent_health_url=health_url,

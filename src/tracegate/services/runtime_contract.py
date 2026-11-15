@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from tracegate.constants import (
     TRACEGATE_ALT_PUBLIC_TCP_PORT,
@@ -14,6 +14,12 @@ from tracegate.services.mtproto import MTPROTO_FAKE_TLS_PROFILE_NAME
 
 class RuntimeContractError(ValueError):
     pass
+
+
+# Components the Entry role no longer runs. Entry Hysteria (the Chain
+# Hysteria listener on public UDP/443) was retired in Tracegate 4.1.2; Chain is
+# issued only as VLESS Reality. Endpoint keeps its Hysteria runtime.
+ENTRY_RETIRED_COMPONENTS = frozenset({"hysteria"})
 
 
 @dataclass(frozen=True)
@@ -114,6 +120,10 @@ _TRACEGATE_TRANSIT_FORBIDDEN_PUBLIC_PORTS = (
 _TRACEGATE_PUBLIC_UDP_LISTENER = f"listen udp/{TRACEGATE_PUBLIC_UDP_PORT}"
 TRACEGATE_TRANSIT_ALT_TCP_LISTENER = f"listen tcp/{TRACEGATE_ALT_PUBLIC_TCP_PORT}"
 TRACEGATE_MTPROTO_FALLBACK_TCP_LISTENER = f"listen tcp/{TRACEGATE_FORBIDDEN_PUBLIC_TCP_PORT} mtproto fallback"
+# Entry serves only TCP/443 (Chain Reality, Entry TLS, Telegram Proxy). Entry
+# Hysteria (public UDP/443) was retired in Tracegate 4.1.2, so Entry health no
+# longer expects a UDP listener or a Hysteria process.
+_TRACEGATE_ENTRY_EXPECTED_PORTS = (("tcp", TRACEGATE_PUBLIC_TCP_PORT, "listen tcp/443"),)
 _TRACEGATE_TRANSIT_EXPECTED_PORTS = (
     ("tcp", TRACEGATE_PUBLIC_TCP_PORT, "listen tcp/443"),
     ("tcp", TRACEGATE_ALT_PUBLIC_TCP_PORT, TRACEGATE_TRANSIT_ALT_TCP_LISTENER),
@@ -170,10 +180,7 @@ _XRAY_CENTRIC_CONTRACT = AgentRuntimeContract(
     runtime_dirs=("xray", "haproxy", "nginx", "xray-v2"),
     hysteria_auth_mode="token",
     hysteria_metrics_source="xray_stats",
-    expected_ports_entry=(
-        ("tcp", TRACEGATE_PUBLIC_TCP_PORT, "listen tcp/443"),
-        ("udp", TRACEGATE_PUBLIC_UDP_PORT, _TRACEGATE_PUBLIC_UDP_LISTENER),
-    ),
+    expected_ports_entry=_TRACEGATE_ENTRY_EXPECTED_PORTS,
     expected_ports_transit=_TRACEGATE_TRANSIT_EXPECTED_PORTS,
     forbidden_ports_entry=_TRACEGATE_FORBIDDEN_PUBLIC_PORTS,
     forbidden_ports_transit=_TRACEGATE_TRANSIT_FORBIDDEN_PUBLIC_PORTS,
@@ -197,10 +204,7 @@ _TRACEGATE21_CONTRACT = AgentRuntimeContract(
     runtime_dirs=("xray", "haproxy", "nginx", "xray-v2"),
     hysteria_auth_mode="token",
     hysteria_metrics_source="xray_stats",
-    expected_ports_entry=(
-        ("tcp", TRACEGATE_PUBLIC_TCP_PORT, "listen tcp/443"),
-        ("udp", TRACEGATE_PUBLIC_UDP_PORT, _TRACEGATE_PUBLIC_UDP_LISTENER),
-    ),
+    expected_ports_entry=_TRACEGATE_ENTRY_EXPECTED_PORTS,
     expected_ports_transit=_TRACEGATE_TRANSIT_EXPECTED_PORTS,
     forbidden_ports_entry=_TRACEGATE_FORBIDDEN_PUBLIC_PORTS,
     forbidden_ports_transit=_TRACEGATE_TRANSIT_FORBIDDEN_PUBLIC_PORTS,
@@ -224,16 +228,12 @@ _TRACEGATE3_CONTRACT = AgentRuntimeContract(
     runtime_dirs=("xray", "hysteria", "haproxy", "nginx", "xray-v2", "profiles", "link-crypto"),
     hysteria_auth_mode="userpass",
     hysteria_metrics_source="hysteria_stats",
-    expected_ports_entry=(
-        ("tcp", TRACEGATE_PUBLIC_TCP_PORT, "listen tcp/443"),
-        ("udp", TRACEGATE_PUBLIC_UDP_PORT, _TRACEGATE_PUBLIC_UDP_LISTENER),
-    ),
+    expected_ports_entry=_TRACEGATE_ENTRY_EXPECTED_PORTS,
     expected_ports_transit=_TRACEGATE_TRANSIT_EXPECTED_PORTS,
     forbidden_ports_entry=_TRACEGATE_FORBIDDEN_PUBLIC_PORTS,
     forbidden_ports_transit=_TRACEGATE_TRANSIT_FORBIDDEN_PUBLIC_PORTS,
     process_checks_entry=(
         RuntimeProcessCheck(name="process xray", mode="all", process_names=("xray",)),
-        RuntimeProcessCheck(name="process hysteria", mode="all", process_names=("hysteria",)),
         RuntimeProcessCheck(name="process haproxy", mode="all", process_names=("haproxy",)),
     ),
     process_checks_transit=(
@@ -267,5 +267,24 @@ def normalize_runtime_profile_name(value: str | None) -> str:
     raise RuntimeContractError(f"unsupported runtime profile: {raw}")
 
 
-def resolve_runtime_contract(profile_name: str | None) -> AgentRuntimeContract:
-    return _CONTRACTS[normalize_runtime_profile_name(profile_name)]
+def _contract_for_role(contract: AgentRuntimeContract, role: str | None) -> AgentRuntimeContract:
+    if str(role or "").strip().upper() != "ENTRY":
+        return contract
+    return replace(
+        contract,
+        managed_components=tuple(
+            component for component in contract.managed_components if component not in ENTRY_RETIRED_COMPONENTS
+        ),
+        runtime_dirs=tuple(path for path in contract.runtime_dirs if path not in ENTRY_RETIRED_COMPONENTS),
+    )
+
+
+def resolve_runtime_contract(profile_name: str | None, role: str | None = None) -> AgentRuntimeContract:
+    """Resolve the runtime contract of a profile, optionally narrowed to a role.
+
+    With ``role="ENTRY"`` the components the Entry role no longer runs
+    (``ENTRY_RETIRED_COMPONENTS``) are dropped from the managed components and
+    runtime dirs, so the Entry agent never renders, reloads or reports them.
+    """
+
+    return _contract_for_role(_CONTRACTS[normalize_runtime_profile_name(profile_name)], role)

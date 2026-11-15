@@ -81,57 +81,6 @@
           "security": "reality"
         },
         "tag": "entry-in"
-      },
-      {
-        "listen": "127.0.0.1",
-        "port": 10000,
-        "protocol": "vless",
-        "settings": {
-          "clients": [],
-          "decryption": "none"
-        },
-        "sniffing": {
-          "destOverride": [
-            "http",
-            "tls",
-            "quic"
-          ],
-          "enabled": true
-        },
-        "streamSettings": {
-          "network": "ws",
-          "security": "none",
-          "wsSettings": {
-            "heartbeatPeriod": 15,
-            "path": "/stealth/ws"
-          }
-        },
-        "tag": "vless-ws-in"
-      },
-      {
-        "listen": "127.0.0.1",
-        "port": 10001,
-        "protocol": "vless",
-        "settings": {
-          "clients": [],
-          "decryption": "none"
-        },
-        "sniffing": {
-          "destOverride": [
-            "http",
-            "tls",
-            "quic"
-          ],
-          "enabled": true
-        },
-        "streamSettings": {
-          "grpcSettings": {
-            "serviceName": "tracegate.v1.Edge"
-          },
-          "network": "grpc",
-          "security": "none"
-        },
-        "tag": "vless-grpc-in"
       }
     ],
     "log": {
@@ -285,9 +234,7 @@
         },
         {
           "inboundTag": [
-            "entry-in",
-            "vless-ws-in",
-            "vless-grpc-in"
+            "entry-in"
           ],
           "outboundTag": "block",
           "protocol": [
@@ -305,9 +252,7 @@
         {
           "balancerTag": "backhaul-balancer",
           "inboundTag": [
-            "entry-in",
-            "vless-ws-in",
-            "vless-grpc-in"
+            "entry-in"
           ],
           "type": "field"
         }

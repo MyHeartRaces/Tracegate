@@ -22,13 +22,21 @@ to Endpoint through a dedicated VLESS/REALITY RAW/TCP backhaul while Endpoint
 remains the only internet egress role. Both Reality legs use RAW/TCP; the
 retired split-HTTP transport is forbidden by the host runtime check.
 
+Entry serves only TCP/443: Chain VLESS Reality, the Entry TLS cover site and
+the Telegram Proxy route, plus the Entry-to-Endpoint bridge (backhaul fragment
+sidecars, ShadowTLS clients and the Reality backhaul leg). Entry Hysteria (the
+Chain Hysteria listener on UDP/443) was retired in 4.1.2: Entry runs no
+Hysteria unit, its agent health no longer expects a UDP/443 listener or a
+Hysteria process, and the Entry firewall template no longer accepts public
+UDP/443.
+
 ## Public port model
 
 | Surface | Entry | Endpoint |
 | --- | --- | --- |
 | TCP/443 | HAProxy: Chain Reality, Entry TLS, Telegram Proxy | HAProxy SNI demux |
 | TCP/8443 | closed; optional MTProto-only listener | HAProxy SNI demux, same rules as TCP/443 |
-| UDP/443 | Hysteria2 Gecko (Chain) | Hysteria2 Gecko (Direct) |
+| UDP/443 | closed (Chain Hysteria retired in 4.1.2) | Hysteria2 Gecko (Direct) |
 | UDP/8444 | closed | Hysteria2 Salamander (Direct) |
 | UDP/4443 | Entry-to-Endpoint interconnect | Entry-to-Endpoint interconnect |
 | UDP/8443 | closed | closed |
@@ -59,7 +67,7 @@ technique; the port model only changes which ports carry them.
 ## Client profiles
 
 - Direct: Reality and Hysteria2 (Salamander or Gecko);
-- Chain: the managed Entry path;
+- Chain: the managed Entry path, issued only as VLESS Reality;
 - Retired in 4.0.0: the client Shadowsocks-2022 + ShadowTLS v3 profile and
   WireGuard over WebSocket. Existing rows of both are revoked by migration and
   can no longer be issued; the inter-server backhaul keeps Shadowsocks-2022
@@ -69,6 +77,9 @@ technique; the port model only changes which ports carry them.
   variants). Existing rows are revoked by migration and cannot be issued,
   re-issued, activated or exported; Reality and Hysteria2 cover the same
   networks.
+- Retired in 4.1.2: Chain Hysteria (Hysteria2 in Chain mode, terminated on
+  Entry). Existing rows are revoked by migration and cannot be issued,
+  re-issued, activated or exported; Chain Reality and Direct Hysteria remain.
 
 Telegram Proxy uses a per-account Telemt secret. The control plane records the
 grant, and block/revoke operations remove the runtime secret.
