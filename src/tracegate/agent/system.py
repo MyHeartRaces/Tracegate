@@ -17,8 +17,11 @@ from tracegate.services.runtime_contract import (
 
 
 def _safe_path(root: Path, relative: str) -> Path:
-    path = (root / relative).resolve()
-    if root.resolve() not in path.parents and path != root.resolve():
+    base = root.resolve()
+    if Path(relative).is_absolute():
+        raise ValueError(f"unsafe absolute path: {relative}")
+    path = (base / relative).resolve()
+    if path == base or not path.is_relative_to(base):
         raise ValueError(f"unsafe path outside root: {relative}")
     return path
 

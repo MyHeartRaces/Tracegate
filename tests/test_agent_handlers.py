@@ -326,11 +326,12 @@ def test_handle_apply_bundle_skips_firewall_when_nftables_conf_missing(
         {
             "bundle_name": "base-transit",
             "files": {"xray/config.json": "{}"},
-            "commands": ["echo done"],
         },
     )
 
-    assert calls == ["echo done"]
+    # No nftables.conf in the bundle, so no nft call; payload commands are
+    # never executed (see tests/test_agent_payload_hardening.py).
+    assert calls == []
 
 
 def test_handle_apply_bundle_raises_on_firewall_validation_error(

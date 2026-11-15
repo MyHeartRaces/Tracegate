@@ -1,5 +1,22 @@
 # Changelog
 
+## v4.1.3 - 2026-11-16
+
+Security hardening from the first CodeQL scan. No migration.
+
+- Agent: a bundle-apply payload can no longer carry shell commands (the
+  dispatcher never sent any; payloads with commands are refused).
+- Agent: user, connection, tombstone and bundle identifiers taken from
+  payloads must be plain names before they become paths; "..", separators and
+  empty values are refused. File writes resolve strictly inside their root.
+- Secret handoff files are created owner-only from the start instead of being
+  tightened after the write.
+- Explicit TLS 1.2 minimum for the UDP-over-TCP tunnel and the engine probe.
+- Client config token errors return one generic message.
+- The cover-site HTML sanitizer drops `<script>` blocks whose closing tag
+  carries whitespace or attributes, and unterminated ones.
+- CI workflow runs with read-only repository permissions.
+
 ## v4.1.2 - 2026-11-15
 
 - Entry is shaped around the current Chain: the Entry Hysteria role (Chain

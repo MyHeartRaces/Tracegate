@@ -100,6 +100,7 @@ class UdpOverTcpServer:
         if not self.tls_cert_file or not self.tls_key_file:
             raise ValueError("server TLS requires both cert and key files")
         context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        context.minimum_version = ssl.TLSVersion.TLSv1_2
         context.load_cert_chain(certfile=self.tls_cert_file, keyfile=self.tls_key_file)
         return context
 
@@ -383,6 +384,7 @@ class UdpOverTcpClient:
         if not self.tls_server_name and not self.tls_ca_file and not self.tls_insecure_skip_verify:
             return None
         context = ssl.create_default_context()
+        context.minimum_version = ssl.TLSVersion.TLSv1_2
         if self.tls_ca_file:
             context.load_verify_locations(cafile=self.tls_ca_file)
         if self.tls_insecure_skip_verify:

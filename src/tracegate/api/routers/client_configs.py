@@ -103,7 +103,7 @@ async def get_client_config(
     try:
         claims = parse_client_config_token(token, secret=secret)
     except ClientConfigTokenError as exc:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc)) from exc
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid client config token") from exc
 
     subject_type = str(claims["subject_type"])
     subject_id = str(claims["subject_id"])

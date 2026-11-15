@@ -588,7 +588,9 @@ def sanitize_github_repo_html(raw_html: str, *, repo_url: str) -> str:
     if not html.strip():
         raise DecoyAuthConfigError("github repo html is empty")
 
-    html = re.sub(r"<script\b[^>]*>.*?</script>", "", html, flags=re.IGNORECASE | re.DOTALL)
+    # Closing tags may carry whitespace or junk attributes ("</script >",
+    # "</script foo>"); an unterminated <script> is dropped to the end.
+    html = re.sub(r"<script\b[^>]*>.*?(?:</script\b[^>]*>|$)", "", html, flags=re.IGNORECASE | re.DOTALL)
     html = re.sub(r"<meta\b[^>]+http-equiv=[\"']?Content-Security-Policy[\"']?[^>]*>", "", html, flags=re.IGNORECASE)
     html = re.sub(r"<meta\b[^>]+http-equiv=[\"']?X-Frame-Options[\"']?[^>]*>", "", html, flags=re.IGNORECASE)
     html = re.sub(r'data-color-mode="[^"]*"', 'data-color-mode="light"', html, flags=re.IGNORECASE)

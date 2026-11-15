@@ -96,6 +96,7 @@ def socks5_https_status(port: int, url: str, timeout: float) -> int:
         else:
             raise ConnectionError("SOCKS reply has an unknown address type")
         context = ssl.create_default_context()
+        context.minimum_version = ssl.TLSVersion.TLSv1_2
         with context.wrap_socket(raw, server_hostname=host) as tls:
             tls.sendall(
                 f"GET {path} HTTP/1.1\r\nHost: {host}\r\nUser-Agent: tracegate-engine-probe\r\n"

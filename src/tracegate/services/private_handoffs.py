@@ -60,13 +60,21 @@ def _write_text_if_changed(path: Path, content: str) -> bool:
     return True
 
 
+def _write_owner_only(path: Path, content: str) -> None:
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    try:
+        os.fchmod(fd, 0o600)
+        os.write(fd, content.encode("utf-8"))
+    finally:
+        os.close(fd)
+
+
 def _write_secret_text_if_changed(path: Path, content: str) -> bool:
     changed = False
     if _read_text(path) != content:
         path.parent.mkdir(parents=True, exist_ok=True)
         tmp = path.with_suffix(path.suffix + ".tmp")
-        tmp.write_text(content, encoding="utf-8")
-        tmp.chmod(0o600)
+        _write_owner_only(tmp, content)
         tmp.replace(path)
         changed = True
     try:

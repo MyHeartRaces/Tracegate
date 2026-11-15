@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import shlex
 import shutil
 import threading
@@ -58,14 +59,28 @@ def _payload_ts(payload: dict[str, Any]) -> datetime | None:
     return _parse_ts(payload.get("op_ts") or payload.get("revision_created_at") or payload.get("revoked_at"))
 
 
+# Identifiers that become file or directory names under the agent data root.
+# Dispatcher payloads carry numeric user ids, UUID connection ids and bundle
+# names such as "base-entry"; anything else (path separators, "..", empty
+# values) is refused instead of being joined into a path.
+_SAFE_PATH_COMPONENT = re.compile(r"[A-Za-z0-9_][A-Za-z0-9._-]{0,127}")
+
+
+def _safe_component(value: Any, what: str) -> str:
+    text = str(value if value is not None else "").strip()
+    if not _SAFE_PATH_COMPONENT.fullmatch(text) or ".." in text:
+        raise HandlerError(f"invalid {what}")
+    return text
+
+
 def _tombstones_dir(settings: Settings) -> Path:
     root = Path(settings.agent_data_root)
     return root / "runtime" / "tombstones"
 
 
 def _tombstone_path(settings: Settings, *, kind: str, key: str) -> Path:
-    safe_kind = str(kind).strip() or "unknown"
-    safe_key = str(key).strip() or "missing"
+    safe_kind = _safe_component(str(kind).strip() or "unknown", "tombstone kind")
+    safe_key = _safe_component(str(key).strip() or "missing", "tombstone key")
     return _tombstones_dir(settings) / f"{safe_kind}-{safe_key}.json"
 
 
@@ -94,7 +109,7 @@ def _write_tombstone(path: Path, *, ts: datetime, extra: dict[str, Any] | None =
 
 
 def _user_dir(root: Path, user_id: str) -> Path:
-    return root / "users" / user_id
+    return root / "users" / _safe_component(user_id, "user_id")
 
 
 def _run_reload_commands(settings: Settings, commands: list[str]) -> None:
@@ -286,6 +301,11 @@ def handle_apply_bundle(settings: Settings, payload: dict[str, Any]) -> str:
     bundle_name = payload.get("bundle_name")
     if not bundle_name:
         raise HandlerError("bundle_name is required")
+    bundle_name = _safe_component(bundle_name, "bundle_name")
+    # The agent never executes shell commands supplied in a payload: reloads
+    # come only from the agent's own settings. The dispatcher sends none.
+    if payload.get("commands"):
+        raise HandlerError("bundle commands are not accepted")
 
     files = payload.get("files") or {}
     if not isinstance(files, dict):
@@ -308,9 +328,6 @@ def handle_apply_bundle(settings: Settings, payload: dict[str, Any]) -> str:
         raise HandlerError(f"invalid bundle files payload: {exc}") from exc
 
     command_results: list[str] = []
-    for cmd in payload.get("commands", []):
-        ok, out = run_command(cmd, settings.agent_dry_run)
-        command_results.append(f"{cmd}: {'ok' if ok else 'failed'}: {out}")
 
     reconciled = _reconcile_after_bundle_sync(settings) if synced_components else set()
     if reconciled:
@@ -332,8 +349,8 @@ def handle_upsert_user(settings: Settings, payload: dict[str, Any]) -> str:
     if missing:
         raise HandlerError(f"missing fields: {', '.join(missing)}")
 
-    user_id = str(payload["user_id"]).strip()
-    connection_id = str(payload["connection_id"]).strip()
+    user_id = _safe_component(payload["user_id"], "user_id")
+    connection_id = _safe_component(payload["connection_id"], "connection_id")
     incoming_ts = _payload_ts(payload)
 
     tombstone = _tombstone_path(settings, kind="connection", key=connection_id)
@@ -403,8 +420,8 @@ def handle_revoke_connection(settings: Settings, payload: dict[str, Any]) -> str
     if not user_id or not connection_id:
         raise HandlerError("missing user_id/connection_id")
 
-    user_id_s = str(user_id).strip()
-    connection_id_s = str(connection_id).strip()
+    user_id_s = _safe_component(user_id, "user_id")
+    connection_id_s = _safe_component(connection_id, "connection_id")
     incoming_ts = _payload_ts(payload) or datetime.now(timezone.utc)
 
     tombstone = _tombstone_path(settings, kind="connection", key=connection_id_s)
