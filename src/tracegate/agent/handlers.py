@@ -13,7 +13,7 @@ from tracegate.services.bundle_files import BundleFilePayload
 from tracegate.services.runtime_contract import resolve_runtime_contract
 from tracegate.settings import Settings
 
-from .system import apply_files, run_args, run_command
+from .system import apply_files, contained_path, run_args, run_command
 from .transit_assignment import assign_sticky_transit_if_needed
 from .reconcile import (
     ReconcileAllResult,
@@ -80,7 +80,7 @@ def _tombstones_dir(settings: Settings) -> Path:
 def _tombstone_path(settings: Settings, *, kind: str, key: str) -> Path:
     safe_kind = _safe_component(str(kind).strip() or "unknown", "tombstone kind")
     safe_key = _safe_component(str(key).strip() or "missing", "tombstone key")
-    return _tombstones_dir(settings) / f"{safe_kind}-{safe_key}.json"
+    return contained_path(_tombstones_dir(settings), f"{safe_kind}-{safe_key}.json")
 
 
 def _read_tombstone_ts(path: Path) -> datetime | None:
@@ -108,7 +108,16 @@ def _write_tombstone(path: Path, *, ts: datetime, extra: dict[str, Any] | None =
 
 
 def _user_dir(root: Path, user_id: str) -> Path:
-    return root / "users" / _safe_component(user_id, "user_id")
+    return contained_path(root, "users", _safe_component(user_id, "user_id"))
+
+
+def _connection_file(root: Path, user_id: str, connection_id: str) -> Path:
+    return contained_path(
+        root,
+        "users",
+        _safe_component(user_id, "user_id"),
+        f"connection-{_safe_component(connection_id, 'connection_id')}.json",
+    )
 
 
 def _run_reload_commands(settings: Settings, commands: list[str]) -> None:
@@ -211,7 +220,15 @@ def _apply_firewall_bundle(settings: Settings, *, bundle_root: Path) -> bool:
     if not nft_conf.exists():
         return False
 
-    conf_path = str(nft_conf)
+    # nft always reads one fixed, agent-owned file: no value derived from the
+    # request (such as the bundle name) reaches the nft argument list.
+    staged = Path(settings.agent_data_root) / "runtime" / "firewall" / "bundle-nftables.conf"
+    staged.parent.mkdir(parents=True, exist_ok=True)
+    tmp = staged.with_suffix(".tmp")
+    tmp.write_bytes(nft_conf.read_bytes())
+    tmp.chmod(0o600)
+    tmp.replace(staged)
+    conf_path = str(staged)
     with _FIREWALL_LOCK:
         ok, out = run_args(["nft", "-c", "-f", conf_path], settings.agent_dry_run)
         if not ok:
@@ -310,7 +327,7 @@ def handle_apply_bundle(settings: Settings, payload: dict[str, Any]) -> str:
     if not isinstance(files, dict):
         raise HandlerError("files must be a dictionary")
 
-    root = Path(settings.agent_data_root) / "bundles" / bundle_name
+    root = contained_path(Path(settings.agent_data_root), "bundles", bundle_name)
     root.mkdir(parents=True, exist_ok=True)
     try:
         apply_files(root, files)
@@ -367,7 +384,7 @@ def handle_upsert_user(settings: Settings, payload: dict[str, Any]) -> str:
     user_root = _user_dir(Path(settings.agent_data_root), user_id)
     user_root.mkdir(parents=True, exist_ok=True)
 
-    target = user_root / f"connection-{connection_id}.json"
+    target = _connection_file(Path(settings.agent_data_root), user_id, connection_id)
     existing_payload: dict[str, Any] | None = None
     if target.exists():
         try:
@@ -429,7 +446,7 @@ def handle_revoke_connection(settings: Settings, payload: dict[str, Any]) -> str
         return f"ignored stale revoke for connection={connection_id_s}"
 
     user_root = _user_dir(Path(settings.agent_data_root), user_id_s)
-    target = user_root / f"connection-{connection_id_s}.json"
+    target = _connection_file(Path(settings.agent_data_root), user_id_s, connection_id_s)
     if target.exists():
         try:
             existing = json.loads(target.read_text(encoding="utf-8"))

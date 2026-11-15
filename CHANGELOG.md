@@ -3,9 +3,15 @@
 ## v4.1.4 - 2026-11-16
 
 - Agent: the firewall bundle check and apply call `nft` with an argument
-  vector instead of a shell command line, so no value derived from a request
-  reaches a shell (CodeQL py/command-line-injection). Shell execution remains
-  only for operator-configured reload commands from the agent settings.
+  vector instead of a shell command line, on a fixed agent-owned copy of the
+  bundle firewall config, so no value derived from a request reaches a shell
+  or the nft argument list (CodeQL py/command-line-injection). Shell execution
+  remains only for operator-configured reload commands from the agent
+  settings.
+- Agent: every path built from payload identifiers (bundle root, user
+  directory, connection file, tombstone) goes through one guard that resolves
+  the real path and requires it to stay strictly under its root, symlinks
+  included (CodeQL py/path-injection).
 
 ## v4.1.3 - 2026-11-16
 

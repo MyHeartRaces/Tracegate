@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -16,14 +17,22 @@ from tracegate.services.runtime_contract import (
 )
 
 
+def contained_path(root: Path | str, *parts: str) -> Path:
+    """Join parts under root and refuse any result outside root.
+
+    The joined path is fully resolved (symlinks, "..") and must start with the
+    resolved root plus a separator, so absolute parts, traversal and the root
+    itself are all rejected.
+    """
+    base = os.path.realpath(root)
+    full = os.path.realpath(os.path.join(base, *parts))
+    if not full.startswith(base + os.sep):
+        raise ValueError("unsafe path outside root")
+    return Path(full)
+
+
 def _safe_path(root: Path, relative: str) -> Path:
-    base = root.resolve()
-    if Path(relative).is_absolute():
-        raise ValueError(f"unsafe absolute path: {relative}")
-    path = (base / relative).resolve()
-    if path == base or not path.is_relative_to(base):
-        raise ValueError(f"unsafe path outside root: {relative}")
-    return path
+    return contained_path(root, relative)
 
 
 def atomic_write(root: Path, relative: str, content: Any) -> None:

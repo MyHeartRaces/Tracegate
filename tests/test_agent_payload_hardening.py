@@ -130,5 +130,24 @@ def test_firewall_bundle_passes_the_config_path_as_one_argument(tmp_path: Path, 
         {"bundle_name": "base-entry", "files": {"nftables.conf": "flush ruleset\n"}},
     )
 
-    conf = str(tmp_path / "agent" / "bundles" / "base-entry" / "nftables.conf")
+    # nft reads a fixed agent-owned copy, never a path built from the request.
+    conf = str(tmp_path / "agent" / "runtime" / "firewall" / "bundle-nftables.conf")
     assert calls == [["nft", "-c", "-f", conf], ["nft", "-f", conf]]
+
+
+@pytest.mark.parametrize("parts", [("..", "x"), ("/etc", "passwd"), ("a", "..", "..", "x"), (".",)])
+def test_contained_path_refuses_escapes_and_the_root_itself(tmp_path: Path, parts: tuple[str, ...]) -> None:
+    from tracegate.agent.system import contained_path
+
+    with pytest.raises(ValueError):
+        contained_path(tmp_path, *parts)
+
+
+def test_contained_path_refuses_symlink_escape(tmp_path: Path) -> None:
+    from tracegate.agent.system import contained_path
+
+    root = tmp_path / "root"
+    root.mkdir()
+    (root / "link").symlink_to(tmp_path)
+    with pytest.raises(ValueError):
+        contained_path(root, "link", "outside.txt")

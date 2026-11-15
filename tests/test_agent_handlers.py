@@ -272,7 +272,8 @@ def test_handle_apply_bundle_applies_firewall_when_nftables_conf_present(
         },
     )
 
-    bundle_conf = tmp_path / "bundles" / "base-transit" / "nftables.conf"
+    bundle_conf = tmp_path / "runtime" / "firewall" / "bundle-nftables.conf"
+    assert bundle_conf.read_text() == "flush ruleset\n"
     conf_arg = shlex.quote(str(bundle_conf))
     assert calls == [f"nft -c -f {conf_arg}", f"nft -f {conf_arg}"]
 
@@ -306,7 +307,7 @@ def test_handle_apply_bundle_reloads_obfuscation_after_firewall_apply(
         },
     )
 
-    bundle_conf = tmp_path / "bundles" / "base-entry" / "nftables.conf"
+    bundle_conf = tmp_path / "runtime" / "firewall" / "bundle-nftables.conf"
     conf_arg = shlex.quote(str(bundle_conf))
     assert calls == [f"nft -c -f {conf_arg}", f"nft -f {conf_arg}", "reload-obfuscation"]
 
