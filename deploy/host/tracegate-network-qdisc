@@ -93,9 +93,21 @@ fi
 # The policer burst is given in bytes. The HTB class gets an explicit 64 KB burst
 # (the kernel default is ~1.6 KB, which undershoots the rate) and a quantum that stays
 # well above the MTU without tripping the "quantum is big" warning.
+# HTB has no "change" operation: "qdisc replace" on an existing htb 1: root
+# fails with "Change operation not supported". Re-runs (every deploy, every
+# restart of this unit) therefore keep a matching root and only update the
+# class; a root with other parameters is recreated.
 shape_egress() {
-  local interface="$1"
-  "${TC}" qdisc replace dev "${interface}" root handle 1: htb default 10
+  local interface="$1" current_root
+  current_root="$("${TC}" qdisc show dev "${interface}" root 2>/dev/null || true)"
+  case "${current_root}" in
+    "qdisc htb 1: root"*"default 0x10"*) ;;
+    "qdisc htb 1: root"*)
+      "${TC}" qdisc del dev "${interface}" root
+      "${TC}" qdisc add dev "${interface}" root handle 1: htb default 10
+      ;;
+    *) "${TC}" qdisc replace dev "${interface}" root handle 1: htb default 10 ;;
+  esac
   "${TC}" class replace dev "${interface}" parent 1: classid 1:10 htb \
     rate "${SHAPE_MBIT}mbit" ceil "${SHAPE_MBIT}mbit" burst 64k cburst 64k quantum 60000
   "${TC}" qdisc replace dev "${interface}" parent 1:10 handle 10: fq

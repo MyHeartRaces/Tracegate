@@ -1,5 +1,14 @@
 # Changelog
 
+## v4.1.5 - 2026-11-17
+
+- Fix: `tracegate-network-qdisc` failed on every run after the first on Entry
+  ("Change operation not supported by specified qdisc"): HTB has no change
+  operation, so replacing an existing `htb 1:` root is refused. A matching
+  root is now kept and only its class is updated; a root with other
+  parameters is recreated. This failure rolled back the first 4.1.4 Entry
+  deploy.
+
 ## v4.1.4 - 2026-11-16
 
 - Agent: the firewall bundle check and apply call `nft` with an argument

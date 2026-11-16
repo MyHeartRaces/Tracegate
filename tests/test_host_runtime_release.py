@@ -60,7 +60,9 @@ def test_host_qdisc_helper_detects_the_default_route_interface(tmp_path: Path) -
     assert calls.read_text(encoding="utf-8") == "qdisc replace dev ens3 root fq\n"
 
 
-def _run_qdisc(tmp_path: Path, deploy_env: str, entry_env: str | None = None) -> tuple[subprocess.CompletedProcess, list[str]]:
+def _run_qdisc(
+    tmp_path: Path, deploy_env: str, entry_env: str | None = None, root_qdisc: str = ""
+) -> tuple[subprocess.CompletedProcess, list[str]]:
     root = Path(__file__).resolve().parents[1]
     fake_ip = tmp_path / "ip"
     fake_tc = tmp_path / "tc"
@@ -72,7 +74,20 @@ def _run_qdisc(tmp_path: Path, deploy_env: str, entry_env: str | None = None) ->
         "exit 2\n",
         encoding="utf-8",
     )
-    fake_tc.write_text(f"#!/bin/sh\nprintf '%s\\n' \"$*\" >> {calls}\n", encoding="utf-8")
+    # Behaves like the kernel: "qdisc show ... root" prints the current root, and
+    # replacing an existing htb 1: root is a "change", which HTB does not support.
+    state = tmp_path / "root.qdisc"
+    state.write_text(root_qdisc, encoding="utf-8")
+    fake_tc.write_text(
+        "#!/bin/sh\n"
+        f"printf '%s\\n' \"$*\" >> {calls}\n"
+        f'if [ "$1 $2" = "qdisc show" ]; then cat {state}; exit 0; fi\n'
+        'case "$*" in "qdisc replace dev ens3 root handle 1: htb"*)\n'
+        f"  if grep -q '^qdisc htb 1: root' {state}; then\n"
+        '    echo "Error: Change operation not supported by specified qdisc." >&2; exit 2; fi;;\n'
+        "esac\n",
+        encoding="utf-8",
+    )
     fake_ip.chmod(0o755)
     fake_tc.chmod(0o755)
     deploy = tmp_path / "deploy.env"
@@ -101,6 +116,7 @@ def test_entry_qdisc_applies_the_host_wide_cap_by_default(tmp_path: Path) -> Non
 
     assert result.returncode == 0, result.stderr
     assert lines == [
+        "qdisc show dev ens3 root",
         "qdisc replace dev ens3 root handle 1: htb default 10",
         "class replace dev ens3 parent 1: classid 1:10 htb rate 65mbit ceil 65mbit burst 64k cburst 64k quantum 60000",
         "qdisc replace dev ens3 parent 1:10 handle 10: fq",
@@ -121,8 +137,8 @@ def test_entry_qdisc_reads_rate_interface_and_directions_from_the_entry_env(tmp_
     )
 
     assert result.returncode == 0, result.stderr
-    assert lines[0] == "qdisc replace dev eth9 root handle 1: htb default 10"
-    assert "rate 40mbit ceil 40mbit" in lines[1]
+    assert lines[:2] == ["qdisc show dev eth9 root", "qdisc replace dev eth9 root handle 1: htb default 10"]
+    assert "rate 40mbit ceil 40mbit" in lines[2]
     assert lines[-1] == "qdisc del dev eth9 ingress"
     assert not any("police" in line for line in lines)
 
@@ -168,3 +184,37 @@ def test_host_runtime_check_cli_succeeds() -> None:
     )
     assert result.returncode == 0, result.stdout + result.stderr
     assert "host runtime check passed" in result.stdout
+
+
+_HTB_ROOT = "qdisc htb 1: root refcnt 2 r2q 10 default 0x10 direct_packets_stat 0 direct_qlen 1000\n"
+
+
+def test_entry_qdisc_rerun_keeps_an_existing_matching_htb_root(tmp_path: Path) -> None:
+    # Regression: the 4.1.4 Entry deploy failed because every run after the
+    # first tried "qdisc replace" on the existing htb 1: root.
+    result, lines = _run_qdisc(tmp_path, "TRACEGATE_HOST_ROLE=entry\n", root_qdisc=_HTB_ROOT)
+
+    assert result.returncode == 0, result.stderr
+    assert not any(line.startswith("qdisc replace dev ens3 root") for line in lines)
+    assert "class replace dev ens3 parent 1: classid 1:10 htb rate 65mbit ceil 65mbit burst 64k cburst 64k quantum 60000" in lines
+    assert "cap 65 Mbit/s (tx=1 rx=1)" in result.stdout
+
+
+def test_entry_qdisc_recreates_an_htb_root_with_other_parameters(tmp_path: Path) -> None:
+    other = "qdisc htb 1: root refcnt 2 r2q 10 default 0x20 direct_packets_stat 0\n"
+    result, lines = _run_qdisc(tmp_path, "TRACEGATE_HOST_ROLE=entry\n", root_qdisc=other)
+
+    assert result.returncode == 0, result.stderr
+    assert lines[1:3] == ["qdisc del dev ens3 root", "qdisc add dev ens3 root handle 1: htb default 10"]
+
+
+def test_entry_qdisc_disable_after_shaping_returns_to_fq(tmp_path: Path) -> None:
+    result, lines = _run_qdisc(
+        tmp_path,
+        "TRACEGATE_HOST_ROLE=entry\n",
+        "AGENT_ENTRY_TRAFFIC_SHAPING_ENABLED=false\n",
+        root_qdisc=_HTB_ROOT,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert lines == ["qdisc replace dev ens3 root fq", "qdisc del dev ens3 ingress"]
