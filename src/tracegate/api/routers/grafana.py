@@ -987,7 +987,7 @@ async def grafana_proxy(
     if not session_data:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Grafana session required (get OTP in bot)",
+            detail="Grafana session required",
         )
     telegram_id, session_scope = session_data
     # Resolve role for each request to avoid stale privileges after role changes.

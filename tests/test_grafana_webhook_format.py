@@ -344,3 +344,31 @@ async def test_grafana_login_without_code_returns_help_page(
     assert "location" not in response.headers
     assert b"Grafana OTP required" in response.body
     assert b"https://t.me/tracegate_bot" in response.body
+
+
+@pytest.mark.asyncio
+async def test_grafana_proxy_without_session_does_not_point_to_the_bot(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        _MODULE,
+        "get_settings",
+        lambda: Settings(grafana_enabled=True, grafana_cookie_secret="test-cookie-secret"),
+    )
+    request = Request(
+        {
+            "type": "http",
+            "method": "GET",
+            "scheme": "https",
+            "server": ("tracegate.test", 443),
+            "path": "/grafana/",
+            "headers": [],
+            "query_string": b"",
+        }
+    )
+
+    with pytest.raises(_MODULE.HTTPException) as excinfo:
+        await _MODULE.grafana_proxy(path="", request=request, session=object())
+
+    assert excinfo.value.status_code == 401
+    assert excinfo.value.detail == "Grafana session required"

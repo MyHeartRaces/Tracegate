@@ -97,7 +97,10 @@ def test_entry_and_transit_bundles_define_proxy_fronting_stack() -> None:
         assert "listen 127.0.0.1:10443 ssl;" in nginx_conf
         assert "/etc/tracegate/tls/ws.crt" in nginx_conf
         assert "root /var/www/decoy;" in nginx_conf
-        assert "try_files $uri $uri/ /index.html;" in nginx_conf
+        # Unknown paths answer 404 from the cover site instead of the home page.
+        assert "try_files $uri $uri/ =404;" in nginx_conf
+        assert "/index.html;" not in nginx_conf
+        assert "error_page 404 /404.html;" in nginx_conf
         # The client VLESS gRPC-TLS surface was retired in 4.1.1.
         assert "grpc_pass" not in nginx_conf
         assert "location /tracegate.v1.Edge/" not in nginx_conf
@@ -117,6 +120,13 @@ def test_entry_and_transit_bundles_define_proxy_fronting_stack() -> None:
     assert "127.0.0.1:51821" not in transit_nginx
     assert "proxy_pass http://127.0.0.1:18080;" in transit_nginx
     assert "location ^~ /v1/decoy/" not in entry_nginx
+    assert "location ^~ /api/account/" not in entry_nginx
+    # The cover-site sign-in has a neutral public path on Endpoint that is
+    # rewritten to the existing agent handlers; the old path stays.
+    assert "location ^~ /api/account/" in transit_nginx
+    assert "rewrite ^/api/account/(.*)$ /v1/decoy/$1 break;" in transit_nginx
+    assert "location ^~ /v1/decoy/" in transit_nginx
+    assert transit_nginx.count("proxy_pass REPLACE_TRANSIT_DECOY_UPSTREAM;") == 2
     assert "location = /vault/mtproto" not in entry_nginx
     assert "proxy_pass https://tracegate.test/vault/mtproto/" not in entry_nginx
     assert "listen 127.0.0.1:443 ssl;" in entry_nginx

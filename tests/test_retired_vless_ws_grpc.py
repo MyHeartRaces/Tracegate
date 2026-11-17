@@ -504,7 +504,8 @@ def test_rendered_templates_drop_client_ws_grpc_but_keep_cover_site_grafana_and_
         assert "listen 127.0.0.1:10443 ssl;" in nginx_conf
         assert server_name in nginx_conf
         assert "root /srv/decoy;" in nginx_conf
-        assert "try_files $uri $uri/ /index.html;" in nginx_conf
+        assert "try_files $uri $uri/ =404;" in nginx_conf
+        assert "error_page 404 /404.html;" in nginx_conf
     assert "listen 127.0.0.1:443 ssl;" in entry_nginx
     assert "listen 192.0.2.10:10444 ssl;" in entry_nginx
 

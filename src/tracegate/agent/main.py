@@ -260,7 +260,7 @@ def _decoy_session_or_401(request: Request) -> dict:
     raw_cookie = request.cookies.get(str(settings.transit_decoy_auth_cookie_name or "").strip() or "tg_decoy_session") or ""
     session = load_decoy_session(settings, raw_cookie)
     if not session:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Decoy session required")
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
     return session
 
 
@@ -527,13 +527,19 @@ async def decoy_mtproto_profile(request: Request) -> DecoyMTProtoAuthResponse:
 
 @app.get("/v1/decoy/github/frame")
 async def decoy_github_frame(request: Request) -> HTMLResponse:
+    # Not part of the public cover site. Without a signed-in session the answer
+    # is the same 404 an unknown path gets, so the frame cannot be found by
+    # crawling the cover domain.
+    raw_cookie = request.cookies.get(str(settings.transit_decoy_auth_cookie_name or "").strip() or "tg_decoy_session") or ""
+    if not decoy_auth_is_configured(settings) or not load_decoy_session(settings, raw_cookie):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
     try:
         html = await load_github_repo_frame_html(settings)
     except Exception as exc:
-        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="GitHub frame is unavailable") from exc
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Frame is unavailable") from exc
     return HTMLResponse(
         html,
-        headers={"Cache-Control": f"public, max-age={max(30, int(settings.transit_decoy_github_cache_ttl_seconds or 300))}"},
+        headers={"Cache-Control": f"private, max-age={max(30, int(settings.transit_decoy_github_cache_ttl_seconds or 300))}"},
     )
 
 

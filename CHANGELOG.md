@@ -1,5 +1,20 @@
 # Changelog
 
+## Unreleased
+
+- Cover site: both nginx templates answer unknown paths with 404 and serve
+  `/404.html` from the decoy root, instead of returning the home page with
+  200 for every path. Deploy decoy content that includes `404.html`, and make
+  sure every page the site links to exists as a file.
+- Endpoint nginx exposes the cover-site sign-in under the neutral path
+  `/api/account/`, rewritten to the existing `/v1/decoy/` agent handlers.
+  `/v1/decoy/` stays for pages that already use it.
+- The agent's repository frame endpoint now answers 404 unless the request
+  carries a valid signed-in session, and its responses are cached privately.
+  The session error no longer names the decoy.
+- Grafana: the 401 for a request without a session now reads only
+  "Grafana session required".
+
 ## v4.2.0 - 2026-11-17
 
 Telegram bot overhaul. No database migration; issued connections unchanged.

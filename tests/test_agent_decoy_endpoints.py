@@ -436,3 +436,61 @@ def test_agent_mtproto_access_revoke_shared_secret_does_not_reload(monkeypatch, 
     assert revoke.json() == {"ok": True, "removed": True}
     assert reload_calls == []
     assert load_mtproto_access_entries(settings) == []
+
+
+def test_decoy_session_errors_do_not_name_the_decoy(monkeypatch, tmp_path) -> None:
+    settings = _settings(tmp_path)
+    monkeypatch.setattr(agent_main, "settings", settings)
+
+    with TestClient(agent_main.app) as client:
+        response = client.get("/v1/decoy/mtproto")
+
+    assert response.status_code == 401
+    assert "decoy" not in response.text.lower()
+
+
+def test_github_frame_is_hidden_without_a_session(monkeypatch, tmp_path) -> None:
+    settings = _settings(tmp_path)
+    calls: list[str] = []
+
+    async def _frame(_settings):
+        calls.append("frame")
+        return "<!doctype html><title>frame</title>"
+
+    monkeypatch.setattr(agent_main, "settings", settings)
+    monkeypatch.setattr(agent_main, "load_github_repo_frame_html", _frame)
+
+    with TestClient(agent_main.app) as client:
+        anonymous = client.get("/v1/decoy/github/frame")
+        assert anonymous.status_code == 404
+        assert anonymous.json() == {"detail": "Not found"}
+        assert calls == []
+
+        client.cookies.set(settings.transit_decoy_auth_cookie_name, "forged.value")
+        forged = client.get("/v1/decoy/github/frame")
+        assert forged.status_code == 404
+        assert calls == []
+        client.cookies.clear()
+
+        login = client.post(
+            "/v1/decoy/login",
+            json={"login": "vault-operator", "password": "vault-passphrase"},
+        )
+        assert login.status_code == 200
+
+        signed_in = client.get("/v1/decoy/github/frame")
+        assert signed_in.status_code == 200
+        assert "<title>frame</title>" in signed_in.text
+        assert signed_in.headers["cache-control"].startswith("private,")
+        assert calls == ["frame"]
+
+
+def test_github_frame_is_hidden_when_auth_is_not_configured(monkeypatch, tmp_path) -> None:
+    settings = _settings(tmp_path)
+    settings.transit_decoy_auth_login = ""
+    monkeypatch.setattr(agent_main, "settings", settings)
+
+    with TestClient(agent_main.app) as client:
+        response = client.get("/v1/decoy/github/frame")
+
+    assert response.status_code == 404

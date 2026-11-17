@@ -337,6 +337,9 @@ def test_render_materialized_bundles_rewrites_runtime_files(tmp_path: Path) -> N
     assert "server_name tls-transit.example grafana.tracegate.test;" in transit_nginx
     assert "location ^~ /v1/decoy/" in transit_nginx
     assert "proxy_pass http://127.0.0.1:8070;" in transit_nginx
+    assert "location ^~ /api/account/" in transit_nginx
+    assert transit_nginx.count("proxy_pass http://127.0.0.1:8070;") == 2
+    assert "REPLACE_TRANSIT_DECOY_UPSTREAM" not in transit_nginx
     assert "location = /vault/mtproto" in transit_nginx
     assert "return 302 /vault/mtproto/;" in transit_nginx
     assert "root /srv/decoy;" in entry_nginx
