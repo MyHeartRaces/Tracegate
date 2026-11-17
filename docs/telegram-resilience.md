@@ -92,9 +92,8 @@ dial. WebSocket is therefore reserved for the system/router tunnel lane.
 
 ### Tunnel lane
 
-- Reuse the proxied Endpoint hostname as the immediately deployable
-  `backup-grpc` lane, following the fail-closed
-  [Endpoint Cloudflare fallback](endpoint-cdn-fallback.md) contract.
+- The Endpoint Cloudflare `backup-grpc` lane was retired in 4.1.1 together
+  with the VLESS gRPC/WebSocket client families.
 - Finish Universal Entry on a dedicated Cloudflare-proxied hostname using real
   TLS, HTTP/2 and one multiplexed gRPC connection.
 - Keep reconnect jitter and `maxParallelHandshakes=1`; do not race all shards.
