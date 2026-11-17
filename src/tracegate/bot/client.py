@@ -83,25 +83,14 @@ class TracegateApiClient:
     async def delete_device(self, device_id: UUID | str) -> None:
         await self._request("DELETE", f"/devices/{device_id}")
 
-    async def activate_device(self, device_id: UUID | str) -> dict:
-        return await self._request("POST", f"/devices/{device_id}/activate")
+    async def rename_device(self, device_id: UUID | str, name: str) -> dict:
+        return await self._request("PATCH", f"/devices/{device_id}", json={"name": name})
 
     async def list_connections(self, device_id: UUID | str) -> list[dict]:
         return await self._request("GET", f"/connections/by-device/{device_id}")
 
     async def get_connection(self, connection_id: UUID | str) -> dict:
         return await self._request("GET", f"/connections/{connection_id}")
-
-    async def list_sni_filtered(self, provider: str | None, *, purpose: str | None = None) -> list[dict]:
-        params = {}
-        if provider:
-            params["provider"] = provider
-        if purpose:
-            params["purpose"] = purpose
-        return await self._request("GET", "/sni", params=params)
-
-    async def list_sni(self) -> list[dict]:
-        return await self.list_sni_filtered(None)
 
     async def list_revisions(self, connection_id: UUID | str) -> list[dict]:
         return await self._request("GET", f"/revisions/by-connection/{connection_id}")

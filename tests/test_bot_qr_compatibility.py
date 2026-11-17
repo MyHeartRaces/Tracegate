@@ -17,7 +17,7 @@ from io import BytesIO
 import json
 import sys
 from PIL import Image
-from tracegate.bot.main import _build_qr_png
+from tracegate.bot.delivery import build_qr_png as _build_qr_png
 
 images = []
 for payload in sys.argv[1:]:

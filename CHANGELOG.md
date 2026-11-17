@@ -1,5 +1,28 @@
 # Changelog
 
+## v4.2.0 - 2026-11-17
+
+Telegram bot overhaul. No database migration; issued connections unchanged.
+
+- Fully Russian bot with informal "ты"; all user-facing strings in
+  `bot/texts.py`. New main menu: devices, Telegram Proxy, guide, message to
+  admin, Grafana (when enabled), admin tools.
+- Devices: per-device page with connections, rename, delete with confirm.
+- Connections: Russian labels (Цепочка, Прямое VLESS, Прямое Hysteria with
+  Salamander/Gecko), one "Перевыпустить" button with a confirm screen;
+  revision slots moved to "Дополнительно" (main/reserve).
+- Config delivery: short Russian header, three steps, "Как подключить".
+- Structured private guide: `BOT_GUIDE_PATH` may point to a YAML/JSON file
+  with sections and nested pages (docs/bot-guide.md); plain text still works.
+- One-message navigation, every button acknowledged first, stale buttons from
+  older versions open the current menu instead of failing, command menu
+  registered at startup.
+- No raw API errors, paths or IDs reach users; admins get the status code.
+  Admin role re-checked on every admin text input; IDs validated; long
+  reports split.
+- `bot/main.py` is wiring only; handlers split into per-area routers. Dead
+  SNI catalog, legacy VLESS create flows and active-device leftovers removed.
+
 ## v4.1.5 - 2026-11-17
 
 - Fix: `tracegate-network-qdisc` failed on every run after the first on Entry

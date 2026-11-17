@@ -1,6 +1,6 @@
-# Tracegate 3 host architecture
+# Tracegate 4 host architecture
 
-Tracegate 3 uses two Linux host roles: Entry and Endpoint. Services are
+Tracegate 4 uses two Linux host roles: Entry and Endpoint. Services are
 supervised by systemd; containerized transports use host networking and bind
 their public or loopback addresses explicitly.
 

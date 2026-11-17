@@ -1,6 +1,6 @@
 # Telegram resilience under DPI and whitelist networks
 
-This document defines the Tracegate 3 availability model for Telegram. It
+This document defines the Tracegate 4 availability model for Telegram. It
 does not claim that one proxy endpoint can remain reachable under every
 filtering policy. If a provider allows no route to a Tracegate-controlled or
 relay destination, a server-side change cannot create one.

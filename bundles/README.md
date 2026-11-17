@@ -1,6 +1,6 @@
 # Tracegate Runtime Bundles
 
-These are public, generic bundle templates for Tracegate 3. They contain only
+These are public, generic bundle templates for Tracegate 4. They contain only
 placeholders, loopback listeners and documentation-reserved values. They are
 not deployable production configuration until the private operator renderer
 materializes external credentials, domains and role-specific settings.

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
+from tracegate.bot import texts
 from tracegate.services.user_roles import can_manage_user
 from tracegate.services.bot_blocks import is_permanent_bot_block_until
 
@@ -35,14 +36,14 @@ def is_bot_blocked(user: dict) -> bool:
 def blocked_message(user: dict) -> str:
     until = bot_block_until(user)
     if until is None:
-        return "Доступ временно ограничен."
+        return texts.BLOCKED_GENERIC
     if is_permanent_bot_block_until(until):
-        text = "Доступ к боту перманентно ограничен."
+        text = texts.BLOCKED_PERMANENT
     else:
-        text = f"Доступ к боту временно ограничен до {until.isoformat()}."
+        text = texts.blocked_until(until.isoformat())
     reason = (user.get("bot_block_reason") or "").strip()
     if reason:
-        text += f"\nПричина: {reason}"
+        text += "\n" + texts.blocked_reason(reason)
     return text
 
 

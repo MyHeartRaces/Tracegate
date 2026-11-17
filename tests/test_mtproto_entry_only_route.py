@@ -150,5 +150,5 @@ def test_bot_link_message_adds_update_hint_after_links() -> None:
     )
 
     assert text.splitlines()[-1] == bot_main.MTPROTO_UPDATE_TELEGRAM_HINT
-    assert "Обновите Telegram до последней версии" in text
+    assert "Обнови Telegram до последней версии" in text
     assert text.index("port=443") < text.index(bot_main.MTPROTO_UPDATE_TELEGRAM_HINT)

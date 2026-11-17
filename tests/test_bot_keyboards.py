@@ -1,314 +1,223 @@
-from tracegate.bot.keyboards import (
-    PROVIDER_CHOICES,
-    admin_menu_keyboard,
-    admin_mtproto_keyboard,
-    admin_user_revoke_notify_keyboard,
-    cancel_only_keyboard,
-    confirm_action_keyboard,
-    connection_create_categories_keyboard_for,
-    connection_create_profiles_keyboard,
-    config_delivery_keyboard,
-    device_actions_keyboard,
-    devices_keyboard,
-    feedback_admin_keyboard,
-    guide_keyboard,
-    help_keyboard,
-    hysteria_obfs_keyboard,
-    main_menu_keyboard,
-    mtproto_delivery_keyboard,
-    revisions_keyboard,
-    sni_page_keyboard_new,
-    vless_transport_keyboard,
-)
+from __future__ import annotations
+
+import pytest
+
+import test_bot_support  # noqa: F401
+from test_bot_support import button_texts, buttons, callback_datas, new_id
+from tracegate.bot import callbacks as cb
+from tracegate.bot import keyboards, texts
+from tracegate.services.connection_profiles import MAX_CONNECTIONS_PER_DEVICE, MAX_DEVICES_PER_USER
+
+UUID = "11111111-2222-3333-4444-555555555555"
 
 
-def _button_texts(keyboard) -> list[str]:
-    out: list[str] = []
-    for row in keyboard.inline_keyboard:
-        for button in row:
-            out.append(str(button.text))
-    return out
+def test_main_menu_layout_for_user() -> None:
+    kb = keyboards.main_menu_keyboard(is_admin=False, grafana_enabled=False)
+    assert button_texts(kb) == ["📱 Мои устройства", "✈️ Telegram Proxy", "📖 Инструкция", "💬 Написать админу"]
+    assert callback_datas(kb) == [cb.DEVICES, cb.TGP, cb.GUIDE, cb.FEEDBACK]
 
 
-def _has_text(texts: list[str], needle: str) -> bool:
-    return any(needle in text for text in texts)
+def test_main_menu_grafana_and_admin_are_conditional() -> None:
+    kb = keyboards.main_menu_keyboard(is_admin=True, grafana_enabled=True)
+    assert button_texts(kb)[-2:] == ["📊 Grafana", "🛠 Управление"]
+    assert callback_datas(kb)[-2:] == [cb.GRAFANA, cb.ADMIN]
+    assert "📊 Grafana" not in button_texts(keyboards.main_menu_keyboard(is_admin=True, grafana_enabled=False))
 
 
-def test_vless_transport_keyboard_v1_shows_reality_only() -> None:
-    kb = vless_transport_keyboard(spec="v1", device_id="dev-1")
-    texts = _button_texts(kb)
-    assert _has_text(texts, "Reality (автовыбор)")
-    assert not _has_text(texts, "gRPC (HTTP/2 TLS)")
-    assert not _has_text(texts, "WS+TLS (legacy)")
+def test_devices_keyboard_shows_counts_and_hides_add_at_limit() -> None:
+    devices = [{"id": new_id(), "name": f"Устройство {i}"} for i in range(MAX_DEVICES_PER_USER)]
+    kb = keyboards.devices_keyboard(devices[:1], {devices[0]["id"]: 3})
+    assert button_texts(kb) == ["📱 Устройство 0 · 3", texts.BTN_ADD_DEVICE, texts.BTN_HOME]
+    assert callback_datas(kb)[0] == f"dev:{devices[0]['id']}"
+    full = keyboards.devices_keyboard(devices, {})
+    assert texts.BTN_ADD_DEVICE not in button_texts(full)
+    assert button_texts(full)[-1] == texts.BTN_HOME
 
 
-def test_vless_transport_keyboard_v2_has_no_transport_choices() -> None:
-    kb = vless_transport_keyboard(spec="v2", device_id="dev-2")
-    texts = _button_texts(kb)
-    assert not _has_text(texts, "Reality (автовыбор)")
-    assert not _has_text(texts, "gRPC (HTTP/2 TLS)")
-    assert not _has_text(texts, "WS+TLS (legacy)")
-    assert _has_text(texts, "Отмена")
-
-
-def test_provider_choices_exclude_beeline_and_other() -> None:
-    provider_codes = {code for _, code in PROVIDER_CHOICES}
-    assert "beeline" not in provider_codes
-    assert "other" not in provider_codes
-
-
-def test_sni_picker_does_not_expose_encrypted_reality_action() -> None:
-    kb = sni_page_keyboard_new(
-        spec="v1direct",
-        device_id="dev-1",
-        provider="all",
-        page=0,
-        page_count=1,
-        sni_rows_page=[{"id": 100, "fqdn": "old-forbidden.tracegate-sni.ru"}],
-    )
-
-    first = kb.inline_keyboard[0][0]
-    assert first.text == "old-forbidden.tracegate-sni.ru"
-    assert first.callback_data == "sni:v1direct:dev-1:100"
-
-
-def test_main_menu_does_not_include_sni_catalog_button() -> None:
-    kb = main_menu_keyboard(is_admin=False)
-    texts = _button_texts(kb)
-    assert not _has_text(texts, "Каталог SNI")
-
-
-def test_main_menu_uses_grafana_button_caption() -> None:
-    kb = main_menu_keyboard(is_admin=False)
-    texts = _button_texts(kb)
-    assert _has_text(texts, "Grafana")
-    assert not _has_text(texts, "Наблюдаемость")
-
-
-def test_main_menu_includes_guide_button() -> None:
-    kb = main_menu_keyboard(is_admin=False)
-    texts = _button_texts(kb)
-    assert _has_text(texts, "Справка")
-    assert kb.inline_keyboard[1][0].text == "📚 Справка"
-    assert kb.inline_keyboard[1][0].callback_data == "guide_open"
-
-
-def test_help_keyboard_returns_to_menu_without_extra_links() -> None:
-    kb = help_keyboard()
-    assert len(kb.inline_keyboard) == 1
-    assert kb.inline_keyboard[0][0].text == "🏠 Меню"
-    assert kb.inline_keyboard[0][0].callback_data == "menu"
-
-
-def test_main_menu_keeps_devices_inside_connections() -> None:
-    kb = main_menu_keyboard(is_admin=False)
-    texts = _button_texts(kb)
-    assert _has_text(texts, "Подключения")
-    assert not _has_text(texts, "Устройства")
-    assert not _has_text(texts, "Добавить устройство")
-    assert not _has_text(texts, "Новое устройство")
-
-
-def test_main_menu_includes_feedback_button() -> None:
-    kb = main_menu_keyboard(is_admin=False)
-    texts = _button_texts(kb)
-    assert _has_text(texts, "Обратная связь")
-
-
-def test_main_menu_moves_mtproto_button_to_connections() -> None:
-    kb = main_menu_keyboard(is_admin=False)
-    texts = _button_texts(kb)
-    assert not _has_text(texts, "Telegram Proxy")
-    assert _has_text(_button_texts(devices_keyboard([])), "Telegram Proxy")
-
-
-def test_feedback_admin_keyboard_uses_targeted_callback() -> None:
-    kb = feedback_admin_keyboard(telegram_id=123456789)
-    button = kb.inline_keyboard[0][0]
-    assert button.text == "🚫 Заблокировать автора"
-    assert button.callback_data == "feedback_block:123456789"
-
-
-def test_admin_menu_keyboard_includes_targeted_access_revoke_action() -> None:
-    kb = admin_menu_keyboard(is_superadmin=False)
-    texts = _button_texts(kb)
-    assert _has_text(texts, "Отозвать доступ")
-    assert _has_text(texts, "Сводка пользователей")
-    assert _has_text(texts, "Telegram Proxy доступы")
-    assert _has_text(texts, "Глобальный отзыв")
-
-
-def test_admin_menu_keyboard_uses_tracegate2_role_labels() -> None:
-    kb = admin_menu_keyboard(is_superadmin=True)
-    texts = _button_texts(kb)
-    assert _has_text(texts, "Telegram Proxy доступы")
-    assert not _has_text(texts, "Наблюдаемость (админ)")
-    assert _has_text(texts, "Назначить администратора")
-    assert _has_text(texts, "Снять администратора")
-    assert _has_text(texts, "Список администраторов")
-
-
-def test_admin_user_revoke_notify_keyboard_has_yes_no_actions() -> None:
-    kb = admin_user_revoke_notify_keyboard()
-    assert kb.inline_keyboard[0][0].text == "✅ Да"
-    assert kb.inline_keyboard[0][0].callback_data == "admin_user_revoke_notify:yes"
-    assert kb.inline_keyboard[1][0].text == "↩️ Нет"
-    assert kb.inline_keyboard[1][0].callback_data == "admin_user_revoke_notify:no"
-
-
-def test_admin_mtproto_keyboard_exposes_refresh_and_revoke_actions() -> None:
-    kb = admin_mtproto_keyboard()
-    texts = _button_texts(kb)
-    assert _has_text(texts, "Обновить")
-    assert _has_text(texts, "Отозвать Telegram Proxy")
-    assert _has_text(texts, "Управление")
-
-
-def test_guide_keyboard_returns_to_menu() -> None:
-    kb = guide_keyboard()
-    assert len(kb.inline_keyboard) == 1
-    assert kb.inline_keyboard[0][0].text == "🏠 Меню"
-    assert kb.inline_keyboard[0][0].callback_data == "menu"
-
-
-def test_cancel_only_keyboard_uses_single_cancel_action() -> None:
-    kb = cancel_only_keyboard(cancel_callback_data="admin_menu")
-    assert kb.inline_keyboard[0][0].text == "↩️ Отмена"
-    assert kb.inline_keyboard[0][0].callback_data == "admin_menu"
-
-
-def test_confirm_action_keyboard_uses_confirm_and_back_actions() -> None:
-    kb = confirm_action_keyboard(confirm_callback_data="confirm:1", cancel_callback_data="back:1")
-    assert kb.inline_keyboard[0][0].text == "✅ Подтвердить"
-    assert kb.inline_keyboard[0][0].callback_data == "confirm:1"
-    assert kb.inline_keyboard[1][0].text == "↩️ Назад"
-    assert kb.inline_keyboard[1][0].callback_data == "back:1"
-
-
-def test_config_delivery_keyboard_links_back_to_connection_and_connections() -> None:
-    kb = config_delivery_keyboard(connection_id="conn-1", device_id="dev-1")
-    assert kb.inline_keyboard[0][0].text == "🧩 К подключению"
-    assert kb.inline_keyboard[0][0].callback_data == "revs:conn-1"
-    assert kb.inline_keyboard[1][0].text == "🔌 К подключениям"
-    assert kb.inline_keyboard[1][0].callback_data == "connections"
-
-
-def test_mtproto_delivery_keyboard_exposes_repeat_rotate_and_revoke_actions() -> None:
-    kb = mtproto_delivery_keyboard()
-    texts = _button_texts(kb)
-    assert _has_text(texts, "Показать снова")
-    assert _has_text(texts, "Ротировать секрет")
-    assert _has_text(texts, "Отозвать доступ")
-    assert _has_text(texts, "Подключения")
-
-
-def _callback_data(keyboard) -> list[str]:
-    return [str(button.callback_data) for row in keyboard.inline_keyboard for button in row]
-
-
-def test_connection_create_profiles_keyboard_uses_new_profile_names() -> None:
-    direct = _button_texts(connection_create_profiles_keyboard(category="direct", device_id="dev-42"))
-    assert "Reality" in direct
-    assert "Hysteria" in direct
-
-    experimental = _button_texts(connection_create_profiles_keyboard(category="experimental", device_id="dev-42"))
-    assert "Shadowsocks-2022+ShadowTLS1.3" not in experimental
-    assert "Wireguard-over-WebSocket (WGWS)" not in experimental
-
-
-def test_retired_vless_ws_grpc_backup_profiles_are_not_offered_anywhere() -> None:
-    # VLESS WS-TLS / gRPC-TLS ("Backup") were retired in 4.1.1.
-    keyboards = [
-        connection_create_categories_keyboard_for(device_id="dev-42", enabled_specs=None),
-        connection_create_categories_keyboard_for(
-            device_id="dev-42", enabled_specs={"reality", "hysteria", "entry", "backup-ws", "backup-grpc"}
-        ),
-        *(
-            connection_create_profiles_keyboard(category=category, device_id="dev-42", enabled_specs=enabled)
-            for category in ("direct", "backup")
-            for enabled in (None, {"reality", "hysteria", "backup-ws", "backup-grpc", "entry-ws-legacy"})
-        ),
+def test_device_keyboard_lists_connections_with_russian_labels() -> None:
+    connections = [
+        {"id": new_id(), "protocol": "vless_reality", "mode": "chain", "variant": "V1"},
+        {"id": new_id(), "protocol": "hysteria2", "mode": "direct", "variant": "V2", "custom_overrides_json": {"hysteria_obfs": "gecko"}},
+        {"id": new_id(), "protocol": "vless_ws_tls", "mode": "direct", "variant": "V0"},
     ]
-    for keyboard in keyboards:
-        texts = " ".join(_button_texts(keyboard)).lower()
-        callbacks = " ".join(_callback_data(keyboard)).lower()
-        for needle in ("backup", "grpc", "websocket", "vless+ws"):
-            assert needle not in texts
-        for needle in ("backup", "grpc", "conncat:backup", "entry-ws"):
-            assert needle not in callbacks
-    # A stale "Backup" category renders only the back button.
-    stale = connection_create_profiles_keyboard(category="backup", device_id="dev-42")
-    assert _callback_data(stale) == ["conn_create:dev-42"]
+    kb = keyboards.device_keyboard(UUID, connections, can_create=True)
+    assert button_texts(kb) == [
+        "🔗 Chain",
+        "🚀 Direct Hysteria · Gecko",
+        "🗂 Устаревшее подключение",
+        texts.BTN_NEW_CONNECTION,
+        texts.BTN_RENAME_DEVICE,
+        texts.BTN_DELETE_DEVICE,
+        texts.BTN_BACK,
+        texts.BTN_HOME,
+    ]
+    datas = callback_datas(kb)
+    assert datas[0] == f"conn:{connections[0]['id']}"
+    assert f"cnew:{UUID}" in datas
+    assert f"devren:{UUID}" in datas
+    assert f"devdelq:{UUID}" in datas
+    assert datas[-2:] == [cb.DEVICES, cb.MENU]
 
 
-def test_hysteria_obfs_keyboard_recommends_salamander_and_offers_gecko() -> None:
-    kb = hysteria_obfs_keyboard(device_id="dev-42")
-
-    assert _button_texts(kb)[:2] == ["Salamander (рекомендуется)", "Gecko"]
-    assert kb.inline_keyboard[0][0].callback_data == "hyobfs:salamander:dev-42"
-    assert kb.inline_keyboard[1][0].callback_data == "hyobfs:gecko:dev-42"
+def test_device_keyboard_hides_new_connection_at_limit() -> None:
+    connections = [{"id": new_id(), "protocol": "vless_reality", "mode": "chain"} for _ in range(MAX_CONNECTIONS_PER_DEVICE)]
+    kb = keyboards.device_keyboard(UUID, connections, can_create=False)
+    assert texts.BTN_NEW_CONNECTION not in button_texts(kb)
 
 
-def test_connection_create_keyboards_hide_disabled_profiles() -> None:
-    enabled = {"reality"}
-    categories = _button_texts(connection_create_categories_keyboard_for(device_id="dev-42", enabled_specs=enabled))
-    assert "Direct" in categories
-    assert "Chain" not in categories
-    assert "Experimental" not in categories
-    assert "Backup" not in categories
-    assert "Entry Chain (Mobile)" not in categories
-
-    direct = _button_texts(
-        connection_create_profiles_keyboard(category="direct", device_id="dev-42", enabled_specs=enabled)
-    )
-    assert "Reality" in direct
-    assert "Hysteria" not in direct
+def test_create_keyboard_offers_chain_first_and_hides_disabled() -> None:
+    kb = keyboards.create_connection_keyboard(UUID, {"entry", "reality", "hysteria"})
+    assert button_texts(kb) == [
+        texts.BTN_MAKE_CHAIN, texts.BTN_MAKE_REALITY, texts.BTN_MAKE_HYSTERIA, texts.BTN_BACK, texts.BTN_HOME
+    ]
+    assert callback_datas(kb) == [f"cmk:entry:{UUID}", f"cmk:reality:{UUID}", f"chy:{UUID}", f"dev:{UUID}", cb.MENU]
+    only_reality = keyboards.create_connection_keyboard(UUID, {"reality"})
+    assert button_texts(only_reality) == [texts.BTN_MAKE_REALITY, texts.BTN_BACK, texts.BTN_HOME]
+    none = keyboards.create_connection_keyboard(UUID, set())
+    assert button_texts(none) == [texts.BTN_BACK, texts.BTN_HOME]
 
 
-def test_connection_create_keyboards_can_expose_only_universal_entry() -> None:
-    enabled = {"entry"}
-    categories = _button_texts(connection_create_categories_keyboard_for(device_id="dev-42", enabled_specs=enabled))
-    assert "Chain" in categories
-    assert "Tracegate-Reality" not in categories
-    assert "Tracegate-Hysteria" not in categories
-    assert "Backup" not in categories
+def test_hysteria_obfs_keyboard() -> None:
+    kb = keyboards.hysteria_obfs_keyboard(UUID)
+    assert button_texts(kb) == ["Salamander — рекомендуется", "Gecko", texts.BTN_BACK, texts.BTN_HOME]
+    assert callback_datas(kb) == [f"cmk:hy-salamander:{UUID}", f"cmk:hy-gecko:{UUID}", f"cnew:{UUID}", cb.MENU]
 
 
-def test_devices_keyboard_uses_delete_confirmation_callback() -> None:
-    kb = devices_keyboard([{"id": "dev-1", "name": "Laptop"}])
-    delete_button = kb.inline_keyboard[0][1]
-    assert delete_button.callback_data == "deldevask:dev-1"
+def test_connection_keyboard_regular_and_legacy() -> None:
+    regular = keyboards.connection_keyboard(UUID, UUID)
+    assert button_texts(regular) == [
+        texts.BTN_SHOW_CONFIG,
+        texts.BTN_REISSUE,
+        texts.BTN_ADVANCED,
+        texts.BTN_DELETE_CONNECTION,
+        texts.BTN_BACK,
+        texts.BTN_HOME,
+    ]
+    assert callback_datas(regular)[:4] == [f"cshow:{UUID}", f"creq:{UUID}", f"cadv:{UUID}", f"cdelq:{UUID}"]
+    no_config = keyboards.connection_keyboard(UUID, UUID, has_config=False)
+    assert texts.BTN_SHOW_CONFIG not in button_texts(no_config)
+    legacy = keyboards.connection_keyboard(UUID, UUID, legacy=True)
+    assert button_texts(legacy) == [texts.BTN_DELETE_CONNECTION, texts.BTN_BACK, texts.BTN_HOME]
 
 
-def test_devices_keyboard_hides_add_action_at_device_limit() -> None:
-    kb = devices_keyboard(
+def test_slots_keyboard_actions_per_slot() -> None:
+    main_id, reserve_id, old_id = new_id(), new_id(), new_id()
+    kb = keyboards.slots_keyboard(
+        UUID,
         [
-            {"id": "dev-1", "name": "Laptop"},
-            {"id": "dev-2", "name": "Phone"},
-            {"id": "dev-3", "name": "Router"},
-            {"id": "dev-4", "name": "Tablet"},
-        ]
+            {"id": main_id, "slot": 0, "status": "active", "created_at": "2026-11-17T10:00:00Z"},
+            {"id": reserve_id, "slot": 1, "status": "active", "created_at": "2026-11-16T09:00:00Z"},
+            {"id": old_id, "slot": 1, "status": "revoked", "created_at": "2026-11-15T08:00:00Z"},
+        ],
     )
-
-    assert not _has_text(_button_texts(kb), "Добавить устройство")
-
-
-def test_device_actions_keyboard_uses_delete_confirmation_callback() -> None:
-    kb = device_actions_keyboard(
-        "dev-42",
-        connections=[{"id": "conn-1", "protocol": "vless_reality", "mode": "direct", "variant": "V1"}],
-    )
-    delete_button = next(button for row in kb.inline_keyboard for button in row if button.callback_data == "delconnask:conn-1")
-    assert delete_button.callback_data == "delconnask:conn-1"
+    rows = [[(b.text, b.callback_data) for b in row] for row in kb.inline_keyboard]
+    assert rows[0] == [("🗑 Отключить · 17.11 10:00", f"srevq:{main_id}")]
+    assert rows[1] == [("⭐ Сделать основной · 16.11 09:00", f"sact:{reserve_id}"), ("🗑 Отключить · 16.11 09:00", f"srevq:{reserve_id}")]
+    assert rows[2] == [("♻️ Включить снова · 15.11 08:00", f"sact:{old_id}")]
+    assert rows[3] == [(texts.BTN_BACK, f"conn:{UUID}"), (texts.BTN_HOME, cb.MENU)]
 
 
-def test_revisions_keyboard_uses_delete_confirmation_callback() -> None:
-    kb = revisions_keyboard(
-        "conn-1",
-        [{"id": "rev-1", "slot": 0, "status": "ACTIVE"}],
-        True,
-        "dev-1",
-    )
-    assert kb.inline_keyboard[0][0].callback_data == "issueplain:conn-1"
-    delete_button = kb.inline_keyboard[2][1]
-    assert delete_button.callback_data == "revokeask:rev-1"
+def test_config_delivery_keyboard_links_guide_connection_and_menu() -> None:
+    kb = keyboards.config_delivery_keyboard(connection_id=UUID, howto_callback="g:apps")
+    assert button_texts(kb) == [texts.BTN_HOWTO, texts.BTN_TO_CONNECTION, texts.BTN_HOME]
+    assert callback_datas(kb) == ["g:apps", f"conn:{UUID}", cb.MENU]
+
+
+def test_tgp_keyboard_back_goes_to_menu() -> None:
+    kb = keyboards.tgp_keyboard()
+    assert callback_datas(kb) == [cb.TGP_SHOW, cb.TGP_ROTATE, cb.TGP_REVOKE_ASK, cb.MENU]
+    assert button_texts(kb)[-1] == texts.BTN_BACK
+
+
+def test_guide_keyboard_root_and_page() -> None:
+    root = keyboards.guide_keyboard([("🚀 Быстрый старт", "g:quick")], back_callback=None)
+    assert callback_datas(root) == ["g:quick", cb.MENU]
+    page = keyboards.guide_keyboard([], back_callback="g:apps")
+    assert button_texts(page) == [texts.BTN_BACK, texts.BTN_HOME]
+    assert callback_datas(page) == ["g:apps", cb.MENU]
+
+
+def test_admin_menu_keyboard_by_role() -> None:
+    admin = keyboards.admin_menu_keyboard(is_superadmin=False)
+    assert callback_datas(admin) == [
+        cb.ADMIN_USERS,
+        cb.ADMIN_TGP,
+        cb.ADMIN_REVOKE_ACCESS,
+        cb.ADMIN_BLOCK,
+        cb.ADMIN_UNBLOCK,
+        cb.ADMIN_RESET_ASK,
+        cb.MENU,
+    ]
+    superadmin = keyboards.admin_menu_keyboard(is_superadmin=True)
+    for callback_data in (cb.ADMIN_GRANT, cb.ADMIN_UNGRANT, cb.ADMIN_LIST):
+        assert callback_data in callback_datas(superadmin)
+
+
+def test_admin_cancel_keyboard_is_one_consistent_cancel() -> None:
+    kb = keyboards.admin_cancel_keyboard()
+    assert button_texts(kb) == ["↩️ Отмена"]
+    assert callback_datas(kb) == [cb.ADMIN]
+    notify = keyboards.admin_notify_keyboard()
+    assert callback_datas(notify) == [cb.ADMIN_NOTIFY_YES, cb.ADMIN_NOTIFY_NO, cb.ADMIN]
+
+
+def test_feedback_admin_keyboard_keeps_targeted_callback() -> None:
+    kb = keyboards.feedback_admin_keyboard(telegram_id=123456789)
+    assert callback_datas(kb) == ["feedback_block:123456789"]
+
+
+def test_grafana_keyboard_uses_login_url() -> None:
+    kb = keyboards.grafana_keyboard("https://grafana.example.test/login?code=x")
+    assert buttons(kb)[0].url == "https://grafana.example.test/login?code=x"
+    assert button_texts(keyboards.grafana_keyboard(None)) == [texts.BTN_HOME]
+
+
+@pytest.mark.parametrize(
+    "data",
+    [
+        cb.make(cb.MAKE_HYSTERIA_SALAMANDER, UUID),
+        cb.with_id(cb.DEVICE_DELETE_ASK_P, UUID),
+        cb.with_id(cb.CONN_DELETE_ASK_P, UUID),
+        cb.with_id(cb.SLOT_REVOKE_ASK_P, UUID),
+        cb.with_id(cb.FEEDBACK_BLOCK_P, 10**15),
+        cb.ADMIN_NOTIFY_YES,
+    ],
+)
+def test_callbacks_fit_telegram_limit(data: str) -> None:
+    assert len(data.encode()) <= 64
+
+
+def test_every_keyboard_callback_fits_with_uuid_ids() -> None:
+    connections = [{"id": UUID, "protocol": "hysteria2", "mode": "direct", "custom_overrides_json": {"hysteria_obfs": "salamander"}}]
+    revisions = [{"id": UUID, "slot": 1, "status": "active", "created_at": "2026-11-17T10:00:00Z"}]
+    built = [
+        keyboards.devices_keyboard([{"id": UUID, "name": "x" * 200}], {}),
+        keyboards.device_keyboard(UUID, connections, can_create=True),
+        keyboards.create_connection_keyboard(UUID, {"entry", "reality", "hysteria"}),
+        keyboards.hysteria_obfs_keyboard(UUID),
+        keyboards.connection_keyboard(UUID, UUID),
+        keyboards.slots_keyboard(UUID, revisions),
+        keyboards.config_delivery_keyboard(connection_id=UUID),
+    ]
+    for keyboard in built:
+        for data in callback_datas(keyboard):
+            assert cb.fits(data), data
+
+
+def test_callback_parsers_reject_malformed_ids() -> None:
+    assert cb.parse_id(f"dev:{UUID}", cb.DEVICE_P) == UUID
+    assert cb.parse_id("dev:not-a-uuid", cb.DEVICE_P) is None
+    assert cb.parse_make(f"cmk:entry:{UUID}") == ("entry", UUID)
+    assert cb.parse_make(f"cmk:backup-ws:{UUID}") is None
+    assert cb.parse_telegram_id("feedback_block:42", cb.FEEDBACK_BLOCK_P) == 42
+    assert cb.parse_telegram_id("feedback_block:abc", cb.FEEDBACK_BLOCK_P) is None
+
+
+def test_long_device_names_are_clipped_in_buttons() -> None:
+    kb = keyboards.devices_keyboard([{"id": UUID, "name": "Очень" * 30}], {UUID: 1})
+    assert len(button_texts(kb)[0]) < 60
+
+
+def test_confirm_keyboard_has_back_and_home() -> None:
+    kb = keyboards.confirm_keyboard(confirm_text="🗑 Да, удалить", confirm_callback=f"cdel:{UUID}", back_callback=f"conn:{UUID}")
+    assert callback_datas(kb) == [f"cdel:{UUID}", f"conn:{UUID}", cb.MENU]

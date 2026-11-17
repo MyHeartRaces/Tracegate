@@ -1,0 +1,33 @@
+# Example structured guide for the Tracegate bot (BOT_GUIDE_PATH).
+#
+# Placeholder content only. Copy this file to private runtime storage, replace
+# the text with your own instructions and point BOT_GUIDE_PATH at the copy.
+# Never commit the real guide: it may name apps, links or operator details.
+# Format reference: docs/bot-guide.md
+version: 1
+title: "📖 Инструкция"
+intro: "Короткое вступление. Можно использовать <b>HTML</b>: жирный, <i>курсив</i>, <a href=\"https://example.com\">ссылки</a>."
+sections:
+  - id: quick
+    button: "🚀 Быстрый старт"
+    text: |
+      1. Открой «📱 Мои устройства» и добавь устройство.
+      2. Создай подключение.
+      3. Импортируй настройки в приложение.
+  - id: apps
+    button: "📲 Приложения"
+    text: "Выбери своё устройство:"
+    sections:
+      - id: ios
+        button: "iPhone / iPad"
+        text: "Название приложения и ссылка на него. Как импортировать настройки."
+      - id: android
+        button: "Android"
+        text: "Название приложения и ссылка на него. Как импортировать настройки."
+      - id: desktop
+        button: "Windows / macOS / Linux"
+        text: "Название приложения и ссылка на него. Как импортировать настройки."
+  - id: fragment
+    button: "🧩 Если не подключается"
+    text: "Что проверить, если подключение не работает."
+footer: "Необязательная строка внизу каждой страницы."

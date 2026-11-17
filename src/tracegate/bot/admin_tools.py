@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from datetime import datetime
 
+from tracegate.bot import texts
 from tracegate.bot.access import bot_block_until, user_label
+from tracegate.services.bot_blocks import MAX_TIMED_BOT_BLOCK_HOURS, PERMANENT_BOT_BLOCK_HOURS
 
 _TELEGRAM_MESSAGE_LIMIT = 4096
 
@@ -31,24 +33,58 @@ def format_block_until_label(until: datetime | None) -> str:
     return until.isoformat()
 
 
+def parse_telegram_id(text: object) -> int | None:
+    """Parse a positive numeric Telegram id; None when the input is not one."""
+
+    raw = str(text or "").strip()
+    if not raw.isdigit():
+        return None
+    value = int(raw)
+    return value if value > 0 else None
+
+
+def _parse_block_hours(raw: str) -> int:
+    value = str(raw or "").strip()
+    if not value.isdigit():
+        raise ValueError(texts.BLOCK_ERR_BAD_HOURS)
+    hours = int(value)
+    if not (1 <= hours <= MAX_TIMED_BOT_BLOCK_HOURS or hours == PERMANENT_BOT_BLOCK_HOURS):
+        raise ValueError(texts.BLOCK_ERR_HOURS_RANGE)
+    return hours
+
+
+def _parse_block_reason(raw: str | None) -> str | None:
+    reason = str(raw or "").strip()
+    if len(reason) > texts.BLOCK_REASON_MAX_LENGTH:
+        raise ValueError(texts.BLOCK_ERR_REASON_TOO_LONG)
+    return reason or None
+
+
 def parse_user_block_request(text: str, *, default_target_id: int | None = None) -> tuple[int, int, str | None]:
+    """Parse ``<id> <hours> [reason]`` (or ``<hours> [reason]`` for a fixed target).
+
+    Raises ValueError with a Russian, user-presentable message.
+    """
+
     raw = str(text or "").strip()
     if not raw:
-        raise ValueError("Пустая команда блокировки.")
+        raise ValueError(texts.BLOCK_ERR_EMPTY)
 
     if default_target_id is None:
         parts = raw.split(maxsplit=2)
         if len(parts) < 2:
-            raise ValueError("Формат: <telegram_id> <hours> [reason]")
-        target_id = int(parts[0])
-        hours = int(parts[1])
-        reason = parts[2].strip() if len(parts) >= 3 else None
-        return target_id, hours, reason or None
+            raise ValueError(texts.BLOCK_ERR_FORMAT)
+        target_id = parse_telegram_id(parts[0])
+        if target_id is None:
+            raise ValueError(texts.BLOCK_ERR_BAD_ID)
+        hours = _parse_block_hours(parts[1])
+        reason = _parse_block_reason(parts[2] if len(parts) >= 3 else None)
+        return target_id, hours, reason
 
     parts = raw.split(maxsplit=1)
-    hours = int(parts[0])
-    reason = parts[1].strip() if len(parts) >= 2 else None
-    return int(default_target_id), hours, reason or None
+    hours = _parse_block_hours(parts[0])
+    reason = _parse_block_reason(parts[1] if len(parts) >= 2 else None)
+    return int(default_target_id), hours, reason
 
 
 def build_feedback_admin_text(*, author: dict, feedback_text: str, sent_at: datetime) -> str:
@@ -101,7 +137,7 @@ def build_admin_users_report(
         if label and label not in {display, str(telegram_id)}:
             parts.append(f"Метка: {label}")
         if updated_at:
-            parts.append(f"Sync: {updated_at}")
+            parts.append(f"Обновлено: {updated_at}")
         return " | ".join(parts)
 
     lines = [f"👥 Пользователи Tracegate: {len(all_sorted)}"]
@@ -160,7 +196,7 @@ def build_admin_mtproto_report(*, grants: list[dict], max_rows: int = 80) -> str
         if issued_by:
             parts.append(f"Источник: {issued_by}")
         if updated_at:
-            parts.append(f"Sync: {updated_at}")
+            parts.append(f"Обновлено: {updated_at}")
         return " | ".join(parts)
 
     lines = [f"🔐 Постоянные Telegram Proxy-доступы: {len(grants_sorted)}"]
@@ -173,3 +209,24 @@ def build_admin_mtproto_report(*, grants: list[dict], max_rows: int = 80) -> str
     if len(grants_sorted) > max_rows:
         lines.append(f"Показано {max_rows} из {len(grants_sorted)}.")
     return "\n".join(lines)
+
+
+def build_admin_mtproto_rows(*, grants: list[dict], users: list[dict]) -> list[dict]:
+    users_by_id = {int(row.get("telegram_id") or 0): row for row in users}
+    rows: list[dict] = []
+    for grant in grants:
+        telegram_id = int(grant.get("telegram_id") or 0)
+        user = users_by_id.get(telegram_id)
+        display = user_label(user) if user else (str(grant.get("label") or "").strip() or str(telegram_id))
+        rows.append(
+            {
+                "telegram_id": telegram_id,
+                "display": display,
+                "role": user.get("role") if user else None,
+                "label": grant.get("label"),
+                "issued_by": grant.get("issued_by"),
+                "updated_at": grant.get("updated_at"),
+                "last_sync_at": grant.get("last_sync_at"),
+            }
+        )
+    return rows

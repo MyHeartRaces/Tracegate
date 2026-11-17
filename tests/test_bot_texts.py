@@ -1,857 +1,308 @@
-import sys
-import types
-from types import SimpleNamespace
+from __future__ import annotations
+
+import re
+from datetime import datetime, timezone
+from pathlib import Path
 
 import pytest
 
+import test_bot_support  # noqa: F401  (imports the bot with a complete metrics stub)
+from tracegate.bot import keyboards, nav, profiles, texts
+from tracegate.bot.access import blocked_message
+from tracegate.bot.client import ApiClientError
+from tracegate.services import connection_profiles
+from tracegate.settings import Settings
 
-_qrcode_stub = types.ModuleType("qrcode")
-_qrcode_stub.QRCode = object
-_qrcode_stub.constants = types.SimpleNamespace(ERROR_CORRECT_M=0)
-_orig_qrcode = sys.modules.get("qrcode")
-_prom_stub = types.ModuleType("prometheus_client")
-_prom_stub.Counter = lambda *args, **kwargs: None
-_prom_stub.Gauge = lambda *args, **kwargs: None
-_prom_stub.Histogram = lambda *args, **kwargs: None
-_prom_stub.start_http_server = lambda *args, **kwargs: None
-_orig_prometheus_client = sys.modules.get("prometheus_client")
-sys.modules["qrcode"] = _qrcode_stub
-sys.modules["prometheus_client"] = _prom_stub
-try:
-    from tracegate.bot import main
-    from tracegate.settings import Settings
-finally:
-    if _orig_qrcode is None:
-        sys.modules.pop("qrcode", None)
-    else:
-        sys.modules["qrcode"] = _orig_qrcode
-    if _orig_prometheus_client is None:
-        sys.modules.pop("prometheus_client", None)
-    else:
-        sys.modules["prometheus_client"] = _orig_prometheus_client
+ROOT = Path(__file__).resolve().parents[1]
+BOT_DIR = ROOT / "src" / "tracegate" / "bot"
+
+FORMAL_WORDS = re.compile(r"\b(вы|вас|вам|вами|ваш\w*)\b", re.IGNORECASE)
+FORMAL_IMPERATIVES = re.compile(
+    r"\b(Введите|Выберите|Откройте|Нажмите|Скопируйте|Скачайте|Используйте|Подтвердите|Добавьте|"
+    r"Попробуйте|Напишите|Импортируйте|Отправьте|Укажите|Проверьте|Повторите|Обновите|Перевыпустите|"
+    r"Удалите|Создайте|Запросите)\b",
+    re.IGNORECASE,
+)
+ALLOWED_LATIN_WORDS = {
+    "Chain",
+    "Direct",
+    "Tracegate",
+    "Telegram",
+    "Proxy",
+    "VLESS",
+    "Hysteria",
+    "Salamander",
+    "Gecko",
+    "Grafana",
+    "QR",
+    "iPhone",
+    "iPad",
+    "Android",
+    "Windows",
+    "macOS",
+    "Linux",
+}
 
 
-def test_format_config_delivery_message_uses_next_step_flow() -> None:
-    text = main._format_config_delivery_message(
-        marker="V1 - 1 - dev-1 - conn-1",
-        title="VLESS Direct",
-        revision={"id": "rev-1", "slot": 0},
-        context="created",
+def _russian_sources() -> dict[str, str]:
+    sources = {
+        "texts.py": (BOT_DIR / "texts.py").read_text(encoding="utf-8"),
+        "keyboards.py": (BOT_DIR / "keyboards.py").read_text(encoding="utf-8"),
+        "default bot_guide_message": str(Settings.model_fields["bot_guide_message"].default),
+        "default bot_welcome_message": str(Settings.model_fields["bot_welcome_message"].default),
+    }
+    return sources
+
+
+@pytest.mark.parametrize("name", list(_russian_sources()))
+def test_user_strings_use_informal_ty(name: str) -> None:
+    source = _russian_sources()[name]
+    assert not FORMAL_WORDS.findall(source), name
+    assert not FORMAL_IMPERATIVES.findall(source), name
+
+
+def _all_button_texts() -> list[str]:
+    from tracegate.bot import callbacks as cb
+
+    device_id = "11111111-2222-3333-4444-555555555555"
+    connection = {"id": device_id, "protocol": "vless_reality", "mode": "chain", "variant": "V1"}
+    revisions = [
+        {"id": device_id, "slot": 0, "status": "active", "created_at": "2026-11-17T10:00:00Z"},
+        {"id": device_id, "slot": 1, "status": "active", "created_at": "2026-11-16T10:00:00Z"},
+        {"id": device_id, "slot": 1, "status": "revoked", "created_at": "2026-11-15T10:00:00Z"},
+    ]
+    built = [
+        keyboards.main_menu_keyboard(is_admin=True, grafana_enabled=True),
+        keyboards.devices_keyboard([{"id": device_id, "name": "Телефон"}], {device_id: 2}),
+        keyboards.device_keyboard(device_id, [connection], can_create=True),
+        keyboards.create_connection_keyboard(device_id, {"entry", "reality", "hysteria"}),
+        keyboards.hysteria_obfs_keyboard(device_id),
+        keyboards.connection_keyboard(device_id, device_id),
+        keyboards.slots_keyboard(device_id, revisions),
+        keyboards.config_delivery_keyboard(connection_id=device_id),
+        keyboards.tgp_keyboard(),
+        keyboards.feedback_keyboard(),
+        keyboards.grafana_keyboard("https://grafana.example.test"),
+        keyboards.admin_menu_keyboard(is_superadmin=True),
+        keyboards.admin_back_keyboard(),
+        keyboards.admin_cancel_keyboard(),
+        keyboards.admin_tgp_keyboard(),
+        keyboards.admin_notify_keyboard(),
+        keyboards.admin_reset_keyboard(),
+        keyboards.feedback_admin_keyboard(telegram_id=42),
+        keyboards.welcome_keyboard(1),
+        keyboards.welcome_keyboard(2),
+        keyboards.guide_keyboard([], back_callback=cb.GUIDE),
+    ]
+    out = [str(button.text) for keyboard in built for row in keyboard.inline_keyboard for button in row]
+    out.extend(value for name, value in vars(texts).items() if name.startswith("BTN_"))
+    for kind in ("entry", "reality", "hysteria", "legacy", "other"):
+        out.append(texts.connection_button(kind, texts.LABEL_DIRECT_HYSTERIA + " · " + texts.LABEL_SALAMANDER))
+    return out
+
+
+def test_buttons_have_no_english_words_except_product_names() -> None:
+    offenders: set[str] = set()
+    for text in _all_button_texts():
+        for word in re.findall(r"[A-Za-z][A-Za-z0-9]*", text):
+            if word not in ALLOWED_LATIN_WORDS:
+                offenders.add(f"{word!r} in {text!r}")
+    assert not offenders
+
+
+def test_main_menu_is_versionless_tracegate() -> None:
+    assert texts.MAIN_MENU.startswith("🏠 Tracegate\n")
+    assert "Tracegate 3" not in texts.MAIN_MENU
+    assert not re.search(r"Tracegate \d", texts.MAIN_MENU)
+
+
+def test_welcome_rules_drop_active_device_and_use_tracegate4_wording() -> None:
+    assert "активного устройства" not in texts.WELCOME_RULES
+    assert "одно устройство и одно приложение" in texts.WELCOME_RULES
+    assert "LAN" in texts.WELCOME_RULES
+
+
+def test_default_guide_uses_tracegate4_terms_without_private_app_content() -> None:
+    guide = str(Settings.model_fields["bot_guide_message"].default)
+    for needle in ("Chain", "Direct VLESS", "Direct Hysteria", "Перевыпустить"):
+        assert needle in guide
+    for needle in ("Tracegate 3", "ревизи", "Karing", "INCY", "Shadowrocket", "Throne", "http://", "https://"):
+        assert needle not in guide
+    welcome = str(Settings.model_fields["bot_welcome_message"].default)
+    assert "Tracegate 3" not in welcome
+    assert "Мои устройства" in welcome
+
+
+# ------------------------------------------------------------ delivery ---
+
+
+def test_config_delivery_uri_flow_has_three_steps() -> None:
+    text = texts.config_delivery_message(label="Chain", context="created")
+    assert text.startswith("✅ Готово! Вот настройки для «Chain».")
+    assert "1. Открой приложение" in text
+    assert "2. Импортируй настройки: скопируй ссылку" in text
+    assert "3. Включи подключение" in text
+    assert "файл .json" not in text
+    assert "Ревизия" not in text and "Слот" not in text
+
+
+def test_config_delivery_contexts() -> None:
+    assert "новые настройки" in texts.config_delivery_message(label="X", context="issued")
+    assert texts.config_delivery_message(label="X", context="current").startswith("📲 Вот настройки")
+
+
+def test_config_delivery_mentions_attachment_fallback() -> None:
+    text = texts.config_delivery_message(label="X", has_attachment=True)
+    assert "Если ссылка не подходит, импортируй файл .json." in text
+
+
+def test_config_delivery_can_prefer_xray_attachment() -> None:
+    text = texts.config_delivery_message(label="X", has_attachment=True, prefer_attachment=True)
+    assert "2. Импортируй файл .json из сообщения ниже. Если приложение его не принимает" in text
+    assert "скопируй ссылку" not in text
+
+
+def test_config_delivery_attachment_only_flow() -> None:
+    text = texts.config_delivery_message(label="X", has_primary_uri=False, has_attachment=True)
+    assert "sing-box" in text
+    assert "QR" not in text
+    assert "скопируй ссылку" not in text
+
+
+def test_config_delivery_mentions_alternate_and_extras() -> None:
+    text = texts.config_delivery_message(label="X", has_alternate_uri=True, has_extra_messages=True)
+    assert "запасная ссылка" in text
+    assert "пояснения" in text
+
+
+def test_extra_messages_are_translated() -> None:
+    gecko = texts.extra_message(
+        "Client compatibility",
+        "Gecko requires the official Hysteria client with Gecko support; sing-box does not support Gecko.",
     )
+    assert gecko.startswith("ℹ️ Совместимость")
+    assert "официальном приложении Hysteria" in gecko
+    assert "requires" not in gecko
 
-    assert "Конфигурация готова" in text
-    assert "Подключение создано и готово к импорту." in text
-    assert "Ревизия: rev-1" in text
-    assert "Слот: 0" in text
-    assert "1. Скопируйте ссылку" in text
-    assert "2. Или используйте QR" in text
-    assert "К устройству" not in text
 
-
-def test_format_config_delivery_message_humanizes_current_revision_flow() -> None:
-    text = main._format_config_delivery_message(
-        marker="V3 - 1 - dev-2 - conn-2",
-        title="Hysteria Direct",
-        revision={"id": "rev-2", "slot": 1},
-        context="current",
-    )
-
-    assert "Текущая активная ревизия готова к повторному импорту." in text
-    assert "Ревизия: rev-2" in text
-    assert "Слот: 1" in text
-
-
-def test_format_config_delivery_message_mentions_attachment_when_available() -> None:
-    text = main._format_config_delivery_message(
-        marker="V1 - 1 - dev-1 - conn-1",
-        title="VLESS Direct",
-        revision={"id": "rev-1", "slot": 0},
-        context="created",
-        has_attachment=True,
-    )
-
-    assert "приложенный `.json` файл" in text
-    assert "4. После импорта" in text
-
-
-def test_format_config_delivery_message_can_prefer_xray_attachment() -> None:
-    text = main._format_config_delivery_message(
-        marker="V1 - 1 - dev-1 - conn-1",
-        title="VLESS REALITY link",
-        revision={"id": "rev-1", "slot": 0},
-        context="created",
-        has_attachment=True,
-        prefer_attachment=True,
-    )
-
-    assert "1. Скачайте приложенный `.json` файл" in text
-    assert "2. Ссылка и QR ниже - запасной вариант" in text
-    assert "Скопируйте ссылку одной строкой" not in text
-
-
-def test_format_config_delivery_message_mentions_hysteria_fallbacks() -> None:
-    text = main._format_config_delivery_message(
-        marker="V3 - 1 - dev-1 - conn-1",
-        title="Hysteria2 Direct",
-        revision={"id": "rev-1", "slot": 0},
-        context="created",
-        has_attachment=True,
-        has_alternate_uri=True,
-        has_extra_messages=True,
-    )
-
-    assert "fallback-ссылка для совместимости клиента" in text
-    assert "дополнительные ссылки или параметры транспорта" in text
-    assert "локальный SOCKS5" not in text
-
-
-def test_format_grafana_otp_message_uses_tracegate2_copy() -> None:
-    text = main._format_grafana_otp_message(
-        scope="admin",
-        otp={"expires_at": "2026-04-10T12:00:00Z", "login_url": "https://grafana.example.test/login"},
-    )
-
-    assert "Grafana" in text
-    assert "Контур: административный" in text
-    assert "Действует до: 2026-04-10T12:00:00Z" in text
-    assert "Откройте доступ кнопкой ниже" in text
-    assert "https://grafana.example.test/login" not in text
-    assert "expires_at" not in text
-    assert "link:" not in text
-
-
-def test_grafana_otp_keyboard_uses_full_login_url() -> None:
-    keyboard = main._grafana_otp_keyboard(
-        {"login_url": "https://tracegate.test/grafana/login?code=otp-code&scope=user"}
-    )
-
-    assert keyboard is not None
-    button = keyboard.inline_keyboard[0][0]
-    assert button.text == "Открыть Grafana"
-    assert button.url == "https://tracegate.test/grafana/login?code=otp-code&scope=user"
-
-
-def test_format_mtproto_delivery_message_humanizes_reused_profile() -> None:
-    text = main._format_mtproto_delivery_message(
-        result={
-            "node": "transit-a",
-            "grant": {
-                "label": "@user101",
-                "updated_at": "2026-04-17T02:00:00Z",
-            },
-            "profile": {
-                "server": "mobile.example.net",
-                "domain": "fl.example.net",
-                "reused": True,
-            },
-        },
-        rotate=False,
-    )
-
-    assert "Telegram Proxy" in text
-    assert "Текущий постоянный Telegram Proxy-профиль отправлен повторно." in text
-    assert "Endpoint: transit-a" in text
-    assert "Метка: @user101" in text
-    assert "Домен: mobile.example.net" in text
-    assert "fl.example.net" not in text
-    assert "Синхронизация: 2026-04-17T02:00:00Z" in text
-
-
-def test_format_mtproto_delivery_message_humanizes_rotation() -> None:
-    text = main._format_mtproto_delivery_message(
-        result={
-            "node": "transit-a",
-            "grant": {},
-            "profile": {"server": "proxied.tracegate.test"},
-        },
-        rotate=True,
-    )
-
-    assert "Секрет ротирован и готов к повторному запуску Telegram." in text
-
-
-def test_main_menu_text_uses_tracegate3_copy(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(main, "_app_version", lambda: "2.0")
-
-    text = main._main_menu_text()
-
-    assert "Tracegate 3" in text
-    assert "выбери устройство" in text
-    assert "Подключения" in text
-
-
-def test_provider_label_uses_public_provider_caption() -> None:
-    assert main._provider_label("all") == "Все"
-    assert main._provider_label("mts") == "МТС"
-    assert main._provider_label("unknown") == "unknown"
-
-
-def test_connection_profile_label_uses_variant_and_family() -> None:
-    assert main._connection_profile_label({"protocol": "vless_reality", "mode": "direct", "variant": "V1"}) == "Tracegate-Reality"
-    assert main._connection_profile_label({"protocol": "hysteria2", "mode": "direct", "variant": "V2"}) == "Tracegate-Hysteria"
-    assert main._connection_profile_label({"protocol": "vless_grpc_tls", "mode": "direct", "variant": "V0"}) == "Tracegate-Backup(gRPC)"
-    assert main._connection_profile_label({"protocol": "vless_ws_tls", "mode": "direct", "variant": "V0"}) == "Tracegate-Backup(WebSocket)"
-    assert (
-        main._connection_profile_label(
-            {"protocol": "shadowsocks2022_shadowtls", "mode": "direct", "variant": "V3"}
-        )
-        == "Tracegate-Experimental(SS2022)"
-    )
-    assert (
-        main._connection_profile_label({"protocol": "wireguard_wstunnel", "mode": "direct", "variant": "V0"})
-        == "Tracegate-Experimental(WGWS)"
-    )
-
-
-@pytest.mark.asyncio
-async def test_render_device_page_uses_device_context_and_connection_cards(monkeypatch: pytest.MonkeyPatch) -> None:
-    async def _get_device(device_id: str) -> dict:
-        return {"id": device_id, "name": "Laptop"}
-
-    async def _list_connections(_device_id: str) -> list[dict]:
-        return [
-            {
-                "id": "conn-1",
-                "protocol": "vless_reality",
-                "mode": "direct",
-                "variant": "V1",
-                "alias": "@alice (1) - Laptop - conn-1",
-            },
-            {
-                "id": "conn-2",
-                "protocol": "hysteria2",
-                "mode": "chain",
-                "variant": "V2",
-                "alias": "",
-            },
-            {
-                "id": "conn-3",
-                "protocol": "shadowsocks2022_shadowtls",
-                "mode": "direct",
-                "variant": "V3",
-                "alias": "",
-            },
-        ]
-
-    monkeypatch.setattr(main.api, "get_device", _get_device)
-    monkeypatch.setattr(main.api, "list_connections", _list_connections)
-
-    text, _keyboard = await main.render_device_page("dev-1")
-
-    assert "🔌 Устройство" in text
-    assert "Имя: Laptop" in text
-    assert "Подключений: 3" in text
-    assert "• Tracegate-Reality" in text
-    assert "• Tracegate-Chain" in text
-    assert "• Tracegate-Experimental(SS2022)" in text
-    assert "ID: conn-1" in text
-
-
-@pytest.mark.asyncio
-async def test_render_revisions_page_humanizes_revision_rows(monkeypatch: pytest.MonkeyPatch) -> None:
-    async def _get_device(device_id: str) -> dict:
-        return {"id": device_id, "name": "Laptop"}
-
-    async def _get_connection(connection_id: str) -> dict:
-        return {
-            "id": connection_id,
-            "protocol": "vless_reality",
-            "mode": "direct",
-            "alias": "",
-            "variant": "V1",
-            "user_id": "1",
-            "device_id": "dev-1",
-            "device_name": "Laptop",
-        }
-
-    async def _list_revisions(_connection_id: str) -> list[dict]:
-        return [
-            {"id": "rev-1", "slot": 0, "status": "ACTIVE"},
-            {"id": "rev-2", "slot": 1, "status": "REVOKED"},
-        ]
-
-    monkeypatch.setattr(main.api, "get_device", _get_device)
-    monkeypatch.setattr(main.api, "get_connection", _get_connection)
-    monkeypatch.setattr(main.api, "list_revisions", _list_revisions)
-
-    text, _keyboard = await main.render_revisions_page("conn-1")
-
-    assert "🧩 Ревизии" in text
-    assert "Профиль: Tracegate-Reality" in text
-    assert "Устройство: Laptop" in text
-    assert "Текущая ревизия: слот 0 · rev-1" in text
-    assert "Слот 0 · активна" in text
-    assert "Слот 1 · отозвана" in text
-
-
-class _DummyMessage:
-    def __init__(self) -> None:
-        self.from_user = SimpleNamespace(id=1)
-        self.answer_calls: list[tuple[tuple[object, ...], dict[str, object]]] = []
-        self.edit_text_calls: list[tuple[tuple[object, ...], dict[str, object]]] = []
-        self.answer_photo_calls: list[tuple[tuple[object, ...], dict[str, object]]] = []
-        self.answer_document_calls: list[tuple[tuple[object, ...], dict[str, object]]] = []
-
-    async def answer(self, *_args, **_kwargs):
-        self.answer_calls.append((_args, _kwargs))
-        return SimpleNamespace(message_id=1000 + len(self.answer_calls))
-
-    async def edit_text(self, *_args, **_kwargs):
-        self.edit_text_calls.append((_args, _kwargs))
-        return None
-
-    async def answer_photo(self, *_args, **_kwargs):
-        self.answer_photo_calls.append((_args, _kwargs))
-        return SimpleNamespace(message_id=2000 + len(self.answer_photo_calls))
-
-    async def answer_document(self, *_args, **_kwargs):
-        self.answer_document_calls.append((_args, _kwargs))
-        return SimpleNamespace(message_id=3000 + len(self.answer_document_calls))
-
-
-class _DummyCallback:
-    def __init__(self, data: str) -> None:
-        self.data = data
-        self.message = _DummyMessage()
-        self.answers: list[str] = []
-        self.from_user = SimpleNamespace(id=1)
-
-    async def answer(self, text: str | None = None, **_kwargs) -> None:
-        self.answers.append(text or "")
-
-
-class _DummyState:
-    def __init__(self) -> None:
-        self.states: list[object] = []
-        self.cleared = 0
-
-    async def set_state(self, value: object) -> None:
-        self.states.append(value)
-
-    async def clear(self) -> None:
-        self.cleared += 1
-
-
-@pytest.mark.asyncio
-async def test_safe_edit_text_falls_back_to_new_message_when_original_was_deleted() -> None:
-    class _DeletedMessage(_DummyMessage):
-        async def edit_text(self, *_args, **_kwargs):
-            self.edit_text_calls.append((_args, _kwargs))
-            raise main.TelegramBadRequest(
-                method=SimpleNamespace(),
-                message="Bad Request: message to edit not found",
-            )
-
-    message = _DeletedMessage()
-
-    edited = await main._safe_edit_text(message, "fresh text", reply_markup=object())
-
-    assert edited is True
-    assert len(message.edit_text_calls) == 1
-    assert len(message.answer_calls) == 1
-    assert message.answer_calls[0][0] == ("fresh text",)
-
-
-def test_guide_text_defaults_to_external_placeholder(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(main.settings, "bot_guide_path", "")
-    monkeypatch.setattr(main.settings, "bot_guide_message", "[test-private-guide-placeholder]")
-
-    assert main._load_guide_text() == "[test-private-guide-placeholder]"
+# ------------------------------------------------------------- labels ---
 
 
 @pytest.mark.parametrize(
-    "placeholder",
-    ["", "[TRACEGATE_BOT_GUIDE_PLACEHOLDER]", "REPLACE_WITH_PRIVATE_GUIDE_MESSAGE", "Tracegate profile guide."],
-)
-def test_guide_text_falls_back_from_deployment_placeholders(
-    monkeypatch: pytest.MonkeyPatch, placeholder: str
-) -> None:
-    monkeypatch.setattr(main.settings, "bot_guide_path", "")
-    monkeypatch.setattr(main.settings, "bot_guide_message", placeholder)
-
-    guide = main._load_guide_text()
-
-    assert "Tracegate 3: гайдлайн" in guide
-    assert "Ссылки на приложения:" in guide
-
-
-def test_default_guide_copy_includes_client_settings_and_desktop_throne() -> None:
-    guide = str(Settings.model_fields["bot_guide_message"].default)
-
-    assert "Tracegate 3: гайдлайн" in guide
-    assert "Рекомендуемые клиенты: Karing, INCY, Shadowrocket." in guide
-    assert "Нормальные варианты для десктопа: Karing, INCY, Throne." in guide
-    assert "в первую очередь для мобильного телефона" in guide
-    assert "Для Karing: включай VPN/TUN mode" in guide
-    assert "Для INCY: предпочитай VPN/TUN mode, а не proxy-only режим" in guide
-    assert "Для Shadowrocket: не включай Proxy Sharing" in guide
-    assert "External controller/API, web dashboard, debug API и HandlerService" in guide
-    assert "Не импортируй один и тот же конфиг" in guide
-    assert "Throne: https://throneproj.github.io/get_started/installation/" in guide
-    assert "GitHub: https://github.com/MyHeartRaces/Tracegate" in guide
-
-
-def test_guide_chunks_keep_app_links_in_second_message(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(main.settings, "bot_guide_path", "")
-    monkeypatch.setattr(
-        main.settings,
-        "bot_guide_message",
+    ("connection", "label"),
+    [
+        ({"protocol": "vless_reality", "mode": "chain", "variant": "V1"}, "Chain"),
+        ({"protocol": "vless_reality", "mode": "direct", "variant": "V1"}, "Direct VLESS"),
         (
-            "Tracegate 2: гайдлайн\n\n"
-            "Основной текст.\n\n"
-            "Ссылки на приложения:\n\n"
-            "Karing: https://karing.app/en/download/\n\n"
-            "INCY: https://incy.cc\n\n"
-            "Если не работает:\n"
-            "Проверь активное устройство.\n\n"
-            "GitHub: https://github.com/MyHeartRaces/Tracegate"
+            {"protocol": "hysteria2", "mode": "direct", "variant": "V2", "custom_overrides_json": {"hysteria_obfs": "salamander"}},
+            "Direct Hysteria · Salamander",
         ),
-    )
-
-    chunks = main._guide_chunks()
-
-    assert len(chunks) == 2
-    assert "Основной текст" in chunks[0]
-    assert "Если не работает" in chunks[0]
-    assert chunks[0].endswith("GitHub: https://github.com/MyHeartRaces/Tracegate")
-    assert "Ссылки на приложения" not in chunks[0]
-    assert "Karing: https://karing.app/en/download/" not in chunks[0]
-    assert chunks[1].startswith("Ссылки на приложения:")
-    assert "Karing: https://karing.app/en/download/" in chunks[1]
-    assert "INCY: https://incy.cc" in chunks[1]
-    assert "Если не работает" not in chunks[1]
-    assert "GitHub:" not in chunks[1]
+        (
+            {"protocol": "hysteria2", "mode": "direct", "variant": "V2", "custom_overrides_json": {"hysteria_obfs": "gecko"}},
+            "Direct Hysteria · Gecko",
+        ),
+        ({"protocol": "hysteria2", "mode": "direct", "variant": "V2"}, "Direct Hysteria"),
+        ({"protocol": "vless_ws_tls", "mode": "direct", "variant": "V0"}, "Устаревшее подключение"),
+        ({"protocol": "vless_grpc_tls", "mode": "chain", "variant": "V5"}, "Устаревшее подключение"),
+        ({"protocol": "hysteria2", "mode": "chain", "variant": "V2"}, "Устаревшее подключение"),
+        ({"protocol": "shadowsocks2022_shadowtls", "mode": "direct", "variant": "V3"}, "Подключение"),
+    ],
+)
+def test_connection_labels_are_russian(connection: dict, label: str) -> None:
+    assert profiles.connection_label(connection) == label
 
 
-@pytest.mark.asyncio
-async def test_help_button_opens_guide_directly(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(main.settings, "bot_guide_path", "")
-    monkeypatch.setattr(main.settings, "bot_guide_message", "[test-guide-direct]")
-
-    callback = _DummyCallback("help_open")
-    await main.help_open(callback, _DummyState())
-
-    args, kwargs = callback.message.edit_text_calls[0]
-    assert "[test-guide-direct]" in str(args[0])
-    keyboard = kwargs["reply_markup"]
-    assert len(keyboard.inline_keyboard) == 1
-    assert keyboard.inline_keyboard[0][0].callback_data == "menu"
+def test_connection_label_hides_auto_alias_with_id_but_shows_custom_alias() -> None:
+    connection_id = "11111111-2222-3333-4444-555555555555"
+    auto = {"id": connection_id, "protocol": "vless_reality", "mode": "chain", "alias": f"@a (1) - Phone - {connection_id}"}
+    assert profiles.connection_label(auto) == "Chain"
+    custom = {**auto, "alias": "Рабочий"}
+    assert profiles.connection_label(custom) == "Chain · Рабочий"
 
 
-@pytest.mark.asyncio
-async def test_help_button_splits_long_guide(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(main.settings, "bot_guide_path", "")
-    monkeypatch.setattr(main.settings, "bot_guide_message", "A" * 4100)
-
-    callback = _DummyCallback("guide_open")
-    await main.guide_open(callback, _DummyState())
-
-    assert len(callback.message.edit_text_calls) == 1
-    assert callback.message.answer_calls
-    assert len(str(callback.message.edit_text_calls[0][0][0])) <= main._TELEGRAM_TEXT_CHUNK_LIMIT
-    assert all(len(str(args[0])) <= main._TELEGRAM_TEXT_CHUNK_LIMIT for args, _kwargs in callback.message.answer_calls)
-    assert "reply_markup" not in callback.message.edit_text_calls[0][1]
-    assert callback.message.answer_calls[-1][1]["reply_markup"].inline_keyboard[0][0].callback_data == "menu"
+def test_reissue_confirm_matches_server_revision_semantics() -> None:
+    # services/revisions.py keeps the previous revision ACTIVE in the reserve
+    # slot after an issue and revokes older ones. The copy depends on it.
+    assert connection_profiles.MAX_ACTIVE_REVISIONS_PER_CONNECTION == 2
+    assert connection_profiles.RESERVE_REVISION_SLOT == 1
+    text = texts.reissue_confirm("Chain")
+    assert "Старые настройки продолжат работать, пока не перевыпустишь ещё раз" in text
 
 
-def test_format_config_delivery_message_supports_attachment_only_flow() -> None:
-    text = main._format_config_delivery_message(
-        marker="V3 - 1 - dev-1 - conn-1",
-        title="Shadowsocks config",
-        revision={"id": "rev-1", "slot": 0},
-        context="created",
-        has_attachment=True,
-        has_primary_uri=False,
-        has_extra_messages=True,
-    )
-
-    assert "Скачайте приложенный `.json` файл" in text
-    assert "поддерживает sing-box JSON" in text
-    assert "Скопируйте ссылку" not in text
-    assert "QR" not in text
+# ------------------------------------------------------- telegram proxy ---
 
 
-@pytest.mark.asyncio
-async def test_send_client_config_handles_attachment_only_export(monkeypatch: pytest.MonkeyPatch) -> None:
-    async def _get_connection(_connection_id: str) -> dict:
-        return {
-            "id": "conn-1",
-            "user_id": 1,
-            "device_id": "dev-1",
-            "device_name": "Laptop",
-            "protocol": "shadowsocks2022_shadowtls",
-            "mode": "direct",
-            "variant": "V3",
-        }
-
-    exported = SimpleNamespace(
-        kind="attachment",
-        title="Shadowsocks-2022 + ShadowTLS config",
-        content="Use the attached sing-box config.",
-        alternate_title=None,
-        alternate_content=None,
-        extra_messages=(("Local SOCKS5 credentials", "Host: 127.0.0.1"),),
-        attachment_content=b'{"log":{"level":"warn"}}',
-        attachment_filename="v5.singbox.json",
-        attachment_mime="application/json",
-    )
-
-    monkeypatch.setattr(main.api, "get_connection", _get_connection)
-    monkeypatch.setattr(main, "export_client_config", lambda _effective: exported)
-    monkeypatch.setattr(main.settings, "public_base_url", "")
-
-    callback = _DummyCallback("send")
-    await main._send_client_config(
-        callback,
+def test_mtproto_link_message_lists_every_route_then_update_hint() -> None:
+    text = texts.format_mtproto_link_message(
         {
-            "id": "rev-1",
-            "slot": 0,
-            "connection_id": "conn-1",
-            "effective_config_json": {"protocol": "shadowsocks2022_shadowtls"},
-        },
-        context="created",
-    )
-
-    assert len(callback.message.answer_document_calls) == 1
-    assert len(callback.message.answer_photo_calls) == 0
-    assert not any("Неизвестный тип экспорта" in str(args[0]) for args, _kwargs in callback.message.answer_calls)
-    assert "Скачайте приложенный `.json` файл" in str(callback.message.answer_calls[0][0][0])
-    assert not any("Local SOCKS5 credentials" in str(args[0]) for args, _kwargs in callback.message.answer_calls)
-    assert not any("Host: 127.0.0.1" in str(args[0]) for args, _kwargs in callback.message.answer_calls)
-
-
-@pytest.mark.asyncio
-async def test_send_client_config_hides_local_socks_extra_message(monkeypatch: pytest.MonkeyPatch) -> None:
-    async def _get_connection(_connection_id: str) -> dict:
-        return {
-            "id": "conn-1",
-            "user_id": 1,
-            "device_id": "dev-1",
-            "device_name": "Phone",
-            "protocol": "vless_reality",
-            "mode": "direct",
-            "variant": "V1",
+            "links": [
+                {"port": 8443, "httpsUrl": "https://t.me/proxy?port=8443", "tgUri": "tg://proxy?port=8443"},
+                {"port": 443, "httpsUrl": "https://t.me/proxy?port=443", "tgUri": "tg://proxy?port=443"},
+            ]
         }
-
-    exported = SimpleNamespace(
-        kind="uri",
-        title="VLESS Reality Direct",
-        content="vless://user@example.com:443?security=reality#Tracegate",
-        alternate_title=None,
-        alternate_content=None,
-        extra_messages=(("Local SOCKS5 credentials", "Host: 127.0.0.1\nPassword: local-pass"),),
-        attachment_content=None,
-        attachment_filename=None,
-        attachment_mime=None,
     )
+    assert "Порт 8443" in text and "port=8443" in text
+    assert "Порт 443" in text and "tg://proxy?port=443" in text
+    assert text.splitlines()[-1] == texts.MTPROTO_UPDATE_TELEGRAM_HINT
 
-    monkeypatch.setattr(main.api, "get_connection", _get_connection)
-    monkeypatch.setattr(main, "export_client_config", lambda _effective: exported)
-    monkeypatch.setattr(main, "_build_qr_png", lambda payload: payload.encode("utf-8"))
-    monkeypatch.setattr(main.settings, "public_base_url", "")
 
-    callback = _DummyCallback("send")
-    await main._send_client_config(
-        callback,
-        {
-            "id": "rev-1",
-            "slot": 0,
-            "connection_id": "conn-1",
-            "effective_config_json": {"protocol": "vless_reality"},
-        },
-        context="created",
+def test_tgp_screen_states() -> None:
+    assert "доступ выдан" in texts.tgp_screen(has_access=True)
+    assert "доступа пока нет" in texts.tgp_screen(has_access=False)
+    assert "Статус" not in texts.tgp_screen(has_access=None)
+
+
+# ------------------------------------------------------- error mapping ---
+
+
+def test_error_mapping_never_exposes_api_details() -> None:
+    exc = ApiClientError(status_code=500, path="/connections/abc-123", detail='{"detail":"Traceback secret"}')
+    text = nav.user_error_text(exc, fallback=texts.ERR_CREATE_CONNECTION)
+    assert text == texts.ERR_CREATE_CONNECTION
+    admin_text = nav.user_error_text(exc, fallback=texts.ERR_CREATE_CONNECTION, admin=True)
+    assert "500" in admin_text
+    for leaked in ("/connections", "abc-123", "Traceback", "secret", "detail"):
+        assert leaked not in text
+        assert leaked not in admin_text
+
+
+@pytest.mark.parametrize(
+    ("exc", "expected"),
+    [
+        (ApiClientError(status_code=400, path="/devices", detail='{"detail":"Device limit reached (4)"}'), texts.ERR_DEVICE_LIMIT),
+        (
+            ApiClientError(status_code=403, path="/devices", detail='{"detail":"Cannot issue new device in grace/blocked state"}'),
+            texts.ERR_ISSUE_FORBIDDEN,
+        ),
+        (ValueError(connection_profiles.RETIRED_CLIENT_PROTOCOL_MESSAGE), texts.ERR_RETIRED),
+        (profiles.ProfileDisabledError("hysteria"), texts.ERR_PROFILE_DISABLED),
+        (ValueError("invalid literal for int() with base 10: 'abc'"), texts.ERR_GENERIC),
+        (RuntimeError("boom"), texts.ERR_GENERIC),
+    ],
+)
+def test_error_mapping_known_cases(exc: BaseException, expected: str) -> None:
+    assert nav.user_error_text(exc) == expected
+
+
+def test_blocked_message_keeps_existing_format() -> None:
+    text = blocked_message({"bot_blocked_until": "2026-03-06T12:00:00+00:00", "bot_block_reason": "abuse"})
+    assert "временно ограничен до 2026-03-06T12:00:00+00:00" in text
+    assert "Причина: abuse" in text
+
+
+def test_block_notification_uses_ty() -> None:
+    text = texts.block_notification(
+        blocked_at=datetime(2026, 11, 17, 10, 0, tzinfo=timezone.utc), hours=72, until=None, reason=None
     )
-
-    assert len(callback.message.answer_calls) == 2
-    assert str(callback.message.answer_calls[1][0][0]).startswith("vless://")
-    assert len(callback.message.answer_photo_calls) == 1
-    assert not any("Local SOCKS5 credentials" in str(args[0]) for args, _kwargs in callback.message.answer_calls)
-    assert not any("Password: local-pass" in str(args[0]) for args, _kwargs in callback.message.answer_calls)
+    assert text.startswith("⚠️ Администратор ограничил тебе доступ")
+    assert "72 ч." in text
 
 
-@pytest.mark.asyncio
-async def test_send_client_config_omits_universal_url_block(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    async def _get_connection(_connection_id: str) -> dict:
-        return {
-            "id": "conn-1",
-            "user_id": 1,
-            "device_id": "dev-1",
-            "device_name": "Phone",
-            "protocol": "vless_ws_tls",
-            "mode": "direct",
-            "variant": "V1",
-        }
-
-    exported = SimpleNamespace(
-        kind="uri",
-        title="VLESS WS+TLS",
-        content="vless://user@example.com:443?security=tls&type=ws#Tracegate",
-        alternate_title=None,
-        alternate_content=None,
-        extra_messages=(),
-        attachment_content=None,
-        attachment_filename=None,
-        attachment_mime=None,
-    )
-
-    monkeypatch.setattr(main.api, "get_connection", _get_connection)
-    monkeypatch.setattr(main, "export_client_config", lambda _effective: exported)
-    monkeypatch.setattr(main, "_build_qr_png", lambda payload: payload.encode("utf-8"))
-    callback = _DummyCallback("send")
-    await main._send_client_config(
-        callback,
-        {
-            "id": "rev-1",
-            "slot": 0,
-            "connection_id": "conn-1",
-            "effective_config_json": {"protocol": "vless"},
-        },
-        context="created",
-    )
-
-    messages = [str(args[0]) for args, _kwargs in callback.message.answer_calls]
-    assert not any(message.startswith("Universal import URL") for message in messages)
-    assert any("vless://user@example.com:443" in message for message in messages)
-
-
-@pytest.mark.asyncio
-async def test_start_requires_two_step_welcome_before_menu(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(main.settings, "bot_welcome_required", True)
-    monkeypatch.setattr(main.settings, "bot_welcome_message", "[test-private-welcome-placeholder]")
-    monkeypatch.setattr(main.settings, "bot_welcome_message_file", "")
-    monkeypatch.setattr(main.settings, "bot_welcome_version", "v-test")
-
-    async def _ensure_user(_telegram_id: int) -> dict:
-        return {"telegram_id": 1, "role": "user", "bot_welcome_accepted_at": None, "bot_welcome_version": None}
-
-    monkeypatch.setattr(main, "ensure_user", _ensure_user)
-
-    message = _DummyMessage()
-    await main.start(message)
-
-    args, kwargs = message.answer_calls[0]
-    assert "[test-private-welcome-placeholder]" in str(args[0])
-    button = kwargs["reply_markup"].inline_keyboard[0][0]
-    assert button.callback_data == "welcome_continue_1"
-    assert button.text == "✅ Продолжить"
-
-
-@pytest.mark.asyncio
-async def test_welcome_continue_flow_persists_acceptance_and_opens_menu(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(main.settings, "bot_welcome_required", True)
-    monkeypatch.setattr(main.settings, "bot_welcome_version", "v-test")
-    users = [
-        {"telegram_id": 1, "role": "user", "bot_welcome_accepted_at": None, "bot_welcome_version": None},
-        {"telegram_id": 1, "role": "user", "bot_welcome_accepted_at": None, "bot_welcome_version": None},
-    ]
-    accepted: dict[str, object] = {}
-
-    async def _ensure_user(_telegram_id: int) -> dict:
-        return users.pop(0) if users else accepted
-
-    async def _accept_bot_welcome(telegram_id: int, *, version: str) -> dict:
-        accepted.update(
-            {
-                "telegram_id": telegram_id,
-                "role": "user",
-                "bot_welcome_accepted_at": "2026-04-25T00:00:00+00:00",
-                "bot_welcome_version": version,
-            }
-        )
-        return accepted
-
-    monkeypatch.setattr(main, "ensure_user", _ensure_user)
-    monkeypatch.setattr(main.api, "accept_bot_welcome", _accept_bot_welcome)
-
-    first = _DummyCallback("welcome_continue_1")
-    await main.welcome_continue_1(first, _DummyState())
-    args, kwargs = first.message.edit_text_calls[0]
-    assert "Перед продолжением" in str(args[0])
-    assert "Подтверди три правила" in str(args[0])
-    button = kwargs["reply_markup"].inline_keyboard[0][0]
-    assert button.callback_data == "welcome_continue_2"
-    assert button.text == "✅ Подтверждаю и открываю меню"
-
-    second = _DummyCallback("welcome_continue_2")
-    await main.welcome_continue_2(second, _DummyState())
-    args, kwargs = second.message.edit_text_calls[0]
-    assert "Tracegate 3" in str(args[0])
-    assert kwargs["reply_markup"].inline_keyboard[1][0].text == "📚 Справка"
-    assert kwargs["reply_markup"].inline_keyboard[1][0].callback_data == "guide_open"
-    assert accepted["bot_welcome_version"] == "v-test"
-
-
-@pytest.mark.asyncio
-async def test_feedback_start_uses_admin_copy_without_tracegate_team() -> None:
-    callback = _DummyCallback("feedback_start")
-    state = _DummyState()
-
-    await main.feedback_start(callback, state)
-
-    args, _kwargs = callback.message.answer_calls[0]
-    text = str(args[0])
-    assert "Напиши сообщение в обратную связь" in text
-    assert "Его получат администраторы" in text
-    assert "команды Tracegate" not in text
-
-
-@pytest.mark.asyncio
-async def test_mtproto_open_issues_profile_and_sends_links(monkeypatch: pytest.MonkeyPatch) -> None:
-    async def _ensure_user(_telegram_id: int) -> dict:
-        return {
-            "telegram_id": 1,
-            "telegram_username": "alice",
-            "telegram_first_name": "Alice",
-            "telegram_last_name": None,
-        }
-
-    async def _issue_mtproto_access(**kwargs) -> dict:
-        assert kwargs == {
-            "telegram_id": 1,
-            "label": "@alice",
-            "rotate": False,
-            "issued_by": "bot",
-        }
-        return {
-            "node": "transit-a",
-            "grant": {"label": "@alice", "updated_at": "2026-04-17T02:00:00Z"},
-            "profile": {
-                "server": "proxied.tracegate.test",
-                "domain": "proxied.tracegate.test",
-                "httpsUrl": "https://t.me/proxy?server=proxied.tracegate.test&port=8443&secret=ee0011",
-                "tgUri": "tg://proxy?server=proxied.tracegate.test&port=8443&secret=ee0011",
-                "links": [
-                    {
-                        "port": 8443,
-                        "httpsUrl": "https://t.me/proxy?server=proxied.tracegate.test&port=8443&secret=ee0011",
-                        "tgUri": "tg://proxy?server=proxied.tracegate.test&port=8443&secret=ee0011",
-                    },
-                    {
-                        "port": 443,
-                        "httpsUrl": "https://t.me/proxy?server=proxied.tracegate.test&port=443&secret=ee0011",
-                        "tgUri": "tg://proxy?server=proxied.tracegate.test&port=443&secret=ee0011",
-                    },
-                ],
-                "reused": False,
-            },
-        }
-
-    monkeypatch.setattr(main, "ensure_user", _ensure_user)
-    monkeypatch.setattr(main.api, "issue_mtproto_access", _issue_mtproto_access)
-    monkeypatch.setattr(main, "_build_qr_png", lambda payload: payload.encode("utf-8"))
-
-    callback = _DummyCallback("mtproto_open")
-    await main.mtproto_open(callback)
-
-    assert len(callback.message.answer_calls) == 2
-    assert "Telegram Proxy" in callback.message.answer_calls[0][0][0]
-    link_text = callback.message.answer_calls[1][0][0]
-    assert "Порт 8443" in link_text
-    assert "port=8443" in link_text
-    assert "tg://proxy?server=proxied.tracegate.test&port=8443" in link_text
-    assert "Порт 443" in link_text
-    assert "port=443" in link_text
-    assert "tg://proxy?server=proxied.tracegate.test&port=443" in link_text
-    assert len(callback.message.answer_photo_calls) == 2
-    assert callback.message.answer_photo_calls[0][1]["caption"] == "📷 Маршрут 1"
-    assert callback.message.answer_photo_calls[1][1]["caption"] == "📷 Маршрут 2"
-    assert "Telegram Proxy отправлен" in callback.answers[-1]
-
-
-@pytest.mark.asyncio
-async def test_show_current_revision_config_cleans_connection_and_uses_current_context(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    captured: dict[str, object] = {}
-
-    async def _list_revisions(_connection_id: str) -> list[dict]:
-        return [{"id": "rev-1", "slot": 0, "status": "ACTIVE", "connection_id": "conn-1"}]
-
-    async def _cleanup_related_messages(_callback, **kwargs) -> None:
-        captured["cleanup"] = kwargs
-
-    async def _send_client_config(_callback, revision: dict, *, context: str = "default") -> None:
-        captured["revision"] = revision["id"]
-        captured["context"] = context
-
-    monkeypatch.setattr(main.api, "list_revisions", _list_revisions)
-    monkeypatch.setattr(main, "_cleanup_related_messages", _cleanup_related_messages)
-    monkeypatch.setattr(main, "_send_client_config", _send_client_config)
-
-    callback = _DummyCallback("showcur:conn-1")
-    await main.show_current_revision_config(callback)
-
-    assert captured["cleanup"] == {"connection_id": "conn-1"}
-    assert captured["revision"] == "rev-1"
-    assert captured["context"] == "current"
-    assert any("Конфиг отправлен в чат" in answer for answer in callback.answers)
-
-
-@pytest.mark.asyncio
-async def test_cleanup_connection_messages_deduplicates_ids(monkeypatch: pytest.MonkeyPatch) -> None:
-    captured: list[dict[str, str]] = []
-
-    async def _cleanup_related_messages(_callback, **kwargs) -> None:
-        captured.append(kwargs)
-
-    monkeypatch.setattr(main, "_cleanup_related_messages", _cleanup_related_messages)
-
-    callback = _DummyCallback("noop")
-    await main._cleanup_connection_messages(callback, ["conn-1", "conn-2", "conn-1", "", None])
-
-    assert captured == [{"connection_id": "conn-1"}, {"connection_id": "conn-2"}]
-
-
-@pytest.mark.asyncio
-async def test_issue_revision_cleans_connection_and_uses_issued_context(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    captured: dict[str, object] = {}
-
-    async def _issue_revision(_connection_id: str) -> dict:
-        return {"id": "rev-2", "slot": 1, "connection_id": "conn-1"}
-
-    async def _render_revisions_page(_connection_id: str) -> tuple[str, object]:
-        return ("revisions", object())
-
-    async def _safe_edit_text(_message, _text: str, reply_markup: object | None = None) -> bool:
-        captured["edited"] = bool(reply_markup)
-        return True
-
-    async def _cleanup_related_messages(_callback, **kwargs) -> None:
-        captured["cleanup"] = kwargs
-
-    async def _send_client_config(_callback, revision: dict, *, context: str = "default") -> None:
-        captured["revision"] = revision["id"]
-        captured["context"] = context
-
-    monkeypatch.setattr(main.api, "issue_revision", _issue_revision)
-    monkeypatch.setattr(main, "render_revisions_page", _render_revisions_page)
-    monkeypatch.setattr(main, "_safe_edit_text", _safe_edit_text)
-    monkeypatch.setattr(main, "_cleanup_related_messages", _cleanup_related_messages)
-    monkeypatch.setattr(main, "_send_client_config", _send_client_config)
-
-    callback = _DummyCallback("issueplain:conn-1")
-    await main.issue_revision(callback)
-
-    assert captured["edited"] is True
-    assert captured["cleanup"] == {"connection_id": "conn-1"}
-    assert captured["revision"] == "rev-2"
-    assert captured["context"] == "issued"
-
-
-@pytest.mark.asyncio
-async def test_add_device_prompt_includes_inline_cancel() -> None:
-    callback = _DummyCallback("add_device")
-    state = _DummyState()
-
-    await main.add_device(callback, state)
-
-    assert state.states
-    args, kwargs = callback.message.answer_calls[0]
-    assert "Введите имя устройства" in str(args[0])
-    button = kwargs["reply_markup"].inline_keyboard[0][0]
-    assert button.text == "↩️ Отмена"
-    assert button.callback_data == "connections"
+def test_handlers_have_no_cyrillic_literals() -> None:
+    # All user-facing copy lives in texts.py.
+    for path in sorted((BOT_DIR / "handlers").glob("*.py")) + [BOT_DIR / "main.py", BOT_DIR / "nav.py"]:
+        source = path.read_text(encoding="utf-8")
+        code = "\n".join(line for line in source.splitlines() if not line.lstrip().startswith("#"))
+        # Docstrings may describe screens in Russian; string literals in code may not.
+        code = re.sub(r'"""[\s\S]*?"""', "", code)
+        assert not re.search(r"[А-Яа-яЁё]", code), path.name
