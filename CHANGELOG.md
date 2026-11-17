@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v4.2.1 - 2026-11-17
 
 - Cover site: both nginx templates answer unknown paths with 404 and serve
   `/404.html` from the decoy root, instead of returning the home page with
