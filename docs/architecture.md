@@ -6,63 +6,37 @@ their public or loopback addresses explicitly.
 
 ## Endpoint
 
-Endpoint owns client ingress and internet egress. HAProxy owns public TCP/443
-and TCP/8443 and dispatches both ports by SNI, with identical rules, to
-loopback-only Reality, the own-domain TLS web layer and Telegram Proxy
-backends. ShadowTLS remains only on the source-gated Entry-to-Endpoint
-backhaul listeners, not on the public TCP ports. Nginx terminates the
-own-domain TLS web layer: the cover site and Grafana. It carries no client
-VPN profile; its only WebSocket path is the Entry-to-Endpoint carrier of the
-optional `entry-local-endpoint-egress` Telegram Proxy mode.
+Endpoint runs the control plane (API, dispatcher, bot, database and
+monitoring) and is the only role that sends client traffic to the internet.
+Its public TLS listeners are demultiplexed by SNI to loopback-only backends:
+Reality inbounds, the own-domain web layer (cover site and monitoring) and
+the Telegram Proxy runtime. Direct Hysteria2 listeners (Salamander or Gecko
+obfuscation, optional port hopping) also run here.
 
 ## Entry
 
-Entry provides the Chain ingress. Its public listener forwards client traffic
-to Endpoint through a dedicated VLESS/REALITY RAW/TCP backhaul while Endpoint
-remains the only internet egress role. Both Reality legs use RAW/TCP; the
-retired split-HTTP transport is forbidden by the host runtime check.
+Entry is a replaceable ingress for Chain profiles. It accepts the client
+connection and forwards the traffic to Endpoint over a dedicated,
+source-restricted backhaul; it never sends client traffic to the internet
+itself. Entry applies a host-wide traffic cap to its outbound interface.
 
-Entry serves only TCP/443: Chain VLESS Reality, the Entry TLS cover site and
-the Telegram Proxy route, plus the Entry-to-Endpoint bridge (backhaul fragment
-sidecars, ShadowTLS clients and the Reality backhaul leg). Entry Hysteria (the
-Chain Hysteria listener on UDP/443) was retired in 4.1.2: Entry runs no
-Hysteria unit, its agent health no longer expects a UDP/443 listener or a
-Hysteria process, and the Entry firewall template no longer accepts public
-UDP/443.
+## Ports
 
-## Public port model
+Listener ports are deployment settings. The templates ship defaults; a
+production deployment should choose its own values and keep them in private
+state. These rules hold whatever the values are:
 
-| Surface | Entry | Endpoint |
-| --- | --- | --- |
-| TCP/443 | HAProxy: Chain Reality, Entry TLS, Telegram Proxy | HAProxy SNI demux |
-| TCP/8443 | closed; optional MTProto-only listener | HAProxy SNI demux, same rules as TCP/443 |
-| UDP/443 | closed (Chain Hysteria retired in 4.1.2) | Hysteria2 Gecko (Direct) |
-| UDP/8444 | closed | Hysteria2 Salamander (Direct) |
-| UDP/4443 | Entry-to-Endpoint interconnect | Entry-to-Endpoint interconnect |
-| UDP/8443 | closed | closed |
-
-- Chain (client to Entry) is TCP/443 only. Reality is never reachable on
-  Entry TCP/8443.
-- Direct Reality (client to Endpoint): new and re-issued revisions use
-  `REALITY_DIRECT_PORT` (default 8443). The previous revision stays active in
-  the second slot, and Endpoint keeps serving TCP/443 for every profile issued
-  there earlier.
-- Telegram Proxy: delivered only through Entry on TCP/443; Entry never listens
-  on TCP/8443 (except the legacy fallback mode with `MTPROTO_PUBLIC_PORT=8443`).
-  No direct Endpoint backup route is delivered, and Endpoint renders no
-  MTProto route on any public port (`MTPROTO_DIRECT_BACKUP_HOST` no longer
-  affects Endpoint routing). Telegram reaches Endpoint-local Telemt only over
-  the Entry link. Secrets never change.
-- Hysteria2 port hopping (Direct only): a `LO-HI` range per obfs listener is
-  redirected to that listener by a Tracegate-rendered `tracegate_hysteria_hop`
-  nat table on Endpoint. The Endpoint host deploy generates private random
-  ranges when none are configured and loads the table with
-  `tracegate-hysteria-hop-apply`, which touches only that table and persists
-  it through the host's `nftables.conf`. New and re-issued revisions carry the range;
-  re-issue keeps the obfuscation chosen at creation.
+- backends listen on loopback; public listeners only route to them;
+- a port setting applies to new issuance and to re-issues only. Stored
+  revisions keep their address, port and SNI, and every listener that issued
+  revisions use stays served until those revisions are revoked;
+- `REALITY_DIRECT_PORT` selects the TCP port written into new Direct Reality
+  revisions;
+- Hysteria2 port-hopping ranges are generated per host on the first deploy
+  when none are configured, and are private.
 
 None of these transports is described as resistant to every inspection
-technique; the port model only changes which ports carry them.
+technique; the port settings only change which ports carry them.
 
 ## Client profiles
 
@@ -70,8 +44,7 @@ technique; the port model only changes which ports carry them.
 - Chain: the managed Entry path, issued only as VLESS Reality;
 - Retired in 4.0.0: the client Shadowsocks-2022 + ShadowTLS v3 profile and
   WireGuard over WebSocket. Existing rows of both are revoked by migration and
-  can no longer be issued; the inter-server backhaul keeps Shadowsocks-2022
-  inside ShadowTLS v3.
+  can no longer be issued.
 - Retired in 4.1.1: the VLESS gRPC-TLS and VLESS WebSocket-TLS profiles (the
   former Direct "Backup" profiles and the legacy WebSocket/gRPC Chain
   variants). Existing rows are revoked by migration and cannot be issued,

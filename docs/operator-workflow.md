@@ -43,18 +43,17 @@ working as issued. Changing them changes the rendered firewall and listeners
 on the next deploy or bundle reapply; that apply is a separate approved step,
 never part of editing the environment.
 
-- **Direct Reality port.** `REALITY_DIRECT_PORT` (default 8443) is the TCP port
-  written into new and re-issued Direct VLESS/REALITY revisions. Endpoint
-  always serves both TCP/443 and TCP/8443.
+- **Direct Reality port.** `REALITY_DIRECT_PORT` is the TCP port written into
+  new and re-issued Direct VLESS/REALITY revisions. Endpoint keeps serving
+  every port that issued revisions use.
 - **Telegram Proxy route.** In the Entry tunnel mode users receive only the
-  Entry route on TCP/443, and Endpoint renders no MTProto route on any public
-  port. `MTPROTO_DIRECT_BACKUP_HOST` no longer changes Endpoint routing.
+  Entry route, and Endpoint renders no public MTProto route. `MTPROTO_DIRECT_BACKUP_HOST` no longer changes Endpoint routing.
 - **Hysteria2 port hopping.** On by default: when the Endpoint runtime
   environment has no `HYSTERIA_GECKO_HOP_PORTS` / `HYSTERIA_SALAMANDER_HOP_PORTS`
   keys, `tracegate-host-deploy` generates a random private 3000-port range for
   each and appends it before restarting services. Set a key to an empty value
   to disable hopping for that listener, or to `LO-HI` (within 1024-65535, at most 30000
-  ports, not overlapping each other or UDP 443/4443/8443/8444), plus optionally
+  ports, not overlapping each other or another UDP listener on the host), plus optionally
   `HYSTERIA_HOP_MIN_INTERVAL_S` (default 20, at least 5) and
   `HYSTERIA_HOP_MAX_INTERVAL_S` (default 60, greater than the minimum). Set
   them in the environment of the API (issuance) and of the bundle renderer.
@@ -185,7 +184,7 @@ Probe sets (every sample of a window of at least 10 seconds must pass):
 - every component: units active, running containers use the expected
   digest, agent health `overall_ok`;
 - Endpoint Xray: a synthetic VLESS+REALITY client (the candidate image)
-  using the internal Entry backhaul identity through the local TCP/443
+  using the internal Entry backhaul identity through the local Reality
   listener fetches a 204 endpoint repeatedly, and every backhaul channel in
   Prometheus reports success with a probe newer than the switch;
 - Endpoint Hysteria: a synthetic Hysteria2 client (the candidate image)

@@ -12,7 +12,7 @@ permanently effective.
   connections and add jittered backoff after failures.
 - Keep several independent ingress IP/provider options. Domain aliases on one
   IP do not address IP- or ASN-based filtering.
-- When only one Entry IP is available, prefer one proxied TLS/H2 ingress and
+- When ingress addresses are scarce, prefer one proxied TLS/H2 ingress and
   multiplex application streams over one connection instead of opening a
   burst of similar ClientHello sessions to the origin.
 - Restrict a proxied origin to the provider's current source ranges. A proxied
@@ -45,7 +45,6 @@ permanently effective.
 - [Habr: Siberian blocking observations](https://habr.com/ru/articles/1010336/)
 - [Cloudflare gRPC connections](https://developers.cloudflare.com/network/grpc-connections/)
 - [Cloudflare IPv4 ranges](https://www.cloudflare.com/ips-v4)
-- [Operator-provided Pastebin notes](https://pastebin.com/raw/9gLsyeLp)
 
 Telegram-specific consequences and the whitelist-mode decision tree are kept
 in [telegram-resilience.md](telegram-resilience.md).

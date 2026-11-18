@@ -1,15 +1,17 @@
-# Endpoint ingress assignment
+# Ingress assignment
 
-New production uses three Endpoint client-ingress shard IPs and one
-service/egress IP. Direct VLESS Reality revisions receive a deterministic
-personal hostname alias and an exclusive active `(Endpoint shard IP, SNI)`
-lease. Active revisions never change underneath a connected client.
+Tracegate can give each Direct VLESS Reality revision a deterministic
+personal hostname alias and an exclusive active `(ingress address, SNI)`
+lease from operator-configured pools (`ENDPOINT_INGRESS_*`; Chain has the
+equivalent `ENTRY_INGRESS_*` settings). The pools, addresses and names are
+private deployment state.
 
-The service/egress IP is not part of ingress rotation and must reject client
-ports. Endpoint egress rotation is forbidden.
+Assignment is per revision. An active revision never changes underneath a
+connected client; a re-issue may move the connection to a new pair, and the
+previous revision stays served. Egress addresses are never part of ingress
+assignment.
 
 This is revision-level assignment, not per-packet or per-session rotation.
-Rapid rotation creates reconnect loops and unstable DPI behavior.
+Rapid rotation creates reconnect loops and unstable DPI behaviour.
 
-The older `architecture.entryIngress` allocator remains compatibility-only and
-is disabled in the new-production overlays.
+The older `architecture.entryIngress` allocator remains compatibility-only.
