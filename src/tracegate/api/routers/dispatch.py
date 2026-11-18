@@ -8,6 +8,7 @@ from pathlib import Path
 from fastapi import APIRouter, Depends
 from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from tracegate.api.deps import db_session
 from tracegate.enums import ApiScope, ConnectionProtocol, NodeRole, OutboxEventType, RecordStatus
@@ -109,7 +110,13 @@ async def reapply_base(payload: ReapplyBaseRequest, session: AsyncSession = Depe
 
 @router.post("/reissue-current-revisions", response_model=list[OutboxEventRead])
 async def reissue_current_revisions(payload: ReissueRequest, session: AsyncSession = Depends(db_session)) -> list[OutboxEventRead]:
-    query = select(Connection).where(Connection.status == RecordStatus.ACTIVE)
+    # Revisions are loaded with the connections so the push can carry the SNIs of every
+    # active revision without a query per connection.
+    query = (
+        select(Connection)
+        .where(Connection.status == RecordStatus.ACTIVE)
+        .options(selectinload(Connection.revisions))
+    )
     if payload.user_id is not None:
         query = query.where(Connection.user_id == payload.user_id)
 
@@ -154,17 +161,7 @@ async def reissue_current_revisions(payload: ReissueRequest, session: AsyncSessi
             continue
         reality_snis: list[str] | None = None
         if conn.protocol == ConnectionProtocol.VLESS_REALITY:
-            active_revisions = (
-                await session.scalars(
-                    select(ConnectionRevision).where(
-                        and_(
-                            ConnectionRevision.connection_id == conn.id,
-                            ConnectionRevision.status == RecordStatus.ACTIVE,
-                        )
-                    )
-                )
-            ).all()
-            reality_snis = active_reality_snis((revision.effective_config_json or {}).get("sni"), active_revisions)
+            reality_snis = active_reality_snis((revision.effective_config_json or {}).get("sni"), conn.revisions)
 
         roles = target_roles_for_connection(conn.protocol, conn.variant, conn.mode)
         for role in roles:

@@ -773,7 +773,11 @@ def active_reality_snis(primary_sni: str | None, revisions) -> list[str]:
         (rev for rev in (revisions or []) if getattr(rev, "status", None) == RecordStatus.ACTIVE),
         key=lambda rev: (int(getattr(rev, "slot", 0) or 0), str(getattr(rev, "created_at", "") or "")),
     )
-    candidates = [primary_sni, *[((rev.effective_config_json or {}).get("sni")) for rev in ordered]]
+    candidates: list[object] = [primary_sni]
+    for rev in ordered:
+        cfg = getattr(rev, "effective_config_json", None)
+        if isinstance(cfg, dict):
+            candidates.append(cfg.get("sni"))
     for value in candidates:
         normalized = str(value or "").strip().lower().rstrip(".")
         if normalized and normalized not in out:
