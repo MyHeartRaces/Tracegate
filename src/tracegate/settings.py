@@ -227,7 +227,9 @@ class Settings(BaseSettings):
     agent_entry_traffic_shaping_max_mbit: int = 65
     agent_entry_traffic_shaping_burst_kbit: int = 8192
     agent_entry_traffic_shaping_apply_egress: bool = True
-    agent_entry_traffic_shaping_apply_ingress_policing: bool = True
+    # Off by default since 4.2.2: an ingress policer drops packets; TX shaping plus TCP flow control
+    # through the relay already keeps RX near the cap.
+    agent_entry_traffic_shaping_apply_ingress_policing: bool = False
     agent_entry_traffic_shaping_cleanup_on_exit: bool = False
     agent_entry_traffic_shaping_fail_closed: bool = True
     # Chain (Entry) Hysteria was retired in Tracegate 4.1.2. These fields stay

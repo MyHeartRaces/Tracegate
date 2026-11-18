@@ -760,6 +760,27 @@ def _is_allowed_reality_sni(fqdn: str) -> bool:
     return False
 
 
+def active_reality_snis(primary_sni: str | None, revisions) -> list[str]:
+    """SNIs of every ACTIVE revision of a connection, current revision first.
+
+    Agents keep one artifact per connection (the newest revision). In grouped Reality mode a
+    client is only registered on the inbound of its artifact's SNI, so a re-issue that changes
+    the SNI would silently cut off the previous revision whenever HAProxy can read its SNI.
+    Sending the SNIs of all active revisions lets agents keep the client on each of them.
+    """
+    out: list[str] = []
+    ordered = sorted(
+        (rev for rev in (revisions or []) if getattr(rev, "status", None) == RecordStatus.ACTIVE),
+        key=lambda rev: (int(getattr(rev, "slot", 0) or 0), str(getattr(rev, "created_at", "") or "")),
+    )
+    candidates = [primary_sni, *[((rev.effective_config_json or {}).get("sni")) for rev in ordered]]
+    for value in candidates:
+        normalized = str(value or "").strip().lower().rstrip(".")
+        if normalized and normalized not in out:
+            out.append(normalized)
+    return out
+
+
 async def _emit_apply_for_revision(
     session: AsyncSession,
     *,
@@ -805,6 +826,7 @@ async def _emit_apply_for_revision(
     }
     if connection.protocol == ConnectionProtocol.VLESS_REALITY:
         payload["camouflage_sni"] = cfg.get("sni")
+        payload["active_reality_snis"] = active_reality_snis(cfg.get("sni"), connection.revisions)
 
     for role in target_roles_for_connection(connection.protocol, connection.variant, connection.mode):
         await create_outbox_event(

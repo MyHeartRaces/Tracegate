@@ -10,7 +10,7 @@ from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tracegate.api.deps import db_session
-from tracegate.enums import ApiScope, NodeRole, OutboxEventType, RecordStatus
+from tracegate.enums import ApiScope, ConnectionProtocol, NodeRole, OutboxEventType, RecordStatus
 from tracegate.models import Connection, ConnectionRevision, Device, OutboxDelivery, OutboxEvent, User
 from tracegate.schemas import OutboxDeliveryRead, OutboxEventRead, ReapplyBaseRequest, ReissueRequest
 from tracegate.security import require_api_scope
@@ -18,6 +18,7 @@ from tracegate.services.aliases import connection_alias, user_display
 from tracegate.services.bundle_files import BundleFilePayload, load_bundle_file
 from tracegate.services.connection_profiles import is_retired_client_profile
 from tracegate.services.outbox import create_outbox_event
+from tracegate.services.revisions import active_reality_snis
 from tracegate.services.role_targeting import target_roles_for_connection
 from tracegate.settings import get_settings
 
@@ -151,6 +152,19 @@ async def reissue_current_revisions(payload: ReissueRequest, session: AsyncSessi
         )
         if revision is None:
             continue
+        reality_snis: list[str] | None = None
+        if conn.protocol == ConnectionProtocol.VLESS_REALITY:
+            active_revisions = (
+                await session.scalars(
+                    select(ConnectionRevision).where(
+                        and_(
+                            ConnectionRevision.connection_id == conn.id,
+                            ConnectionRevision.status == RecordStatus.ACTIVE,
+                        )
+                    )
+                )
+            ).all()
+            reality_snis = active_reality_snis((revision.effective_config_json or {}).get("sni"), active_revisions)
 
         roles = target_roles_for_connection(conn.protocol, conn.variant, conn.mode)
         for role in roles:
@@ -172,6 +186,8 @@ async def reissue_current_revisions(payload: ReissueRequest, session: AsyncSessi
                 "role_target": role.value,
                 "config": revision.effective_config_json,
             }
+            if reality_snis is not None:
+                event_payload["active_reality_snis"] = reality_snis
 
             created.append(
                 await create_outbox_event(

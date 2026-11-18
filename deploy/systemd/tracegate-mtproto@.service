@@ -3,6 +3,9 @@ Description=Tracegate MTProto Telemt (%i)
 After=docker.service network-online.target tracegate-agent.service
 Wants=network-online.target
 Requires=docker.service
+# Hosts without an active Telemt artifact (Entry since 4.0) skip the unit instead of
+# failing ExecStartPre every RestartSec forever.
+ConditionPathExists=/var/lib/tracegate/artifacts/active/telemt.env
 
 [Service]
 Restart=always

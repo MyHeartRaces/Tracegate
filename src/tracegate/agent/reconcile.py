@@ -1254,6 +1254,20 @@ def _reality_dest_host_for_inbound(
     return fallback_host
 
 
+def artifact_reality_snis(row: dict, primary_sni: str | None) -> list[str]:
+    """SNIs a VLESS Reality artifact must be reachable on: the current revision's SNI first, then
+    the SNIs of the connection's other active revisions (``active_reality_snis``, sent by the
+    control plane since 4.2.2). Older artifacts without the field yield only the primary SNI."""
+    out: list[str] = []
+    extra = row.get("active_reality_snis")
+    candidates = [primary_sni, *(extra if isinstance(extra, list) else [])]
+    for value in candidates:
+        normalized = str(value or "").strip().lower().rstrip(".")
+        if normalized and normalized not in out:
+            out.append(normalized)
+    return out
+
+
 def _grouped_reality_tag(base_tag: str, group_id: str) -> str:
     base = str(base_tag or "").strip() or "reality-in"
     raw = str(group_id or "").strip().lower()
@@ -1959,6 +1973,7 @@ def reconcile_xray(settings: Settings) -> ReconcileXrayResult:
         encrypted = _vless_encryption_enabled(cfg)
         if proto == "vless_reality":
             sni = (cfg.get("sni") or "").strip().lower()
+            artifact_snis = artifact_reality_snis(row, sni)
             client_row = {
                 "id": uuid,
                 "email": _connection_marker(row),
@@ -1966,19 +1981,19 @@ def reconcile_xray(settings: Settings) -> ReconcileXrayResult:
             }
             if encrypted:
                 client_row.pop("flow", None)
-                if sni:
-                    server_names_encrypted.add(sni)
+                server_names_encrypted.update(artifact_snis)
                 clients_reality_encrypted.append(client_row)
                 continue
             if sni:
                 if groups:
-                    group_id = sni_to_group_id.get(sni)
-                    if group_id:
-                        group_server_names.setdefault(group_id, set()).add(sni)
-                    else:
-                        fallback_server_names.add(sni)
+                    for row_sni in artifact_snis:
+                        row_group_id = sni_to_group_id.get(row_sni)
+                        if row_group_id:
+                            group_server_names.setdefault(row_group_id, set()).add(row_sni)
+                        else:
+                            fallback_server_names.add(row_sni)
                 else:
-                    server_names_legacy.add(sni)
+                    server_names_legacy.update(artifact_snis)
                     op_ts = str(row.get("op_ts") or "").strip()
                     if selected_reality_sni is None:
                         selected_reality_sni = sni
@@ -1992,9 +2007,14 @@ def reconcile_xray(settings: Settings) -> ReconcileXrayResult:
                 # SNI early enough for HAProxy demux. The SNI-specific inbounds remain primary, but
                 # the base inbound can still authenticate the client without changing topology.
                 clients_reality_fallback.append(client_row)
-                group_id = sni_to_group_id.get(sni) if sni else None
-                if group_id:
-                    clients_reality_by_group.setdefault(group_id, []).append(client_row)
+                # Register the client on the inbound of every SNI its active revisions use, so the
+                # previous revision keeps working after a re-issue moves the connection to a new SNI.
+                added_group_ids: set[str] = set()
+                for row_sni in artifact_snis:
+                    row_group_id = sni_to_group_id.get(row_sni)
+                    if row_group_id and row_group_id not in added_group_ids:
+                        added_group_ids.add(row_group_id)
+                        clients_reality_by_group.setdefault(row_group_id, []).append(dict(client_row))
             else:
                 clients_reality.append(client_row)
         elif proto == "vless_ws_tls":

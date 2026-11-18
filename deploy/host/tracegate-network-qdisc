@@ -5,7 +5,11 @@
 # the runtime contract (trafficShaping.entry) is applied on the same interface:
 #   - TX: HTB root with one class at AGENT_ENTRY_TRAFFIC_SHAPING_MAX_MBIT and fq
 #     as its leaf, so pacing is kept under the cap;
-#   - RX: an ingress policer at the same rate.
+#   - RX: optional ingress policer at the same rate, OFF by default since 4.2.2.
+#     A policer drops instead of queueing (~1.4 % inbound loss measured on Entry,
+#     stalled transfers). Entry relays almost everything it receives, so TCP flow
+#     control already holds RX near the TX cap. Opt in with
+#     AGENT_ENTRY_TRAFFIC_SHAPING_APPLY_INGRESS_POLICING=true.
 # Settings come from the deployment env (role) and the Entry runtime env, with
 # the same defaults as tracegate.settings (enabled, 65 Mbit/s).
 set -euo pipefail
@@ -68,7 +72,7 @@ if [ "${ROLE}" = entry ] && truthy "${AGENT_ENTRY_TRAFFIC_SHAPING_ENABLED:-true}
   SHAPE_EGRESS=0
   SHAPE_INGRESS=0
   truthy "${AGENT_ENTRY_TRAFFIC_SHAPING_APPLY_EGRESS:-true}" && SHAPE_EGRESS=1
-  truthy "${AGENT_ENTRY_TRAFFIC_SHAPING_APPLY_INGRESS_POLICING:-true}" && SHAPE_INGRESS=1
+  truthy "${AGENT_ENTRY_TRAFFIC_SHAPING_APPLY_INGRESS_POLICING:-false}" && SHAPE_INGRESS=1
   [ -n "${NETWORK_INTERFACE}" ] || NETWORK_INTERFACE="${AGENT_ENTRY_TRAFFIC_SHAPING_INTERFACE:-}"
 fi
 
@@ -132,7 +136,7 @@ for interface in "${interfaces[@]}"; do
   if [ "${SHAPING}" -eq 1 ] && [ "${SHAPE_INGRESS}" -eq 1 ]; then
     shape_ingress "${interface}"
   elif [ "${ROLE}" = entry ]; then
-    # Shaping switched off on Entry: drop a policer left by an earlier run.
+    # No RX policing on Entry (default, or shaping off): drop a policer left by an earlier run.
     "${TC}" qdisc del dev "${interface}" ingress >/dev/null 2>&1 || true
   fi
   if [ "${SHAPING}" -eq 1 ]; then

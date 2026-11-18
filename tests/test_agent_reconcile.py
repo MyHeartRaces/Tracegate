@@ -3115,6 +3115,80 @@ def test_reconcile_reality_multi_inbound_groups_assign_by_sni_and_keep_fallback(
     assert "entry-in-shared-b" in route_tags
 
 
+def test_reconcile_keeps_previous_revision_sni_group_after_reissue(tmp_path: Path) -> None:
+    # A re-issue moved connection "moved" from SNI B to SNI A. Its previous revision (still active)
+    # must keep authenticating on the SNI-B inbound, or an unfragmented old link stops working.
+    settings = Settings(
+        agent_data_root=str(tmp_path),
+        agent_runtime_mode="systemd",
+        agent_role="ENTRY",
+        reality_multi_inbound_groups=[
+            {"id": "shared-a", "port": 2501, "dest": "a.tracegate-sni.ru", "snis": ["a.tracegate-sni.ru"]},
+            {"id": "shared-b", "port": 2502, "dest": "b.tracegate-sni.ru", "snis": ["b.tracegate-sni.ru"]},
+        ],
+    )
+    _write(
+        tmp_path / "base/xray/config.json",
+        json.dumps(
+            {
+                "inbounds": [
+                    {
+                        "tag": "entry-in",
+                        "protocol": "vless",
+                        "port": 2443,
+                        "settings": {"clients": []},
+                        "streamSettings": {
+                            "security": "reality",
+                            "realitySettings": {"dest": "a.tracegate-sni.ru:443", "serverNames": ["a.tracegate-sni.ru"]},
+                        },
+                    }
+                ],
+                "outbounds": [{"protocol": "freedom"}],
+                "routing": {"rules": [{"type": "field", "inboundTag": ["entry-in"], "outboundTag": "direct"}]},
+            }
+        ),
+    )
+    _write(
+        tmp_path / "users/u1/connection-moved.json",
+        json.dumps(
+            {
+                "user_id": "u1",
+                "device_id": "d1",
+                "connection_id": "moved",
+                "revision_id": "r-new",
+                "protocol": "vless_reality",
+                "config": {"uuid": "moved", "sni": "a.tracegate-sni.ru"},
+                "active_reality_snis": ["a.tracegate-sni.ru", "B.tracegate-sni.ru.", "unknown.tracegate-sni.ru"],
+            }
+        ),
+    )
+    _write(
+        tmp_path / "users/u1/connection-plain.json",
+        json.dumps(
+            {
+                "user_id": "u1",
+                "device_id": "d1",
+                "connection_id": "plain",
+                "revision_id": "r-plain",
+                "protocol": "vless_reality",
+                "config": {"uuid": "plain", "sni": "b.tracegate-sni.ru"},
+            }
+        ),
+    )
+
+    reconcile_all(settings)
+
+    rendered = json.loads((tmp_path / "runtime/xray/config.json").read_text(encoding="utf-8"))
+    inbounds = {str(row.get("tag")): row for row in rendered["inbounds"]}
+    ids = lambda tag: [row.get("id") for row in inbounds[tag]["settings"]["clients"]]  # noqa: E731
+    assert sorted(ids("entry-in")) == ["moved", "plain"]
+    assert ids("entry-in-shared-a") == ["moved"]
+    assert sorted(ids("entry-in-shared-b")) == ["moved", "plain"]
+    # Group inbounds keep only their own SNI; an unknown previous SNI lands on the fallback.
+    assert inbounds["entry-in-shared-b"]["streamSettings"]["realitySettings"]["serverNames"] == ["b.tracegate-sni.ru"]
+    assert "unknown.tracegate-sni.ru" in inbounds["entry-in"]["streamSettings"]["realitySettings"]["serverNames"]
+
+
 def test_reconcile_reality_multi_inbound_groups_is_idempotent_with_materialized_grouped_base(tmp_path: Path) -> None:
     settings = Settings(
         agent_data_root=str(tmp_path),

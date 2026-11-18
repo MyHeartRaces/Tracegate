@@ -111,7 +111,7 @@ def _run_qdisc(
     return result, lines
 
 
-def test_entry_qdisc_applies_the_host_wide_cap_by_default(tmp_path: Path) -> None:
+def test_entry_qdisc_caps_tx_and_leaves_rx_unpoliced_by_default(tmp_path: Path) -> None:
     result, lines = _run_qdisc(tmp_path, "TRACEGATE_HOST_ROLE=entry\n")
 
     assert result.returncode == 0, result.stderr
@@ -120,6 +120,21 @@ def test_entry_qdisc_applies_the_host_wide_cap_by_default(tmp_path: Path) -> Non
         "qdisc replace dev ens3 root handle 1: htb default 10",
         "class replace dev ens3 parent 1: classid 1:10 htb rate 65mbit ceil 65mbit burst 64k cburst 64k quantum 60000",
         "qdisc replace dev ens3 parent 1:10 handle 10: fq",
+        "qdisc del dev ens3 ingress",
+    ]
+    assert not any("police" in line for line in lines)
+    assert "cap 65 Mbit/s (tx=1 rx=0)" in result.stdout
+
+
+def test_entry_qdisc_applies_the_ingress_policer_only_when_opted_in(tmp_path: Path) -> None:
+    result, lines = _run_qdisc(
+        tmp_path,
+        "TRACEGATE_HOST_ROLE=entry\n",
+        "AGENT_ENTRY_TRAFFIC_SHAPING_APPLY_INGRESS_POLICING=true\n",
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert lines[-3:] == [
         "qdisc del dev ens3 ingress",
         "qdisc add dev ens3 handle ffff: ingress",
         "filter add dev ens3 parent ffff: protocol all prio 1 matchall action police rate 65mbit burst 1024000 conform-exceed drop",
@@ -197,7 +212,7 @@ def test_entry_qdisc_rerun_keeps_an_existing_matching_htb_root(tmp_path: Path) -
     assert result.returncode == 0, result.stderr
     assert not any(line.startswith("qdisc replace dev ens3 root") for line in lines)
     assert "class replace dev ens3 parent 1: classid 1:10 htb rate 65mbit ceil 65mbit burst 64k cburst 64k quantum 60000" in lines
-    assert "cap 65 Mbit/s (tx=1 rx=1)" in result.stdout
+    assert "cap 65 Mbit/s (tx=1 rx=0)" in result.stdout
 
 
 def test_entry_qdisc_recreates_an_htb_root_with_other_parameters(tmp_path: Path) -> None:
@@ -218,3 +233,13 @@ def test_entry_qdisc_disable_after_shaping_returns_to_fq(tmp_path: Path) -> None
 
     assert result.returncode == 0, result.stderr
     assert lines == ["qdisc replace dev ens3 root fq", "qdisc del dev ens3 ingress"]
+
+
+def test_telemt_unit_is_skipped_without_an_active_artifact() -> None:
+    # Regression: on Entry the unit restarted every 3 s for days because its
+    # EnvironmentFile did not exist and Restart=always kept retrying.
+    root = Path(__file__).resolve().parents[1]
+    unit = (root / "deploy/systemd/tracegate-mtproto@.service").read_text(encoding="utf-8")
+    unit_section = unit.split("[Service]", 1)[0]
+    assert "ConditionPathExists=/var/lib/tracegate/artifacts/active/telemt.env" in unit_section
+    assert "EnvironmentFile=/var/lib/tracegate/artifacts/active/telemt.env" in unit

@@ -1,5 +1,30 @@
 # Changelog
 
+## v4.2.2 - unreleased
+
+No database migration; issued connections unchanged.
+
+- Re-issue keeps the previous revision reachable when the Reality SNI changes.
+  Agents keep one artifact per connection (the newest revision), and in
+  grouped Reality mode a client was registered only on the inbound of that
+  revision's SNI. A previous revision on another SNI therefore worked only
+  when HAProxy could not read its SNI (fragmented ClientHello -> fallback
+  inbound). The control plane now sends `active_reality_snis` (the SNIs of
+  all active revisions, current first) on issue, activate, revoke and admin
+  re-dispatch, and agents register the client on every matching group
+  inbound. Artifacts without the field behave as before. After deploying,
+  run `POST /dispatch/reissue-current-revisions` once so existing
+  connections get the field (it re-sends current revisions; it does not
+  create new ones).
+- Entry ingress policer is off by default
+  (`AGENT_ENTRY_TRAFFIC_SHAPING_APPLY_INGRESS_POLICING=false`). It dropped
+  instead of queueing and stalled transfers; the TX cap (HTB, default
+  65 Mbit/s) stays, and TCP flow control through the relay keeps RX near it.
+  Set the variable to `true` to restore the policer.
+- `tracegate-mtproto@.service` is skipped when no active Telemt artifact
+  exists (`ConditionPathExists`), instead of failing ExecStartPre every 3 s
+  on hosts that do not run Telemt (Entry).
+
 ## v4.2.1 - 2026-11-17
 
 - Cover site: both nginx templates answer unknown paths with 404 and serve
