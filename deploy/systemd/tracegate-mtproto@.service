@@ -16,7 +16,10 @@ EnvironmentFile=/var/lib/tracegate/artifacts/active/telemt.env
 ExecStartPre=/usr/local/sbin/tracegate-artifact-verify telemt
 ExecStartPre=-/usr/bin/docker rm -f tracegate-mtproto-%i
 ExecStartPre=/opt/tracegate/current/deploy/systemd/tracegate-telemt-permissions
-ExecStart=/usr/bin/docker run --rm --name tracegate-mtproto-%i --network host --read-only --cap-drop ALL --security-opt no-new-privileges:true --tmpfs /tmp:rw,nosuid,nodev,noexec,size=64m --ulimit nofile=65536:65536 -v /var/lib/tracegate/private/mtproto:/var/lib/tracegate/private/mtproto:rw -v /var/lib/tracegate/private/mtproto/runtime/config.toml:/app/config.toml:ro ${TRACEGATE_IMAGE} --data-path /var/lib/tracegate/private/mtproto/runtime /var/lib/tracegate/private/mtproto/runtime/config.toml
+# Mount only the Telemt runtime directory. Its parent holds root-only control-plane
+# state (issued.json, public-profile.json) and is mode 0711; newer Telemt images open
+# every parent of --data-path and fail with EACCES when that parent is mounted in.
+ExecStart=/usr/bin/docker run --rm --name tracegate-mtproto-%i --network host --read-only --cap-drop ALL --security-opt no-new-privileges:true --tmpfs /tmp:rw,nosuid,nodev,noexec,size=64m --ulimit nofile=65536:65536 -v /var/lib/tracegate/private/mtproto/runtime:/var/lib/tracegate/private/mtproto/runtime:rw -v /var/lib/tracegate/private/mtproto/runtime/config.toml:/app/config.toml:ro ${TRACEGATE_IMAGE} --data-path /var/lib/tracegate/private/mtproto/runtime /var/lib/tracegate/private/mtproto/runtime/config.toml
 ExecReload=/usr/bin/docker kill --signal=HUP tracegate-mtproto-%i
 ExecStop=/usr/bin/docker stop tracegate-mtproto-%i
 

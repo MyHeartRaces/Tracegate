@@ -243,3 +243,18 @@ def test_telemt_unit_is_skipped_without_an_active_artifact() -> None:
     unit_section = unit.split("[Service]", 1)[0]
     assert "ConditionPathExists=/var/lib/tracegate/artifacts/active/telemt.env" in unit_section
     assert "EnvironmentFile=/var/lib/tracegate/artifacts/active/telemt.env" in unit
+
+
+def test_telemt_unit_mounts_only_the_runtime_directory() -> None:
+    # Regression: newer Telemt images open every parent of --data-path. With the whole
+    # MTProto state directory (root-owned, 0711) mounted in, the nonroot container
+    # user could not open it and Telemt exited with EACCES on start.
+    root = Path(__file__).resolve().parents[1]
+    unit = (root / "deploy/systemd/tracegate-mtproto@.service").read_text(encoding="utf-8")
+    exec_start = next(line for line in unit.splitlines() if line.startswith("ExecStart="))
+    assert (
+        "-v /var/lib/tracegate/private/mtproto/runtime:/var/lib/tracegate/private/mtproto/runtime:rw "
+        in exec_start
+    )
+    assert "-v /var/lib/tracegate/private/mtproto:" not in exec_start
+    assert "--data-path /var/lib/tracegate/private/mtproto/runtime " in exec_start

@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased
+
+No database migration; issued connections unchanged.
+
+- `tracegate-mtproto@.service` mounts only the Telemt runtime directory
+  instead of the whole MTProto state directory. Newer Telemt images (after
+  upstream's filesystem hardening) open every parent of `--data-path`; the
+  state directory is root-owned with mode 0711, so the nonroot container
+  user got EACCES ("Can't use runtime directory") and the engine updater
+  rolled the image back. The container also no longer sees the control-plane state files
+  kept beside the runtime directory. Paths, config and issued links are
+  unchanged.
+
 ## v4.2.2 - 2026-11-18
 
 No database migration; issued connections unchanged.

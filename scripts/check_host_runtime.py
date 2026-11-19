@@ -101,6 +101,13 @@ def check_host_runtime(root: Path) -> None:
 
     mtproto_unit = _read(root / "deploy/systemd/tracegate-mtproto@.service")
     _require(mtproto_unit, ":/app/config.toml:ro", label="Telemt systemd unit")
+    _require(
+        mtproto_unit,
+        "-v /var/lib/tracegate/private/mtproto/runtime:/var/lib/tracegate/private/mtproto/runtime:rw ",
+        label="Telemt runtime-only mount",
+    )
+    if "-v /var/lib/tracegate/private/mtproto:" in mtproto_unit:
+        raise HostRuntimeCheckError("Telemt unit must not mount the root-only MTProto state directory")
     if "--health-cmd" in mtproto_unit:
         raise HostRuntimeCheckError("Telemt unit must use its exec-form image healthcheck")
 
