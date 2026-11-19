@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v4.2.3 - 2026-11-19
 
 No database migration; issued connections unchanged.
 
