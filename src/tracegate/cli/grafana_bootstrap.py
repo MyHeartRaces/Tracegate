@@ -1684,10 +1684,16 @@ def _engine_update_alert_rules(
             evaluator="lt",
             threshold=86400.0,
             annotations={
-                "summary": "An engine update candidate was rejected in the last 24 hours",
+                # Classic conditions expose the matching series as B0, B1, etc. in $values.
+                "summary": (
+                    "Engine update candidate rejected in the last 24 hours."
+                    '{{ range $ref, $result := $values }}{{ if match "^B[0-9]+$" $ref }}'
+                    ' {{ $result.Labels.component }} ({{ $result.Labels.role }}).{{ end }}{{ end }}'
+                ),
                 "description": (
-                    "A static check or a post-switch probe failed; a post-switch failure was "
-                    "rolled back to the last-good digest. Evidence: tracegate-engine-update status"
+                    "The updater or an operator rejected a candidate. On the affected host, run "
+                    "tracegate-engine-update status --json to see the rejection reason, the active "
+                    "digest, and any rollback evidence."
                 ),
             },
             labels={**labels, "slo_type": "engine_update_rejected"},

@@ -1,5 +1,15 @@
 # Changelog
 
+## v4.2.4 - 2026-11-20
+
+No database migration or changes to issued connections.
+
+- The engine-update rejection alert names the affected engines and host roles.
+  Its description directs operators to the rejection reason, active digest,
+  and any rollback evidence. The 24-hour warning window stays in place.
+- Corrected the 4.2.3 upgrade notes. Rejected engine digests remain ineligible
+  for activation after an upgrade.
+
 ## v4.2.3 - 2026-11-19
 
 No database migration; issued connections unchanged.
